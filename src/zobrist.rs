@@ -1,0 +1,63 @@
+
+
+use crate::Board;
+use std::collections::HashMap;
+use rand::{Rng, rngs::StdRng, SeedableRng};
+
+const BOARD_SIZE: usize = 120;
+const NUM_PIECES: usize = 12;
+const FIG: [usize; 12] = [10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25];
+
+
+#[derive(Clone)]
+pub struct ZobristTable {
+    table: [[u64; NUM_PIECES]; BOARD_SIZE],
+    fig_map: HashMap<usize, usize>,
+    white_to_move: u64,
+}
+
+impl ZobristTable {
+    pub(crate) fn new() -> Self {
+
+        let mut rng = StdRng::seed_from_u64(137);
+        let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
+
+        let mut fig_map = HashMap::new();
+        fig_map.insert(10, 0);
+        fig_map.insert(11, 1);
+        fig_map.insert(12, 2);
+        fig_map.insert(13, 3);
+        fig_map.insert(14, 4);
+        fig_map.insert(15, 5);
+        fig_map.insert(20, 6);
+        fig_map.insert(21, 7);
+        fig_map.insert(22, 8);
+        fig_map.insert(23, 9);
+        fig_map.insert(24, 10);
+        fig_map.insert(25, 11);
+
+        for i in 0..BOARD_SIZE {
+            for j in FIG {
+                let fig_index = fig_map.get(&(j as usize)).unwrap();
+                table[i][*fig_index] = rng.gen();
+            }
+        }
+        let white_to_move = rng.gen();
+        Self { table, fig_map, white_to_move }
+    }
+
+    pub(crate) fn gen(&self, board: &Board) -> u64 {
+        let mut h = 0u64;
+        if board.is_white_to_move() {
+            h ^= self.white_to_move;
+        }
+        for i in 0..BOARD_SIZE {
+            let piece = board.get_field()[i];
+            if piece > 0 {
+                let piece_index = self.fig_map.get(&(piece as usize)).unwrap();
+                h ^= self.table[i][*piece_index];
+            }
+        }
+        h
+    }
+}

@@ -1,0 +1,6 @@
+.vscode/
+Cargo.lock
+engine-interface.txt
+target/
+src/debug-run.sh
+src/rust-in-pieces

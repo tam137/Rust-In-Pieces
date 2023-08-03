@@ -1,0 +1,8 @@
+.vscode/
+rust-in-peaces
+.tmp
+banksia_start.sh
+debug-run.sh
+installBanksia.sh
+nohup.out
+rust-in-pieces
