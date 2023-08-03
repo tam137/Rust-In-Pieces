@@ -68,9 +68,9 @@ fn turn_gen_002() {
     assert!(board == Board::new());
 
     let turn = &Turn::generate_turns("d7d5 g1f3")[0];
-    assert(turn.to_algebraic() == "d7d5");
+    assert(turn.to_algebraic(false) == "d7d5");
     let turn = &Turn::generate_turns("d7d5 g1f3")[1];
-    assert(turn.to_algebraic() == "g1f3");
+    assert(turn.to_algebraic(false) == "g1f3");
 }
 
 
@@ -215,7 +215,7 @@ pub fn advanced_castle_007() {
     let mut board = Board::new();
     board.set_fen("r1bqk1nr/pppp1pp1/2nb3p/4p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R");
     let best_white_move = search::get_best_move(&mut board, 2, true, &mut Stats::new(), &mut Config::new().unittest()).0.unwrap();
-    assert(best_white_move.to_algebraic() == "e1g1");
+    assert(best_white_move.to_algebraic(false) == "e1g1");
 }
 
 
@@ -268,7 +268,7 @@ pub fn promotion_010() {
     board.set_fen("8/2P5/8/8/8/8/2p5/1R3k1K");
     let best_black_move = search::get_best_move(&mut board, 2, false, &mut Stats::new(), &mut Config::new().unittest()).0.unwrap();
     board.do_turn(&best_white_move);
-    assert(best_black_move.to_algebraic() == "c2b1q");
+    assert(best_black_move.to_algebraic(false) == "c2b1q");
     board.do_undo_turn(&best_white_move);
     assert(board.get_fen() == "8/2P5/8/8/8/8/2p5/1R3k1K");
 

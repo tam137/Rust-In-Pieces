@@ -37,7 +37,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name RustInPieces V14Q");
+                        println!("id name RustInPieces V20Q_0048ce");
                         println!("id author Jan Lange");
                         println!("uciok");                        
                     }
@@ -94,7 +94,7 @@ fn main() {
             let best_move = &search::get_best_move(&mut board, config.search_depth + depth_modificator, white, &mut stats, &config).0.unwrap();
             stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
             board.do_turn(best_move);
-            print!("bestmove {}\n", best_move.to_algebraic() );
+            print!("bestmove {}\n", best_move.to_algebraic(false));
             stats.reset_stats();
 
         } else if received.starts_with("move") {
@@ -124,7 +124,7 @@ fn test_game() {
         let best_move = &search::get_best_move(&mut board, 4, white, &mut stats, &config).0.unwrap();
         stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
         board.do_turn(best_move);
-        print!("{} {}\n", best_move.to_algebraic(), stats.to_string());
+        print!("{} {}\n", best_move.to_algebraic(false), stats.to_string());
         white = !white;
         stats.reset_stats();
     }

@@ -7,7 +7,7 @@ use crate::Board;
 pub struct Turn {
     pub(crate) from: usize,
     pub(crate) to: usize,
-    pub capture: i8,
+    pub(crate) capture: i8,
     pub promotion: bool,
     pub post_villain: Vec<usize>,
     pub post_my: Vec<usize>,
@@ -42,12 +42,17 @@ impl Turn {
         self.promotion
     }
 
-    pub fn to_algebraic(&self) -> String {
+    pub fn to_algebraic(&self, pgn_promotion_symbol: bool) -> String {
         let column_from = (self.from % 10 + 96) as u8;
         let row_from = (10 - (self.from / 10) + 48) as u8;
         let column_to = (self.to % 10 + 96) as u8;
         let row_to = (10 - (self.to / 10) + 48) as u8;
-        let promotional_lit = if self.is_promotion() { if self.to/10 == 9 { "q" } else {"q"}} else { "" };
+        let mut promotional_lit;
+        if pgn_promotion_symbol {
+            promotional_lit = if self.is_promotion() { if self.to/10 == 9 { "=Q" } else {"=Q"}} else { "" };
+        } else {
+            promotional_lit = if self.is_promotion() { if self.to/10 == 9 { "q" } else {"q"}} else { "" };
+        }
         format!("{}{}{}{}{}", column_from as char, row_from as char, column_to as char, row_to as char, promotional_lit)
     }
 
@@ -56,10 +61,5 @@ impl Turn {
         else if self.from / 10 == if white { 3 } else { 8 } && board.get_field()[self.to] == if white { 14 } else { 24 } { self.promotion = true; true }
         else { false }
     }
-
-    pub fn is_capture(&self) -> bool {
-        if self.capture != 0 { true } else { false }
-    }
-
 
 }

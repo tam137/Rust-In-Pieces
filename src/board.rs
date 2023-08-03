@@ -1,9 +1,6 @@
-
 use std::collections::HashMap;
-use lazy_static::lazy_static;
 use crate::Turn;
 use crate::zobrist::ZobristTable;
-
 
 static TARGETS_FOR_SHORT_WHITE: [i32; 3] = [95, 96, 97];
 static TARGETS_FOR_LONG_WHITE: [i32; 3] = [95, 94, 93];
@@ -13,24 +10,27 @@ static TARGETS_FOR_LONG_BLACK: [i32; 3] = [25, 24, 23];
 #[derive(Clone)]
 pub struct Board {
     field: [i32; 120],
-    pty: u8,
-    fifty_move_rule: u16,
+    pty: u32,
+    fifty_move_rule: u32,
     state: GameState,
     moves: String,
     turns: Vec<Turn>,
+    position_map: HashMap<String, i32>,
     hash: ZobristTable,
 }
 
 #[derive(PartialEq)]
 #[derive(Clone)]
 #[derive(Copy)]
+#[derive(Debug)]
 pub enum GameState {
     Draw,
     WhiteWin,
     BlackWin,
     Normal,
+    WhiteWinByTime,
+    BlackWinByTime,
 }
-
 
 impl PartialEq for Board {
     fn eq(&self, other: &Self) -> bool {
@@ -66,27 +66,68 @@ pub fn get_index_from_notation(notation: &str) -> Option<usize> {
 }
 
 
-lazy_static! {
-    pub static ref PIECE_ORDER: HashMap<i8, i32> = {
-        let mut map = HashMap::new();
-        map.insert(10, 10);
-        map.insert(11, 40);
-        map.insert(12, 20);
-        map.insert(13, 30);
-        map.insert(14, 50);
-        map.insert(20, 10);
-        map.insert(21, 40);
-        map.insert(22, 20);
-        map.insert(23, 30);
-        map.insert(24, 50);
-        map.insert(0, 0);
-        map.insert(-1, 0);
-        map
-    };
-}
-
-
 impl Board {
+
+    pub fn new() -> Board {
+
+        Board {
+            field: [
+                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
+                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
+                //   a   b   c   d   e   f   g   h
+                -11, 21, 22, 23, 24, 25, 23, 22, 21, -11, //20 - 8
+                -11, 20, 20, 20, 20, 20, 20, 20, 20, -11, //30 - 7
+                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //40 - 6
+                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //50 - 5
+                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //60 - 4
+                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //70 - 3
+                -11, 10, 10, 10, 10, 10, 10, 10, 10, -11, //80 - 2
+                -11, 11, 12, 13, 14, 15, 13, 12, 11, -11, //90 - 1
+                //    1   2   3   4   5   6   7   8 <- Indexbezeichnungen
+                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
+                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
+            ],
+            pty: 0,
+            fifty_move_rule: 0,
+            state: GameState::Normal,
+            moves: String::new(),
+            turns: Vec::with_capacity(200),
+            position_map: HashMap::new(),
+            hash: ZobristTable::new(),
+        }
+    }
+
+    pub fn get_pty(&self) -> u32 {
+        self.pty
+    }
+
+    pub fn get_state(&self) -> &GameState {
+        &self.state
+    }
+
+    pub fn set_state(&mut self, state: GameState) {
+        self.state = state;
+    }
+
+    pub fn get_field(&self) -> &[i32; 120] {
+        &self.field
+    }
+
+    pub fn set_field_index(&mut self, index: usize, piece: i32) {
+        self.field[index] = piece;
+    }
+
+    pub fn clear_field(&mut self) {
+        for i in 21..99 {
+            if self.field[i] > 0 { self.field[i] = 0 };
+        }
+    }
+
+
+    pub fn get_hash(&self) -> u64 {
+        return self.hash.gen(self);
+    }
+
 
     pub fn is_quite_board_for_white(moves_white: &Vec<usize>, moves_black: &Vec<usize>) -> bool {
         let black_targets = Board::get_target_fields_of_raw_moves(moves_black);
@@ -129,15 +170,6 @@ impl Board {
         true
     }
 
-    pub(crate) fn get_target_fields_of_raw_moves(raw_moves: &Vec<usize>) -> Vec<i32> {
-        let mut villains_target_fields: Vec<i32> = Vec::with_capacity(60);
-        for (i, num) in raw_moves.iter().enumerate() {
-            if i % 2 == 1 {
-                villains_target_fields.push(*num as i32);
-            }
-        }
-        villains_target_fields
-    }
 
     pub(crate) fn get_source_fields_of_raw_moves(raw_moves: &Vec<usize>) -> Vec<i32> {
         let mut villains_target_fields: Vec<i32> = Vec::with_capacity(60);
@@ -147,57 +179,6 @@ impl Board {
             }
         }
         villains_target_fields
-    }
-
-
-    pub fn new() -> Board {
-
-        Board {
-            field: [
-                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
-                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
-                //   a   b   c   d   e   f   g   h
-                -11, 21, 22, 23, 24, 25, 23, 22, 21, -11, //20 - 8
-                -11, 20, 20, 20, 20, 20, 20, 20, 20, -11, //30 - 7
-                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //40 - 6
-                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //50 - 5
-                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //60 - 4
-                -11,  0,  0,  0,  0,  0,  0,  0,  0, -11, //70 - 3
-                -11, 10, 10, 10, 10, 10, 10, 10, 10, -11, //80 - 2
-                -11, 11, 12, 13, 14, 15, 13, 12, 11, -11, //90 - 1
-                //    1   2   3   4   5   6   7   8 <- Indexbezeichnungen
-                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
-                -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
-            ],
-            pty: 0,
-            fifty_move_rule: 0,
-            state: GameState::Normal,
-            moves: String::new(),
-            turns: Vec::with_capacity(200),
-            hash: ZobristTable::new(),
-        }
-    }
-
-    pub fn get_pty(&self) -> u8 {
-        self.pty
-    }
-
-    pub fn get_state(&self) -> &GameState {
-        &self.state
-    }
-
-    pub fn get_field(&self) -> &[i32; 120] {
-        &self.field
-    }
-
-    pub fn set_field_index(&mut self, index: usize, piece: i32) {
-        self.field[index] = piece;
-    }
-
-    pub fn clear_field(&mut self) {
-        for i in 21..99 {
-            if self.field[i] > 0 { self.field[i] = 0 };
-        }
     }
 
 
@@ -246,8 +227,7 @@ impl Board {
                 self.state = GameState::Draw;
             }
         }
-
-        turn_list.sort_by_key(|t| -(PIECE_ORDER.get(&t.capture).unwrap() + t.post_my.len() as i32 - t.post_villain.len() as i32));
+        self.state = if self.position_map.values().any(|&value| value > 2) { GameState::Draw } else { self.state };
         turn_list
     }
 
@@ -269,8 +249,16 @@ impl Board {
         self.field[turn.from] = 0;
         self.pty += 1;
         self.moves += " ";
-        self.moves += &turn.to_algebraic().clone();
+        self.moves += &turn.to_algebraic(false).clone();
         self.turns.push(turn.clone());
+    }
+
+
+    pub fn do_turn_and_return_long_algebraic(&mut self, turn: &Turn) -> String {
+        let figure_sign = self.get_piece_for_field(turn.from);
+        let long_algebraic = format!("{}{}", figure_sign, turn.to_algebraic(true));
+        self.do_turn(turn);
+        long_algebraic
     }
 
 
@@ -308,6 +296,17 @@ impl Board {
     }
 
 
+    pub(crate) fn get_target_fields_of_raw_moves(raw_moves: &Vec<usize>) -> Vec<i32> {
+        let mut villains_target_fields: Vec<i32> = Vec::with_capacity(60);
+        for (i, num) in raw_moves.iter().enumerate() {
+            if i % 2 == 1 {
+                villains_target_fields.push(*num as i32);
+            }
+        }
+        villains_target_fields
+    }
+
+
     pub(crate) fn is_in_chess(&self, villains_target_fields: &Vec<i32>, white: bool) -> bool {
         let idx_of_king = if white { self.index_of_white_king() } else  { self.index_of_black_king() };
         if villains_target_fields.contains(&idx_of_king) { return true }
@@ -325,7 +324,7 @@ impl Board {
 
 
     pub(crate) fn validate_turn(&self, turn: &Turn) {
-        if self.field[turn.from] < 10 { panic!("turn.from points not to a piece ({} {})", self.moves, turn.to_algebraic()) };
+        if self.field[turn.from] < 10 { panic!("turn.from points not to a piece ({} {})", self.moves, turn.to_algebraic(true)) };
         if self.field[turn.to] != 0 && turn.capture == 0 { panic!("turn.to points not to an empty field") };
         if turn.capture != -1 && (self.field[turn.to] == 0 && turn.capture != 0) { panic!("turn.to is expected to capture") };
         if self.field[turn.to] < 0 { panic!("turn.to points not no a valid field") };
@@ -335,6 +334,10 @@ impl Board {
     pub fn is_white_field(&self, field_index: usize) -> bool {
         if self.field[field_index] < 10 || self.field[field_index] > 25 { panic!("Can not determine turn color [{}] index:{}", self.moves, field_index) }
         if self.field[field_index] / 10 == 1 { true } else { false }
+    }
+
+    pub fn is_white_to_move(&self) -> bool {
+        if self.pty % 2 == 0 { true } else { false }
     }
 
 
@@ -420,6 +423,11 @@ impl Board {
     }
 
 
+    pub fn add_position_for_3_move_repetition_check(&mut self, fen: String) {
+        *self.position_map.entry(fen).or_insert(0) += 1;
+    }
+
+
     pub fn get_complexity(&self) -> i32 {
         ((self.generate_moves_list(true).len() / 2) + (self.generate_moves_list(false).len() / 2)) as i32 / 10
     }
@@ -429,13 +437,27 @@ impl Board {
         self.field.iter().filter(|&x| *x > 1).count() as i32
     }
 
-    pub fn get_hash(&self) -> u64 {
-        return self.hash.gen(self);
+    pub fn get_piece_for_field(&self, field_nr: usize) -> &str {
+        let figure = self.get_field()[field_nr] % 10;
+        match figure {
+            1 => "R",
+            2 => "N",
+            3 => "B",
+            4 => "Q",
+            5 => "K",
+            _ => "", // Pawn
+        }
     }
 
-    pub fn is_white_to_move(&self) -> bool {
-        self.pty % 2 == 0
+
+    pub fn get_all_made_turns(&self) -> &Vec<Turn> {
+        return &self.turns;
     }
+
+    pub fn get_last_turn(&self) -> &Turn {
+        return &self.turns[self.turns.len() - 1];
+    }
+
 
     pub fn generate_moves_list(&self, white: bool) -> Vec<usize> {
         let king_value = if white { 15 } else { 25 };
