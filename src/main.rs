@@ -21,7 +21,7 @@ use std::time::Duration;
 
 
 fn main() {
-    unittests::run_unittests();
+    //unittests::run_unittests();
     
     let mut board = Board::new();
     let (tx, rx) = mpsc::channel();
@@ -37,7 +37,7 @@ fn main() {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V25");
+                        println!("id name RustInPieces V34_mit_quite_standpatt");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -60,6 +60,9 @@ fn main() {
                     }
                     else if uci_token.starts_with("test") {
                         tx.send(format!("test")).unwrap();
+                    }
+                    else if uci_token.starts_with("quit") {
+                        std::process::exit(0);
                     } 
                     else {
                         //println!("cmd unknown or empty: {}", uci_token);

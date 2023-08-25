@@ -33,105 +33,98 @@ pub fn get_best_move(board: &mut Board, depth: i32, white: bool, stats: &mut Sta
 }
 
 
-
 pub fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
     if depth <= 0 {
-        if config.use_quiescence {
-            let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
-            return quiesce(board, depth-1, white, alpha, beta, stats, turn, config) + fuzzy_eval;
-        } else {
-            stats.add_eval_nodes(1);
-            let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
-            return eval::calc_eval(board, turn, config) + fuzzy_eval;
-        }
+        stats.add_eval_nodes(1);
+        //let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
+        return quiescence_search(board, 6, alpha, beta, white, stats, turn, config);
+        
+    }    
+
+    let mut eval = if white { i16::min_value() } else { i16::max_value() };
+    let turns = board.get_turn_list(white, false);
+    
+    if turns.len() == 0 {
+        return match board.get_state() {
+            &GameState::WhiteWin => i16::max_value() - 1,
+            &GameState::BlackWin => i16::min_value() + 1,
+            &GameState::Draw => 0,
+            _ => panic!("no defined game end"),
+        };
     }
-
-    if white {
-        let mut max_eval = i16::min_value();
-        let turns = board.get_turn_list(white, false);
-        if turns.len() == 0 {
-            if board.get_state() == &GameState::BlackWin { return i16::min_value() + 1 }
-            else if board.get_state() == &GameState::Draw { return 0 }
-            else { panic!("no defined game end") }
-        }
-        stats.add_created_nodes(turns.len());
-        for turn in turns {
-            stats.add_calculated_nodes(1);
-            let mut child_board = board.clone();
-            child_board.do_turn(&turn);
-            let eval = minimax(&mut child_board, depth - 1, false, alpha, beta, stats, &turn, config);
-            max_eval = max_eval.max(eval);
-            alpha = alpha.max(max_eval);
-            if beta <= alpha {
-                break;
-            }
-        }
-        return max_eval;
-    } else {
-        let mut min_eval = i16::max_value();
-        let turns = board.get_turn_list(white, false);
-        if turns.len() == 0 {
-            if board.get_state() == &GameState::WhiteWin { return i16::max_value() - 1 }
-            else if board.get_state() == &GameState::Draw { return 0 }
-            else { panic!("no defined game end") }
-        }
-        stats.add_created_nodes(turns.len());
-        for turn in turns {
-            stats.add_calculated_nodes(1);
-            let mut child_board = board.clone();
-            child_board.do_turn(&turn);
-            let eval = minimax(&mut child_board, depth - 1, true, alpha, beta, stats, &turn, config);
-            min_eval = min_eval.min(eval);
-            beta = beta.min(min_eval);
-            if beta <= alpha {
-                break;
-            }
-        }
-        return min_eval;
-    }
-
-
-
-    fn quiesce(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
-        let stand_pat = eval::calc_eval(board, turn, config);
+    
+    stats.add_created_nodes(turns.len());
+    
+    for turn in turns {
+        stats.add_calculated_nodes(1);
+        let mut child_board = board.clone();
+        child_board.do_turn(&turn);
         
-        if stand_pat >= beta && white {
-            return beta;
-        }
-        
-        if stand_pat <= alpha && !white {
-            return alpha;
-        }
-        
-        alpha = alpha.max(stand_pat);
-        beta = beta.min(stand_pat);
-        let mut max_eval = i16::min_value();
-        let mut min_eval = i16::max_value();
-        let caps = board.get_turn_list(white, true);
-        stats.add_created_nodes(caps.len());
-        for cap in caps {
-            stats.add_calculated_nodes(1);
-            let mut child_board = board.clone();
-            child_board.do_turn(&cap);
-            let eval = -quiesce(&mut child_board, depth - 1, !white, -beta, -alpha, stats, &cap, config);
-            if white {
-                max_eval = max_eval.max(eval);
-                alpha = alpha.max(max_eval);
-                if beta <= alpha {
-                    break;
-                }
-            } else {
-                min_eval = min_eval.min(eval);
-                beta = beta.min(min_eval);
-                if beta <= alpha {
-                    break;
-                }
-            }
-        }
+        let child_eval = minimax(&mut child_board, depth - 1, !white, alpha, beta, stats, &turn, config);
+
         if white {
-            return alpha;
+            eval = eval.max(child_eval);
+            alpha = alpha.max(eval);
         } else {
-            return beta;
+            eval = eval.min(child_eval);
+            beta = beta.min(eval);
+        }
+
+        if beta <= alpha {
+            break;
         }
     }
+
+    eval
 }
+
+
+
+pub fn quiescence_search(board: &mut Board, depth: i32, mut alpha: i16, mut beta: i16, white: bool, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+    // Stand-Pat / Initial Evaluation
+    let mut eval = eval::calc_eval(board, turn, config);
+
+    // Beta Cutoff
+    if eval >= beta {
+        return beta;
+    }
+
+    // Update Alpha
+    alpha = alpha.max(eval);
+
+    // Depth Check
+    if depth <= 0 || depth > 6 {
+        return eval;
+    }
+
+    // Generate only "loud" moves (e.g., captures, checks)
+    let turns = board.get_turn_list(white, true);
+    
+    if turns.is_empty() {
+        return eval;
+    }
+
+    for turn in turns {
+        let mut child_board = board.clone();
+        child_board.do_turn(&turn);
+
+        let child_eval = quiescence_search(&mut child_board, depth - 1, alpha, beta, !white, stats, &turn, config);
+
+        // Update evaluation and alpha/beta according to who is to move
+        if white {
+            eval = eval.max(child_eval);
+            alpha = alpha.max(eval);
+        } else {
+            eval = eval.min(child_eval);
+            beta = beta.min(eval);
+        }
+
+        // Alpha-beta pruning
+        if beta <= alpha {
+            break;
+        }
+    }
+
+    eval
+}
+

@@ -21,11 +21,11 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            use_quiescence: false,
+            use_quiescence: true,
             use_depth_modificator: false,
-            search_depth: 4,
+            search_depth: 2,
             eval_fuzzy: 20,
-            move_freedom_bonus: 6,
+            move_freedom_bonus: 4,
             undeveloped_knight_malus: 35,
             undeveloped_bishop_malus: 20,
             pawn_on_last_rank_bonus: 200,
