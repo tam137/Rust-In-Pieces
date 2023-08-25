@@ -36,9 +36,12 @@ pub fn get_best_move(board: &mut Board, depth: i32, white: bool, stats: &mut Sta
 pub fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
     if depth <= 0 {
         stats.add_eval_nodes(1);
-        //let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
-        return quiescence_search(board, 6, alpha, beta, white, stats, turn, config);
-        
+        let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
+        if config.use_quiescence {
+            return quiescence_search(board, config.search_depth_quite, alpha, beta, white, stats, turn, config) + fuzzy_eval;
+        } else {
+            return eval::calc_eval(board, turn, config) + fuzzy_eval;
+        }
     }    
 
     let mut eval = if white { i16::min_value() } else { i16::max_value() };
@@ -81,23 +84,18 @@ pub fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut b
 
 
 pub fn quiescence_search(board: &mut Board, depth: i32, mut alpha: i16, mut beta: i16, white: bool, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
-    // Stand-Pat / Initial Evaluation
     let mut eval = eval::calc_eval(board, turn, config);
 
-    // Beta Cutoff
     if eval >= beta {
         return beta;
     }
 
-    // Update Alpha
     alpha = alpha.max(eval);
 
-    // Depth Check
-    if depth <= 0 || depth > 6 {
+    if depth <= 0 || depth > config.search_depth_quite {
         return eval;
     }
 
-    // Generate only "loud" moves (e.g., captures, checks)
     let turns = board.get_turn_list(white, true);
     
     if turns.is_empty() {
@@ -110,7 +108,6 @@ pub fn quiescence_search(board: &mut Board, depth: i32, mut alpha: i16, mut beta
 
         let child_eval = quiescence_search(&mut child_board, depth - 1, alpha, beta, !white, stats, &turn, config);
 
-        // Update evaluation and alpha/beta according to who is to move
         if white {
             eval = eval.max(child_eval);
             alpha = alpha.max(eval);
@@ -119,7 +116,6 @@ pub fn quiescence_search(board: &mut Board, depth: i32, mut alpha: i16, mut beta
             beta = beta.min(eval);
         }
 
-        // Alpha-beta pruning
         if beta <= alpha {
             break;
         }
