@@ -1,11 +1,39 @@
 
-
 use crate::Board;
 use crate::Turn;
 use crate::config::Config;
 use std::collections::HashMap;
 
 pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
+
+    let mut semi_results: HashMap<&str, i32> = HashMap::new();
+
+    let pieces_on_field = board.get_pieces_on_field();
+    semi_results.insert("pieces_on_board", pieces_on_field);
+
+    let mut eval = 0 as i16;
+    eval += calc_eval_material(board, config, &mut semi_results);
+    eval += move_possibilities(board, turn, config, &mut semi_results);
+    eval += calc_pawn_progress(board, config, &mut semi_results);
+    eval += calc_developed_pieces(board, config, &mut semi_results);
+    eval += calc_early_queen(board, config, &mut semi_results);
+    eval += calc_casteling(board, config, &mut semi_results);    
+
+    eval
+}
+
+
+fn get_semi(key: &str, semi_results: &HashMap<&str, i32>) -> i32 {
+    semi_results.get(key)
+                .expect("semi eval result key not found")
+                .clone()
+}
+
+
+pub fn calc_eval_material(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+
+    let mut eval = 0;
+    
     let mut piece_values: HashMap<i32, i16> = HashMap::new();
     piece_values.insert(10, 100);
     piece_values.insert(11, 500);
@@ -20,13 +48,6 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
     piece_values.insert(24, -900);
     piece_values.insert(25, -10000);
 
-    let pieces_on_field = board.get_pieces_on_field();
-
-    let mut eval: i16 = 0;
-    let move_possibilities_white = if board.is_white_field(turn.to) { (turn.post_my.len() / 2) as i32 }  else { (turn.post_villain.len() / 2) as i32 } ;
-    let move_possibilities_black = if board.is_white_field(turn.to) { (turn.post_villain.len() / 2) as i32 }  else { (turn.post_my.len() / 2) as i32 } ;
-
-    eval += (move_possibilities_white * config.move_freedom_bonus) as i16 - (move_possibilities_black * config.move_freedom_bonus) as i16;
 
     let field = board.get_field();
     for &piece in field.iter() {
@@ -36,10 +57,20 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
             continue;
         }
     }
+    eval
+}
 
 
+pub fn move_possibilities(board: &Board, turn: &Turn, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let move_possibilities_white = if board.is_white_field(turn.to) { (turn.post_my.len() / 2) as i32 }  else { (turn.post_villain.len() / 2) as i32 } ;
+    let move_possibilities_black = if board.is_white_field(turn.to) { (turn.post_villain.len() / 2) as i32 }  else { (turn.post_my.len() / 2) as i32 } ;
 
-    // pawn progress
+    (move_possibilities_white * config.move_freedom_bonus) as i16 - (move_possibilities_black * config.move_freedom_bonus) as i16
+}
+
+
+pub fn calc_pawn_progress(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let mut eval = 0;
     for i in 21.. 99 {
         if board.get_field()[i] == -11 { continue }
         if board.get_field()[i] == 10 { 
@@ -53,8 +84,13 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
             else if i / 10 == 6 { eval -= config.pawn_on_before_before_last_rank_bonus}
         }
     }
+    eval
+}
 
-    if pieces_on_field >= 30 {
+
+pub fn calc_developed_pieces(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let mut eval = 0;
+    if get_semi("pieces_on_board", &*semi_results) >= 30 {
         // develop pieces!
         if board.get_field()[92] == 12 { eval -= config.undeveloped_knight_malus }
         if board.get_field()[97] == 12 { eval -= config.undeveloped_knight_malus }
@@ -71,8 +107,12 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
         if board.get_field()[34] == 20 { eval += config.undeveloped_center_pawn_malus }
         if board.get_field()[35] == 20 { eval += config.undeveloped_center_pawn_malus }
     }
+    eval
+}
 
-    if pieces_on_field > 26 {
+pub fn calc_early_queen(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let mut eval = 0;
+    if get_semi("pieces_on_board", &*semi_results) >= 26 {
         // early queen
         if board.get_field()[24] != 24 && board.get_field()[25] != 24 &&
         board.get_field()[35] != 24 && board.get_field()[34] != 24 && board.get_field()[33] != 24
@@ -81,8 +121,14 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
         if board.get_field()[94] != 14 && board.get_field()[95] != 14 &&
         board.get_field()[85] != 14 && board.get_field()[84] != 14 && board.get_field()[83] != 14 
         { eval -= config.early_queen_malus; }
+    }
+    eval
+}
 
-        // I like castleing
+
+pub fn calc_casteling(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let mut eval = 0;
+    if get_semi("pieces_on_board", &*semi_results) >= 26 {
         if board.get_field()[97] == 15 {
             eval += config.short_castle_bonus
         }
@@ -90,9 +136,5 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
         if board.get_field()[27] == 25 { eval -= config.short_castle_bonus }
         if board.get_field()[23] == 25 { eval -= config.long_castle_bonus }
     }
-
-    
-    
-
-    eval as i16
+    eval
 }
