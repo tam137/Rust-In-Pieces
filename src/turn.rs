@@ -47,7 +47,7 @@ impl Turn {
         let row_from = (10 - (self.from / 10) + 48) as u8;
         let column_to = (self.to % 10 + 96) as u8;
         let row_to = (10 - (self.to / 10) + 48) as u8;
-        let mut promotional_lit;
+        let promotional_lit;
         if pgn_promotion_symbol {
             promotional_lit = if self.is_promotion() { if self.to/10 == 9 { "=Q" } else {"=Q"}} else { "" };
         } else {

@@ -6,9 +6,11 @@ mod stats;
 mod search;
 mod config;
 mod zobrist;
+mod opening;
 use turn::Turn;
 use board::Board;
 use stats::Stats;
+use opening::OpeningBook;
 use std::io::Write;
 use std::thread;
 use std::time::Instant;
@@ -16,6 +18,7 @@ use std::io;
 use std::sync::mpsc;
 use config::Config;
 use std::fs::OpenOptions;
+use std::thread::sleep;
 use chrono::Local;
 use std::time::Duration;
 
@@ -37,7 +40,7 @@ fn main() {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V36_modular-eval");
+                        println!("id name RustInPieces V38_opening-book-no-fuzzy");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -56,6 +59,7 @@ fn main() {
                         tx.send(format!("move {}", last_four_chars)).unwrap();
                     }
                     else if uci_token.starts_with("go") {
+                        sleep(Duration::from_millis(100));
                         tx.send(format!("go")).unwrap();
                     }
                     else if uci_token.starts_with("test") {
@@ -78,6 +82,8 @@ fn main() {
     let mut stats = Stats::new();
     let config = Config::new();
     let mut white = true;
+    let mut opening_book_move = "";
+    let opening_book: OpeningBook = OpeningBook::new();
 
     loop {
         let received = rx.recv().unwrap();
@@ -93,10 +99,27 @@ fn main() {
             
             let calc_time = Instant::now();
 
-            let best_move = &search::get_best_move(&mut board, config.search_depth + depth_modificator, white, &mut stats, &config).0.unwrap();
+            let algebraic_turns: Vec<String> = board
+                .get_all_made_turns()
+                .iter()
+                .map(|t| t.to_algebraic(false))
+                .collect();
+
+            if board.get_pty() < 4 && config.use_book {
+                opening_book_move = opening_book.get_opening_move(&algebraic_turns.join(" "));
+            }
+
+            if opening_book_move != "" {
+                println!("log aply book move {}", opening_book_move);
+                println!("bestmove {}", opening_book_move);
+                board.do_turn(&Turn::generate_turns(opening_book_move)[0]);
+                opening_book_move = ""
+            } else {
+                let best_move = &search::get_best_move(&mut board, config.search_depth + depth_modificator, white, &mut stats, &config).0.unwrap();
+                board.do_turn(best_move);
+                println!("bestmove {}", best_move.to_algebraic(false));
+            }
             stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
-            board.do_turn(best_move);
-            println!("bestmove {}", best_move.to_algebraic(false));
             stats.reset_stats();
 
         } else if received.starts_with("move") {
@@ -110,8 +133,6 @@ fn main() {
         white = !white;
     }
 }
-
-
 
 
 

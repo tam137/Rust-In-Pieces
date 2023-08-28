@@ -3,6 +3,7 @@
 pub struct Config {
     pub use_quiescence: bool,
     pub use_depth_modificator: bool,
+    pub use_book: bool,
     pub search_depth: i32,
     pub search_depth_quite: i32,
     pub eval_fuzzy: i16,
@@ -24,9 +25,10 @@ impl Config {
         Config {
             use_quiescence: true,
             use_depth_modificator: false,
+            use_book: true,
             search_depth: 2,
             search_depth_quite: 6,
-            eval_fuzzy: 20,
+            eval_fuzzy: 0,
             move_freedom_bonus: 4,
             undeveloped_knight_malus: 35,
             undeveloped_bishop_malus: 20,
