@@ -53,7 +53,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V40_fix_promotion");
+                        println!("id name RustInPieces V42_fix_promotion_rebase_develop");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -136,7 +136,7 @@ fn main() -> () {
 
         } else if received.starts_with("move") {
             let algebraic_notation;
-            if &received.chars().nth(9) == Some('q') {
+            if received.chars().nth(9) == Some('q') {
                 algebraic_notation = &received[5..10];
             } else {
                 algebraic_notation = &received[5..9];
