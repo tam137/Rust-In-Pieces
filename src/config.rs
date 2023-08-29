@@ -27,7 +27,7 @@ impl Config {
             use_depth_modificator: false,
             use_book: true,
             search_depth: 2,
-            search_depth_quite: 6,
+            search_depth_quite: 4,
             eval_fuzzy: 0,
             move_freedom_bonus: 4,
             undeveloped_knight_malus: 35,

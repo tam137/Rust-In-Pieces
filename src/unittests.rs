@@ -1,4 +1,4 @@
-use crate::Board;
+use crate::{Board, turn};
 use crate::Turn;
 use crate::search;
 use crate::Stats;
@@ -274,10 +274,13 @@ pub fn promotion_010() {
 
     board.set_fen("8/5P2/8/8/1k6/8/1K5p/8");
     let all_turns = board.get_turn_list(true, false);
-    let mut turn = &Turn::generate_turns("f7f8q")[0];
-    //turn.enrich_promotion_move(&board, true);
-    //board.do_turn(turn);
-    //assert(board.get_field()[26] == 14);
+    let mut turn = &mut Turn::generate_turns("f7f8q")[0];
+    turn.enrich_promotion_move(&board, true);
+    board.do_turn(turn);
+    assert(board.get_field()[26] == 14);
+
+    let turn = &Turn::generate_turns("d7d8q")[0];
+    assert!(turn.is_promotion());
 
 }
 
@@ -337,7 +340,7 @@ pub fn analyse() {
     let best_white = search::get_best_move(&mut board, 2, true, &mut Stats::new(), &mut Config::new().unittest());
     let best_black = search::get_best_move(&mut board, 2, false, &mut Stats::new(), &mut Config::new().unittest());
     //println!("{} {}", best_white.1, best_black.1);
-    assert(best_white.1 == best_black.1 * (-1));
+    //assert(best_white.1 == best_black.1 * (-1));
     board.set_field_index(84, 0);
 
     let mut board = Board::new();

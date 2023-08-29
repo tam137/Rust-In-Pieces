@@ -12,7 +12,7 @@ use board::Board;
 use stats::Stats;
 use opening::OpeningBook;
 use std::io::Write;
-use std::thread;
+use std::{env, thread};
 use std::time::Instant;
 use std::io;
 use std::sync::mpsc;
@@ -23,8 +23,21 @@ use chrono::Local;
 use std::time::Duration;
 
 
-fn main() {
-    //unittests::run_unittests();
+fn main() -> () {
+
+    let args: Vec<String> = env::args().collect();
+
+    let unittest_flag = args.get(1);
+
+    match unittest_flag {
+        Some(value) if value == "unittest" => {
+            println!("run unittest");
+            unittests::run_unittests();
+            return;
+        },
+        _ => {}
+    }
+
     
     let mut board = Board::new();
     let (tx, rx) = mpsc::channel();
@@ -40,7 +53,7 @@ fn main() {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V38_opening-book-no-fuzzy");
+                        println!("id name RustInPieces V40_fix_promotion");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -110,7 +123,6 @@ fn main() {
             }
 
             if opening_book_move != "" {
-                println!("log aply book move {}", opening_book_move);
                 println!("bestmove {}", opening_book_move);
                 board.do_turn(&Turn::generate_turns(opening_book_move)[0]);
                 opening_book_move = ""
@@ -123,7 +135,13 @@ fn main() {
             stats.reset_stats();
 
         } else if received.starts_with("move") {
-            let algebraic_notation = &received[received.len() - 5..];
+            let algebraic_notation;
+            if &received.chars().nth(9) == Some('q') {
+                algebraic_notation = &received[5..10];
+            } else {
+                algebraic_notation = &received[5..9];
+            };
+
             let turn = Turn::generate_turns(algebraic_notation);
             board.do_turn(&turn[0]);
             white = board.is_white_field(turn[0].to);
@@ -133,8 +151,6 @@ fn main() {
         white = !white;
     }
 }
-
-
 
 
 fn test_game() {

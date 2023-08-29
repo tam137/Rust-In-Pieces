@@ -24,6 +24,11 @@ impl Turn {
         for algebraic_move in algebraic_move_list {
             let from = board::get_index_from_notation(&algebraic_move[0..2]).unwrap();
             let to = board::get_index_from_notation(&algebraic_move[2..4]).unwrap();
+            let promotion = if algebraic_move.len() == 5 {
+                algebraic_move.chars().nth(4) == Some('q')
+            } else {
+                false
+            };
     
             turn_list.push(Turn {
                 from,
@@ -31,7 +36,7 @@ impl Turn {
                 capture: -1, // symbol for not do a validation check
                 post_villain:  Vec::new(),
                 post_my: Vec::new(),
-                promotion: false,
+                promotion,
             });
         }
     
