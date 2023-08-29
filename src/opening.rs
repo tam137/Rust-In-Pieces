@@ -9,7 +9,7 @@ impl<'a> OpeningBook<'a> {
 
     pub fn new() -> Self {
         let mut book = HashMap::new();
-        book.insert("", vec!["e2e4", "d2d4", "c2c4", "g1f3", "e2e3", "a2a3", "b2b3"]);
+        book.insert("", vec!["e2e4", "d2d4", "d2d4", "c2c4", "g1f3", "e2e3", "a2a3", "b2b3"]);
         book.insert("e2e3", vec!["d7d5", "e7e5", "c7c5", "c7c6", "g8f6", "f7f5", "e7e6"]);
         book.insert("e2e4", vec!["d7d5", "e7e5", "c7c5", "c7c6"]);
         book.insert("d2d4", vec!["de7d5", "e7e6", "g8f6", "c7c6", "c7c5"]);

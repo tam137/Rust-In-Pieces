@@ -53,7 +53,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V42_fix_promotion_rebase_develop");
+                        println!("id name RustInPieces V44_min_eval_and_no-quite");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -83,12 +83,12 @@ fn main() -> () {
                     } 
                     else {
                         //println!("cmd unknown or empty: {}", uci_token);
+                        thread::sleep(Duration::from_millis(2));
                     }
                 },
                 Err(error) => println!("Error reading input: {}", error),
             }
             io::stdout().flush().unwrap();
-            thread::sleep(Duration::from_millis(5));
         }
     });
     
@@ -137,6 +137,7 @@ fn main() -> () {
         } else if received.starts_with("move") {
             let algebraic_notation;
             if received.chars().nth(9) == Some('q') {
+                println!("log found promotion");
                 algebraic_notation = &received[5..10];
             } else {
                 algebraic_notation = &received[5..9];

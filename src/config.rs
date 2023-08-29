@@ -23,10 +23,10 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            use_quiescence: true,
+            use_quiescence: false,
             use_depth_modificator: false,
             use_book: true,
-            search_depth: 2,
+            search_depth: 4,
             search_depth_quite: 4,
             eval_fuzzy: 0,
             move_freedom_bonus: 4,
