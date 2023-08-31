@@ -38,10 +38,10 @@ impl Stats {
     }
 
     pub fn to_string(&self) -> String {
-        format!("Cre_{}K Cal_{} Eva_{} N/s_{}K CF_0.{}",
-        self.created_nodes / 1000,
-        self.calculated_nodes / 1000,
-        self.eval_nodes / 1000,
+        format!("Cre_{} Cal_{} Eva_{} N/s_{}K CF_0.{}",
+        self.created_nodes,
+        self.calculated_nodes,
+        self.eval_nodes,
         self.created_nodes / (self.calc_time_ms + 1),
         100 - (self.calculated_nodes * 100 / if self.created_nodes == 0 { 1 } else { self.created_nodes }))
     }

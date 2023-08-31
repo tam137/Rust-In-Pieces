@@ -1,6 +1,7 @@
-
+use crate::search::SearchAlgo;
 
 pub struct Config {
+    pub search_algo: SearchAlgo,
     pub use_quiescence: bool,
     pub use_depth_modificator: bool,
     pub use_book: bool,
@@ -23,10 +24,11 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
+            search_algo: SearchAlgo::New,
             use_quiescence: false,
             use_depth_modificator: false,
             use_book: true,
-            search_depth: 4,
+            search_depth: 2,
             search_depth_quite: 4,
             eval_fuzzy: 0,
             move_freedom_bonus: 4,

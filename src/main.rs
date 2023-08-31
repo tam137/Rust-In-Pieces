@@ -7,6 +7,9 @@ mod search;
 mod config;
 mod zobrist;
 mod opening;
+mod search_basic;
+mod search_new;
+
 use turn::Turn;
 use board::Board;
 use stats::Stats;
@@ -33,6 +36,7 @@ fn main() -> () {
         Some(value) if value == "unittest" => {
             println!("run unittest");
             unittests::run_unittests();
+            test_game();
             return;
         },
         _ => {}
@@ -53,7 +57,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V44_min_eval_and_no-quite");
+                        println!("id name RustInPieces V47_sort_list_algo");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
