@@ -30,17 +30,21 @@ fn main() -> () {
 
     let args: Vec<String> = env::args().collect();
 
-    let unittest_flag = args.get(1);
+    let test_flag = args.get(1);
 
-    match unittest_flag {
+    match test_flag {
         Some(value) if value == "unittest" => {
             println!("run unittest");
             unittests::run_unittests();
             test_game();
             return;
         },
+        Some(value) if value == "testgame" => {
+            test_game();
+        }
         _ => {}
     }
+
 
     
     let mut board = Board::new();
@@ -57,7 +61,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V47_sort_list_algo");
+                        println!("id name RustInPieces V48_sort_list_algo_basic_4_depth");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        

@@ -219,7 +219,10 @@ impl Board {
         }
         
         turn_list.retain(|turn| !turn.post_my.is_empty());
-        
+
+        // sortList
+        Board::sort_move_list(&mut turn_list);
+
         if turn_list.len() == 0 { 
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
                 self.state = if white { GameState::BlackWin } else { GameState::WhiteWin }
@@ -228,7 +231,13 @@ impl Board {
             }
         }
         self.state = if self.position_map.values().any(|&value| value > 2) { GameState::Draw } else { self.state };
-        turn_list
+        turn_list.clone()
+    }
+
+
+    pub(crate) fn sort_move_list(turn_list: &mut Vec<Turn>) -> () {
+        turn_list.sort_by(|a, b| (b.post_my.len()).cmp(&a.post_my.len()));
+        turn_list.sort_by(|a, b| b.capture.cmp(&a.capture));
     }
 
 
