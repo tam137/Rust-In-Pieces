@@ -165,7 +165,7 @@ fn test_game() {
     let config = Config::new();
     for _i in 0..10 {
         let calc_time = Instant::now();
-        let best_move = &search::get_best_move(&mut board, 2, white, &mut stats, &config).0.unwrap();
+        let best_move = &search::get_best_move(&mut board, 4, white, &mut stats, &config).0.unwrap();
         stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
         board.do_turn(best_move);
         println!("{} {}", best_move.to_algebraic(false), stats.to_string());

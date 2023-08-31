@@ -1,5 +1,5 @@
 use rand::Rng;
-use crate::{Board, eval};
+use crate::{Board, eval, turn};
 use crate::board::GameState;
 use crate::config::Config;
 use crate::Stats;
@@ -13,10 +13,10 @@ pub fn get_moves(mut board: Board, depth: i32, white: bool, stats: &mut Stats, c
     stats.add_created_nodes(turns.len());
 
     for turn in turns {
-        let mut child_board = board.clone();
-        child_board.do_turn(&turn);
-        let eval = minimax(&mut child_board, depth - 1, !white, i16::min_value(), i16::max_value(), stats, &turn, config);
-        child_board.do_undo_turn(&turn);
+        //let mut child_board = board.clone();
+        board.do_turn(&turn);
+        let eval = minimax(&mut board, depth - 1, !white, i16::min_value(), i16::max_value(), stats, &turn, config);
+        board.do_undo_turn(&turn);
         if white {
             if eval > best_eval {
                 best_eval = eval;
@@ -67,7 +67,6 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
         }
 
         if beta <= alpha {
-            //println!("log alphabetaCut");
             break;
         }
     }

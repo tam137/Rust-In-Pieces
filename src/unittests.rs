@@ -60,7 +60,6 @@ fn turn_gen_002() {
 
     assert!(board == cmp_board);
 
-
     for undo_turn in turn_list.iter().rev() {
         board.do_undo_turn(&undo_turn);
     }
