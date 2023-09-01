@@ -6,6 +6,7 @@ use crate::Stats;
 use crate::Turn;
 
 
+#[derive(Clone)]
 pub enum SearchAlgo {
     Basic,
     New,

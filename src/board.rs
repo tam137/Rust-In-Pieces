@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::config::Config;
 use crate::Turn;
 use crate::zobrist::ZobristTable;
 
@@ -17,6 +18,7 @@ pub struct Board {
     turns: Vec<Turn>,
     position_map: HashMap<String, i32>,
     hash: ZobristTable,
+    config: Config,
 }
 
 #[derive(PartialEq)]
@@ -94,6 +96,7 @@ impl Board {
             turns: Vec::with_capacity(200),
             position_map: HashMap::new(),
             hash: ZobristTable::new(),
+            config: Config::new(),
         }
     }
 
@@ -221,7 +224,7 @@ impl Board {
         turn_list.retain(|turn| !turn.post_my.is_empty());
 
         // sortList
-        Board::sort_move_list(&mut turn_list);
+        self.sort_move_list(&mut turn_list, white);
 
         if turn_list.len() == 0 { 
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
@@ -235,9 +238,18 @@ impl Board {
     }
 
 
-    pub(crate) fn sort_move_list(turn_list: &mut Vec<Turn>) -> () {
-        turn_list.sort_by(|a, b| (b.post_my.len()).cmp(&a.post_my.len()));
-        turn_list.sort_by(|a, b| b.capture.cmp(&a.capture));
+    fn sort_move_list(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
+        for turn in &mut *turn_list {
+            self.config.get_eval_value_for_piece(turn.capture);
+        }
+
+        if white {
+            //turn_list.sort_by(|a, b| (a.post_my.len()).cmp(&b.post_my.len()));
+            turn_list.sort_by(|a, b| self.config.get_eval_value_for_piece(a.capture).cmp(&self.config.get_eval_value_for_piece(b.capture)));
+        } else {
+            //turn_list.sort_by(|a, b| (b.post_my.len()).cmp(&a.post_my.len()));
+            turn_list.sort_by(|a, b| self.config.get_eval_value_for_piece(b.capture).cmp(&self.config.get_eval_value_for_piece(a.capture)));
+        }
     }
 
 

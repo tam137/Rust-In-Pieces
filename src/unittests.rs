@@ -92,7 +92,7 @@ fn pty_005() {
 
 fn castle_006() {
     let mut cmp_board = Board::new();
-    let mut board = Board::new();    
+    let mut board = Board::new();
     board.set_field_index(97, 0);
     board.set_field_index(96, 0);
     let turn = &Turn::generate_turns("e1g1")[0];
@@ -104,7 +104,7 @@ fn castle_006() {
     assert(board == cmp_board);
 
     let mut cmp_board = Board::new();
-    let mut board = Board::new();  
+    let mut board = Board::new();
     board.set_field_index(92, 0);
     board.set_field_index(93, 0);
     board.set_field_index(94, 0);
@@ -118,7 +118,7 @@ fn castle_006() {
     assert(board == cmp_board);
 
     let mut cmp_board = Board::new();
-    let mut board = Board::new();    
+    let mut board = Board::new();
     board.set_field_index(27, 0);
     board.set_field_index(26, 0);
     let turn = &Turn::generate_turns("e8g8")[0];
@@ -130,7 +130,7 @@ fn castle_006() {
     assert(board == cmp_board);
 
     let mut cmp_board = Board::new();
-    let mut board = Board::new();  
+    let mut board = Board::new();
     board.set_field_index(22, 0);
     board.set_field_index(23, 0);
     board.set_field_index(24, 0);
@@ -147,7 +147,7 @@ fn castle_006() {
     cmp_board.set_field_index(22, 0);
     cmp_board.set_field_index(23, 0);
     cmp_board.set_field_index(24, 0);
-    let mut board = Board::new();  
+    let mut board = Board::new();
     board.set_field_index(22, 0);
     board.set_field_index(23, 0);
     board.set_field_index(24, 0);
@@ -288,7 +288,7 @@ pub fn end_game_011() {
     board.set_fen("r3k2r/p1p2pp1/2p5/3p3p/3Pn1b1/4P1q1/PPP5/RNB1KQNR");
     let turn_list = board.get_turn_list(true, false);
     assert(turn_list.len() == 1);
-    //let best_move = &search::get_best_move(&mut board, 4, true, &mut Stats::new(), &Config::new()).0.unwrap();
+    //let best_move = &search::get_best_move(&mut board, 4, true, &mut Stats::new(), &.0.unwrap();
     //assert("f1f2" == best_move.to_algebraic());
 
     board.set_fen("8/8/8/2K5/k7/8/R2N4/8");
@@ -344,6 +344,6 @@ pub fn analyse() {
 
     let mut board = Board::new();
     board.set_fen("r1b1kbnr/ppp1qppp/3p4/3P4/1n6/P1N1B3/1PP2PPP/R2QKBNR");
-    //let best_black = search::get_best_move(&mut board, 4, false, &mut Stats::new(), &mut Config::new());
+    //let best_black = search::get_best_move(&mut board, 4, false, &mut Stats::new(), &mut ;
     //println!("{}", best_black.0.unwrap().to_algebraic());
 }

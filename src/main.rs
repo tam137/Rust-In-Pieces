@@ -46,8 +46,7 @@ fn main() -> () {
     }
 
 
-    
-    let mut board = Board::new();
+
     let (tx, rx) = mpsc::channel();
 
     log("Programm gestartet".to_string());
@@ -61,7 +60,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V48_sort_list_algo_basic_4_depth");
+                        println!("id name RustInPieces V49_sort_list_algo_4_depth");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -106,6 +105,8 @@ fn main() -> () {
     let mut opening_book_move = "";
     let opening_book: OpeningBook = OpeningBook::new();
 
+    let mut board = Board::new();
+
     loop {
         let received = rx.recv().unwrap();
 
@@ -113,7 +114,7 @@ fn main() -> () {
             let complexity = board.get_complexity();
 
             let mut depth_modificator = 0;
-            if config.use_depth_modificator {
+            if config.clone().use_depth_modificator {
                 depth_modificator = if complexity < 5 { 2 } else { if complexity < 3 { 4 } else { 0 } };
                 println!("log warn use depth_modificator");
             }            
@@ -126,7 +127,7 @@ fn main() -> () {
                 .map(|t| t.to_algebraic(false))
                 .collect();
 
-            if board.get_pty() < 4 && config.use_book {
+            if board.get_pty() < 4 && config.clone().use_book {
                 opening_book_move = opening_book.get_opening_move(&algebraic_turns.join(" "));
             }
 
@@ -135,7 +136,7 @@ fn main() -> () {
                 board.do_turn(&Turn::generate_turns(opening_book_move)[0]);
                 opening_book_move = ""
             } else {
-                let best_move = &search::get_best_move(&mut board, config.search_depth + depth_modificator, white, &mut stats, &config).0.unwrap();
+                let best_move = &search::get_best_move(&mut board, config.clone().search_depth + depth_modificator, white, &mut stats, &config).0.unwrap();
                 board.do_turn(best_move);
                 println!("bestmove {}", best_move.to_algebraic(false));
             }
@@ -164,9 +165,9 @@ fn main() -> () {
 
 fn test_game() {
     let mut white = true;
-    let mut board = Board::new();
     let mut stats = Stats::new();
     let config = Config::new();
+    let mut board = Board::new();
     for _i in 0..10 {
         let calc_time = Instant::now();
         let best_move = &search::get_best_move(&mut board, 4, white, &mut stats, &config).0.unwrap();

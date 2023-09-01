@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use crate::search::SearchAlgo;
 
+#[derive(Clone)]
 pub struct Config {
     pub search_algo: SearchAlgo,
     pub use_quiescence: bool,
@@ -18,6 +20,12 @@ pub struct Config {
     pub undeveloped_center_pawn_malus: i16,
     pub short_castle_bonus: i16,
     pub long_castle_bonus: i16,
+    pub piece_eval_pawn: i16,
+    pub piece_eval_rook: i16,
+    pub piece_value_knight: i16,
+    pub piece_eval_bishop: i16,
+    pub piece_eval_queen: i16,
+    pub piece_eval_king: i16,
 }
 
 
@@ -41,6 +49,31 @@ impl Config {
             undeveloped_center_pawn_malus: 90,
             short_castle_bonus: 110,
             long_castle_bonus: 75,
+
+            piece_eval_pawn: 100,
+            piece_eval_rook: 500,
+            piece_value_knight: 300,
+            piece_eval_bishop: 300,
+            piece_eval_queen: 950,
+            piece_eval_king: 15000,
+        }
+    }
+
+    pub fn get_eval_value_for_piece(&self, fig: i8) -> i16 {
+        match fig {
+            10 => self.piece_eval_pawn,
+            20 => -self.piece_eval_pawn,
+            11 => self.piece_eval_rook,
+            21 => -self.piece_eval_rook,
+            12 => self.piece_value_knight,
+            22 => -self.piece_value_knight,
+            13 => self.piece_eval_bishop,
+            23 => -self.piece_eval_bishop,
+            14 => self.piece_eval_queen,
+            24 => -self.piece_eval_queen,
+            15 => self.piece_eval_pawn,
+            25 => -self.piece_eval_pawn,
+            _ => 0
         }
     }
 
