@@ -61,7 +61,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V51_impl_zobrist");
+                        println!("id name RustInPieces V52_impl_zobrist_turn_sort_eval");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        
@@ -169,6 +169,7 @@ fn test_game() {
     let mut stats = Stats::new();
     let config = Config::new();
     let mut board = Board::new();
+    let game_time = Instant::now();
     for _i in 0..10 {
         let calc_time = Instant::now();
         let best_move = &search::get_best_move(&mut board, 4, white, &mut stats, &config).0.unwrap();
@@ -178,6 +179,7 @@ fn test_game() {
         white = !white;
         stats.reset_stats();
     }
+    println!("overall {} ms", game_time.elapsed().as_millis());
     std::process::exit(0);
 }
 

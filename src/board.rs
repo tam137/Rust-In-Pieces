@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::config::Config;
-use crate::Turn;
+use crate::{eval, Turn};
 use crate::zobrist::ZobristTable;
 
 static TARGETS_FOR_SHORT_WHITE: [i32; 3] = [95, 96, 97];
@@ -126,7 +126,6 @@ impl Board {
         }
     }
 
-
     pub fn get_hash(&self) -> u64 {
         return self.hash.gen(self);
     }
@@ -213,6 +212,7 @@ impl Board {
                     post_villain:  Vec::new(),
                     post_my: Vec::new(),
                     promotion: false,
+                    eval: 0,
                 });
             }
         }
@@ -232,8 +232,7 @@ impl Board {
         
         turn_list.retain(|turn| !turn.post_my.is_empty());
 
-        // sortList
-        self.sort_move_list(&mut turn_list, white);
+        self.sort_move_list_by_eval(&mut turn_list, white);
 
         if turn_list.len() == 0 { 
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
@@ -247,20 +246,41 @@ impl Board {
     }
 
 
-    fn sort_move_list(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
-        for turn in &mut *turn_list {
-            self.config.get_eval_value_for_piece(turn.capture);
-        }
-
+    fn sort_move_list_by_capture(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
         if white {
-            //turn_list.sort_by(|a, b| (a.post_my.len()).cmp(&b.post_my.len()));
             turn_list.sort_by(|a, b| self.config.get_eval_value_for_piece(a.capture).cmp(&self.config.get_eval_value_for_piece(b.capture)));
         } else {
-            //turn_list.sort_by(|a, b| (b.post_my.len()).cmp(&a.post_my.len()));
             turn_list.sort_by(|a, b| self.config.get_eval_value_for_piece(b.capture).cmp(&self.config.get_eval_value_for_piece(a.capture)));
         }
     }
 
+    fn sort_move_list_by_eval(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
+        for turn in &mut *turn_list {
+            self.do_turn(turn);
+            if self.config.use_zobrist {
+                let board_hash = self.get_hash();
+                match self.get_eval_for_hash(&board_hash) {
+                    Some(eval) => {
+                        turn.eval = *eval;
+                    },
+                    None => {
+                        let eval =  eval::calc_eval(self, turn, &self.config);
+                        self.set_new_hash(&board_hash, eval);
+                        turn.eval = eval;
+                    }
+                }
+            } else {
+                turn.eval = eval::calc_eval(self, turn, &self.config);
+            }
+            self.do_undo_turn(turn);
+        }
+        
+        if white {
+            turn_list.sort_by(|a, b| b.eval.cmp(&a.eval));
+        } else {
+            turn_list.sort_by(|a, b| a.eval.cmp(&b.eval));
+        }
+    }
 
     pub fn do_turn(&mut self, turn: &Turn) {
         if self.field[turn.from] % 10 == 0 || self.field[turn.to] != 0 { self.fifty_move_rule = 0 } else { self.fifty_move_rule += 1 };

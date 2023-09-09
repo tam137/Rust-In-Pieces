@@ -39,11 +39,10 @@ pub fn get_moves(mut board: &mut Board, depth: i32, white: bool, stats: &mut Sta
 fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
     if depth <= 0 {
         stats.add_eval_nodes(1);
-        let board_hash = board.get_hash();
         if (config.use_zobrist) {
+            let board_hash = board.get_hash();
             match board.get_eval_for_hash(&board_hash) {
                 Some(eval) => {
-                    stats.add_zobrist_hit(1);
                     return *eval;
                 },
                 None => {

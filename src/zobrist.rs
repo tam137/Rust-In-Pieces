@@ -1,5 +1,3 @@
-
-
 use crate::Board;
 use std::collections::HashMap;
 use rand::{Rng, rngs::StdRng, SeedableRng};
@@ -7,7 +5,6 @@ use rand::{Rng, rngs::StdRng, SeedableRng};
 const BOARD_SIZE: usize = 120;
 const NUM_PIECES: usize = 12;
 const FIG: [usize; 12] = [10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25];
-
 
 #[derive(Clone)]
 pub struct ZobristTable {

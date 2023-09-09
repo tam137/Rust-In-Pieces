@@ -11,6 +11,7 @@ pub struct Turn {
     pub promotion: bool,
     pub post_villain: Vec<usize>,
     pub post_my: Vec<usize>,
+    pub eval: i16,
 }
 
 
@@ -37,6 +38,7 @@ impl Turn {
                 post_villain:  Vec::new(),
                 post_my: Vec::new(),
                 promotion,
+                eval: 0,
             });
         }
     

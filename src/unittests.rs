@@ -46,8 +46,8 @@ fn move_gen_001() {
 
 fn turn_gen_002() {
     let mut turn_list = Turn::generate_turns("e2e4 d7d5");
-    turn_list.push(Turn {from: 65, to: 54, capture: 20, post_villain: Vec::new(), post_my: Vec::new(), promotion: false}); // e4xd5
-    turn_list.push(Turn {from: 24, to: 54, capture: 10, post_villain: Vec::new(), post_my: Vec::new(), promotion: false}); // Dd8xd5
+    turn_list.push(Turn {from: 65, to: 54, capture: 20, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, eval: 0}); // e4xd5
+    turn_list.push(Turn {from: 24, to: 54, capture: 10, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, eval: 0}); // Dd8xd5
     let mut cmp_board = Board::new();
     cmp_board.set_field_index(85, 0);
     cmp_board.set_field_index(65, 0);
