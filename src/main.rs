@@ -61,7 +61,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V50_impr_alpha_beta");
+                        println!("id name RustInPieces V51_impl_zobrist");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        

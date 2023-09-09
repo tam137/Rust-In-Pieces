@@ -5,18 +5,17 @@ use crate::config::Config;
 use crate::Stats;
 use crate::Turn;
 
-pub fn get_moves(mut board: Board, depth: i32, white: bool, stats: &mut Stats, config: &Config) -> (Option<Turn>, i16) {
-    let mut best_eval = if white { i16::min_value() } else { i16::max_value() };
+pub fn get_moves(mut board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config) -> (Option<Turn>, i16) {
+    let mut best_eval = if white { i16::MIN } else { i16::MAX };
     let mut best_move: Option<Turn> = None;
 
     let turns = board.get_turn_list(white, false);
     stats.add_created_nodes(turns.len());
 
-    let mut alpha: i16 = i16::min_value();
-    let mut beta: i16 = i16::max_value();
+    let mut alpha: i16 = i16::MIN;
+    let mut beta: i16 = i16::MAX;
 
     for turn in turns {
-        //let mut child_board = board.clone();
         board.do_turn(&turn);
         let eval = minimax(&mut board, depth - 1, !white, alpha, beta, stats, &turn, config);
         board.do_undo_turn(&turn);
@@ -58,14 +57,14 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
         }
     }
 
-    let mut eval = if white { i16::min_value() } else { i16::max_value() };
+    let mut eval = if white { i16::MIN } else { i16::MAX };
     let turns = board.get_turn_list(white, false);
     stats.add_created_nodes(turns.len());
 
     if turns.len() == 0 {
         return match board.get_state() {
-            &GameState::WhiteWin => i16::max_value() - 1,
-            &GameState::BlackWin => i16::min_value() + 1,
+            &GameState::WhiteWin => i16::MAX - 1,
+            &GameState::BlackWin => i16::MIN + 1,
             &GameState::Draw => 0,
             _ => panic!("no defined game end"),
         };
@@ -89,6 +88,5 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
             break;
         }
     }
-
     eval
 }

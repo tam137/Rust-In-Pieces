@@ -331,6 +331,13 @@ pub fn zobrist_014() {
     let turn = &Turn::generate_turns("e2e4")[0];
     board.do_turn(turn);
     assert(board.get_hash() == 12430707902562095564);
+
+    board = Board::new();
+    let mut stats = Stats::new();
+    let turn = search::get_best_move(&mut board, 4, true, &mut stats, &mut Config::new());
+    board.do_turn(&turn.0.unwrap());
+    stats.reset_stats();
+    search::get_best_move(&mut board, 4, false, &mut stats, &mut Config::new());
 }
 
 pub fn analyse() {
