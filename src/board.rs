@@ -132,6 +132,15 @@ impl Board {
     }
 
 
+    pub fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
+        self.hash.get_eval_for_hash(hash)
+    }
+
+    pub fn set_new_hash(&mut self, hash: &u64, eval: i16) {
+        self.hash.set_new_hash(hash, eval);
+    }
+
+
     pub fn is_quite_board_for_white(moves_white: &Vec<usize>, moves_black: &Vec<usize>) -> bool {
         let black_targets = Board::get_target_fields_of_raw_moves(moves_black);
         let white_sources = Board::get_source_fields_of_raw_moves(moves_white);

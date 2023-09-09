@@ -14,6 +14,7 @@ pub struct ZobristTable {
     table: [[u64; NUM_PIECES]; BOARD_SIZE],
     fig_map: HashMap<usize, usize>,
     white_to_move: u64,
+    hash_map: HashMap<u64, i16>,
 }
 
 impl ZobristTable {
@@ -43,21 +44,29 @@ impl ZobristTable {
             }
         }
         let white_to_move = rng.gen();
-        Self { table, fig_map, white_to_move }
+        Self { table, fig_map, white_to_move, hash_map: HashMap::with_capacity(1000) }
     }
 
     pub(crate) fn gen(&self, board: &Board) -> u64 {
-        let mut h = 0u64;
+        let mut hash = 0u64;
         if board.is_white_to_move() {
-            h ^= self.white_to_move;
+            hash ^= self.white_to_move;
         }
         for i in 0..BOARD_SIZE {
             let piece = board.get_field()[i];
             if piece > 0 {
                 let piece_index = self.fig_map.get(&(piece as usize)).unwrap();
-                h ^= self.table[i][*piece_index];
+                hash ^= self.table[i][*piece_index];
             }
         }
-        h
+        hash
+    }
+
+    pub(crate) fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
+        self.hash_map.get(hash)
+    }
+
+    pub(crate) fn set_new_hash(&mut self, hash: &u64, eval: i16) {
+        self.hash_map.insert(*hash, eval);
     }
 }
