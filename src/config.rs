@@ -32,7 +32,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            search_algo: SearchAlgo::New,
+            search_algo: SearchAlgo::Zobrist,
             use_quiescence: false,
             use_depth_modificator: false,
             use_book: true,
