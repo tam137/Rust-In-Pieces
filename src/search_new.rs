@@ -12,19 +12,24 @@ pub fn get_moves(mut board: Board, depth: i32, white: bool, stats: &mut Stats, c
     let turns = board.get_turn_list(white, false);
     stats.add_created_nodes(turns.len());
 
+    let mut alpha: i16 = i16::min_value();
+    let mut beta: i16 = i16::max_value();
+
     for turn in turns {
         //let mut child_board = board.clone();
         board.do_turn(&turn);
-        let eval = minimax(&mut board, depth - 1, !white, i16::min_value(), i16::max_value(), stats, &turn, config);
+        let eval = minimax(&mut board, depth - 1, !white, alpha, beta, stats, &turn, config);
         board.do_undo_turn(&turn);
         if white {
             if eval > best_eval {
                 best_eval = eval;
+                alpha = eval;
                 best_move = Some(turn);
             }
         } else {
             if eval < best_eval {
                 best_eval = eval;
+                beta = eval;
                 best_move = Some(turn);
             }
         }
