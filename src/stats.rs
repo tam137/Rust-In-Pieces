@@ -1,5 +1,4 @@
 
-
 pub struct Stats {
     created_nodes: usize,
     calculated_nodes: usize,
