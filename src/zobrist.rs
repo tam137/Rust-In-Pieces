@@ -46,9 +46,9 @@ impl ZobristTable {
 
     pub(crate) fn gen(&self, board: &Board) -> u64 {
         let mut hash = 0u64;
-        if board.is_white_to_move() {
-            hash ^= self.white_to_move;
-        }
+        // if board.is_white_to_move() {
+        //     hash ^= self.white_to_move;
+        // }
         for i in 0..BOARD_SIZE {
             let piece = board.get_field()[i];
             if piece > 0 {
@@ -65,5 +65,9 @@ impl ZobristTable {
 
     pub(crate) fn set_new_hash(&mut self, hash: &u64, eval: i16) {
         self.hash_map.insert(*hash, eval);
+    }
+
+    pub(crate) fn reset_hash(&mut self) {
+        self.hash_map.clear();
     }
 }

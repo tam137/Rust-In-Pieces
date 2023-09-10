@@ -143,6 +143,7 @@ fn main() -> () {
             }
             stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
             stats.reset_stats();
+            //board.reset_hash();
 
         } else if received.starts_with("move") {
             let algebraic_notation;

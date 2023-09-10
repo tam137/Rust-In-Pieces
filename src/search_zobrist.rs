@@ -8,7 +8,7 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
     let mut best_eval = if white { i16::MIN } else { i16::MAX };
     let mut best_move: Option<Turn> = None;
 
-    let turns = board.get_turn_list(white, false);
+    let turns = board.get_turn_list(white, false, stats);
     stats.add_created_nodes(turns.len());
 
     let mut alpha: i16 = i16::MIN;
@@ -57,7 +57,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
     }
 
     let mut eval = if white { i16::MIN } else { i16::MAX };
-    let turns = board.get_turn_list(white, false);
+    let turns = board.get_turn_list(white, false, stats);
     stats.add_created_nodes(turns.len());
 
     if turns.len() == 0 {

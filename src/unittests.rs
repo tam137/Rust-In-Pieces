@@ -34,14 +34,14 @@ fn assert(condition: bool) {
 
 fn move_gen_001() {
     let mut board = Board::new();
-    assert(board.get_turn_list(true, false).len() == 20);
-    assert(board.get_turn_list(false, false).len() == 20);
+    assert(board.get_turn_list(true, false, &mut Stats::new()).len() == 20);
+    assert(board.get_turn_list(false, false, &mut Stats::new()).len() == 20);
     board.clear_field();
     assert(board.generate_moves_list(false).len() == 0);
 
     board = Board::new();
     board.do_turn(&Turn::generate_turns("a2a3")[0]);
-    assert(board.get_turn_list(true, false).len() == 19);
+    assert(board.get_turn_list(true, false, &mut Stats::new()).len() == 19);
 }
 
 fn turn_gen_002() {
@@ -197,9 +197,9 @@ pub fn advanced_castle_007() {
     let fen =  "4k3/8/8/8/8/8/7P/4K2R";
     let fen2 = "4k3/8/8/8/8/3n4/7P/4K2R"; // white king is in chess (can not castle)
     board.set_fen(fen);
-    let move_list = board.get_turn_list(true, false);
+    let move_list = board.get_turn_list(true, false, &mut Stats::new());
     board.set_fen(fen2);
-    let move_list_2 = board.get_turn_list(true, false);
+    let move_list_2 = board.get_turn_list(true, false, &mut Stats::new());
     assert!(move_list_2.len() + 6 == move_list.len());
 
     board.set_fen(fen);
@@ -208,7 +208,7 @@ pub fn advanced_castle_007() {
     assert(board.get_fen() == "4k3/8/8/8/8/8/7P/5RK1");
 
     board.set_fen("4k3/8/b7/8/8/8/7P/4K2R");
-    let move_list = board.get_turn_list(true, false);
+    let move_list = board.get_turn_list(true, false, &mut Stats::new());
     assert!(move_list.len() == 7);
 
     let mut board = Board::new();
@@ -250,9 +250,9 @@ pub fn promotion_010() {
     board.set_field_index(98, 15);
     board.set_field_index(96, 25);
     let mut cmp_board = board.clone();
-    let turn_white = &cmp_board.get_turn_list(true, false)[0];
+    let turn_white = &cmp_board.get_turn_list(true, false, &mut Stats::new())[0];
     assert(turn_white.is_promotion() == true);
-    let turn_black = &board.get_turn_list(false, false)[0];
+    let turn_black = &board.get_turn_list(false, false, &mut Stats::new())[0];
     assert(turn_black.is_promotion() == true);
     board.do_turn(turn_white);
     board.do_turn(turn_black);
@@ -272,7 +272,7 @@ pub fn promotion_010() {
     assert(board.get_fen() == "8/2P5/8/8/8/8/2p5/1R3k1K");
 
     board.set_fen("8/5P2/8/8/1k6/8/1K5p/8");
-    let all_turns = board.get_turn_list(true, false);
+    let all_turns = board.get_turn_list(true, false, &mut Stats::new());
     let mut turn = &mut Turn::generate_turns("f7f8q")[0];
     turn.enrich_promotion_move(&board, true);
     board.do_turn(turn);
@@ -286,13 +286,13 @@ pub fn promotion_010() {
 pub fn end_game_011() {
     let mut board = Board::new();
     board.set_fen("r3k2r/p1p2pp1/2p5/3p3p/3Pn1b1/4P1q1/PPP5/RNB1KQNR");
-    let turn_list = board.get_turn_list(true, false);
+    let turn_list = board.get_turn_list(true, false, &mut Stats::new());
     assert(turn_list.len() == 1);
     //let best_move = &search::get_best_move(&mut board, 4, true, &mut Stats::new(), &.0.unwrap();
     //assert("f1f2" == best_move.to_algebraic());
 
     board.set_fen("8/8/8/2K5/k7/8/R2N4/8");
-    let turn_list = board.get_turn_list(false, false);
+    let turn_list = board.get_turn_list(false, false, &mut Stats::new());
     assert(turn_list.len() == 0);
 }
 
@@ -337,6 +337,7 @@ pub fn zobrist_014() {
     let turn = search::get_best_move(&mut board, 4, true, &mut stats, &mut Config::new());
     board.do_turn(&turn.0.unwrap());
     stats.reset_stats();
+    //board.reset_hash();
     search::get_best_move(&mut board, 4, false, &mut stats, &mut Config::new());
 }
 

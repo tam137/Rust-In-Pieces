@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crate::config::Config;
 use crate::{eval, Turn};
+use crate::stats::Stats;
 use crate::zobrist::ZobristTable;
 
 static TARGETS_FOR_SHORT_WHITE: [i32; 3] = [95, 96, 97];
@@ -139,6 +140,10 @@ impl Board {
         self.hash.set_new_hash(hash, eval);
     }
 
+    pub fn reset_hash(&mut self) {
+        self.hash.reset_hash();
+    }
+
 
     pub fn is_quite_board_for_white(moves_white: &Vec<usize>, moves_black: &Vec<usize>) -> bool {
         let black_targets = Board::get_target_fields_of_raw_moves(moves_black);
@@ -193,7 +198,7 @@ impl Board {
     }
 
 
-    pub fn get_turn_list(&mut self, white: bool, only_capture: bool) -> Vec<Turn> {
+    pub fn get_turn_list(&mut self, white: bool, only_capture: bool, stats: &mut Stats) -> Vec<Turn> {
         let moves = self.generate_moves_list(white);
         let mut turn_list = Vec::with_capacity(50);
         let mut last_from: usize = 0;
@@ -232,7 +237,7 @@ impl Board {
         
         turn_list.retain(|turn| !turn.post_my.is_empty());
 
-        self.sort_move_list_by_eval(&mut turn_list, white);
+        self.sort_move_list_by_eval(&mut turn_list, white, stats);
 
         if turn_list.len() == 0 { 
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
@@ -254,16 +259,18 @@ impl Board {
         }
     }
 
-    fn sort_move_list_by_eval(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
+    fn sort_move_list_by_eval(&mut self, turn_list: &mut Vec<Turn>, white: bool, stats: &mut Stats) -> () {
         for turn in &mut *turn_list {
             self.do_turn(turn);
             if self.config.use_zobrist {
                 let board_hash = self.get_hash();
                 match self.get_eval_for_hash(&board_hash) {
                     Some(eval) => {
+                        stats.add_zobrist_hit(1);
                         turn.eval = *eval;
                     },
                     None => {
+                        stats.add_eval_nodes(1);
                         let eval =  eval::calc_eval(self, turn, &self.config);
                         self.set_new_hash(&board_hash, eval);
                         turn.eval = eval;
