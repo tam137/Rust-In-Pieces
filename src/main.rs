@@ -143,7 +143,7 @@ fn main() -> () {
             }
             stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
             stats.reset_stats();
-            //board.reset_hash();
+            board.clean_up_hash_if_needed();
 
         } else if received.starts_with("move") {
             let algebraic_notation;
@@ -179,6 +179,7 @@ fn test_game() {
         println!("{} {}", best_move.to_algebraic(false), stats.to_string());
         white = !white;
         stats.reset_stats();
+        board.clean_up_hash_if_needed();
     }
     println!("overall {} ms", game_time.elapsed().as_millis());
     std::process::exit(0);

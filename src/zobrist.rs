@@ -1,6 +1,7 @@
 use crate::Board;
 use std::collections::HashMap;
 use rand::{Rng, rngs::StdRng, SeedableRng};
+use crate::config::Config;
 
 const BOARD_SIZE: usize = 120;
 const NUM_PIECES: usize = 12;
@@ -12,6 +13,7 @@ pub struct ZobristTable {
     fig_map: HashMap<usize, usize>,
     white_to_move: u64,
     hash_map: HashMap<u64, i16>,
+    entries: u32,
 }
 
 impl ZobristTable {
@@ -41,7 +43,7 @@ impl ZobristTable {
             }
         }
         let white_to_move = rng.gen();
-        Self { table, fig_map, white_to_move, hash_map: HashMap::with_capacity(1000) }
+        Self { table, fig_map, white_to_move, hash_map: HashMap::with_capacity(1000), entries: 0 }
     }
 
     pub(crate) fn gen(&self, board: &Board) -> u64 {
@@ -64,10 +66,22 @@ impl ZobristTable {
     }
 
     pub(crate) fn set_new_hash(&mut self, hash: &u64, eval: i16) {
+        self.entries += 1;
         self.hash_map.insert(*hash, eval);
     }
 
     pub(crate) fn reset_hash(&mut self) {
         self.hash_map.clear();
+    }
+
+    pub(crate) fn clean_up_hash_if_needed(&mut self, config: &Config) -> u32 {
+        if config.max_zobrist_hash_entries < self.entries {
+            self.hash_map.clear();
+            let ret = self.entries;
+            self.entries = 0;
+            ret
+        } else {
+            0
+        }
     }
 }

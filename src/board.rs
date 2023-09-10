@@ -144,6 +144,10 @@ impl Board {
         self.hash.reset_hash();
     }
 
+    pub fn clean_up_hash_if_needed(&mut self) -> u32 {
+        self.hash.clean_up_hash_if_needed(&self.config)
+    }
+
 
     pub fn is_quite_board_for_white(moves_white: &Vec<usize>, moves_black: &Vec<usize>) -> bool {
         let black_targets = Board::get_target_fields_of_raw_moves(moves_black);

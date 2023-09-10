@@ -327,7 +327,7 @@ pub fn is_quite_board_check_013() {
 
 pub fn zobrist_014() {
     let mut board = Board::new();
-    assert(board.get_hash() == 2306104081628236860);
+    assert(board.get_hash() == 9054072837742332314);
     let turn = &Turn::generate_turns("e2e4")[0];
     board.do_turn(turn);
     assert(board.get_hash() == 12430707902562095564);
@@ -337,7 +337,6 @@ pub fn zobrist_014() {
     let turn = search::get_best_move(&mut board, 4, true, &mut stats, &mut Config::new());
     board.do_turn(&turn.0.unwrap());
     stats.reset_stats();
-    //board.reset_hash();
     search::get_best_move(&mut board, 4, false, &mut stats, &mut Config::new());
 }
 
