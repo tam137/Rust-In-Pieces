@@ -34,8 +34,7 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
 fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
     if depth <= 0 {
         stats.add_eval_nodes(1);
-        let fuzzy_eval = rand::thread_rng().gen_range(0.. config.eval_fuzzy + 1) - config.eval_fuzzy / 2;
-        return eval::calc_eval(board, turn, config) + fuzzy_eval;
+        return eval::calc_eval(board, turn, config);
     }
 
     let mut eval = if white { i16::min_value() } else { i16::max_value() };

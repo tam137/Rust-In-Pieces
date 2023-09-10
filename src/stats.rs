@@ -48,8 +48,8 @@ impl Stats {
         self.eval_nodes,
         self.created_nodes / (self.calc_time_ms + 1),
         100 - (self.calculated_nodes * 100 / if self.created_nodes == 0 { 1 } else { self.created_nodes }),
-        self.zobrist_hit)
-        //(self.zobrist_hit * 100 / self.eval_nodes))
+        //self.zobrist_hit)
+        (self.zobrist_hit * 100 / self.eval_nodes))
     }
 
 }

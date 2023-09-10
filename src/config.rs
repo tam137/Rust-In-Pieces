@@ -11,7 +11,6 @@ pub struct Config {
     pub max_zobrist_hash_entries: u32,
     pub search_depth: i32,
     pub search_depth_quite: i32,
-    pub eval_fuzzy: i16,
     pub move_freedom_bonus: i32,
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -42,7 +41,7 @@ impl Config {
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
             search_depth_quite: 4,
-            eval_fuzzy: 0,
+
             move_freedom_bonus: 4,
             undeveloped_knight_malus: 35,
             undeveloped_bishop_malus: 20,
@@ -82,7 +81,6 @@ impl Config {
     }
 
     pub fn unittest(&mut self) -> &Config {
-        self.eval_fuzzy = 0;
         self.search_depth = 2;
         self
     }
