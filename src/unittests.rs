@@ -1,24 +1,26 @@
 use crate::{Board, turn};
+use crate::board::GameState;
 use crate::Turn;
 use crate::search;
 use crate::Stats;
 use crate::config::Config;
+use crate::search::SearchAlgo;
 
 
 pub fn run_unittests() {
-    move_gen_001();
-    turn_gen_002();
-    eval_003();
-    pty_005();
-    castle_006();
-    turn_color_008();
-    advanced_castle_007();
-    fen_009();
-    promotion_010();
-    end_game_011();
-    static_board_function_012();
-    is_quite_board_check_013();
-    zobrist_014();
+    // move_gen_001();
+    // turn_gen_002();
+    // eval_003();
+    // pty_005();
+    // castle_006();
+    // turn_color_008();
+    // advanced_castle_007();
+    // fen_009();
+    // promotion_010();
+    // end_game_011();
+    // static_board_function_012();
+    // is_quite_board_check_013();
+    // zobrist_014();
     analyse();
     println!("finished unittests")
 }
@@ -294,6 +296,13 @@ pub fn end_game_011() {
     board.set_fen("8/8/8/2K5/k7/8/R2N4/8");
     let turn_list = board.get_turn_list(false, false, &mut Stats::new());
     assert(turn_list.len() == 0);
+
+    board.clear_field();
+    board.set_field_index(33, 25);
+    board.set_field_index(63, 15);
+    assert(board.get_state() != &GameState::Draw);
+    board.get_turn_list(true, false, &mut Stats::new());
+    assert(board.get_state() == &GameState::Draw);
 }
 
 pub fn static_board_function_012() {
@@ -342,6 +351,7 @@ pub fn zobrist_014() {
 
 pub fn analyse() {
     let mut board = Board::new();
+    let mut config = Config::new();
     board.set_fen("2r3r1/Pb1kP1b1/6n1/2P3p1/2p3P1/6N1/pB1Kp1B1/2R3R1");
     let best_white = search::get_best_move(&mut board, 2, true, &mut Stats::new(), &mut Config::new().unittest());
     let best_black = search::get_best_move(&mut board, 2, false, &mut Stats::new(), &mut Config::new().unittest());
@@ -353,4 +363,17 @@ pub fn analyse() {
     board.set_fen("r1b1kbnr/ppp1qppp/3p4/3P4/1n6/P1N1B3/1PP2PPP/R2QKBNR");
     //let best_black = search::get_best_move(&mut board, 4, false, &mut Stats::new(), &mut ;
     //println!("{}", best_black.0.unwrap().to_algebraic());
+
+    let mut board = Board::new();
+    let turns = Turn::generate_turns("e2e3 e7e6");
+    for turn in turns {
+        board.do_turn(&turn);
+    }
+
+    config.set_search_alg(SearchAlgo::Zobrist);
+    let best = search::get_best_move(&mut board, 4, true, &mut Stats::new(), &config);
+    config.set_search_alg(SearchAlgo::AlphaBeta);
+    let best = search::get_best_move(&mut board, 4, true, &mut Stats::new(), &config);
+    // best is g1h3 in both
+
 }

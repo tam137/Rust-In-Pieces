@@ -42,7 +42,7 @@ impl Config {
             search_depth: 4,
             search_depth_quite: 4,
 
-            move_freedom_bonus: 4,
+            move_freedom_bonus: 1,
             undeveloped_knight_malus: 35,
             undeveloped_bishop_malus: 20,
             pawn_on_last_rank_bonus: 200,
@@ -83,5 +83,9 @@ impl Config {
     pub fn unittest(&mut self) -> &Config {
         self.search_depth = 2;
         self
+    }
+
+    pub fn set_search_alg(&mut self, searchAlgo: SearchAlgo) {
+        self.search_algo = searchAlgo;
     }
 }

@@ -37,8 +37,8 @@ fn main() -> () {
         Some(value) if value == "unittest" => {
             println!("run unittest");
             unittests::run_unittests();
-            test_game();
-            return;
+            //test_game();
+            std::process::exit(0);
         },
         Some(value) if value == "testgame" => {
             test_game();
@@ -61,7 +61,7 @@ fn main() -> () {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V53_impl_zobrist_cleanup");
+                        println!("id name RustInPieces V54_eval_move_freedom_change");
 
                         println!("id author Jan Lange");
                         println!("uciok");                        

@@ -125,6 +125,7 @@ impl Board {
         for i in 21..99 {
             if self.field[i] > 0 { self.field[i] = 0 };
         }
+        self.hash.reset_hash();
     }
 
     pub fn get_hash(&self) -> u64 {
@@ -250,8 +251,16 @@ impl Board {
                 self.state = GameState::Draw;
             }
         }
+        if self.insufficient_material() {
+            self.state = GameState::Draw;
+        }
+
         self.state = if self.position_map.values().any(|&value| value > 2) { GameState::Draw } else { self.state };
         turn_list.clone()
+    }
+
+    fn insufficient_material(&self) -> bool {
+        self.get_pieces_on_field() == 2
     }
 
 
