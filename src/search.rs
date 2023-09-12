@@ -1,10 +1,13 @@
-use crate::{Board, search_zobrist};
+use crate::Board;
 use crate::config::Config;
-use crate::search_basic;
-use crate::search_alphabeta;
-use crate::search_quite;
-use crate::Stats;
+use crate::stats::Stats;
+
 use crate::Turn;
+
+mod search_basic;
+mod search_alphabeta;
+mod search_zobrist;
+mod search_quite;
 
 
 #[derive(Clone)]

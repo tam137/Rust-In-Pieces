@@ -46,7 +46,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
                     return *eval;
                 },
                 None => {
-                    let eval =  eval::calc_eval(board, turn, config);
+                    let eval = eval::calc_eval(board, turn, config);
                     board.set_new_hash(&board_hash, eval);
                     return eval;
                 }
