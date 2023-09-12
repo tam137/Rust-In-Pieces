@@ -154,7 +154,7 @@ impl Board {
         let black_targets = Board::get_target_fields_of_raw_moves(moves_black);
         let white_sources = Board::get_source_fields_of_raw_moves(moves_white);
         for element in black_targets {
-            if white_sources.contains(&(element as i32)) {
+            if white_sources.contains(&(element)) {
                 return false;
             }
         }
@@ -165,7 +165,7 @@ impl Board {
         let white_targets = Board::get_target_fields_of_raw_moves(moves_white);
         let black_sources = Board::get_source_fields_of_raw_moves(moves_black);
         for element in white_targets {
-            if black_sources.contains(&(element as i32)) {
+            if black_sources.contains(&(element)) {
                 return false;
             }
         }
@@ -179,12 +179,12 @@ impl Board {
         let m2_sources = Board::get_source_fields_of_raw_moves(moves_2);
 
         for element in m1_targets {
-            if m2_sources.contains(&(element as i32)) {
+            if m2_sources.contains(&(element)) {
                 return false;
             }
         }
         for element in m2_targets {
-            if m1_sources.contains(&(element as i32)) {
+            if m1_sources.contains(&(element)) {
                 return false;
             }
         }

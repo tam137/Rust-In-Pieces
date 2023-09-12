@@ -10,6 +10,7 @@ mod opening;
 mod search_basic;
 mod search_alphabeta;
 mod search_zobrist;
+mod search_quite;
 
 use turn::Turn;
 use board::Board;
