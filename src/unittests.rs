@@ -21,6 +21,7 @@ pub fn run_unittests() {
     // static_board_function_012();
     // is_quite_board_check_013();
     // zobrist_014();
+    quiescence_015();
     analyse();
     println!("finished unittests")
 }
@@ -347,6 +348,16 @@ pub fn zobrist_014() {
     board.do_turn(&turn.0.unwrap());
     stats.reset_stats();
     search::get_best_move(&mut board, 4, false, &mut stats, &mut Config::new());
+}
+
+pub fn quiescence_015() {
+    // italian two knight defense
+    let mut board = Board::new();
+    board.set_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R");
+    let mut config = Config::new();
+    config.set_search_alg(SearchAlgo::Quiescence);
+    let mut stats = Stats::new();
+    search::get_best_move(&mut board, 2, true, &mut stats, &config);
 }
 
 pub fn analyse() {

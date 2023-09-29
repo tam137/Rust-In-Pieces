@@ -36,23 +36,19 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
 }
 
 fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+
     if depth <= 0 {
-        stats.add_eval_nodes(1);
-        if (config.use_zobrist) {
-            let board_hash = board.get_hash();
-            match board.get_eval_for_hash(&board_hash) {
-                Some(eval) => {
-                    stats.add_zobrist_hit(1);
-                    return *eval;
-                },
-                None => {
-                    let eval = eval::calc_eval(board, turn, config);
-                    board.set_new_hash(&board_hash, eval);
-                    return eval;
-                }
-            }
+        let hit_turns = board.get_turn_list(white, true, stats);
+        if hit_turns.is_empty() {
+            return return_eval(board, stats, turn, config);
         } else {
-            return eval::calc_eval(board, turn, config);
+            stats.add_created_nodes(hit_turns.len());
+            for turn in hit_turns {
+                board.do_turn(&turn);
+                quiescence(board, config.search_depth_quite, !white, alpha, beta, stats, &turn, config);
+                board.do_undo_turn(&turn);
+            }
+            return return_eval(board, stats, turn, config);
         }
     }
 
@@ -87,5 +83,56 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
             break;
         }
     }
-    eval
+    return eval;
+}
+
+
+fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+    let mut eval = if white { i16::MIN } else { i16::MAX };
+    let hit_turns = board.get_turn_list(white, true, stats);
+    if hit_turns.is_empty() || depth <= 0 {
+        return return_eval(board, stats, turn, config);
+    } else {
+        stats.add_created_nodes(hit_turns.len());
+        for turn in hit_turns {
+            board.do_turn(&turn);
+            let child_eval = quiescence(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+            board.do_undo_turn(&turn);
+
+            if white {
+                eval = eval.max(child_eval);
+                alpha = alpha.max(eval);
+            } else {
+                eval = eval.min(child_eval);
+                beta = beta.min(eval);
+            }
+
+            if beta <= alpha {
+                break;
+            }
+        }
+    }
+    return eval;
+
+}
+
+
+fn return_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+    stats.add_eval_nodes(1);
+    if config.use_zobrist {
+        let board_hash = board.get_hash();
+        match board.get_eval_for_hash(&board_hash) {
+            Some(eval) => {
+                stats.add_zobrist_hit(1);
+                return *eval;
+            },
+            None => {
+                let eval = eval::calc_eval(board, turn, config);
+                board.set_new_hash(&board_hash, eval);
+                return eval;
+            }
+        }
+    } else {
+        return eval::calc_eval(board, turn, config);
+    }
 }

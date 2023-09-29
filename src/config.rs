@@ -4,7 +4,6 @@ use crate::search::SearchAlgo;
 #[derive(Clone)]
 pub struct Config {
     pub search_algo: SearchAlgo,
-    pub use_quiescence: bool,
     pub use_depth_modificator: bool,
     pub use_book: bool,
     pub use_zobrist: bool,
@@ -34,13 +33,12 @@ impl Config {
     pub fn new() -> Config {
         Config {
             search_algo: SearchAlgo::Quiescence,
-            use_quiescence: false,
             use_depth_modificator: false,
             use_book: true,
             use_zobrist: true,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
-            search_depth_quite: 4,
+            search_depth_quite: 2,
 
             move_freedom_bonus: 1,
             undeveloped_knight_malus: 35,
