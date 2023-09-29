@@ -40,7 +40,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
     if depth <= 0 {
         let hit_turns = board.get_turn_list(white, true, stats);
         if hit_turns.is_empty() {
-            return return_eval(board, stats, turn, config);
+            return check_hash_or_calculate_eval(board, stats, turn, config);
         } else {
             stats.add_created_nodes(hit_turns.len());
             for turn in hit_turns {
@@ -48,7 +48,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
                 quiescence(board, config.search_depth_quite, !white, alpha, beta, stats, &turn, config);
                 board.do_undo_turn(&turn);
             }
-            return return_eval(board, stats, turn, config);
+            return check_hash_or_calculate_eval(board, stats, turn, config);
         }
     }
 
@@ -91,7 +91,7 @@ fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut be
     let mut eval = if white { i16::MIN } else { i16::MAX };
     let hit_turns = board.get_turn_list(white, true, stats);
     if hit_turns.is_empty() || depth <= 0 {
-        return return_eval(board, stats, turn, config);
+        return check_hash_or_calculate_eval(board, stats, turn, config);
     } else {
         stats.add_created_nodes(hit_turns.len());
         for turn in hit_turns {
@@ -117,7 +117,7 @@ fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut be
 }
 
 
-fn return_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+fn check_hash_or_calculate_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
     stats.add_eval_nodes(1);
     if config.use_zobrist {
         let board_hash = board.get_hash();
