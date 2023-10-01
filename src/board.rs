@@ -20,6 +20,7 @@ pub struct Board {
     position_map: HashMap<String, i32>,
     hash: ZobristTable,
     config: Config,
+    current_best: i16,
 }
 
 #[derive(PartialEq)]
@@ -98,6 +99,7 @@ impl Board {
             position_map: HashMap::new(),
             hash: ZobristTable::new(),
             config: Config::new(),
+            current_best: 0,
         }
     }
 
@@ -132,6 +134,13 @@ impl Board {
         return self.hash.gen(self);
     }
 
+    pub fn set_current_best(&mut self, eval: i16) {
+        self.current_best = eval;
+    }
+
+    pub fn get_current_best(&self) -> i16 {
+        self.current_best
+    }
 
     pub fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
         self.hash.get_eval_for_hash(hash)
