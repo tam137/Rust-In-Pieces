@@ -16,12 +16,12 @@ pub fn run_unittests() {
     // turn_color_008();
     // advanced_castle_007();
     // fen_009();
-    // promotion_010();
+    promotion_010();
     // end_game_011();
     // static_board_function_012();
     // is_quite_board_check_013();
     // zobrist_014();
-    quiescence_015();
+    //quiescence_015();
     // analyse();
     println!("finished unittests")
 }
@@ -246,6 +246,19 @@ pub fn fen_009() {
 }
 
 pub fn promotion_010() {
+
+    let turn_list = Turn::generate_turns("e7e8q");
+    let mut board = Board::new();
+    board.set_fen("8/4P3/8/8/1K4p1/6k1/7n/8");
+    board.do_turn(turn_list.get(0).unwrap());
+    test_helper::get_bestmove_for_fen(&*board.get_fen(), false);
+
+
+    let turn = test_helper::get_bestmove_for_fen("8/4P3/8/8/1K4p1/6k1/7n/8", true);
+    test_helper::assert::equal_move(turn, "e7e8q");
+
+
+
     let mut board = Board::new();
     board.clear_field();
     board.set_field_index(33, 10);
