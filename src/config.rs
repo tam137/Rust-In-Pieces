@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::search::SearchAlgo;
 
 #[derive(Clone)]
@@ -20,6 +19,7 @@ pub struct Config {
     pub undeveloped_center_pawn_malus: i16,
     pub short_castle_bonus: i16,
     pub long_castle_bonus: i16,
+    pub max_push_bonus: i16,
     pub piece_eval_pawn: i16,
     pub piece_eval_rook: i16,
     pub piece_value_knight: i16,
@@ -50,6 +50,7 @@ impl Config {
             undeveloped_center_pawn_malus: 90,
             short_castle_bonus: 110,
             long_castle_bonus: 75,
+            max_push_bonus: 10,
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,

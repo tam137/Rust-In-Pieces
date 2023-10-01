@@ -1,27 +1,28 @@
-use crate::{Board, turn};
+use crate::{Board, eval, turn};
 use crate::board::GameState;
 use crate::Turn;
 use crate::search;
 use crate::Stats;
 use crate::config::Config;
 use crate::search::SearchAlgo;
+use eval::calc_push_to_king;
 
 
 pub fn run_unittests() {
     // move_gen_001();
     // turn_gen_002();
-    // eval_003();
+     eval_003();
     // pty_005();
     // castle_006();
     // turn_color_008();
     // advanced_castle_007();
     // fen_009();
-    promotion_010();
+    // promotion_010();
     // end_game_011();
     // static_board_function_012();
     // is_quite_board_check_013();
     // zobrist_014();
-    //quiescence_015();
+    // quiescence_015();
     // analyse();
     println!("finished unittests")
 }
@@ -77,7 +78,8 @@ fn turn_gen_002() {
 
 
 fn eval_003() {
-    // need to
+    let eval = test_helper::get_static_eval_for_fen("8/8/8/3k4/3BN3/8/8/3K4", calc_push_to_king);
+    assert(eval > 100);
 }
 
 fn pty_005() {
@@ -253,10 +255,8 @@ pub fn promotion_010() {
     board.do_turn(turn_list.get(0).unwrap());
     test_helper::get_bestmove_for_fen(&*board.get_fen(), false);
 
-
     let turn = test_helper::get_bestmove_for_fen("8/4P3/8/8/1K4p1/6k1/7n/8", true);
     test_helper::assert::equal_move(turn, "e7e8q");
-
 
 
     let mut board = Board::new();
@@ -407,11 +407,12 @@ pub fn analyse() {
 
 
 mod test_helper {
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
     use crate::board::Board;
     use crate::config::Config;
     use crate::search;
     use crate::search::SearchAlgo;
+    use crate::search::SearchAlgo::Quiescence;
     use crate::stats::Stats;
     use crate::turn::Turn;
 
@@ -435,8 +436,17 @@ mod test_helper {
         return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
     }
 
+    pub fn get_static_eval_for_fen(fen: &str, calcFunction: fn(&Board,&Config,&mut HashMap<&str, i32>) -> i16) -> i16 {
+        let mut board = Board::new();
+        board.set_fen(fen);
+        let mut config = Config::new();
+        calcFunction(&board, &config, &mut HashMap::new())
+    }
+
+
     pub(crate) mod assert {
         use std::collections::VecDeque;
+        use std::println;
         use crate::turn::Turn;
         use crate::unittests::assert;
 

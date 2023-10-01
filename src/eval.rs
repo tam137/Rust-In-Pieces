@@ -14,10 +14,11 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
     let mut eval = 0i16;
     eval += calc_eval_material(board, config, &mut semi_results);
     eval += move_possibilities(board, turn, config, &mut semi_results);
-    eval += calc_pawn_progress(board, config, &mut semi_results);
-    eval += calc_developed_pieces(board, config, &mut semi_results);
-    eval += calc_early_queen(board, config, &mut semi_results);
-    eval += calc_casteling(board, config, &mut semi_results);
+    // eval += calc_pawn_progress(board, config, &mut semi_results);
+    // eval += calc_developed_pieces(board, config, &mut semi_results);
+    // eval += calc_early_queen(board, config, &mut semi_results);
+    // eval += calc_casteling(board, config, &mut semi_results);
+    eval += calc_push_to_king(board, config, &mut semi_results);
 
     eval
 }
@@ -135,6 +136,36 @@ pub fn calc_casteling(board: &Board, config: &Config, semi_results: &mut HashMap
         if board.get_field()[93] == 15 { eval += config.long_castle_bonus }
         if board.get_field()[27] == 25 { eval -= config.short_castle_bonus }
         if board.get_field()[23] == 25 { eval -= config.long_castle_bonus }
+    }
+    eval
+}
+
+pub fn calc_push_to_king(board: &Board, config: &Config, semi_results: &mut HashMap<&str, i32>) -> i16 {
+    let mut idx_black = 0;
+    let mut idx_white = 0;
+    let mut eval = 0;
+
+    for idx in 21..99 {
+        if board.get_field()[idx] == 15 { idx_white = idx };
+        if board.get_field()[idx] == 25 { idx_black = idx };
+    }
+
+    for idx in 21..99 {
+        let fig = board.get_field()[idx];
+
+        match fig {
+            11..= 15 => {
+                let mut horizontal = 16 - ((idx_black % 10) as isize).wrapping_sub((idx % 10) as isize).abs();
+                let mut vertical = 16 - ((idx_black / 10) as isize).wrapping_sub((idx / 10) as isize).abs();
+                eval = config.max_push_bonus * (horizontal + vertical) as i16;
+            },
+            21..= 25 => {
+                let mut horizontal = 16 - ((idx_black % 10) as isize).wrapping_sub((idx % 10) as isize).abs();
+                let mut vertical = 16 - ((idx_black / 10) as isize).wrapping_sub((idx / 10) as isize).abs();
+                eval = config.max_push_bonus * (horizontal + vertical) as i16 * (-1);
+            },
+            _ => {}
+        }
     }
     eval
 }
