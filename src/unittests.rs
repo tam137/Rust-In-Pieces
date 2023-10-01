@@ -8,20 +8,20 @@ use crate::search::SearchAlgo;
 
 
 pub fn run_unittests() {
-    // move_gen_001();
-    // turn_gen_002();
-    // eval_003();
-    // pty_005();
-    // castle_006();
-    // turn_color_008();
-    // advanced_castle_007();
-    // fen_009();
-    // promotion_010();
-    // end_game_011();
-    // static_board_function_012();
-    // is_quite_board_check_013();
-    // zobrist_014();
-     quiescence_015();
+    move_gen_001();
+    turn_gen_002();
+    eval_003();
+    pty_005();
+    castle_006();
+    turn_color_008();
+    advanced_castle_007();
+    fen_009();
+    promotion_010();
+    end_game_011();
+    static_board_function_012();
+    is_quite_board_check_013();
+    zobrist_014();
+    quiescence_015();
     // analyse();
     println!("finished unittests")
 }
@@ -351,11 +351,10 @@ pub fn zobrist_014() {
 }
 
 pub fn quiescence_015() {
-    let turn = test_helper::get_bestmove_for_fen("11k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
-    //test_helper::assert::equal_move(turn, "f3e4");  // does g3f4
-
     let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
-    test_helper::assert::equal_move(turn, "d3e4");
+    test_helper::assert::equal_move(turn, "e1b4");  // does g3f4
+    let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
+    test_helper::assert::equal_move(turn, "f3e4");
 }
 
 pub fn analyse() {
@@ -413,10 +412,13 @@ mod test_helper {
         use crate::turn::Turn;
         use crate::unittests::assert;
 
-        pub fn equal_move(turn: (Option<Turn>, i16, VecDeque<Option<Turn>>), alg_move: &str) {
+        pub fn equal_move(turn: (Option<Turn>, i16, VecDeque<Option<Turn>>), expected_move: &str) {
             let unwraped_turn = turn.0.unwrap();
             let move_calc = unwraped_turn.to_algebraic(false);
-            assert(move_calc.eq(alg_move));
+            if !move_calc.eq(expected_move) {
+                println!("actual: {}, expected: {}", move_calc, expected_move);
+            }
+            assert(move_calc.eq(expected_move));
         }
     }
 
