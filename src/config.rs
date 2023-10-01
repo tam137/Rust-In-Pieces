@@ -37,8 +37,8 @@ impl Config {
             use_book: true,
             use_zobrist: true,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
-            search_depth: 4,
-            search_depth_quite: 4,
+            search_depth: 2,
+            search_depth_quite: 10,
 
             move_freedom_bonus: 1,
             undeveloped_knight_malus: 35,

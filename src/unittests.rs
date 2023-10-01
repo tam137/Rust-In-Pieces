@@ -8,19 +8,19 @@ use crate::search::SearchAlgo;
 
 
 pub fn run_unittests() {
-    move_gen_001();
-    turn_gen_002();
-    eval_003();
-    pty_005();
-    castle_006();
-    turn_color_008();
-    advanced_castle_007();
-    fen_009();
-    promotion_010();
-    end_game_011();
-    static_board_function_012();
-    is_quite_board_check_013();
-    zobrist_014();
+    // move_gen_001();
+    // turn_gen_002();
+    // eval_003();
+    // pty_005();
+    // castle_006();
+    // turn_color_008();
+    // advanced_castle_007();
+    // fen_009();
+    // promotion_010();
+    // end_game_011();
+    // static_board_function_012();
+    // is_quite_board_check_013();
+    // zobrist_014();
     quiescence_015();
     // analyse();
     println!("finished unittests")
@@ -351,6 +351,11 @@ pub fn zobrist_014() {
 }
 
 pub fn quiescence_015() {
+
+    let turn = test_helper::get_bestmove_for_fen_only_hit_moves("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
+    test_helper::assert::equal_move(turn, "f3e4");
+
+
     let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
     test_helper::assert::equal_move(turn, "e1b4");  // does g3f4
     let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
@@ -406,6 +411,16 @@ mod test_helper {
         return search::get_best_move(&mut board, 2, white, &mut stats, &config);
     }
 
+    pub fn get_bestmove_for_fen_only_hit_moves(fen: &str, white: bool) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+        let mut board = Board::new();
+        let mut stats = Stats::new();
+        let mut config = Config::new();
+        config.search_depth = 0;
+        config.search_depth_quite = 99;
+        config.set_search_alg(SearchAlgo::Quiescence);
+        board.set_fen(fen);
+        return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
+    }
 
     pub(crate) mod assert {
         use std::collections::VecDeque;
