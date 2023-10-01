@@ -8,20 +8,20 @@ use crate::search::SearchAlgo;
 
 
 pub fn run_unittests() {
-    move_gen_001();
-    turn_gen_002();
-    eval_003();
-    pty_005();
-    castle_006();
-    turn_color_008();
-    advanced_castle_007();
-    fen_009();
-    promotion_010();
-    end_game_011();
-    static_board_function_012();
-    is_quite_board_check_013();
-    zobrist_014();
-    quiescence_015();
+    // move_gen_001();
+    // turn_gen_002();
+    // eval_003();
+    // pty_005();
+    // castle_006();
+    // turn_color_008();
+    // advanced_castle_007();
+    // fen_009();
+    // promotion_010();
+    // end_game_011();
+    // static_board_function_012();
+    // is_quite_board_check_013();
+    // zobrist_014();
+     quiescence_015();
     // analyse();
     println!("finished unittests")
 }
@@ -354,8 +354,8 @@ pub fn quiescence_015() {
     let turn = test_helper::get_bestmove_for_fen("11k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
     //test_helper::assert::equal_move(turn, "f3e4");  // does g3f4
 
-    // let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
-    // test_helper::assert::equal_move(turn, "d3e4");
+    let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
+    test_helper::assert::equal_move(turn, "d3e4");
 }
 
 pub fn analyse() {
@@ -390,6 +390,7 @@ pub fn analyse() {
 
 
 mod test_helper {
+    use std::collections::VecDeque;
     use crate::board::Board;
     use crate::config::Config;
     use crate::search;
@@ -397,7 +398,7 @@ mod test_helper {
     use crate::stats::Stats;
     use crate::turn::Turn;
 
-    pub fn get_bestmove_for_fen(fen: &str, white: bool) -> (Option<Turn>, i16) {
+    pub fn get_bestmove_for_fen(fen: &str, white: bool) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
@@ -408,10 +409,11 @@ mod test_helper {
 
 
     pub(crate) mod assert {
+        use std::collections::VecDeque;
         use crate::turn::Turn;
         use crate::unittests::assert;
 
-        pub fn equal_move(turn: (Option<Turn>, i16), alg_move: &str) {
+        pub fn equal_move(turn: (Option<Turn>, i16, VecDeque<Option<Turn>>), alg_move: &str) {
             let unwraped_turn = turn.0.unwrap();
             let move_calc = unwraped_turn.to_algebraic(false);
             assert(move_calc.eq(alg_move));
