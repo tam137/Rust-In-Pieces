@@ -22,7 +22,7 @@ pub fn run_unittests() {
     is_quite_board_check_013();
     zobrist_014();
     quiescence_015();
-    analyse();
+    // analyse();
     println!("finished unittests")
 }
 
@@ -354,8 +354,8 @@ pub fn quiescence_015() {
     let turn = test_helper::get_bestmove_for_fen("11k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
     //test_helper::assert::equal_move(turn, "f3e4");  // does g3f4
 
-    let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
-    test_helper::assert::equal_move(turn, "d3e4");
+    // let turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
+    // test_helper::assert::equal_move(turn, "d3e4");
 }
 
 pub fn analyse() {

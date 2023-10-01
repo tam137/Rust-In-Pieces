@@ -14,23 +14,26 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
     stats.add_created_nodes(turns.len());
     board.set_current_best(eval::calc_eval_material(board, config, &mut HashMap::new()));
 
+    let best_move_row: Option<Turn> = None;
+
     let mut alpha: i16 = i16::MIN;
     let mut beta: i16 = i16::MAX;
 
     for turn in turns {
         board.do_turn(&turn);
-        let eval = minimax(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+        let min_max_result = minimax(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+        let min_max_eval = min_max_result.1;
         board.do_undo_turn(&turn);
         if white {
-            if eval > best_eval {
-                best_eval = eval;
-                alpha = eval;
+            if min_max_eval > best_eval {
+                best_eval = min_max_eval;
+                alpha = min_max_eval;
                 best_move = Some(turn);
             }
         } else {
-            if eval < best_eval {
-                best_eval = eval;
-                beta = eval;
+            if min_max_eval < best_eval {
+                best_eval = min_max_eval;
+                beta = min_max_eval;
                 best_move = Some(turn);
             }
         }
@@ -39,7 +42,7 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
     (best_move, best_eval)
 }
 
-fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16) {
 
     if depth <= 0 {
         let hit_turns = board.get_turn_list(white, true, stats);
@@ -57,14 +60,15 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
     }
 
     let mut eval = if white { i16::MIN } else { i16::MAX };
+    let mut best_move: Option<Turn> = None;
     let turns = board.get_turn_list(white, false, stats);
     stats.add_created_nodes(turns.len());
 
     if turns.len() == 0 {
         return match board.get_state() {
-            &GameState::WhiteWin => i16::MAX - 1,
-            &GameState::BlackWin => i16::MIN + 1,
-            &GameState::Draw => 0,
+            &GameState::WhiteWin => (None, i16::MAX - 1),
+            &GameState::BlackWin => (None, i16::MIN + 1),
+            &GameState::Draw => (None, 0),
             _ => panic!("no defined game end"),
         };
     }
@@ -72,32 +76,40 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
     for turn in turns {
         stats.add_calculated_nodes(1);
         board.do_turn(&turn);
-        let child_eval = minimax(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+        let min_max_result = minimax(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+        let min_max_eval = min_max_result.1;
         board.do_undo_turn(&turn);
 
         if white {
-            eval = eval.max(child_eval);
-            alpha = alpha.max(eval);
-        } else {
-            eval = eval.min(child_eval);
-            beta = beta.min(eval);
+            if eval < min_max_eval {
+                eval = min_max_eval;
+                alpha = min_max_eval;
+                best_move = Some(turn);
+            }
         }
-
+        else {
+            if eval > min_max_eval {
+                eval = min_max_eval;
+                beta = min_max_eval;
+                best_move = Some(turn);
+            }
+        }
         if beta <= alpha {
             break;
         }
     }
-    return eval;
+    return (best_move, eval);
 }
 
 
-fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16) {
     let mut eval = if white { i16::MIN } else { i16::MAX };
+    let mut best_move: Option<Turn> = None;
     let hit_turns = board.get_turn_list(white, true, stats);
-    let mut eval= check_hash_or_calculate_eval(board, stats, turn, config);
+    let mut eval_result= check_hash_or_calculate_eval(board, stats, turn, config);
 
     if hit_turns.is_empty() || depth <= -config.search_depth_quite {
-        return eval;
+        return eval_result;
     } else {
         stats.add_created_nodes(hit_turns.len());
         let stand_pat_cut = if white {
@@ -107,48 +119,55 @@ fn quiescence(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut be
         };
 
         if stand_pat_cut {
-            return eval;
+            return eval_result;
         }
 
         for turn in hit_turns {
             board.do_turn(&turn);
-            let child_eval = quiescence(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+            let quite_result = quiescence(board, depth - 1, !white, alpha, beta, stats, &turn, config);
+            let quite_eval = quite_result.1;
             board.do_undo_turn(&turn);
 
             if white {
-                eval = eval.max(child_eval);
-                alpha = alpha.max(eval);
-            } else {
-                eval = eval.min(child_eval);
-                beta = beta.min(eval);
+                if eval < quite_eval {
+                    eval = quite_eval;
+                    alpha = quite_eval;
+                    best_move = Some(turn);
+                }
             }
-
+            else {
+                if eval > quite_eval {
+                    eval = quite_eval;
+                    beta = quite_eval;
+                    best_move = Some(turn);
+                }
+            }
             if beta <= alpha {
                 break;
             }
         }
     }
-    return eval;
+    return (best_move, eval);
 
 }
 
 
-fn check_hash_or_calculate_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> i16 {
+fn check_hash_or_calculate_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16) {
     stats.add_eval_nodes(1);
     if config.use_zobrist {
         let board_hash = board.get_hash();
         match board.get_eval_for_hash(&board_hash) {
             Some(eval) => {
                 stats.add_zobrist_hit(1);
-                return *eval;
+                return (None, *eval);
             },
             None => {
                 let eval = eval::calc_eval(board, turn, config);
                 board.set_new_hash(&board_hash, eval);
-                return eval;
+                return (None, eval);
             }
         }
     } else {
-        return eval::calc_eval(board, turn, config);
+        return (None, eval::calc_eval(board, turn, config));
     }
 }

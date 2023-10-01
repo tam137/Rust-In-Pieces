@@ -38,7 +38,7 @@ impl Config {
             use_zobrist: true,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
-            search_depth_quite: 4,
+            search_depth_quite: 0,
 
             move_freedom_bonus: 1,
             undeveloped_knight_malus: 35,
