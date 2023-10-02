@@ -18,7 +18,7 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
 
     let mut eval = 0i16;
     eval += calc_eval_material(board, config, &mut semi_results);
-    eval += move_possibilities(board, turn, config, &mut semi_results);
+    //eval += move_possibilities(board, turn, config, &mut semi_results);
     eval += calc_pawn_progress(board, config, &mut semi_results);
     eval += calc_developed_pieces(board, config, &mut semi_results);
     eval += calc_early_queen(board, config, &mut semi_results);
@@ -163,23 +163,27 @@ pub fn calc_push_to_king(board: &Board, config: &Config, semi_results: &mut Hash
     let mut eval = 0;
 
     for idx in 21..99 {
-        if board.get_field()[idx] == 15 { idx_white = idx };
-        if board.get_field()[idx] == 25 { idx_black = idx };
+        if board.get_field()[idx] == 15 { idx_white = idx as i16 };
+        if board.get_field()[idx] == 25 { idx_black = idx as i16};
     }
 
-    for idx in 21..99 {
-        let fig = board.get_field()[idx];
+    for idx in 21..99 as i16 {
+        let fig = board.get_field()[idx as usize];
 
         match fig {
-            11..= 15 => {
-                let mut horizontal = 16 - ((idx_black % 10) as isize).wrapping_sub((idx % 10) as isize).abs();
-                let mut vertical = 16 - ((idx_black / 10) as isize).wrapping_sub((idx / 10) as isize).abs();
-                eval = config.max_push_bonus * (horizontal + vertical) as i16;
+            11..= 14 => {
+                let mut horizontal = (idx_black % 10 - idx % 10).abs();
+                let mut vertical = (idx_black / 10 - idx / 10).abs();
+                let fig_distance = horizontal + vertical;
+                let offset = (15 - fig_distance) * config.max_push_bonus;
+                eval = eval + offset;
             },
-            21..= 25 => {
-                let mut horizontal = 16 - ((idx_black % 10) as isize).wrapping_sub((idx % 10) as isize).abs();
-                let mut vertical = 16 - ((idx_black / 10) as isize).wrapping_sub((idx / 10) as isize).abs();
-                eval = config.max_push_bonus * (horizontal + vertical) as i16 * (-1);
+            21..= 24 => {
+                let mut horizontal = (idx_white % 10 - idx % 10).abs();
+                let mut vertical = (idx_white / 10 - idx / 10).abs();
+                let fig_distance = horizontal + vertical;
+                let offset = (15 - fig_distance) * config.max_push_bonus;
+                eval = eval - offset;
             },
             _ => {}
         }

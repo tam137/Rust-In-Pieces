@@ -50,7 +50,7 @@ impl Config {
             undeveloped_center_pawn_malus: 90,
             short_castle_bonus: 110,
             long_castle_bonus: 75,
-            max_push_bonus: 10,
+            max_push_bonus: 15,
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
