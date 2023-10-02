@@ -384,10 +384,10 @@ pub fn quiescence_015() {
     turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K1RQ3", true);
     test_helper::assert::equal_move(&turn, "f3e4");
 
-    // with chess // TODO add costum config for depth 4
-    let turn = test_helper::get_bestmove_for_fen_only_hit_moves("8/8/1k1q4/8/7B/8/2K2R2/8", true);
+    let turn = test_helper::get_bestmove_for_fen_only_hit_moves("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);
     //test_helper::assert::equal_move(&turn, "f2f6");
-    //let res = test_helper::convert_to_move_row(&turn);
+    let res = test_helper::convert_to_move_row(&turn);
+    println!("move row: {}", res);
 }
 
 pub fn move_row_016() {
@@ -440,16 +440,18 @@ pub mod test_helper {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
+        config.search_depth = 2;
+        config.search_depth_quite = 99;
         config.set_search_alg(SearchAlgo::Quiescence);
         board.set_fen(fen);
-        return search::get_best_move(&mut board, 2, white, &mut stats, &config);
+        return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
     }
 
     pub fn get_bestmove_for_fen_only_hit_moves(fen: &str, white: bool) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
-        config.search_depth = 0;
+        config.search_depth = 2;
         config.search_depth_quite = 99;
         config.set_search_alg(SearchAlgo::Quiescence);
         board.set_fen(fen);
@@ -464,7 +466,7 @@ pub mod test_helper {
     }
 
     pub fn convert_to_move_row(turn: &(Option<Turn>, i16, VecDeque<Option<Turn>>)) -> String {
-        let res: Vec<String> = turn.2.iter()
+        let mut res: Vec<String> = turn.2.iter()
             .filter_map(|t| t.clone())
             .map(|t| t.to_algebraic(false))
             .collect();
@@ -487,7 +489,4 @@ pub mod test_helper {
             assert(move_calc.eq(expected_move));
         }
     }
-
-
-
 }
