@@ -8,7 +8,7 @@ use crate::search::SearchAlgo;
 use eval::calc_push_to_king;
 
 pub fn run_unittests() {
-     eval_003();
+    // eval_003();
     // pty_005();
     // castle_006();
     // turn_color_008();

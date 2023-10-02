@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::Stats;
 use crate::Turn;
 
-pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config) -> Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> {
     let mut best_eval = if white { i16::MIN } else { i16::MAX };
     let mut best_move: Option<Turn> = None;
 
@@ -15,6 +15,7 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
     board.set_current_best(eval::calc_eval_material(board, config, &mut HashMap::new()));
 
     let mut best_move_row: VecDeque<Option<Turn>> = Default::default();
+    let mut sorted_moves: Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> = vec![];
 
     let mut alpha: i16 = i16::MIN;
     let mut beta: i16 = i16::MAX;
@@ -28,22 +29,30 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
             if min_max_eval > best_eval {
                 best_eval = min_max_eval;
                 alpha = min_max_eval;
-                best_move_row = min_max_result.2;
+                let mut best_move_row = min_max_result.2;
                 best_move_row.insert(0, Some(turn.clone()));
-                best_move = Some(turn);
+                sorted_moves.push((Some(turn), min_max_eval, best_move_row));
+                board.set_current_best(best_eval);
             }
         } else {
             if min_max_eval < best_eval {
                 best_eval = min_max_eval;
                 beta = min_max_eval;
-                best_move_row = min_max_result.2;
+                let mut best_move_row = min_max_result.2;
                 best_move_row.insert(0, Some(turn.clone()));
-                best_move = Some(turn);
+                sorted_moves.push((Some(turn), min_max_eval, best_move_row));
+                board.set_current_best(best_eval);
             }
         }
-        board.set_current_best(best_eval);
     }
-    (best_move, best_eval, best_move_row)
+    if white {
+        sorted_moves.sort_by_key(|k| k.1);
+        sorted_moves
+    } else {
+        sorted_moves.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_moves
+    }
+
 }
 
 fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta: i16, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {

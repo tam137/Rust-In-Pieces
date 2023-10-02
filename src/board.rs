@@ -73,7 +73,6 @@ pub fn get_index_from_notation(notation: &str) -> Option<usize> {
 impl Board {
 
     pub fn new() -> Board {
-
         Board {
             field: [
                 -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,

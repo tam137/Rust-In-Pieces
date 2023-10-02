@@ -9,6 +9,8 @@ pub struct Config {
     pub max_zobrist_hash_entries: u32,
     pub search_depth: i32,
     pub search_depth_quite: i32,
+    pub calc_variants: i16,
+
     pub move_freedom_bonus: i32,
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -20,6 +22,7 @@ pub struct Config {
     pub short_castle_bonus: i16,
     pub long_castle_bonus: i16,
     pub max_push_bonus: i16,
+
     pub piece_eval_pawn: i16,
     pub piece_eval_rook: i16,
     pub piece_value_knight: i16,
@@ -39,6 +42,7 @@ impl Config {
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
             search_depth_quite: 8,
+            calc_variants: 1,
 
             move_freedom_bonus: 1,
             undeveloped_knight_malus: 35,
@@ -51,6 +55,7 @@ impl Config {
             short_castle_bonus: 110,
             long_castle_bonus: 75,
             max_push_bonus: 15,
+
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
