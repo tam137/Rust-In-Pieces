@@ -6,6 +6,7 @@ use crate::Stats;
 use crate::config::Config;
 use crate::search::SearchAlgo;
 use eval::calc_push_to_king;
+use eval::SemiResultKeys;
 
 
 pub fn run_unittests() {
@@ -217,7 +218,7 @@ pub fn advanced_castle_007() {
 
     let mut board = Board::new();
     board.set_fen("r1bqk1nr/pppp1pp1/2nb3p/4p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R");
-    let best_white_move = search::get_best_move(&mut board, 2, true, &mut Stats::new(), &mut Config::new().unittest()).0.unwrap();
+    let best_white_move = search::get_best_move(&mut board, 2, true, &mut Stats::new(), &Config::new().unittest()).0.unwrap();
     //assert(best_white_move.to_algebraic(false) == "e1g1");
 }
 
@@ -419,6 +420,7 @@ pub mod test_helper {
     use std::collections::{HashMap, VecDeque};
     use crate::board::Board;
     use crate::config::Config;
+    use crate::eval::SemiResultKeys;
     use crate::search;
     use crate::search::SearchAlgo;
     use crate::stats::Stats;
@@ -444,7 +446,7 @@ pub mod test_helper {
         return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
     }
 
-    pub fn get_static_eval_for_fen(fen: &str, calc_function: fn(&Board, &Config, &mut HashMap<&str, i32>) -> i16) -> i16 {
+    pub fn get_static_eval_for_fen(fen: &str, calc_function: fn(&Board, &Config, &mut HashMap<SemiResultKeys, i32>) -> i16) -> i16 {
         let mut board = Board::new();
         board.set_fen(fen);
         let mut config = Config::new();

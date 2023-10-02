@@ -5,4 +5,5 @@ WORKDIR=$PWD
 
 
 cargo build --release
+cargo build
 cp ../target/release/rust_in_pieces ~/engines
