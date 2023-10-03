@@ -1,4 +1,4 @@
-use crate::{Board, eval, turn};
+use crate::{Board, eval};
 use crate::board::GameState;
 use crate::Turn;
 use crate::search;
@@ -8,17 +8,17 @@ use crate::search::SearchAlgo;
 use eval::calc_push_to_king;
 
 pub fn run_unittests() {
-    // eval_003();
-    // pty_005();
-    // castle_006();
-    // turn_color_008();
-    // advanced_castle_007();
-    // fen_009();
-    // promotion_010();
-    // end_game_011();
-    // static_board_function_012();
-    // is_quite_board_check_013();
-    // zobrist_014();
+    eval_003();
+    pty_005();
+    castle_006();
+    turn_color_008();
+    advanced_castle_007();
+    fen_009();
+    promotion_010();
+    end_game_011();
+    static_board_function_012();
+    is_quite_board_check_013();
+    zobrist_014();
      quiescence_015();
     //move_row_016();
     analyse();
@@ -266,8 +266,8 @@ pub fn promotion_010() {
     board.do_turn(turn_list.get(0).unwrap());
     test_helper::get_bestmove_for_fen(&*board.get_fen(), false);
 
-    let turn = test_helper::get_bestmove_for_fen("8/4P3/8/8/1K4p1/6k1/7n/8", true);
-    test_helper::assert::equal_move(&turn, "e7e8q");
+    let res = test_helper::get_bestmove_for_fen("8/4P3/8/8/1K4p1/6k1/7n/8", true);
+    test_helper::assert::equal_move(res, "e7e8q");
 
 
     let mut board = Board::new();
@@ -375,19 +375,20 @@ pub fn zobrist_014() {
 }
 
 pub fn quiescence_015() {
-    let mut turn = test_helper::get_bestmove_for_fen_only_hit_moves("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
-    test_helper::assert::equal_move(&turn, "f3e4");
+     let mut res = test_helper::get_bestmove_for_fen_only_hit_moves("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
+     test_helper::assert::equal_move(res, "f3e4");
 
-    turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
-    test_helper::assert::equal_move(&turn, "e1b4");
+    let mut res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
+    let best_move_str = res.get_best_move_row_str();
+    test_helper::assert::equal_move(res, "e1b4");
 
-    turn = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K1RQ3", true);
-    test_helper::assert::equal_move(&turn, "f3e4");
+    res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K1RQ3", true);
+    test_helper::assert::equal_move(res, "f3e4");
 
-    let turn = test_helper::get_bestmove_for_fen_only_hit_moves("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);
+    let res = test_helper::get_bestmove_for_fen_only_hit_moves("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);
     //test_helper::assert::equal_move(&turn, "f2f6");
-    let res = test_helper::convert_to_move_row(&turn);
-    println!("move row: {}", res);
+    let move_row = res.get_best_move_row_str();
+    println!("move row: {}", move_row);
 }
 
 pub fn move_row_016() {
@@ -432,11 +433,10 @@ pub mod test_helper {
     use crate::config::Config;
     use crate::eval::SemiResultKeys;
     use crate::search;
-    use crate::search::SearchAlgo;
+    use crate::search::{MinMaxResult, SearchAlgo};
     use crate::stats::Stats;
-    use crate::turn::Turn;
 
-    pub fn get_bestmove_for_fen(fen: &str, white: bool) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+    pub fn get_bestmove_for_fen(fen: &str, white: bool) -> MinMaxResult {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
@@ -444,10 +444,10 @@ pub mod test_helper {
         config.search_depth_quite = 99;
         config.set_search_alg(SearchAlgo::Quiescence);
         board.set_fen(fen);
-        return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
+        return search::get_best_move_as_min_max_result(&mut board, config.search_depth, white, &mut stats, &config);
     }
 
-    pub fn get_bestmove_for_fen_only_hit_moves(fen: &str, white: bool) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+    pub fn get_bestmove_for_fen_only_hit_moves(fen: &str, white: bool) -> MinMaxResult {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
@@ -455,7 +455,7 @@ pub mod test_helper {
         config.search_depth_quite = 99;
         config.set_search_alg(SearchAlgo::Quiescence);
         board.set_fen(fen);
-        return search::get_best_move(&mut board, config.search_depth, white, &mut stats, &config);
+        return search::get_best_move_as_min_max_result(&mut board, config.search_depth, white, &mut stats, &config);
     }
 
     pub fn get_static_eval_for_fen(fen: &str, calc_function: fn(&Board, &Config, &mut HashMap<SemiResultKeys, i32>) -> i16) -> i16 {
@@ -465,23 +465,14 @@ pub mod test_helper {
         calc_function(&board, &config, &mut HashMap::new())
     }
 
-    pub fn convert_to_move_row(turn: &(Option<Turn>, i16, VecDeque<Option<Turn>>)) -> String {
-        let mut res: Vec<String> = turn.2.iter()
-            .filter_map(|t| t.clone())
-            .map(|t| t.to_algebraic(false))
-            .collect();
-        res.join(" ")
-    }
-
 
     pub(crate) mod assert {
-        use std::collections::VecDeque;
         use std::println;
-        use crate::turn::Turn;
+        use crate::search::MinMaxResult;
         use crate::unittests::assert;
 
-        pub fn equal_move(turn: &(Option<Turn>, i16, VecDeque<Option<Turn>>), expected_move: &str) {
-            let unwraped_turn = turn.0.clone().unwrap();
+        pub fn equal_move(minMaxResult: MinMaxResult, expected_move: &str) {
+            let unwraped_turn = minMaxResult.get_best_turn();
             let move_calc = unwraped_turn.to_algebraic(false);
             if !move_calc.eq(expected_move) {
                 println!("actual: {}, expected: {}", move_calc, expected_move);

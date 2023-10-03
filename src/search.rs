@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::VecDeque;
 use crate::Board;
 use crate::config::Config;
@@ -30,17 +31,43 @@ pub fn get_best_move(mut board: &mut Board, depth: i32, white: bool, stats: &mut
 }
 
 pub struct MinMaxResult {
-    pub moves: Vec<(VecDeque<Option<Turn>>, i16)>,
+    pub moves: Vec<(Vec<Turn>, i16)>,
 }
 
 impl MinMaxResult {
     pub fn new(min_max_raw_result: Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)>) -> MinMaxResult {
         let mut moves = vec![];
-        for min_max_move in &min_max_raw_result {
-            moves.push((min_max_move.clone().2, min_max_move.1));
+        for (turn, eval, move_row) in min_max_raw_result {
+            let move_row: Vec<Turn> = move_row.iter().filter_map(|option_turn| option_turn.clone())
+                                              .collect();
+            moves.push((move_row, eval));
         }
         MinMaxResult {
             moves,
         }
+    }
+
+    pub fn get_best_turn(&self) -> &Turn {
+        self.moves.get(0).unwrap().0.get(0).unwrap()
+    }
+
+    pub fn get_best_move_row_str(&self) -> String {
+        let mut res = self.moves.get(0).unwrap().clone().0;
+
+        let move_row: String = res.iter()
+            .map(|t| t.to_algebraic(false))
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        String::from(move_row)
+        //String::from(res.join(" "))
+    }
+
+    pub fn get_depth(&self) -> usize {
+        0
+    }
+
+    pub fn get_eval(&self) -> i16 {
+        0
     }
 }

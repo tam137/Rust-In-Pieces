@@ -46,10 +46,10 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
         }
     }
     if white {
-        sorted_moves.sort_by_key(|k| k.1);
+        sorted_moves.sort_by(|a, b| b.1.cmp(&a.1));
         sorted_moves
     } else {
-        sorted_moves.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_moves.sort_by_key(|k| k.1);
         sorted_moves
     }
 

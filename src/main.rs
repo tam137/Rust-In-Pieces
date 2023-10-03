@@ -22,7 +22,6 @@ use std::fs::OpenOptions;
 use std::thread::sleep;
 use chrono::Local;
 use std::time::Duration;
-use unittests::test_helper::convert_to_move_row;
 
 
 fn main() -> () {
@@ -135,13 +134,13 @@ fn main() -> () {
                 board.do_turn(&Turn::generate_turns(opening_book_move)[0]);
                 opening_book_move = ""
             } else {
-                let best_move = &search::get_best_move(&mut board, config.clone().search_depth + depth_modificator, white, &mut stats, &config);
-                board.do_turn(&best_move.0.clone().unwrap());
+                let best_move = &search::get_best_move_as_min_max_result(&mut board, config.clone().search_depth + depth_modificator, white, &mut stats, &config);
+                board.do_turn(&best_move.get_best_turn());
                 // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
                 let calc_time: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
-                let move_row = convert_to_move_row(best_move);
-                println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", best_move.2.len(), best_move.1, 0, stats.created_nodes, stats.created_nodes / (calc_time + 1) as usize, move_row);
-                println!("bestmove {}", best_move.0.clone().unwrap().to_algebraic(false));
+                let move_row = best_move.get_best_move_row_str();
+                println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", best_move.get_depth(), best_move.get_eval(), 0, stats.created_nodes, stats.created_nodes / (calc_time + 1) as usize, move_row);
+                println!("bestmove {}", best_move.get_best_turn().to_algebraic(false));
             }
             stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
             stats.reset_stats();
