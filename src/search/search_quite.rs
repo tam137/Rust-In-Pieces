@@ -128,7 +128,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
 
 
 
-fn check_hash_or_calculate_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+pub fn check_hash_or_calculate_eval(board: &mut Board, stats: &mut Stats, turn: &Turn, config: &Config) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
     stats.add_eval_nodes(1);
     let empty_vec: VecDeque<Option<Turn>> = VecDeque::new();
     if config.use_zobrist {

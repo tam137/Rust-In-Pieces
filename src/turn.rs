@@ -7,6 +7,7 @@ pub struct Turn {
     pub(crate) to: usize,
     pub(crate) capture: i8,
     pub promotion: bool,
+    pub gives_chess: bool,
     pub post_villain: Vec<usize>,
     pub post_my: Vec<usize>,
     pub eval: i16,
@@ -36,6 +37,7 @@ impl Turn {
                 post_villain:  Vec::new(),
                 post_my: Vec::new(),
                 promotion,
+                gives_chess: false,
                 eval: 0,
             });
         }

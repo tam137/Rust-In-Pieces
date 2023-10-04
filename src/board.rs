@@ -216,6 +216,8 @@ impl Board {
         let mut turn_list = Vec::with_capacity(50);
         let mut last_from: usize = 0;
         let mut last_to: usize;
+
+        // extract raw list
         for (i, &mv) in moves.iter().enumerate() {
             if i % 2 == 0 {
                 last_from = mv;
@@ -230,27 +232,30 @@ impl Board {
                     post_villain:  Vec::new(),
                     post_my: Vec::new(),
                     promotion: false,
+                    gives_chess: false,
                     eval: 0,
                 });
             }
         }
 
-        for turn in &mut turn_list {
-            turn.enrich_promotion_move(self, white);
-        }
-
+        // main loop
         for turn in turn_list.iter_mut() {
+            turn.enrich_promotion_move(self, white);
+            turn.gives_chess = self.is_give_chess(turn, white);
             self.do_turn(turn);
             turn.post_villain = self.generate_moves_list(!self.is_white_field(turn.to));
             let prune: bool = self.prune_illegal_moves(turn);
-            if prune { self.do_undo_turn(turn); continue }
-            turn.post_my = self.generate_moves_list(self.is_white_field(turn.to));            
+            if prune {
+                self.do_undo_turn(turn);
+                continue;
+            }
+            turn.post_my = self.generate_moves_list(self.is_white_field(turn.to));
             self.do_undo_turn(turn);
         }
-        
         turn_list.retain(|turn| !turn.post_my.is_empty());
 
-        self.sort_move_list_by_eval(&mut turn_list, white, stats);
+        //self.sort_move_list_by_eval(&mut turn_list, white, stats);
+        self.sort_move_list_by_give_chess(&mut turn_list, white);
 
         if turn_list.len() == 0 { 
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
@@ -269,6 +274,23 @@ impl Board {
 
     fn insufficient_material(&self) -> bool {
         self.get_pieces_on_field() == 2
+    }
+
+
+    fn is_give_chess(&mut self, turn: &Turn, white: bool) -> bool {
+        self.do_turn(turn);
+        let chess = self.is_in_chess(&turn.post_my.iter().map(|t: &usize| *t as i32).collect(), white);
+        self.do_undo_turn(turn);
+        chess
+    }
+
+
+    fn sort_move_list_by_give_chess(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
+        if white {
+            turn_list.sort_by(|a, b| a.gives_chess.cmp(&b.gives_chess));
+        } else {
+            turn_list.sort_by(|a, b| b.gives_chess.cmp(&a.gives_chess));
+        }
     }
 
 

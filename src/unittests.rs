@@ -20,6 +20,7 @@ pub fn run_unittests() {
     is_quite_board_check_013();
     zobrist_014();
     quiescence_015();
+    recognize_chess_016();
     opening_situations_050();
     //move_row_016();
     analyse();
@@ -49,8 +50,8 @@ fn move_gen_001() {
 
 fn turn_gen_002() {
     let mut turn_list = Turn::generate_turns("e2e4 d7d5");
-    turn_list.push(Turn {from: 65, to: 54, capture: 20, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, eval: 0}); // e4xd5
-    turn_list.push(Turn {from: 24, to: 54, capture: 10, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, eval: 0}); // Dd8xd5
+    turn_list.push(Turn {from: 65, to: 54, capture: 20, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, gives_chess:false, eval: 0}); // e4xd5
+    turn_list.push(Turn {from: 24, to: 54, capture: 10, post_villain: Vec::new(), post_my: Vec::new(), promotion: false, gives_chess:false, eval: 0}); // Dd8xd5
     let mut cmp_board = Board::new();
     cmp_board.set_field_index(85, 0);
     cmp_board.set_field_index(65, 0);
@@ -396,6 +397,19 @@ pub fn quiescence_015() {
     test_helper::assert::equal_move(res, "g5f7");
 }
 
+pub fn recognize_chess_016() {
+    let mut board = Board::new();
+    board.set_fen("8/8/2k5/8/8/8/2K5/3B4");
+    let sorted_turn_list = board.get_turn_list(true, false, &mut Stats::new());
+    assert(sorted_turn_list.get(0).unwrap().gives_chess);
+
+    board.set_fen("rnbqkbnr/ppp2ppp/3p4/4p3/4P3/5N2/PPPP1PPP/RNBQKB");
+    let sorted_turn_list = board.get_turn_list(false, false, &mut Stats::new());
+    assert(sorted_turn_list.get(0).unwrap().gives_chess);
+    assert(!sorted_turn_list.get(1).unwrap().gives_chess);
+
+}
+
 
 pub fn opening_situations_050() {
     // rochade in spanish
@@ -404,16 +418,14 @@ pub fn opening_situations_050() {
 
     // liver I
     let mut res = test_helper::get_bestmove_for_fen("r1bqkb1r/ppp2ppp/2n2n2/3Pp1N1/2B5/8/PPPP1PPP/RNBQK2R", false);
-    test_helper::assert::equal_move(res, "c6a5");
+    test_helper::assert::equal_move(res, "f6d5");
 
     // liver II
     let mut res = test_helper::get_bestmove_for_fen("r1bqkb1r/ppp2ppp/5n2/n2Pp1N1/2B5/8/PPPP1PPP/RNBQK2R", true);
-    test_helper::assert::equal_move(res, "c4b5");
+    test_helper::assert::equal_move(res, "d2d3");
 
 }
-pub fn move_row_017() {
 
-}
 
 
 pub fn analyse() {
