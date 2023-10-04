@@ -62,8 +62,6 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
     let eval = check_hash_or_calculate_eval(board, stats, turn, config);
 
     if depth <= 0 {
-        turns = board.get_turn_list(white, true, stats);
-
         let stand_pat_cut = if white {
             board.get_current_best() < eval.1
         } else {
@@ -73,6 +71,8 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
         if stand_pat_cut {
             return eval;
         }
+
+        turns = board.get_turn_list(white, true, stats);
         if turns.is_empty() {
             return eval
         }

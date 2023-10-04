@@ -19,7 +19,8 @@ pub fn run_unittests() {
     static_board_function_012();
     is_quite_board_check_013();
     zobrist_014();
-     quiescence_015();
+    quiescence_015();
+    opening_situations_050();
     //move_row_016();
     analyse();
     println!("finished unittests")
@@ -375,23 +376,42 @@ pub fn zobrist_014() {
 }
 
 pub fn quiescence_015() {
-     let mut res = test_helper::get_bestmove_for_fen_only_hit_moves("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
+     let mut res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K2Q3", true);
      test_helper::assert::equal_move(res, "f3e4");
 
-    let mut res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
+    res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/5p2/4n3/3P1PP1/8/1K1RQ3", true);
     let best_move_str = res.get_best_move_row_str();
     test_helper::assert::equal_move(res, "e1b4");
 
     res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K1RQ3", true);
     test_helper::assert::equal_move(res, "f3e4");
 
-    let res = test_helper::get_bestmove_for_fen_only_hit_moves("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);
+    let res = test_helper::get_bestmove_for_fen("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);
     //test_helper::assert::equal_move(&turn, "f2f6");
     let move_row = res.get_best_move_row_str();
     println!("move row: {}", move_row);
+
+    // for black
+    let mut res = test_helper::get_bestmove_for_fen("1k6/5Q2/4p1p1/5Rn1/2b5/7B/1K6/8", false);
+    test_helper::assert::equal_move(res, "g5f7");
 }
 
-pub fn move_row_016() {
+
+pub fn opening_situations_050() {
+    // rochade in spanish
+    let mut res = test_helper::get_bestmove_for_fen("r1bqkb1r/1pp2ppp/p1np1n2/4p3/B3P3/3P1N2/PPP2PPP/RNBQK2R", true);
+    test_helper::assert::equal_move(res, "e1g1");
+
+    // liver I
+    let mut res = test_helper::get_bestmove_for_fen("r1bqkb1r/ppp2ppp/2n2n2/3Pp1N1/2B5/8/PPPP1PPP/RNBQK2R", false);
+    test_helper::assert::equal_move(res, "c6a5");
+
+    // liver II
+    let mut res = test_helper::get_bestmove_for_fen("r1bqkb1r/ppp2ppp/5n2/n2Pp1N1/2B5/8/PPPP1PPP/RNBQK2R", true);
+    test_helper::assert::equal_move(res, "c4b5");
+
+}
+pub fn move_row_017() {
 
 }
 
@@ -437,17 +457,6 @@ pub mod test_helper {
     use crate::stats::Stats;
 
     pub fn get_bestmove_for_fen(fen: &str, white: bool) -> MinMaxResult {
-        let mut board = Board::new();
-        let mut stats = Stats::new();
-        let mut config = Config::new();
-        config.search_depth = 2;
-        config.search_depth_quite = 99;
-        config.set_search_alg(SearchAlgo::Quiescence);
-        board.set_fen(fen);
-        return search::get_best_move_as_min_max_result(&mut board, config.search_depth, white, &mut stats, &config);
-    }
-
-    pub fn get_bestmove_for_fen_only_hit_moves(fen: &str, white: bool) -> MinMaxResult {
         let mut board = Board::new();
         let mut stats = Stats::new();
         let mut config = Config::new();
