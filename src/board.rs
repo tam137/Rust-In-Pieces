@@ -240,8 +240,6 @@ impl Board {
 
         // main loop
         for turn in turn_list.iter_mut() {
-            turn.enrich_promotion_move(self, white);
-            turn.gives_chess = self.is_give_chess(turn, white);
             self.do_turn(turn);
             turn.post_villain = self.generate_moves_list(!self.is_white_field(turn.to));
             let prune: bool = self.prune_illegal_moves(turn);
@@ -250,6 +248,7 @@ impl Board {
                 continue;
             }
             turn.post_my = self.generate_moves_list(self.is_white_field(turn.to));
+            turn.enrich_move(self, white);
             self.do_undo_turn(turn);
         }
         turn_list.retain(|turn| !turn.post_my.is_empty());
@@ -257,7 +256,7 @@ impl Board {
         //self.sort_move_list_by_eval(&mut turn_list, white, stats);
         self.sort_move_list_by_give_chess(&mut turn_list, white);
 
-        if turn_list.len() == 0 { 
+        if turn_list.len() == 0 {
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
                 self.state = if white { GameState::BlackWin } else { GameState::WhiteWin }
             } else {
@@ -276,22 +275,20 @@ impl Board {
         self.get_pieces_on_field() == 2
     }
 
-
-    fn is_give_chess(&mut self, turn: &Turn, white: bool) -> bool {
-        self.do_turn(turn);
-        let chess = self.is_in_chess(&turn.post_my.iter().map(|t: &usize| *t as i32).collect(), white);
-        self.do_undo_turn(turn);
-        chess
+    pub(crate) fn is_in_chess(&self, villains_target_fields: &Vec<i32>, white: bool) -> bool {
+        let idx_of_king = if white { self.index_of_white_king() } else  { self.index_of_black_king() };
+        if villains_target_fields.contains(&idx_of_king) { return true }
+        else { false }
     }
 
-
-    fn sort_move_list_by_give_chess(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
+    fn sort_move_list_by_give_chess(&mut self, turn_list: &mut Vec<Turn>, white: bool) {
         if white {
-            turn_list.sort_by(|a, b| a.gives_chess.cmp(&b.gives_chess));
+            turn_list.sort_by_key(|turn| !turn.gives_chess);
         } else {
-            turn_list.sort_by(|a, b| b.gives_chess.cmp(&a.gives_chess));
+            turn_list.sort_by_key(|turn| !turn.gives_chess);
         }
     }
+
 
 
     fn sort_move_list_by_capture(&mut self, turn_list: &mut Vec<Turn>, white: bool) -> () {
@@ -324,7 +321,7 @@ impl Board {
             }
             self.do_undo_turn(turn);
         }
-        
+
         if white {
             turn_list.sort_by(|a, b| b.eval.cmp(&a.eval));
         } else {
@@ -407,13 +404,6 @@ impl Board {
     }
 
 
-    pub(crate) fn is_in_chess(&self, villains_target_fields: &Vec<i32>, white: bool) -> bool {
-        let idx_of_king = if white { self.index_of_white_king() } else  { self.index_of_black_king() };
-        if villains_target_fields.contains(&idx_of_king) { return true }
-        else { false }
-    }
-
-
     pub(crate) fn index_of_white_king(&self) -> i32 {
         self.field.iter().position(|&x| x == 15).unwrap() as i32
     }
@@ -443,9 +433,9 @@ impl Board {
 
     pub fn set_fen(&mut self, fen: &str) {
         self.clear_field();
-    
+
         let mut index = 21;
-        
+
         for c in fen.chars() {
             if c == ' ' {
                 break; // Stop processing FEN string once we reach the end of the board position section
@@ -474,7 +464,7 @@ impl Board {
                     self.field[index] = piece; // Place the piece on the board
                 }
                 index += 1;
-            }            
+            }
         }
     }
 
@@ -568,8 +558,8 @@ impl Board {
         let pawn_value = if white { 10 } else { 20 };
 
         let field = &self.field;
-        let mut moves = Vec::with_capacity(64);       
-    
+        let mut moves = Vec::with_capacity(64);
+
         for i in 21..99 {
             if field[i] <= 0 { continue; }
             if field[i] >= 10 && field[i] <= 15 && !white { continue; }
@@ -582,7 +572,7 @@ impl Board {
                         moves.push(i);
                         moves.push(target);
                     }
-                }                
+                }
                 if i == 95 {
                     if !self.turns.iter().any(|t| t.from == 95) {
                         if !self.turns.iter().any(|t| t.from == 98) {
@@ -696,7 +686,7 @@ impl Board {
                         moves.push(i);
                         moves.push(target);
                         if field[target] != 0 { break }
-                        target = (target as i32 + offset) as usize;                        
+                        target = (target as i32 + offset) as usize;
                     }
                 }
             }
@@ -704,6 +694,6 @@ impl Board {
         }
         moves
     }
-    
+
 
 }

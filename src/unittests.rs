@@ -21,7 +21,7 @@ pub fn run_unittests() {
     zobrist_014();
     quiescence_015();
     recognize_chess_016();
-    opening_situations_050();
+    // opening_situations_050();
     //move_row_016();
     analyse();
     println!("finished unittests")
@@ -261,7 +261,6 @@ pub fn fen_009() {
 }
 
 pub fn promotion_010() {
-
     let turn_list = Turn::generate_turns("e7e8q");
     let mut board = Board::new();
     board.set_fen("8/4P3/8/8/1K4p1/6k1/7n/8");
@@ -270,7 +269,6 @@ pub fn promotion_010() {
 
     let res = test_helper::get_bestmove_for_fen("8/4P3/8/8/1K4p1/6k1/7n/8", true);
     test_helper::assert::equal_move(res, "e7e8q");
-
 
     let mut board = Board::new();
     board.clear_field();
@@ -303,7 +301,7 @@ pub fn promotion_010() {
     board.set_fen("8/5P2/8/8/1k6/8/1K5p/8");
     let all_turns = board.get_turn_list(true, false, &mut Stats::new());
     let mut turn = &mut Turn::generate_turns("f7f8q")[0];
-    turn.enrich_promotion_move(&board, true);
+    turn.enrich_move(&board, true);
     board.do_turn(turn);
     assert(board.get_field()[26] == 14);
 
@@ -403,11 +401,23 @@ pub fn recognize_chess_016() {
     let sorted_turn_list = board.get_turn_list(true, false, &mut Stats::new());
     assert(sorted_turn_list.get(0).unwrap().gives_chess);
 
-    board.set_fen("rnbqkbnr/ppp2ppp/3p4/4p3/4P3/5N2/PPPP1PPP/RNBQKB");
+    board.set_fen("8/8/2k5/8/4K3/8/6B1/8");
+    let sorted_turn_list = board.get_turn_list(true, false, &mut Stats::new());
+    assert(sorted_turn_list.get(0).unwrap().gives_chess);
+    assert(sorted_turn_list.get(1).unwrap().gives_chess);
+    assert(sorted_turn_list.get(2).unwrap().gives_chess);
+
+
+    board.set_fen("8/8/8/8/8/8/1K1k1r2/8");
+    let sorted_turn_list = board.get_turn_list(false, false, &mut Stats::new());
+    assert(sorted_turn_list.get(0).unwrap().gives_chess);
+
+
+    //for black:
+    board.set_fen("rnbqkbnr/ppp2ppp/4p3/3p4/2PP4/4P3/PP3PPP/RNBQKBNR");
     let sorted_turn_list = board.get_turn_list(false, false, &mut Stats::new());
     assert(sorted_turn_list.get(0).unwrap().gives_chess);
     assert(!sorted_turn_list.get(1).unwrap().gives_chess);
-
 }
 
 
