@@ -63,17 +63,15 @@ impl Turn {
         format!("{}{}{}{}{}", column_from as char, row_from as char, column_to as char, row_to as char, promotional_lit)
     }
 
-    pub fn enrich_move(&mut self, board: &Board, white: bool) -> () {
-        let promotion = if self.from / 10 == if white { 3 } else { 8 } && board.get_field()[self.from] == if white { 10 } else { 20 } { self.promotion = true; true }
-        else if self.from / 10 == if white { 3 } else { 8 } && board.get_field()[self.to] == if white { 14 } else { 24 } { self.promotion = true; true }
-        else { false };
+    pub fn enrich_move_promotion(&mut self, board: &Board, white: bool) -> () {
+        let promotion = if self.from / 10 == if white { 3 } else { 8 } && board.get_field()[self.from] == if white { 10 } else { 20 } { true } else { false };
+        self.promotion = promotion;
+    }
 
+    pub fn enrich_move_gives_chess(&mut self, board: &Board, white: bool) -> () {
         let villain_king = if !white { board.index_of_white_king() } else  { board.index_of_black_king() };
         let gives_chess = self.post_my.iter().any(|&x: &usize| x as i32 == villain_king);
-
-        self.promotion = promotion;
         self.gives_chess = gives_chess;
-        ()
     }
 
 }

@@ -248,13 +248,14 @@ impl Board {
                 continue;
             }
             turn.post_my = self.generate_moves_list(self.is_white_field(turn.to));
-            turn.enrich_move(self, white);
+            turn.enrich_move_gives_chess(self, white);
             self.do_undo_turn(turn);
+            turn.enrich_move_promotion(self, white);
         }
         turn_list.retain(|turn| !turn.post_my.is_empty());
 
-        //self.sort_move_list_by_eval(&mut turn_list, white, stats);
-        self.sort_move_list_by_give_chess(&mut turn_list, white);
+        self.sort_move_list_by_eval(&mut turn_list, white, stats);
+        //self.sort_move_list_by_give_chess(&mut turn_list, white);
 
         if turn_list.len() == 0 {
             if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
@@ -319,6 +320,9 @@ impl Board {
             } else {
                 turn.eval = eval::calc_eval(self, turn, &self.config);
             }
+            if turn.gives_chess {
+                turn.eval += if white { 20 } else { -20 };
+            }
             self.do_undo_turn(turn);
         }
 
@@ -367,7 +371,7 @@ impl Board {
             else if turn.from == 25 && turn.to == 23 && self.field[turn.to] == 25 { self.field[21] = 21;  self.field[24] = 0; }
         }
         if turn.is_promotion() {
-            self.field[turn.from] = if self.is_white_field(turn.to) { 10 } else  { 20 };
+            self.field[turn.from] = if self.is_white_field(turn.to) { 10 } else { 20 };
         } else {
             self.field[turn.from] = self.field[turn.to];
         }

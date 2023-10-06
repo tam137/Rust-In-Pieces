@@ -24,7 +24,6 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
     eval += calc_early_queen(board, config, &mut semi_results);
     eval += calc_casteling(board, config, &mut semi_results);
     eval += calc_push_to_king(board, config, &mut semi_results);
-
     eval
 }
 
