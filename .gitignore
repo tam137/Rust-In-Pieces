@@ -4,4 +4,5 @@ engine-interface.txt
 target/
 src/debug-run.sh
 src/rust-in-pieces
+src/callgrind.out
 .idea/
