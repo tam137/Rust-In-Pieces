@@ -18,7 +18,7 @@ pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
 
     let mut eval = 0i16;
     eval += calc_eval_material(board, config, &mut semi_results);
-    eval += move_possibilities(board, turn, config, &mut semi_results);
+    //eval += move_possibilities(board, turn, config, &mut semi_results);
     eval += calc_pawn_progress(board, config, &mut semi_results);
     eval += calc_developed_pieces(board, config, &mut semi_results);
     eval += calc_early_queen(board, config, &mut semi_results);

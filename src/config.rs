@@ -10,6 +10,7 @@ pub struct Config {
     pub search_depth: i32,
     pub search_depth_quite: i32,
     pub calc_variants: i16,
+    pub truncate_bad_moves: usize,
 
     pub move_freedom_bonus: i32,
     pub undeveloped_knight_malus: i16,
@@ -43,8 +44,9 @@ impl Config {
             search_depth: 4,
             search_depth_quite: 8,
             calc_variants: 1,
+            truncate_bad_moves: 12,
 
-            move_freedom_bonus: 1,
+            move_freedom_bonus: 0,
             undeveloped_knight_malus: 35,
             undeveloped_bishop_malus: 20,
             pawn_on_last_rank_bonus: 200,
