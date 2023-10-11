@@ -174,7 +174,7 @@ fn test_game() {
     let config = Config::new();
     let mut board = Board::new();
     let game_time = Instant::now();
-    for _i in 0..10 {
+    for _i in 0..30 {
         let calc_time = Instant::now();
         let best_move = &search::get_best_move(&mut board, 4, white, &mut stats, &config).0.unwrap();
         stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());

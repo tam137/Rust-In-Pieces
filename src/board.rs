@@ -327,8 +327,10 @@ impl Board {
         }
 
         if white {
+            //turn_list.par_sort_by(|a, b| b.eval.cmp(&a.eval));
             turn_list.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
         } else {
+            //turn_list.par_sort_by(|a, b| a.eval.cmp(&b.eval));
             turn_list.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
         }
         let len = turn_list.len();

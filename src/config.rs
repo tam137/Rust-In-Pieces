@@ -44,7 +44,7 @@ impl Config {
             search_depth: 4,
             search_depth_quite: 8,
             calc_variants: 1,
-            truncate_bad_moves: 12,
+            truncate_bad_moves: 20,
 
             move_freedom_bonus: 0,
             undeveloped_knight_malus: 35,
@@ -57,7 +57,6 @@ impl Config {
             short_castle_bonus: 110,
             long_castle_bonus: 75,
             max_push_bonus: 15,
-
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
@@ -91,7 +90,7 @@ impl Config {
         self
     }
 
-    pub fn set_search_alg(&mut self, searchAlgo: SearchAlgo) {
-        self.search_algo = searchAlgo;
+    pub fn set_search_alg(&mut self, search_algo: SearchAlgo) {
+        self.search_algo = search_algo;
     }
 }

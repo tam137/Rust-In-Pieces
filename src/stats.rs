@@ -42,7 +42,7 @@ impl Stats {
     }
 
     pub fn to_string(&self) -> String {
-        format!("Cre_{}\tCal_{}\tEva_{}\tN/s_{}K CF_0.{}\tZb_0.{}",
+        format!("Cre_{}\tCalc_{}\tEva_{}\tN/s_{}K CF_0.{}\tZb_0.{}",
         self.created_nodes,
         self.calculated_nodes,
         self.eval_nodes,
