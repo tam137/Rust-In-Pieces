@@ -1,9 +1,7 @@
-use std::cmp::min;
 use std::collections::VecDeque;
 use crate::Board;
 use crate::config::Config;
 use crate::stats::Stats;
-
 use crate::Turn;
 
 mod search_basic;
