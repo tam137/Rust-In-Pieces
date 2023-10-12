@@ -36,31 +36,10 @@ fn get_semi(key: SemiResultKeys, semi_results: &HashMap<SemiResultKeys, i32>) ->
 
 
 pub fn calc_eval_material(board: &Board, config: &Config, semi_results: &mut HashMap<SemiResultKeys, i32>) -> i16 {
-
     let mut eval = 0;
-    
-    let mut piece_values: HashMap<i32, i16> = HashMap::new();
-    piece_values.insert(10, 100);
-    piece_values.insert(11, 500);
-    piece_values.insert(12, 300);
-    piece_values.insert(13, 325);
-    piece_values.insert(14, 900);
-    piece_values.insert(15, 10000);
-    piece_values.insert(20, -100);
-    piece_values.insert(21, -500);
-    piece_values.insert(22, -300);
-    piece_values.insert(23, -325);
-    piece_values.insert(24, -900);
-    piece_values.insert(25, -10000);
-
-
-    let field = board.get_field();
-    for &piece in field.iter() {
-        if let Some(&value) = piece_values.get(&piece) {
-            eval += value;
-        } else {
-            continue;
-        }
+    let pieces_list = board.get_list_of_pieces();
+    for piece in pieces_list {
+        eval += config.get_eval_value_for_piece(piece as i8);
     }
     eval
 }

@@ -118,6 +118,14 @@ impl Board {
         &self.field
     }
 
+    pub fn get_list_of_pieces(&self) -> Vec<i32> {
+        let mut pieces_list = Vec::with_capacity(32);
+        for i in 21..99 {
+            if self.field[i] > 0 { pieces_list.push(self.field[i]) }
+        }
+        pieces_list
+    }
+
     pub fn set_field_index(&mut self, index: usize, piece: i32) {
         self.field[index] = piece;
     }
