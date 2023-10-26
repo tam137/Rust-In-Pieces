@@ -45,8 +45,6 @@ fn main() -> () {
         _ => {}
     }
 
-
-
     let (tx, rx) = mpsc::channel();
 
     log("Programm gestartet".to_string());

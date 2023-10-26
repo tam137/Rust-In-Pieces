@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use crate::config::Config;
+
 use crate::{eval, Turn};
+use crate::config::Config;
 use crate::stats::Stats;
 use crate::zobrist::ZobristTable;
 
@@ -219,13 +220,41 @@ impl Board {
     }
 
 
+    pub fn get_turn_list_for_piece_on_idx(&mut self, white: bool, only_capture: bool, idx: usize) -> Vec<Turn> {
+        let moves = self.generate_moves_list_for_piece(white, idx);
+        self.generate_unsorted_turn_list_from_raw_moves(moves, white, only_capture)
+    }
+
+
     pub fn get_turn_list(&mut self, white: bool, only_capture: bool, stats: &mut Stats) -> Vec<Turn> {
         let moves = self.generate_moves_list(white);
         let mut turn_list = Vec::with_capacity(50);
+        turn_list = self.generate_unsorted_turn_list_from_raw_moves(moves, white, only_capture);
+
+        self.sort_move_list_by_eval(&mut turn_list, white, stats);
+
+        if turn_list.len() == 0 {
+            if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
+                self.state = if white { GameState::BlackWin } else { GameState::WhiteWin }
+            } else {
+                self.state = GameState::Draw;
+            }
+        }
+        if self.insufficient_material() {
+            self.state = GameState::Draw;
+        }
+
+        self.state = if self.position_map.values().any(|&value| value > 2) { GameState::Draw } else { self.state };
+        turn_list
+    }
+
+
+    fn generate_unsorted_turn_list_from_raw_moves(&mut self, moves: Vec<usize>, white: bool, only_capture: bool) -> Vec<Turn> {
         let mut last_from: usize = 0;
         let mut last_to: usize;
 
-        // extract raw list
+        let mut turn_list = Vec::with_capacity(50);
+
         for (i, &mv) in moves.iter().enumerate() {
             if i % 2 == 0 {
                 last_from = mv;
@@ -261,22 +290,6 @@ impl Board {
             turn.enrich_move_promotion(self, white);
         }
         turn_list.retain(|turn| !turn.post_my.is_empty());
-
-        self.sort_move_list_by_eval(&mut turn_list, white, stats);
-        //self.sort_move_list_by_give_chess(&mut turn_list, white);
-
-        if turn_list.len() == 0 {
-            if self.is_in_chess(&Board::get_target_fields_of_raw_moves(&self.generate_moves_list(!white)), white) {
-                self.state = if white { GameState::BlackWin } else { GameState::WhiteWin }
-            } else {
-                self.state = GameState::Draw;
-            }
-        }
-        if self.insufficient_material() {
-            self.state = GameState::Draw;
-        }
-
-        self.state = if self.position_map.values().any(|&value| value > 2) { GameState::Draw } else { self.state };
         turn_list.clone()
     }
 
@@ -567,7 +580,17 @@ impl Board {
     }
 
 
+    pub fn get_pieces_map(&self) -> HashMap<usize, i16> {
+
+        HashMap::default()
+    }
+
+
     pub fn generate_moves_list(&self, white: bool) -> Vec<usize> {
+        self.generate_moves_list_for_piece(white, 0)
+    }
+
+    pub fn generate_moves_list_for_piece(&self, white: bool, idx: usize) -> Vec<usize> {
         let king_value = if white { 15 } else { 25 };
         let queen_value = if white { 14 } else { 24 };
         let rook_value = if white { 11 } else { 21 };
@@ -578,7 +601,10 @@ impl Board {
         let field = &self.field;
         let mut moves = Vec::with_capacity(64);
 
-        for i in 21..99 {
+        let start_idx: usize = if idx == 0 { 21 } else { idx };
+        let end_idx: usize = if idx == 0 { 99 } else { idx+1 };
+
+        for i in start_idx..end_idx {
             if field[i] <= 0 { continue; }
             if field[i] >= 10 && field[i] <= 15 && !white { continue; }
             if field[i] >= 20 && field[i] <= 25 && white { continue; }

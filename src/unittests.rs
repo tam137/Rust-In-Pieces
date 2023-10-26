@@ -48,6 +48,19 @@ fn move_gen_001() {
     board = Board::new();
     board.do_turn(&Turn::generate_turns("a2a3")[0]);
     assert(board.get_turn_list(true, false, &mut Stats::new()).len() == 19);
+
+    board = Board::new();
+    assert(board.get_turn_list_for_piece_on_idx(true, false, 94).len() == 0);
+
+    board.set_fen("r1bqk2r/pppp1ppp/2n2n2/2b5/2BPP3/5N2/PP3PPP/RNBQK2R");
+    let turns_for_bishop = board.get_turn_list_for_piece_on_idx(false, false, 53);
+    assert(turns_for_bishop.len() == 7);
+    assert(turns_for_bishop.get(4).unwrap().gives_chess);
+
+    board.set_fen("r2qr2k/1ppnP1pp/p1n2p2/8/2B5/5N2/PPQ2PPP/3RR1K1");
+    let pawn_promotion_and_hit_move = board.get_turn_list_for_piece_on_idx(true, false, 35);
+    assert(pawn_promotion_and_hit_move.get(0).unwrap().promotion);
+    assert(pawn_promotion_and_hit_move.get(0).unwrap().capture == 24);
 }
 
 fn turn_gen_002() {
