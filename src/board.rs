@@ -580,9 +580,14 @@ impl Board {
     }
 
 
-    pub fn get_pieces_map(&self) -> HashMap<usize, i16> {
-
-        HashMap::default()
+    pub fn get_pieces_map(&self) -> HashMap<i32, Vec<usize>> {
+        let mut pieces_map: HashMap<i32, Vec<usize>> = HashMap::new();
+        for idx in 21..99 {
+            if self.field[idx] > 0 {
+                pieces_map.entry(self.field[idx]).or_insert_with(Vec::new).push(idx);
+            }
+        }
+        pieces_map
     }
 
 
