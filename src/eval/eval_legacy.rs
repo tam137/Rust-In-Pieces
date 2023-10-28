@@ -1,9 +1,9 @@
-use crate::Board;
-use crate::Turn;
-use crate::config::Config;
 use std::collections::HashMap;
-use crate::eval::SemiResultKeys;
 
+use crate::Board;
+use crate::config::Config;
+use crate::eval::SemiResultKeys;
+use crate::Turn;
 
 pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
     let mut semi_results: HashMap<SemiResultKeys, i32> = HashMap::new();

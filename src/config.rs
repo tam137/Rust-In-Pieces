@@ -26,10 +26,13 @@ pub struct Config {
 
     pub piece_eval_pawn: i16,
     pub piece_eval_rook: i16,
-    pub piece_value_knight: i16,
+    pub piece_eval_knight: i16,
     pub piece_eval_bishop: i16,
     pub piece_eval_queen: i16,
     pub piece_eval_king: i16,
+
+    // additional values for new eval
+    pub pawn_structure: i16,
 }
 
 
@@ -60,10 +63,13 @@ impl Config {
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
-            piece_value_knight: 300,
+            piece_eval_knight: 300,
             piece_eval_bishop: 300,
             piece_eval_queen: 950,
             piece_eval_king: 15000,
+
+            // additional values for new eval
+            pawn_structure: 8,
         }
     }
 
@@ -73,8 +79,8 @@ impl Config {
             20 => -self.piece_eval_pawn,
             11 => self.piece_eval_rook,
             21 => -self.piece_eval_rook,
-            12 => self.piece_value_knight,
-            22 => -self.piece_value_knight,
+            12 => self.piece_eval_knight,
+            22 => -self.piece_eval_knight,
             13 => self.piece_eval_bishop,
             23 => -self.piece_eval_bishop,
             14 => self.piece_eval_queen,

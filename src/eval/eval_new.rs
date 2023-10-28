@@ -1,67 +1,166 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::board::Board;
 use crate::config::Config;
-use crate::turn::Turn;
 
-pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
+#[macro_export]
+macro_rules! fields {
+    ($($x:expr),*) => {
+        {
+            use std::collections::HashSet;
+            let mut set = HashSet::new();
+            $(
+                set.insert($x);
+            )*
+            set
+        }
+    };
+}
+
+
+pub fn calc_eval(board: &Board, config: &Config) -> HashMap<usize, i16> {
     let mut eval: i16 = 0;
+    let pieces_map = board.get_pieces_map();
+    let mut eval_map: HashMap<usize, i16> = HashMap::default();
 
-    for idx  in 21..99 {
+    for idx in 21..99 {
         let piece = board.get_field()[idx];
-        let eval_for_piece = match piece {
-            10 => white_pawn(idx, board, config),
-            11 => white_rook(idx, board, config),
-            12 => white_knight(idx, board, config),
-            13 => white_bishop(idx, board, config),
-            14 => white_queen(idx, board, config),
-            20 => black_pawn(idx, board, config),
-            21 => black_rook(idx, board, config),
-            22 => black_knight(idx, board, config),
-            23 => black_bishop(idx, board, config),
-            24 => black_queen(idx, board, config),
+        let eval_for_piece: i16 = match piece {
+            10 => {
+                let piece_eval = white_pawn(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            11 => {
+                let piece_eval = white_rook(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            12 => {
+                let piece_eval = white_knight(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            13 => {
+                let piece_eval = white_bishop(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            14 => {
+                let piece_eval = white_queen(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            20 => {
+                let piece_eval = black_pawn(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            21 => {
+                let piece_eval = black_rook(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            22 => {
+                let piece_eval = black_knight(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            23 => {
+                let piece_eval = black_bishop(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            24 => {
+                let piece_eval = black_queen(idx, board, config, &pieces_map);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
             _ => 0,
         };
         eval = eval + eval_for_piece;
     }
+    eval_map.insert(0, eval);
+    eval_map
+}
+
+fn white_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut eval = config.piece_eval_pawn;
+    let moves_until_promote = idx / 10 - 2;
+    match moves_until_promote {
+        1 => eval = eval + config.pawn_on_last_rank_bonus,
+        2 => eval = eval + config.pawn_on_before_last_rank_bonus,
+        3 => eval = eval + config.pawn_on_before_before_last_rank_bonus,
+        _ => ()
+    }
+    eval + on_fields_figure(fields!(idx-9, idx+1, idx+11), 10, pieces_map) * config.pawn_structure
+}
+
+fn white_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    config.piece_eval_rook
+}
+
+fn white_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    config.piece_eval_knight
+}
+
+fn white_bishop(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    config.piece_eval_bishop
+}
+
+fn white_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    config.piece_eval_queen
+}
+
+
+fn black_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut eval = -config.piece_eval_pawn;
+    let moves_until_promote = 9 - (idx / 10);
+    match moves_until_promote {
+        1 => eval = eval - config.pawn_on_last_rank_bonus,
+        2 => eval = eval - config.pawn_on_before_last_rank_bonus,
+        3 => eval = eval - config.pawn_on_before_before_last_rank_bonus,
+        _ => ()
+    }
+    eval - on_fields_figure(fields!(idx-9, idx+1, idx+11), 20, pieces_map) * config.pawn_structure
+}
+
+fn black_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    -config.piece_eval_rook
+}
+
+fn black_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    -config.piece_eval_knight
+}
+
+fn black_bishop(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    -config.piece_eval_bishop
+}
+
+fn black_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    -config.piece_eval_queen
+}
+
+
+fn on_fields_figure(fields: HashSet<usize>, piece: usize, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut offset = 0;
+    if let Some(piece_positions) = pieces_map.get(&(piece as i32)) {
+        for field in fields {
+            if piece_positions.contains(&field) {
+                offset += 1;
+            }
+        }
+    }
+    offset
+}
+
+
+fn calc_eval_material(config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut eval = 0;
+    let pieces_list = pieces_map.keys();
+    for piece in pieces_list {
+        eval += config.get_eval_value_for_piece(*piece as i8);
+    }
     eval
 }
 
-fn white_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn white_rook(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn white_knight(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn white_bishop(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn white_queen(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-
-fn black_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn black_rook(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn black_knight(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn black_bishop(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}
-
-fn black_queen(idx: usize, board: &Board, config: &Config) -> i16 {
-    0
-}

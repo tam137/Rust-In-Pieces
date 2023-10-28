@@ -1,11 +1,18 @@
-use crate::{Board, eval};
+use crate::Board;
 use crate::board::GameState;
-use crate::Turn;
-use crate::search;
-use crate::Stats;
 use crate::config::Config;
+use crate::eval::{calc_eval, calc_eval_piece_map};
+use crate::search;
 use crate::search::SearchAlgo;
+use crate::Stats;
+use crate::Turn;
 
+
+macro_rules! eval {
+    ($eval_map: expr) => {
+        *$eval_map.get(&0).unwrap()
+    };
+}
 
 pub fn run_unittests() {
     move_gen_001();
@@ -117,6 +124,16 @@ fn eval_003() {
     // eval = test_helper::get_static_eval_for_fen("8/2R1B3/2k1Q3/3N4/4n3/3q1K2/3b1r2/8", calc_push_to_king);
     // assert(eval == 0);
 
+    let mut board = Board::new();
+    let mut eval_map = calc_eval_piece_map(&board, &Config::new());
+    assert(eval!(eval_map) == 0);
+
+    board.set_field_index(21, 0);
+    board.set_field_index(31, 0);
+    board.set_field_index(92, 0);
+    board.set_field_index(93, 0);
+    eval_map = calc_eval_piece_map(&board, &Config::new());
+    assert(eval!(eval_map) < 100 && eval!(eval_map) > -100);
 }
 
 fn pty_005() {
@@ -499,7 +516,8 @@ pub fn analyse() {
 
 
 pub mod test_helper {
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::HashMap;
+
     use crate::board::Board;
     use crate::config::Config;
     use crate::eval::SemiResultKeys;
@@ -528,6 +546,7 @@ pub mod test_helper {
 
     pub(crate) mod assert {
         use std::println;
+
         use crate::search::MinMaxResult;
         use crate::unittests::assert;
 
