@@ -19,6 +19,17 @@ macro_rules! neg {
     };
 }
 
+macro_rules! time_it {
+    ($expr: expr) => {{
+        let start = std::time::Instant::now();
+        let result = { $expr };
+        let end = std::time::Instant::now();
+        let duration = end.duration_since(start);
+        println!("Time taken [{}]: {:?}", stringify!($expr), duration);
+        result
+    }};
+}
+
 
 pub fn run_unittests() {
     move_gen_001();
@@ -56,8 +67,10 @@ fn assert(condition: bool) {
 
 fn move_gen_001() {
     let mut board = Board::new();
-    assert(board.get_turn_list(true, false, &mut Stats::new()).len() == 20);
+    assert(time_it!(board.get_turn_list(true, false, &mut Stats::new()).len() == 20));
     assert(board.get_turn_list(false, false, &mut Stats::new()).len() == 20);
+    time_it!(board.get_turn_list_for_piece_on_idx(true, false, 92));
+    time_it!(board.generate_moves_list(true));
     board.clear_field();
     assert(board.generate_moves_list(false).len() == 0);
 }
@@ -133,7 +146,7 @@ fn eval_003() {
     // assert(eval == 0);
 
     let mut board = Board::new();
-    let mut eval_map = calc_eval_piece_map(&board, &Config::new());
+    let mut eval_map = time_it!(calc_eval_piece_map(&board, &Config::new()));
     assert(eval!(eval_map) == 0);
 
     board.set_field_index(21, 0);
