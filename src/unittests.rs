@@ -147,7 +147,8 @@ fn eval_003() {
 
     let mut board = Board::new();
     let mut eval_map = time_it!(calc_eval_piece_map(&board, &Config::new()));
-    assert(eval!(eval_map) == 0);
+    let eval = eval!(eval_map);
+    assert(eval == 0);
 
     board.set_field_index(21, 0);
     board.set_field_index(31, 0);
@@ -172,6 +173,8 @@ fn eval_003a_knight() {
     let eval_map = calc_eval_piece_map(&board, &Config::new());
     let black_eval = eval_map.get(&65).unwrap();
     assert(neg!(black_eval) == white_eval);
+
+    // TODO attacks queen or rook
 }
 
 fn eval_003b_rook() {

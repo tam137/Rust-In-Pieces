@@ -111,11 +111,22 @@ fn white_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i
 }
 
 fn white_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    config.piece_eval_knight
+    let mut eval = config.piece_eval_knight;
+    let on_rank = 8 - (idx / 10 - 2);
+    let on_file = idx % 10;
+    if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
+        eval -= config.knight_on_rim_malus;
+    }
+    eval += on_fields_figure(fields!(idx-21, idx-19, idx-12, idx-8, idx+21, idx+19, idx+12, idx+8), 21, pieces_map) * config.knight_attacks_rook;
+    eval += on_fields_figure(fields!(idx-21, idx-19, idx-12, idx-8, idx+21, idx+19, idx+12, idx+8), 24, pieces_map) * config.knight_attacks_queen;
+    eval
 }
 
-fn white_bishop(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    config.piece_eval_bishop
+fn white_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut eval = config.piece_eval_bishop;
+    // let turns = board.get_turn_list_for_piece_on_idx(true, false, idx);
+    // eval = eval + turns.len() as i16 * config.bishop_move_freedom;
+    eval
 }
 
 fn white_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
@@ -150,11 +161,22 @@ fn black_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i
 }
 
 fn black_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    -config.piece_eval_knight
+    let mut eval = -config.piece_eval_knight;
+    let on_rank = 8 - (idx / 10 - 2);
+    let on_file = idx % 10;
+    if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
+        eval += config.knight_on_rim_malus;
+    }
+    eval -= on_fields_figure(fields!(idx-21, idx-19, idx-12, idx-8, idx+21, idx+19, idx+12, idx+8), 11, pieces_map) * config.knight_attacks_rook;
+    eval -= on_fields_figure(fields!(idx-21, idx-19, idx-12, idx-8, idx+21, idx+19, idx+12, idx+8), 14, pieces_map) * config.knight_attacks_queen;
+    eval
 }
 
-fn black_bishop(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    -config.piece_eval_bishop
+fn black_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+    let mut eval = -config.piece_eval_bishop;
+    // let turns = board.get_turn_list_for_piece_on_idx(false, false, idx);
+    // eval = eval - turns.len() as i16 * config.bishop_move_freedom;
+    eval
 }
 
 fn black_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {

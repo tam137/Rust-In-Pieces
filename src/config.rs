@@ -35,6 +35,10 @@ pub struct Config {
     pub pawn_structure: i16,
     pub pawn_supports_knight_outpost: i16,
     pub rooks_on_same_rank: i16,
+    pub knight_on_rim_malus: i16,
+    pub knight_attacks_rook: i16,
+    pub knight_attacks_queen: i16,
+    pub bishop_move_freedom: i16,
 }
 
 
@@ -74,6 +78,10 @@ impl Config {
             pawn_structure: 8,
             pawn_supports_knight_outpost: 15,
             rooks_on_same_rank: 10,
+            knight_on_rim_malus: 8,
+            knight_attacks_rook: 8,
+            knight_attacks_queen: 12,
+            bishop_move_freedom: 4,
         }
     }
 
