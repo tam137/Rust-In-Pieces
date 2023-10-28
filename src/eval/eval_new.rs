@@ -101,7 +101,13 @@ fn white_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i
 }
 
 fn white_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    config.piece_eval_rook
+    let mut eval = config.piece_eval_rook;
+    if let Some(rooks) = pieces_map.get(&11) {
+        if rooks.len() == 2 && rooks[0]/10 == rooks[1]/10 {
+            eval += config.rooks_on_same_rank;
+        }
+    }
+    eval
 }
 
 fn white_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
@@ -134,7 +140,13 @@ fn black_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i
 }
 
 fn black_rook(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    -config.piece_eval_rook
+    let mut eval = -config.piece_eval_rook;
+    if let Some(rooks) = pieces_map.get(&21) {
+        if rooks.len() == 2 && rooks[0]/10 == rooks[1]/10 {
+            eval -= config.rooks_on_same_rank;
+        }
+    }
+    eval
 }
 
 fn black_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
@@ -154,6 +166,7 @@ fn on_fields_figure(fields: HashSet<usize>, piece: usize, pieces_map: &HashMap<i
     let mut offset = 0;
     if let Some(piece_positions) = pieces_map.get(&(piece as i32)) {
         for field in fields {
+            if (field >= 100) || field <= 20 { continue }
             if piece_positions.contains(&field) {
                 offset += 1;
             }

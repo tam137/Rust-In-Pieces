@@ -15,7 +15,7 @@ macro_rules! eval {
 
 macro_rules! neg {
     ($expr: expr) => {
-        -($expr)
+        &(-($expr))
     };
 }
 
@@ -26,6 +26,7 @@ pub fn run_unittests() {
     piece_map_002a();
     eval_003();
     eval_003a_knight();
+    eval_003b_rook();
     pty_005();
     castle_006();
     turn_color_008();
@@ -157,7 +158,17 @@ fn eval_003a_knight() {
     board.set_field_index(76, 22); // f3 knight
     let eval_map = calc_eval_piece_map(&board, &Config::new());
     let black_eval = eval_map.get(&65).unwrap();
-    assert(neg!(black_eval) == *white_eval);
+    assert(neg!(black_eval) == white_eval);
+}
+
+fn eval_003b_rook() {
+    let mut board = Board::new();
+    let config = Config::new();
+    let eval_map = calc_eval_piece_map(&board, &Config::new());
+    assert(eval_map.get(&21).unwrap() == eval_map.get(&28).unwrap());
+    assert(eval_map.get(&91).unwrap() == eval_map.get(&98).unwrap());
+    assert(eval_map.get(&91).unwrap() == neg!(eval_map.get(&28).unwrap()));
+    assert(eval_map.get(&91).unwrap() > &config.piece_eval_rook);
 }
 
 fn pty_005() {
