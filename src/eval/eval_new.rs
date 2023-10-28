@@ -87,11 +87,15 @@ pub fn calc_eval(board: &Board, config: &Config) -> HashMap<usize, i16> {
 fn white_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = config.piece_eval_pawn;
     let moves_until_promote = idx / 10 - 2;
+    let on_rank = 8 - moves_until_promote;
     match moves_until_promote {
         1 => eval = eval + config.pawn_on_last_rank_bonus,
         2 => eval = eval + config.pawn_on_before_last_rank_bonus,
         3 => eval = eval + config.pawn_on_before_before_last_rank_bonus,
         _ => ()
+    }
+    if (on_rank >= 3) && (on_rank <= 5) {
+        eval = eval + on_fields_figure(fields!(idx-11, idx-9), 12, pieces_map) * config.pawn_supports_knight_outpost;
     }
     eval + on_fields_figure(fields!(idx-9, idx+1, idx+11), 10, pieces_map) * config.pawn_structure
 }
@@ -116,11 +120,15 @@ fn white_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<
 fn black_pawn(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = -config.piece_eval_pawn;
     let moves_until_promote = 9 - (idx / 10);
+    let on_rank = 8 - moves_until_promote;
     match moves_until_promote {
         1 => eval = eval - config.pawn_on_last_rank_bonus,
         2 => eval = eval - config.pawn_on_before_last_rank_bonus,
         3 => eval = eval - config.pawn_on_before_before_last_rank_bonus,
         _ => ()
+    }
+    if (on_rank >= 3) && (on_rank <= 5) {
+        eval = eval - on_fields_figure(fields!(idx+11, idx+9), 22, pieces_map) * config.pawn_supports_knight_outpost;
     }
     eval - on_fields_figure(fields!(idx-9, idx+1, idx+11), 20, pieces_map) * config.pawn_structure
 }

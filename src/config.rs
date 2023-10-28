@@ -33,6 +33,7 @@ pub struct Config {
 
     // additional values for new eval
     pub pawn_structure: i16,
+    pub pawn_supports_knight_outpost: i16,
 }
 
 
@@ -70,6 +71,7 @@ impl Config {
 
             // additional values for new eval
             pawn_structure: 8,
+            pawn_supports_knight_outpost: 15
         }
     }
 

@@ -1,12 +1,11 @@
 use crate::Board;
 use crate::board::GameState;
 use crate::config::Config;
-use crate::eval::{calc_eval, calc_eval_piece_map};
+use crate::eval::calc_eval_piece_map;
 use crate::search;
 use crate::search::SearchAlgo;
 use crate::Stats;
 use crate::Turn;
-
 
 macro_rules! eval {
     ($eval_map: expr) => {
@@ -14,11 +13,19 @@ macro_rules! eval {
     };
 }
 
+macro_rules! neg {
+    ($expr: expr) => {
+        -($expr)
+    };
+}
+
+
 pub fn run_unittests() {
     move_gen_001();
     turn_gen_002();
     piece_map_002a();
-    eval_003(); // disabled
+    eval_003();
+    eval_003a_knight();
     pty_005();
     castle_006();
     turn_color_008();
@@ -134,6 +141,23 @@ fn eval_003() {
     board.set_field_index(93, 0);
     eval_map = calc_eval_piece_map(&board, &Config::new());
     assert(eval!(eval_map) < 100 && eval!(eval_map) > -100);
+}
+
+fn eval_003a_knight() {
+    let mut board = Board::new();
+    board.clear_field();
+    board.set_field_index(55, 10); // e5 pawn
+    board.set_field_index(46, 12); // f6 knight
+    let eval_map = calc_eval_piece_map(&board, &Config::new());
+    let white_eval = eval_map.get(&55).unwrap();
+    assert(white_eval >= &130);
+
+    board.clear_field();
+    board.set_field_index(65, 20); // e4 pawn
+    board.set_field_index(76, 22); // f3 knight
+    let eval_map = calc_eval_piece_map(&board, &Config::new());
+    let black_eval = eval_map.get(&65).unwrap();
+    assert(neg!(black_eval) == *white_eval);
 }
 
 fn pty_005() {
