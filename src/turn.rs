@@ -8,6 +8,7 @@ pub struct Turn {
     pub(crate) capture: i8,
     pub promotion: bool,
     pub gives_chess: bool,
+    //pub null_move_chess: bool, // fig capture villains king in null move
     pub post_villain: Vec<usize>,
     pub post_my: Vec<usize>,
     pub eval: i16,

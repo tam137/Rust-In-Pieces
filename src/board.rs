@@ -744,5 +744,58 @@ impl Board {
         moves
     }
 
+    pub fn king_in_chess(&self, white_king: bool) -> bool {
+        let king_idx = if white_king {
+            self.index_of_white_king()
+        } else {
+            self.index_of_black_king()
+        };
+
+        for &offset in &[-21, -19, -12, -8, 8, 12, 19, 21] {
+            let target = (king_idx as isize + offset) as usize;
+            if white_king && self.field[target] == 22 {
+                return true;
+            }
+            if !white_king && self.field[target] == 12 {
+                return true;
+            }
+        }
+
+        for &offset in &[-11, -9, 9, 11] {
+            let mut target = (king_idx + offset) as usize;
+            while self.field[target] == 0 {
+                target = (target as i32 + offset) as usize;
+                if white_king {
+                    if self.field[target] == 23 || self.field[target] == 24 { return true }
+                } else {
+                    if self.field[target] == 13 || self.field[target] == 14 { return true }
+                }
+                if self.field[target] != 0 { break; }
+            }
+        }
+
+        for &offset in &[-10, -1, 1, 10] {
+            let mut target = (king_idx + offset) as usize;
+            while self.field[target] == 0 {
+                target = (target as i32 + offset) as usize;
+                if white_king {
+                    if self.field[target] == 21 || self.field[target] == 24 { return true }
+                } else {
+                    if self.field[target] == 11 || self.field[target] == 14 { return true }
+                }
+                if self.field[target] != 0 { break; }
+            }
+        }
+
+        if white_king {
+            if king_idx-9 == 20 || king_idx-11 == 20 { return true }
+        } else {
+            if king_idx+9 == 10 || king_idx+11 == 10 { return true }
+        }
+
+        false
+    }
+
+
 
 }

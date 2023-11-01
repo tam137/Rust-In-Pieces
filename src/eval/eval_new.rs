@@ -124,7 +124,7 @@ fn white_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap
 
 fn white_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = config.piece_eval_bishop;
-    // let turns = board.get_turn_list_for_piece_on_idx(true, false, idx);
+    // let turns = board.clone().get_turn_list_for_piece_on_idx(true, false, idx);
     // eval = eval + turns.len() as i16 * config.bishop_move_freedom;
     eval
 }
@@ -174,8 +174,8 @@ fn black_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap
 
 fn black_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = -config.piece_eval_bishop;
-    // let turns = board.get_turn_list_for_piece_on_idx(false, false, idx);
-    // eval = eval - turns.len() as i16 * config.bishop_move_freedom;
+    //let turns = board.clone().get_turn_list_for_piece_on_idx(false, false, idx);
+    //eval = eval - turns.len() as i16 * config.bishop_move_freedom;
     eval
 }
 
