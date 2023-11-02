@@ -749,10 +749,10 @@ impl Board {
             self.index_of_white_king()
         } else {
             self.index_of_black_king()
-        };
+        } as isize;
 
         for &offset in &[-21, -19, -12, -8, 8, 12, 19, 21] {
-            let target = (king_idx as isize + offset) as usize;
+            let target = (king_idx + offset) as usize;
             if white_king && self.field[target] == 22 {
                 return true;
             }
@@ -761,29 +761,59 @@ impl Board {
             }
         }
 
-        for &offset in &[-11, -9, 9, 11] {
-            let mut target = (king_idx + offset) as usize;
-            while self.field[target] == 0 {
-                target = (target as i32 + offset) as usize;
-                if white_king {
-                    if self.field[target] == 23 || self.field[target] == 24 { return true }
-                } else {
-                    if self.field[target] == 13 || self.field[target] == 14 { return true }
+        let enemy_bishop_queen = if white_king { [23, 24] } else { [13, 14] };
+
+        for &offset in &[-11, -9, 9, 11, ] {
+            let mut target = king_idx + offset;
+
+            // Keep checking along the diagonal until you find a piece or go out of bounds
+            while target >= 0 && target < self.field.len() as isize {
+                // Convert the target back to usize for indexing
+                let target_idx = target as usize;
+
+                // If there's a piece that is not a bishop/queen, stop checking this diagonal
+                if self.field[target_idx] != 0 && !enemy_bishop_queen.contains(&self.field[target_idx]) {
+                    break;
                 }
-                if self.field[target] != 0 { break; }
+
+                // If an enemy bishop/queen is found, the king is in check
+                if enemy_bishop_queen.contains(&self.field[target_idx]) {
+                    return true;
+                }
+
+                // Update target to the next cell in the diagonal
+                target += offset;
             }
         }
 
+
+        let enemy_rook_queen = if white_king { [21, 24] } else { [11, 14] };
+
         for &offset in &[-10, -1, 1, 10] {
-            let mut target = (king_idx + offset) as usize;
-            while self.field[target] == 0 {
-                target = (target as i32 + offset) as usize;
-                if white_king {
-                    if self.field[target] == 21 || self.field[target] == 24 { return true }
-                } else {
-                    if self.field[target] == 11 || self.field[target] == 14 { return true }
+            let mut target = king_idx;
+
+            // Loop to check the straight lines from the king's position
+            while target >= 0 && target < self.field.len() as isize {
+                let target_idx = target as usize;
+
+                // Check if the current target position is valid for a rook or queen
+                if self.field[target_idx] != 0 && !enemy_rook_queen.contains(&self.field[target_idx]) {
+                    break;
                 }
-                if self.field[target] != 0 { break; }
+
+                // If an enemy rook/queen is found, the king is in check
+                if enemy_rook_queen.contains(&self.field[target_idx]) {
+                    return true;
+                }
+
+                // Move to the next cell in the line
+                target += offset;
+
+                // Check boundaries to make sure we don't wrap around to the other side of the board
+                if offset.abs() == 1 && (target % 10 == 9 || target % 10 == 0) {
+                    // Break if we reach the end of the row in horizontal directions
+                    break;
+                }
             }
         }
 

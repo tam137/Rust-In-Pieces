@@ -39,17 +39,17 @@ pub fn run_unittests() {
     eval_003();
     eval_003a_knight();
     eval_003b_rook();
-    // pty_005();
-    // castle_006();
-    // turn_color_008();
-    // advanced_castle_007();
-    // fen_009();
-    // promotion_010();
-    // end_game_011();
-    // static_board_function_012();
-    // is_quite_board_check_013();
-    // zobrist_014();
-    // quiescence_015();
+    pty_005();
+    castle_006();
+    turn_color_008();
+    advanced_castle_007();
+    fen_009();
+    promotion_010();
+    end_game_011();
+    static_board_function_012();
+    is_quite_board_check_013();
+    zobrist_014();
+    quiescence_015();
     recognize_chess_016();
     // opening_situations_050();
     // move_row_016();
@@ -501,6 +501,14 @@ pub fn quiescence_015() {
 
 pub fn recognize_chess_016() {
     let mut board = Board::new();
+    board.set_fen("8/8/2k5/3B4/8/8/8/8");
+    assert(board.king_in_chess(false));
+
+    let mut board = Board::new();
+    board.set_fen("r1bqk1nr/pppp1Bp1/2nb3p/4p3/4P3/2NP1N2/PPP2PPP/R1BQK2R");
+    assert(board.king_in_chess(false));
+
+    let mut board = Board::new();
     board.set_fen("8/8/2k5/8/8/8/2K5/3B4");
     let sorted_turn_list = board.get_turn_list(true, false, &mut Stats::new());
     assert(sorted_turn_list.get(0).unwrap().gives_chess);
@@ -509,8 +517,6 @@ pub fn recognize_chess_016() {
     let sorted_turn_list = board.get_turn_list(false, false, &mut Stats::new());
     assert(sorted_turn_list.get(0).unwrap().gives_chess);
 
-
-    // black in chess:
     board.set_fen("rnbqkbnr/ppp2ppp/4p3/3p4/Q1PP4/4P3/PP3PPP/RNB1KBNR");
     assert(board.king_in_chess(false));
     board.set_fen("rnbqkbnr/pp3ppp/2p1p3/3p4/Q1PP4/4P3/PP3PPP/RNB1KBNR");
@@ -522,10 +528,6 @@ pub fn recognize_chess_016() {
 
     let turns = board.get_turn_list(false, false, &mut Stats::new());
     assert(turns.iter().filter(|t| t.gives_chess).collect_into(&mut Vec::new()).len() == 1);
-
-
-
-
 }
 
 
