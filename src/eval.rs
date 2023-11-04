@@ -21,7 +21,7 @@ pub enum EvalAlgo {
 
 pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
     if config.eval_algo == EvalAlgo::Pieces {
-        *eval_new::calc_eval(board, config).get(&0).unwrap()
+        eval_new::calc_eval(board, config)
     } else {
         eval_legacy::calc_eval(board, turn, config)
     }
@@ -54,5 +54,5 @@ pub fn calc_eval_material(board: &Board, config: &Config) -> i16 {
 ///
 /// eval_map(idx).unwrap()
 pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16> {
-    eval_new::calc_eval(board, config)
+    eval_new::calc_eval_piece_map(board, config)
 }

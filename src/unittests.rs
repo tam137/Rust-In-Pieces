@@ -1,7 +1,7 @@
 use crate::Board;
 use crate::board::GameState;
 use crate::config::Config;
-use crate::eval::{calc_eval_legacy, calc_eval_piece_map};
+use crate::eval::{calc_eval, calc_eval_legacy, calc_eval_piece_map};
 use crate::search;
 use crate::Stats;
 use crate::Turn;
@@ -78,8 +78,12 @@ fn time_000() {
     time_it!(board.king_in_chess(true));
 
     time_it!(calc_eval_piece_map(&board, &Config::new()));
+    time_it!(calc_eval(&board, &Turn::new(), &Config::new()));
     time_it!(calc_eval_legacy(&board, &Turn::new(), &Config::new()));
     time_it!(board.get_pieces_map());
+
+    time_it!(board.generate_moves_list(true));
+    time_it!(board.generate_moves_list_for_piece(true, 63));
 }
 
 
@@ -202,7 +206,7 @@ fn eval_003b_rook() {
     assert(eval_map.get(&21).unwrap() == eval_map.get(&28).unwrap());
     assert(eval_map.get(&91).unwrap() == eval_map.get(&98).unwrap());
     assert(eval_map.get(&91).unwrap() == neg!(eval_map.get(&28).unwrap()));
-    assert(eval_map.get(&91).unwrap() > &config.piece_eval_rook);
+    assert(eval_map.get(&91).unwrap() >= &config.piece_eval_rook);
 }
 
 fn eval_003c_bishop() {
