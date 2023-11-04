@@ -79,6 +79,7 @@ fn time_000() {
 
     time_it!(calc_eval_piece_map(&board, &Config::new()));
     time_it!(calc_eval_legacy(&board, &Turn::new(), &Config::new()));
+    time_it!(board.get_pieces_map());
 }
 
 

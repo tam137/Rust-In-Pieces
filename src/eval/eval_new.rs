@@ -7,15 +7,11 @@ use crate::config::Config;
 macro_rules! fields {
     ($($x:expr),*) => {
         {
-            use std::collections::HashSet;
-            let mut set = HashSet::new();
-            $(
-                set.insert($x);
-            )*
-            set
+            vec![$($x),*]
         }
     };
 }
+
 
 
 pub fn calc_eval(board: &Board, config: &Config) -> HashMap<usize, i16> {
@@ -190,7 +186,7 @@ fn black_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<
 }
 
 
-fn on_fields_figure(fields: HashSet<usize>, piece: usize, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
+fn on_fields_figure(fields: Vec<usize>, piece: usize, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut offset = 0;
     if let Some(piece_positions) = pieces_map.get(&(piece as i32)) {
         for field in fields {
