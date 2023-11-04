@@ -1,8 +1,8 @@
-use crate::search::SearchAlgo;
+use crate::eval::EvalAlgo;
 
 #[derive(Clone)]
 pub struct Config {
-    pub search_algo: SearchAlgo,
+    pub eval_algo: EvalAlgo,
     pub use_depth_modificator: bool,
     pub use_book: bool,
     pub use_zobrist: bool,
@@ -46,7 +46,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            search_algo: SearchAlgo::Quiescence,
+            eval_algo: EvalAlgo::Pieces,
             use_depth_modificator: false,
             use_book: true,
             use_zobrist: true,
@@ -110,7 +110,4 @@ impl Config {
         self
     }
 
-    pub fn set_search_alg(&mut self, search_algo: SearchAlgo) {
-        self.search_algo = search_algo;
-    }
 }

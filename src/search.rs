@@ -10,14 +10,6 @@ mod search_zobrist;
 mod search_quite;
 
 
-#[derive(Clone)]
-pub enum SearchAlgo {
-    Basic,
-    AlphaBeta,
-    Zobrist,
-    Quiescence
-}
-
 pub fn get_best_move_as_min_max_result(mut board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config) -> MinMaxResult {
     let min_max_raw_result: Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> = search_quite::get_moves(board, depth, white, stats, config);
     MinMaxResult::new(min_max_raw_result)

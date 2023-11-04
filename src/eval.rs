@@ -12,8 +12,19 @@ pub enum SemiResultKeys {
     PiecesOnBoard,
 }
 
+#[derive(Clone)]
+#[derive(PartialEq)]
+pub enum EvalAlgo {
+    Classic,
+    Pieces,
+}
+
 pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
-    *eval_new::calc_eval(board, config).get(&0).unwrap()
+    if config.eval_algo == EvalAlgo::Pieces {
+        *eval_new::calc_eval(board, config).get(&0).unwrap()
+    } else {
+        eval_legacy::calc_eval(board, turn, config)
+    }
 }
 
 pub fn calc_eval_legacy(board: &Board, turn: &Turn, config: &Config) -> i16 {

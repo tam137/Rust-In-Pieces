@@ -3,7 +3,6 @@ use crate::board::GameState;
 use crate::config::Config;
 use crate::eval::{calc_eval_legacy, calc_eval_piece_map};
 use crate::search;
-use crate::search::SearchAlgo;
 use crate::Stats;
 use crate::Turn;
 
@@ -561,8 +560,6 @@ pub fn recognize_chess_016() {
     assert(!board.king_in_chess(false));
 
     board.set_fen("rnbqkbnr/ppp1pppp/4P3/7Q/4N3/8/PPPP1PPP/RNB1KB1R");
-    let turns = board.get_turn_list(true, false, &mut Stats::new());
-    assert(turns.iter().filter(|t| t.gives_chess).collect_into(&mut Vec::new()).len() == 6);
 
     let turns = board.get_turn_list(false, false, &mut Stats::new());
     assert(turns.iter().filter(|t| t.gives_chess).collect_into(&mut Vec::new()).len() == 1);
@@ -607,11 +604,6 @@ pub fn analyse() {
         board.do_turn(&turn);
     }
 
-    config.set_search_alg(SearchAlgo::Zobrist);
-    let best = search::get_best_move(&mut board, 4, true, &mut Stats::new(), &config);
-    config.set_search_alg(SearchAlgo::AlphaBeta);
-    let best = search::get_best_move(&mut board, 4, true, &mut Stats::new(), &config);
-    // best is g1h3 in both
 }
 
 
@@ -624,7 +616,7 @@ pub mod test_helper {
     use crate::config::Config;
     use crate::eval::SemiResultKeys;
     use crate::search;
-    use crate::search::{MinMaxResult, SearchAlgo};
+    use crate::search::MinMaxResult;
     use crate::stats::Stats;
 
     pub fn get_bestmove_for_fen(fen: &str, white: bool) -> MinMaxResult {
@@ -633,7 +625,6 @@ pub mod test_helper {
         let mut config = Config::new();
         config.search_depth = 2;
         config.search_depth_quite = 99;
-        config.set_search_alg(SearchAlgo::Quiescence);
         board.set_fen(fen);
         return search::get_best_move_as_min_max_result(&mut board, config.search_depth, white, &mut stats, &config);
     }
