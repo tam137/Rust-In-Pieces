@@ -13,11 +13,14 @@ pub enum SemiResultKeys {
 }
 
 pub fn calc_eval(board: &Board, turn: &Turn, config: &Config) -> i16 {
-    //eval_legacy::calc_eval(board, turn, config)
     *eval_new::calc_eval(board, config).get(&0).unwrap()
 }
 
-pub fn calc_eval_material(board: &Board, config: &Config, semi_results: &mut HashMap<SemiResultKeys, i32>) -> i16 {
+pub fn calc_eval_legacy(board: &Board, turn: &Turn, config: &Config) -> i16 {
+    eval_legacy::calc_eval(board, turn, config)
+}
+
+pub fn calc_eval_material(board: &Board, config: &Config) -> i16 {
     let mut eval = 0;
     let pieces_list = board.get_list_of_pieces();
     for piece in pieces_list {
@@ -26,6 +29,19 @@ pub fn calc_eval_material(board: &Board, config: &Config, semi_results: &mut Has
     eval
 }
 
+/// Returns the evaluation value of a piece as value and the idx on Board as Key
+///
+/// (21, -500) means piece on field a8 has a evaluation value of -500
+///
+/// the key 0 contains the overall evaluation of the board
+///
+/// # Examples
+///
+/// eval!(eval_map)
+///
+/// eval_idx!(eval_map, idx)
+///
+/// eval_map(idx).unwrap()
 pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16> {
     eval_new::calc_eval(board, config)
 }

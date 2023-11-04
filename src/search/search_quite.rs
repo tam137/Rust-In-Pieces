@@ -12,7 +12,7 @@ pub fn get_moves(board: &mut Board, depth: i32, white: bool, stats: &mut Stats, 
 
     let turns = board.get_turn_list(white, false, stats);
     stats.add_created_nodes(turns.len());
-    board.set_current_best(eval::calc_eval_material(board, config, &mut HashMap::new()));
+    board.set_current_best(eval::calc_eval_material(board, config));
 
     let mut best_move_row: VecDeque<Option<Turn>> = Default::default();
     let mut sorted_moves: Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> = vec![];

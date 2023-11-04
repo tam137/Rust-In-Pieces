@@ -221,7 +221,23 @@ impl Board {
 
 
     pub fn get_turn_list_for_piece_on_idx(&mut self, white: bool, only_capture: bool, idx: usize) -> Vec<Turn> {
-        let moves = self.generate_moves_list_for_piece(white, idx);
+        let mut moves = self.generate_moves_list_for_piece(white, idx);
+
+        if white {
+            if let Some(position) = moves.iter().position(|&x| self.field.get(x) == Some(&25)) {
+                if position > 0 {
+                    moves.remove(position);
+                    moves.remove(position - 1);
+                }
+            }
+        } else {
+            if let Some(position) = moves.iter().position(|&x| self.field.get(x) == Some(&15)) {
+                if position > 0 {
+                    moves.remove(position);
+                    moves.remove(position - 1);
+                }
+            }
+        }
         self.generate_unsorted_turn_list_from_raw_moves(moves, white, only_capture)
     }
 

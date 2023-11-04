@@ -39,6 +39,7 @@ pub struct Config {
     pub knight_attacks_rook: i16,
     pub knight_attacks_queen: i16,
     pub bishop_move_freedom: i16,
+    pub queen_move_freedom: i16,
 }
 
 
@@ -82,6 +83,7 @@ impl Config {
             knight_attacks_rook: 8,
             knight_attacks_queen: 12,
             bishop_move_freedom: 4,
+            queen_move_freedom: 1,
         }
     }
 

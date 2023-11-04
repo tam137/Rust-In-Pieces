@@ -18,6 +18,10 @@ pub struct Turn {
 
 impl Turn {
 
+    pub fn new() -> Self {
+        Self { from: 0, to: 0, capture: 0, promotion: false, gives_chess: false, post_villain: vec!(), post_my: vec!(), eval: 0 }
+    }
+
     pub fn generate_turns(move_row: &str) -> Vec<Turn> {
         let mut turn_list = Vec::new();
         let algebraic_move_list: Vec<&str> = move_row.split_whitespace().collect();
@@ -74,5 +78,4 @@ impl Turn {
         let gives_chess = self.post_my.iter().any(|&x: &usize| x as i32 == villain_king);
         self.gives_chess = gives_chess;
     }
-
 }

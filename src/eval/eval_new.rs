@@ -124,17 +124,16 @@ fn white_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap
 
 fn white_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = config.piece_eval_bishop;
-    let turns = if board.king_in_chess(false) {
-        board.generate_moves_list_for_piece(true, idx).len() / 2
-    } else {
-        board.clone().get_turn_list_for_piece_on_idx(true, false, idx).len()
-    };
+    let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
     eval = eval + turns as i16 * config.bishop_move_freedom;
     eval
 }
 
 fn white_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    config.piece_eval_queen
+    let mut eval = config.piece_eval_queen;
+    let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
+    eval = eval + turns as i16 * config.queen_move_freedom;
+    eval
 }
 
 
@@ -178,17 +177,16 @@ fn black_knight(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap
 
 fn black_bishop(idx: usize, mut board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
     let mut eval = -config.piece_eval_bishop;
-    let turns = if board.king_in_chess(true) {
-        board.generate_moves_list_for_piece(false, idx).len() / 2
-    } else {
-        board.clone().get_turn_list_for_piece_on_idx(false, false, idx).len()
-    };
+    let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     eval = eval - turns as i16 * config.bishop_move_freedom;
     eval
 }
 
 fn black_queen(idx: usize, board: &Board, config: &Config, pieces_map: &HashMap<i32, Vec<usize>>) -> i16 {
-    -config.piece_eval_queen
+    let mut eval = -config.piece_eval_queen;
+    let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
+    eval = eval - turns as i16 * config.queen_move_freedom;
+    eval
 }
 
 
