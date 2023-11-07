@@ -24,11 +24,13 @@ pub fn calc_eval(board: &Board, config: &Config) -> i16 {
             12 => white_knight(idx, board, config),
             13 => white_bishop(idx, board, config),
             14 => white_queen(idx, board, config),
+            15 => white_king(idx, board, config),
             20 => black_pawn(idx, board, config),
             21 => black_rook(idx, board, config),
             22 => black_knight(idx, board, config),
             23 => black_bishop(idx, board, config),
             24 => black_queen(idx, board, config),
+            25 => black_king(idx, board, config),
             _ => 0,
         };
         eval = eval + eval_for_piece;
@@ -69,6 +71,11 @@ pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
+            15 => {
+                let piece_eval = white_king(idx, board, config);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
             20 => {
                 let piece_eval = black_pawn(idx, board, config);
                 eval_map.insert(idx, piece_eval);
@@ -91,6 +98,11 @@ pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16
             },
             24 => {
                 let piece_eval = black_queen(idx, board, config);
+                eval_map.insert(idx, piece_eval);
+                piece_eval
+            },
+            25 => {
+                let piece_eval = black_king(idx, board, config);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
@@ -165,6 +177,16 @@ fn white_queen(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
+fn white_king(idx: usize, board: &Board, config: &Config) -> i16 {
+    let mut eval = config.piece_eval_king;
+    let f = board.get_field();
+    eval = eval + if f[idx-9]/10==1 { config.king_shield } else { 0 };
+    eval = eval + if f[idx-10]/10==1 { config.king_shield } else { 0 };
+    eval = eval + if f[idx-11]/10==1 { config.king_shield } else { 0 };
+    eval
+}
+
+
 fn black_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
     let mut eval = -config.piece_eval_pawn;
     let moves_until_promote = 9 - (idx / 10);
@@ -224,5 +246,15 @@ fn black_queen(idx: usize, board: &Board, config: &Config) -> i16 {
     let mut eval = -config.piece_eval_queen;
     let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     eval = eval - turns as i16 * config.queen_move_freedom;
+    eval
+}
+
+
+fn black_king(idx: usize, board: &Board, config: &Config) -> i16 {
+    let mut eval = -config.piece_eval_king;
+    let f = board.get_field();
+    eval = eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };
+    eval = eval - if f[idx+10]/20==1 { config.king_shield } else { 0 };
+    eval = eval - if f[idx+11]/20==1 { config.king_shield } else { 0 };
     eval
 }

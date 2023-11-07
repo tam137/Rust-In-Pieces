@@ -46,6 +46,7 @@ pub fn run_unittests() {
     eval_003b_rook();
     eval_003c_bishop();
     eval_003c_queen();
+    eval_003d_king();
     pty_005();
     castle_006();
     turn_color_008();
@@ -224,7 +225,6 @@ fn eval_003c_bishop() {
 fn eval_003c_queen() {
     let mut board = Board::new();
     board.set_fen("rnbqkbnr/ppp2ppp/4p3/3p4/3P4/4P3/PPP2PPP/RNBQKBNR");
-
     let config = &Config::new();
     let eval_map = calc_eval_piece_map(&board, config);
     assert(eval!(eval_map) == 0);
@@ -232,7 +232,27 @@ fn eval_003c_queen() {
     let queen_eval_black = eval_idx!(eval_map, 24);
     assert(queen_eval_white > config.piece_eval_queen);
     assert(queen_eval_black < -config.piece_eval_queen);
+}
 
+fn eval_003d_king() {
+    let mut board = Board::new();
+    board.set_fen("6k1/5ppp/8/8/8/8/5PPP/6K1");
+    let config = &Config::new();
+    let eval_map = calc_eval_piece_map(&board, config);
+    assert(eval!(eval_map) == 0);
+
+    board.set_field_index(37, 0);
+    let eval_map = calc_eval_piece_map(&board, config);
+    let king_eval_white = eval_idx!(eval_map, 97);
+    let king_eval_black = eval_idx!(eval_map, 27);
+    assert(king_eval_white > *neg!(king_eval_black));
+
+    board.set_field_index(87, 0);
+    board.set_field_index(88, 0);
+    let eval_map = calc_eval_piece_map(&board, config);
+    let king_eval_white = eval_idx!(eval_map, 97);
+    let king_eval_black = eval_idx!(eval_map, 27);
+    assert(king_eval_white < *neg!(king_eval_black));
 }
 
 fn pty_005() {
