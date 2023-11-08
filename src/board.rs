@@ -596,6 +596,18 @@ impl Board {
     }
 
 
+    /// return Value of 255 means early game and values towards 0 means endgamephase
+    /// a middle value like 128 respects early and late game evaluation in the same weight
+    pub fn get_game_phase(&self) -> u32 {
+        let field = self.field;
+        let mut phase = 0;
+        for idx in 21..99 {
+            if field[idx] > 0 { phase = phase + 8; } else { continue };
+        }
+        phase
+    }
+
+
     pub fn get_pieces_map(&self) -> HashMap<i32, Vec<usize>> {
         let mut pieces_map: HashMap<i32, Vec<usize>> = HashMap::new();
         for idx in 21..99 {

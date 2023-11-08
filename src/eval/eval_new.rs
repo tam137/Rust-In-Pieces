@@ -3,34 +3,26 @@ use std::collections::HashMap;
 use crate::board::Board;
 use crate::config::Config;
 
-#[macro_export]
-macro_rules! fields {
-    ($($x:expr),*) => {
-        {
-            vec![$($x),*]
-        }
-    };
-}
-
 
 pub fn calc_eval(board: &Board, config: &Config) -> i16 {
     let mut eval: i16 = 0;
+    let game_phase = board.get_game_phase();
     let field = board.get_field();
     for idx in 21..99 {
         let piece = field[idx];
         let eval_for_piece: i16 = match piece {
-            10 => white_pawn(idx, board, config),
-            11 => white_rook(idx, board, config),
-            12 => white_knight(idx, board, config),
-            13 => white_bishop(idx, board, config),
-            14 => white_queen(idx, board, config),
-            15 => white_king(idx, board, config),
-            20 => black_pawn(idx, board, config),
-            21 => black_rook(idx, board, config),
-            22 => black_knight(idx, board, config),
-            23 => black_bishop(idx, board, config),
-            24 => black_queen(idx, board, config),
-            25 => black_king(idx, board, config),
+            10 => white_pawn(idx, board, config, field, game_phase),
+            11 => white_rook(idx, board, config, field, game_phase),
+            12 => white_knight(idx, board, config, field, game_phase),
+            13 => white_bishop(idx, board, config, field, game_phase),
+            14 => white_queen(idx, board, config, field, game_phase),
+            15 => white_king(idx, board, config, field, game_phase),
+            20 => black_pawn(idx, board, config, field, game_phase),
+            21 => black_rook(idx, board, config, field, game_phase),
+            22 => black_knight(idx, board, config, field, game_phase),
+            23 => black_bishop(idx, board, config, field, game_phase),
+            24 => black_queen(idx, board, config, field, game_phase),
+            25 => black_king(idx, board, config, field, game_phase),
             _ => 0,
         };
         eval = eval + eval_for_piece;
@@ -41,68 +33,69 @@ pub fn calc_eval(board: &Board, config: &Config) -> i16 {
 pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16> {
     let mut eval: i16 = 0;
     let mut eval_map: HashMap<usize, i16> = HashMap::default();
+    let game_phase = board.get_game_phase();
     let field = board.get_field();
 
     for idx in 21..99 {
         let piece = field[idx];
         let eval_for_piece: i16 = match piece {
             10 => {
-                let piece_eval = white_pawn(idx, board, config);
+                let piece_eval = white_pawn(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             11 => {
-                let piece_eval = white_rook(idx, board, config);
+                let piece_eval = white_rook(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             12 => {
-                let piece_eval = white_knight(idx, board, config);
+                let piece_eval = white_knight(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             13 => {
-                let piece_eval = white_bishop(idx, board, config);
+                let piece_eval = white_bishop(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             14 => {
-                let piece_eval = white_queen(idx, board, config);
+                let piece_eval = white_queen(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             15 => {
-                let piece_eval = white_king(idx, board, config);
+                let piece_eval = white_king(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             20 => {
-                let piece_eval = black_pawn(idx, board, config);
+                let piece_eval = black_pawn(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             21 => {
-                let piece_eval = black_rook(idx, board, config);
+                let piece_eval = black_rook(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             22 => {
-                let piece_eval = black_knight(idx, board, config);
+                let piece_eval = black_knight(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             23 => {
-                let piece_eval = black_bishop(idx, board, config);
+                let piece_eval = black_bishop(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             24 => {
-                let piece_eval = black_queen(idx, board, config);
+                let piece_eval = black_queen(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
             25 => {
-                let piece_eval = black_king(idx, board, config);
+                let piece_eval = black_king(idx, board, config, field, game_phase);
                 eval_map.insert(idx, piece_eval);
                 piece_eval
             },
@@ -114,7 +107,7 @@ pub fn calc_eval_piece_map(board: &Board, config: &Config) -> HashMap<usize, i16
     eval_map
 }
 
-fn white_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
+fn white_pawn(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_pawn;
     let moves_until_promote = idx / 10 - 2;
     let on_rank = 8 - moves_until_promote;
@@ -137,13 +130,13 @@ fn white_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn white_rook(idx: usize, board: &Board, config: &Config) -> i16 {
+fn white_rook(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_rook;
     eval
 }
 
 
-fn white_knight(idx: usize, board: &Board, config: &Config) -> i16 {
+fn white_knight(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_knight;
     let on_rank = 8 - (idx / 10 - 2);
     let on_file = idx % 10;
@@ -161,7 +154,7 @@ fn white_knight(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn white_bishop(idx: usize, mut board: &Board, config: &Config) -> i16 {
+fn white_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_bishop;
     let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
     eval = eval + turns as i16 * config.bishop_move_freedom;
@@ -169,7 +162,7 @@ fn white_bishop(idx: usize, mut board: &Board, config: &Config) -> i16 {
 }
 
 
-fn white_queen(idx: usize, board: &Board, config: &Config) -> i16 {
+fn white_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_queen;
     let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
     eval = eval + turns as i16 * config.queen_move_freedom;
@@ -177,7 +170,7 @@ fn white_queen(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn white_king(idx: usize, board: &Board, config: &Config) -> i16 {
+fn white_king(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = config.piece_eval_king;
     let f = board.get_field();
     eval = eval + if f[idx-9]/10==1 { config.king_shield } else { 0 };
@@ -187,7 +180,7 @@ fn white_king(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn black_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
+fn black_pawn(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_pawn;
     let moves_until_promote = 9 - (idx / 10);
     let on_rank = 8 - moves_until_promote;
@@ -210,13 +203,13 @@ fn black_pawn(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn black_rook(idx: usize, board: &Board, config: &Config) -> i16 {
+fn black_rook(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_rook;
     eval
 }
 
 
-fn black_knight(idx: usize, board: &Board, config: &Config) -> i16 {
+fn black_knight(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_knight;
     let on_rank = 8 - (idx / 10 - 2);
     let on_file = idx % 10;
@@ -234,7 +227,7 @@ fn black_knight(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn black_bishop(idx: usize, mut board: &Board, config: &Config) -> i16 {
+fn black_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_bishop;
     let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     eval = eval - turns as i16 * config.bishop_move_freedom;
@@ -242,7 +235,7 @@ fn black_bishop(idx: usize, mut board: &Board, config: &Config) -> i16 {
 }
 
 
-fn black_queen(idx: usize, board: &Board, config: &Config) -> i16 {
+fn black_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_queen;
     let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     eval = eval - turns as i16 * config.queen_move_freedom;
@@ -250,7 +243,7 @@ fn black_queen(idx: usize, board: &Board, config: &Config) -> i16 {
 }
 
 
-fn black_king(idx: usize, board: &Board, config: &Config) -> i16 {
+fn black_king(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: u32) -> i16 {
     let mut eval = -config.piece_eval_king;
     let f = board.get_field();
     eval = eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };

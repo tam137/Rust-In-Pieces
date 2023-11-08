@@ -47,6 +47,7 @@ pub fn run_unittests() {
     eval_003c_bishop();
     eval_003c_queen();
     eval_003d_king();
+    eval_003e_game_phase();
     pty_005();
     castle_006();
     turn_color_008();
@@ -85,6 +86,8 @@ fn time_000() {
 
     time_it!(board.generate_moves_list(true));
     time_it!(board.generate_moves_list_for_piece(true, 63));
+
+    time_it!(board.get_game_phase());
 }
 
 
@@ -253,6 +256,13 @@ fn eval_003d_king() {
     let king_eval_white = eval_idx!(eval_map, 97);
     let king_eval_black = eval_idx!(eval_map, 27);
     assert(king_eval_white < *neg!(king_eval_black));
+}
+
+fn eval_003e_game_phase() {
+    let mut board = Board::new();
+    assert_eq!(board.get_game_phase(), 256);
+    board.clear_field();
+    assert_eq!(board.get_game_phase(), 0);
 }
 
 fn pty_005() {
