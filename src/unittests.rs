@@ -60,6 +60,7 @@ pub fn run_unittests() {
     zobrist_014();
     quiescence_015();
     recognize_chess_016();
+
     // opening_situations_050();
     // move_row_016();
     // analyse();
@@ -559,6 +560,7 @@ pub fn quiescence_015() {
     //test_helper::assert::equal_move(&res, "e1b4"); // or e1b4, d3e4
 
     res = test_helper::get_bestmove_for_fen("1k6/8/3n2b1/p4p2/1p2n3/5PP1/8/1K1RQ3", true);
+    let best_move_str = res.get_best_move_row_str();
     test_helper::assert::equal_move(&res, "f3e4");
 
     let res = test_helper::get_bestmove_for_fen("8/7r/1k1q1p2/8/7B/8/2K2R2/8", true);

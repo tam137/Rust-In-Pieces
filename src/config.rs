@@ -34,6 +34,8 @@ pub struct Config {
     // additional values for new eval
     pub pawn_structure: i16,
     pub pawn_supports_knight_outpost: i16,
+    pub pawn_centered: i16,
+    pub pawn_undeveloped_malus: i16,
     pub rooks_on_same_rank: i16,
     pub knight_on_rim_malus: i16,
     pub knight_attacks_rook: i16,
@@ -79,6 +81,8 @@ impl Config {
             // additional values for new eval
             pawn_structure: 8,
             pawn_supports_knight_outpost: 15,
+            pawn_centered: 14,
+            pawn_undeveloped_malus: 18,
             rooks_on_same_rank: 10,
             knight_on_rim_malus: 8,
             knight_attacks_rook: 8,
