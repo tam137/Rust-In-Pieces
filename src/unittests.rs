@@ -41,6 +41,7 @@ pub fn run_unittests() {
     move_gen_001();
     turn_gen_002();
     piece_map_002a();
+    piece_map_kings_002b();
     eval_003();
     eval_003a_knight();
     eval_003b_rook();
@@ -84,6 +85,7 @@ fn time_000() {
     time_it!(calc_eval(&board, &Turn::new(), &Config::new()));
     time_it!(calc_eval_legacy(&board, &Turn::new(), &Config::new()));
     time_it!(board.get_pieces_map());
+    time_it!(board.get_king_positions());
 
     time_it!(board.generate_moves_list(true));
     time_it!(board.generate_moves_list_for_piece(true, 63));
@@ -153,6 +155,35 @@ fn piece_map_002a() {
     assert(piece_map.len() == 12);
     assert(piece_map.get(&24).unwrap().get(0).unwrap() == &24usize);
     assert(piece_map.get(&11).unwrap().get(1).unwrap() == &98usize);
+}
+
+
+fn piece_map_kings_002b() {
+    let mut board = Board::new();
+    let mut kings = board.get_king_positions();
+    assert_eq!(kings[0], 95);
+    assert_eq!(kings[1], 25);
+
+    board.set_fen("rnb2rk1/pp3ppp/3bpn2/2p1q3/2B1p3/2P3P1/PP1N1P1P/RNBQR1K1");
+    kings = board.get_king_positions();
+    assert_eq!(kings[0], 97);
+    assert_eq!(kings[1], 27);
+
+    let mut turn_list = Turn::generate_turns("g8h8");
+    board.do_turn(turn_list.get(0).unwrap());
+    kings = board.get_king_positions();
+    assert_eq!(kings[1], 28);
+    board.do_undo_turn(turn_list.get(0).unwrap());
+    kings = board.get_king_positions();
+    assert_eq!(kings[1], 27);
+
+    turn_list = Turn::generate_turns("g1h1");
+    board.do_turn(turn_list.get(0).unwrap());
+    kings = board.get_king_positions();
+    assert_eq!(kings[0], 98);
+    board.do_undo_turn(turn_list.get(0).unwrap());
+    kings = board.get_king_positions();
+    assert_eq!(kings[0], 97);
 }
 
 

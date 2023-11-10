@@ -13,6 +13,7 @@ static TARGETS_FOR_LONG_BLACK: [i32; 3] = [25, 24, 23];
 #[derive(Clone)]
 pub struct Board {
     field: [i32; 120],
+    king_pos: [usize; 2],
     pty: u32,
     fifty_move_rule: u32,
     state: GameState,
@@ -91,6 +92,7 @@ impl Board {
                 -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
                 -11, -11, -11, -11, -11, -11, -11, -11, -11, -11,
             ],
+            king_pos: [95, 25],
             pty: 0,
             fifty_move_rule: 0,
             state: GameState::Normal,
@@ -385,6 +387,15 @@ impl Board {
             else if turn.from == 25 && turn.to == 27 && self.field[turn.from] == 25 && self.field[26] == 0 { self.field[28] = 0;  self.field[26] = 21; }
             else if turn.from == 25 && turn.to == 23 && self.field[turn.from] == 25 && self.field[24] == 0 && self.field[23] == 0 && self.field[22] == 0 { self.field[21] = 0;  self.field[24] = 21; }
         }
+
+        if self.field[turn.from] == 15 {
+            self.king_pos[0] = turn.to;
+        }
+
+        if self.field[turn.from] == 25 {
+            self.king_pos[1] = turn.to;
+        }
+
         if turn.is_promotion() {
             self.field[turn.to] = if self.is_white_field(turn.from) { 14 } else { 24 };
         } else {
@@ -413,6 +424,15 @@ impl Board {
             else if turn.from == 25 && turn.to == 27 && self.field[turn.to] == 25 { self.field[28] = 21;  self.field[26] = 0; }
             else if turn.from == 25 && turn.to == 23 && self.field[turn.to] == 25 { self.field[21] = 21;  self.field[24] = 0; }
         }
+
+        if self.field[turn.to] == 15 {
+            self.king_pos[0] = turn.from;
+        }
+
+        if self.field[turn.to] == 25 {
+            self.king_pos[1] = turn.from;
+        }
+
         if turn.is_promotion() {
             self.field[turn.from] = if self.is_white_field(turn.to) { 10 } else { 20 };
         } else {
@@ -509,6 +529,8 @@ impl Board {
                 };
                 if piece != 0 {
                     self.field[index] = piece; // Place the piece on the board
+                    if piece == 15 { self.king_pos[0] = index};
+                    if piece == 25 { self.king_pos[1] = index};
                 }
                 index += 1;
             }
@@ -616,6 +638,14 @@ impl Board {
             }
         }
         pieces_map
+    }
+
+
+    /// return the position of the kings
+    /// idx 0 -> white king idx
+    /// idx 1 -> black king idx
+    pub fn get_king_positions(&self) -> [usize; 2] {
+        self.king_pos
     }
 
 
