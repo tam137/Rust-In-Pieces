@@ -59,7 +59,7 @@ fn minimax(board: &mut Board, depth: i32, white: bool, mut alpha: i16, mut beta:
 
     let mut turns = Default::default();
     let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
-    let eval = check_hash_or_calculate_eval(board, stats, turn, config);
+    let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = check_hash_or_calculate_eval(board, stats, turn, config);
 
     if depth <= 0 {
         let stand_pat_cut = if white {

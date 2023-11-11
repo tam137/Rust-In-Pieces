@@ -207,6 +207,10 @@ fn white_knight(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game
         o_eval = o_eval + config.knight_attacks_queen;
     }
 
+    if idx == 92 || idx == 97 {
+        o_eval = o_eval - config.undeveloped_knight_malus;
+    }
+
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval + config.piece_eval_knight
 }
@@ -229,6 +233,10 @@ fn black_knight(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game
         o_eval = o_eval - config.knight_attacks_queen;
     }
 
+    if idx == 22 || idx == 27 {
+        o_eval = o_eval + config.undeveloped_knight_malus;
+    }
+
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval - config.piece_eval_knight
 }
@@ -240,6 +248,10 @@ fn white_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], 
     let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
     o_eval = o_eval + turns as i16 * config.bishop_move_freedom;
 
+    if idx == 23 || idx == 26 {
+        o_eval = o_eval - config.undeveloped_bishop_malus;
+    }
+
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval + config.piece_eval_bishop
 }
@@ -250,6 +262,10 @@ fn black_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], 
     let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     o_eval = o_eval - turns as i16 * config.bishop_move_freedom;
 
+    if idx == 93 || idx == 96 {
+        o_eval = o_eval + config.undeveloped_bishop_malus;
+    }
+
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval - config.piece_eval_bishop
 }
@@ -258,6 +274,7 @@ fn black_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], 
 fn white_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
     let mut o_eval = 0;
     let mut e_eval = 0;
+
     let turns = board.generate_moves_list_for_piece(true, idx).len() / 2;
     o_eval = o_eval + turns as i16 * config.queen_move_freedom;
 
@@ -268,6 +285,7 @@ fn white_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_
 fn black_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
     let mut o_eval = 0;
     let mut e_eval = 0;
+
     let turns = board.generate_moves_list_for_piece(false, idx).len() / 2;
     o_eval = o_eval - turns as i16 * config.queen_move_freedom;
 

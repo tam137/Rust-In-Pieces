@@ -65,7 +65,7 @@ pub fn run_unittests() {
 
     // opening_situations_050();
     // move_row_016();
-    // analyse();
+    analyse();
     print!("finished unittests")
 }
 
@@ -94,15 +94,16 @@ fn time_000() {
     time_it!(board.get_game_phase());
     time_it!(board.get_diagonals(54));
     time_it!(board.get_horizontales(54));
+    time_it!(Turn::new());
 }
 
 
 fn move_gen_001() {
     let mut board = Board::new();
-    assert(time_it!(board.get_turn_list(true, false, &mut Stats::new()).len() == 20));
+    assert(board.get_turn_list(true, false, &mut Stats::new()).len() == 20);
     assert(board.get_turn_list(false, false, &mut Stats::new()).len() == 20);
-    time_it!(board.get_turn_list_for_piece_on_idx(true, false, 92));
-    time_it!(board.generate_moves_list(true));
+    board.get_turn_list_for_piece_on_idx(true, false, 92);
+    board.generate_moves_list(true);
     board.clear_field();
     assert(board.generate_moves_list(false).len() == 0);
 }
@@ -707,6 +708,13 @@ pub fn analyse() {
     for turn in turns {
         board.do_turn(&turn);
     }
+
+    //
+    // let res = test_helper::get_bestmove_for_fen("r3kb1r/pp2pp1p/n1ppbnp1/q7/4P3/PPN2N2/2PPBPPP/R1BQK2R", true);
+    // assert!(true);
+    //
+    // let res = test_helper::get_bestmove_for_fen("r3kb1r/pp2pp1p/n1ppbnp1/q7/1P2P3/P1N2N2/2PPBPPP/R1BQK2R", false);
+    // assert!(true);
 
 }
 
