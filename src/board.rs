@@ -23,6 +23,56 @@ pub struct Board {
     hash: ZobristTable,
     config: Config,
     current_best: i16,
+    diagonal_8a: [usize; 8],
+    diagonal_7b: [usize; 8],
+    diagonal_6c: [usize; 8],
+    diagonal_5d: [usize; 8],
+    diagonal_4e: [usize; 8],
+    diagonal_3f: [usize; 8],
+    diagonal_2g: [usize; 8],
+    diagonal_1h: [usize; 8],
+    diagonal_a8: [usize; 8],
+    diagonal_b7: [usize; 8],
+    diagonal_c6: [usize; 8],
+    diagonal_d5: [usize; 8],
+    diagonal_e4: [usize; 8],
+    diagonal_f3: [usize; 8],
+    diagonal_g2: [usize; 8],
+    diagonal_h1: [usize; 8],
+
+    diagonal_8h: [usize; 8],
+    diagonal_7g: [usize; 8],
+    diagonal_6f: [usize; 8],
+    diagonal_5e: [usize; 8],
+    diagonal_4d: [usize; 8],
+    diagonal_3c: [usize; 8],
+    diagonal_2b: [usize; 8],
+    diagonal_1a: [usize; 8],
+    diagonal_g7: [usize; 8],
+    diagonal_f6: [usize; 8],
+    diagonal_e5: [usize; 8],
+    diagonal_d4: [usize; 8],
+    diagonal_c3: [usize; 8],
+    diagonal_b2: [usize; 8],
+    diagonal_a1: [usize; 8],
+
+    horizontale_1: [usize; 8],
+    horizontale_2: [usize; 8],
+    horizontale_3: [usize; 8],
+    horizontale_4: [usize; 8],
+    horizontale_5: [usize; 8],
+    horizontale_6: [usize; 8],
+    horizontale_7: [usize; 8],
+    horizontale_8: [usize; 8],
+
+    vertikale_a: [usize; 8],
+    vertikale_b: [usize; 8],
+    vertikale_c: [usize; 8],
+    vertikale_d: [usize; 8],
+    vertikale_e: [usize; 8],
+    vertikale_f: [usize; 8],
+    vertikale_g: [usize; 8],
+    vertikale_h: [usize; 8],
 }
 
 #[derive(PartialEq)]
@@ -102,7 +152,131 @@ impl Board {
             hash: ZobristTable::new(),
             config: Config::new(),
             current_best: 0,
+            diagonal_8a: [21, 0, 0, 0, 0, 0, 0, 0],
+            diagonal_7b: [31, 22, 0, 0, 0, 0, 0, 0],
+            diagonal_6c: [41, 32, 23, 0, 0, 0, 0, 0],
+            diagonal_5d: [51, 42, 33, 24, 0, 0, 0, 0],
+            diagonal_4e: [61, 52, 43, 34, 25, 0, 0, 0],
+            diagonal_3f: [71, 62, 53, 44, 35, 26, 0, 0],
+            diagonal_2g: [81, 72, 63, 54, 45, 36, 27, 0],
+            diagonal_1h: [91, 82, 73, 64, 55, 46, 37, 28],
+            diagonal_a8: [91, 82, 73, 64, 55, 46, 37, 28],
+            diagonal_b7: [92, 83, 74, 65, 56, 47, 38, 0],
+            diagonal_c6: [93, 84, 75, 66, 57, 48, 0, 0],
+            diagonal_d5: [94, 85, 76, 67, 58, 0, 0, 0],
+            diagonal_e4: [95, 86, 77, 68, 0, 0, 0, 0],
+            diagonal_f3: [96, 87, 78, 0, 0, 0, 0, 0],
+            diagonal_g2: [97, 88, 0, 0, 0, 0, 0, 0],
+            diagonal_h1: [98, 0, 0, 0, 0, 0, 0, 0],
+
+            diagonal_8h: [28, 0, 0, 0, 0, 0, 0, 0],
+            diagonal_7g: [38, 27, 0, 0, 0, 0, 0, 0],
+            diagonal_6f: [48, 37, 26, 0, 0, 0, 0, 0],
+            diagonal_5e: [58, 47, 36, 25, 0, 0, 0, 0],
+            diagonal_4d: [68, 57, 46, 35, 24, 0, 0, 0],
+            diagonal_3c: [78, 67, 56, 45, 34, 23, 0, 0],
+            diagonal_2b: [88, 77, 66, 55, 44, 33, 22, 0],
+            diagonal_1a: [98, 87, 76, 65, 54, 43, 32, 21],
+            diagonal_g7: [97, 86, 75, 64, 53, 42, 31, 0],
+            diagonal_f6: [96, 85, 74, 63, 52, 41, 0, 0],
+            diagonal_e5: [95, 84, 73, 62, 51, 0, 0, 0],
+            diagonal_d4: [94, 83, 72, 61, 0, 0, 0, 0],
+            diagonal_c3: [93, 82, 71, 0, 0, 0, 0, 0],
+            diagonal_b2: [92, 81, 0, 0, 0, 0, 0, 0],
+            diagonal_a1: [91, 0, 0, 0, 0, 0, 0, 0],
+
+            horizontale_1: [91, 92, 93, 94, 95, 96, 97, 98],
+            horizontale_2: [81, 82, 83, 84, 85, 86, 87, 88],
+            horizontale_3: [71, 72, 73, 74, 75, 76, 77, 78],
+            horizontale_4: [61, 62, 63, 64, 65, 66, 67, 68],
+            horizontale_5: [51, 52, 53, 54, 55, 56, 57, 58],
+            horizontale_6: [41, 42, 43, 44, 45, 46, 47, 48],
+            horizontale_7: [31, 32, 33, 34, 35, 36, 37, 38],
+            horizontale_8: [21, 22, 23, 24, 25, 26, 27, 28],
+
+            vertikale_a: [91, 81, 71, 61, 51, 41, 31, 21],
+            vertikale_b: [92, 82, 72, 62, 52, 42, 32, 22],
+            vertikale_c: [93, 83, 73, 63, 53, 43, 33, 23],
+            vertikale_d: [94, 84, 74, 64, 54, 44, 34, 24],
+            vertikale_e: [95, 85, 75, 65, 55, 45, 35, 25],
+            vertikale_f: [96, 86, 76, 66, 56, 46, 36, 26],
+            vertikale_g: [97, 87, 77, 67, 57, 47, 37, 27],
+            vertikale_h: [98, 88, 78, 68, 58, 48, 38, 28],
         }
+    }
+
+    pub fn get_horizontales(&self, idx: usize) -> ([usize; 8], [usize; 8]) {
+        let file = idx % 10;
+        let rank = 10 - (idx / 10);
+
+        let vertical = match file {
+            1 => { self.vertikale_a },
+            2 => { self.vertikale_b },
+            3 => { self.vertikale_c },
+            4 => { self.vertikale_d },
+            5 => { self.vertikale_e },
+            6 => { self.vertikale_f },
+            7 => { self.vertikale_g },
+            8 => { self.vertikale_h },
+            _ => { [0; 8] }
+        };
+
+        let horizontal = match rank {
+            1 => { self.horizontale_1 },
+            2 => { self.horizontale_2 },
+            3 => { self.horizontale_3 },
+            4 => { self.horizontale_4 },
+            5 => { self.horizontale_5 },
+            6 => { self.horizontale_6 },
+            7 => { self.horizontale_7 },
+            8 => { self.horizontale_8 },
+            _ => { [0; 8] }
+        };
+        (vertical, horizontal)
+    }
+
+    pub fn get_diagonals(&self, idx: usize) -> ([usize; 8], [usize; 8]) {
+        let file = (idx % 10) as i32;
+        let rank = (10 - (idx / 10)) as i32;
+
+        let first = match file - rank {
+            0 => self.diagonal_a8,
+            1 => self.diagonal_b7,
+            2 => self.diagonal_c6,
+            3 => self.diagonal_d5,
+            4 => self.diagonal_e4,
+            5 => self.diagonal_f3,
+            6 => self.diagonal_g2,
+            7 => self.diagonal_h1,
+            -1 => self.diagonal_2g,
+            -2 => self.diagonal_3f,
+            -3 => self.diagonal_4e,
+            -4 => self.diagonal_5d,
+            -5 => self.diagonal_6c,
+            -6 => self.diagonal_7b,
+            -7 => self.diagonal_8a,
+            _ => { [0; 8] }
+        };
+
+        let second = match file + rank {
+            16 => self.diagonal_8h,
+            15 => self.diagonal_7g,
+            14 => self.diagonal_6f,
+            13 => self.diagonal_5e,
+            12 => self.diagonal_4d,
+            11 => self.diagonal_3c,
+            10 => self.diagonal_2b,
+            9 => self.diagonal_1a,
+            8 => self.diagonal_g7,
+            7 => self.diagonal_f6,
+            6 => self.diagonal_e5,
+            5 => self.diagonal_d4,
+            4 => self.diagonal_c3,
+            3 => self.diagonal_b2,
+            2 => self.diagonal_a1,
+            _ => { [0; 8] }
+        };
+        (first, second)
     }
 
     pub fn get_pty(&self) -> u32 {

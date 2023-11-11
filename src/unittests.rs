@@ -49,6 +49,7 @@ pub fn run_unittests() {
     eval_003c_queen();
     eval_003d_king();
     eval_003e_game_phase();
+    eval_003f_lines();
     pty_005();
     castle_006();
     turn_color_008();
@@ -91,6 +92,8 @@ fn time_000() {
     time_it!(board.generate_moves_list_for_piece(true, 63));
 
     time_it!(board.get_game_phase());
+    time_it!(board.get_diagonals(54));
+    time_it!(board.get_horizontales(54));
 }
 
 
@@ -295,6 +298,39 @@ fn eval_003e_game_phase() {
     assert_eq!(board.get_game_phase(), 256);
     board.clear_field();
     assert_eq!(board.get_game_phase(), 0);
+}
+
+fn eval_003f_lines() {
+    let board = Board::new();
+    let diagonals = board.get_diagonals(55);
+    let horizontals = board.get_horizontales(55);
+    assert!(diagonals.0.contains(&(55usize)));
+    assert!(diagonals.1.contains(&(55usize)));
+
+    let diagonals = board.get_diagonals(91);
+    let horizontals = board.get_horizontales(91);
+    assert!(diagonals.0.contains(&(91usize)));
+    assert!(diagonals.1.contains(&(91usize)));
+
+    let diagonals = board.get_diagonals(28);
+    let horizontals = board.get_horizontales(28);
+    assert!(diagonals.0.contains(&(28usize)));
+    assert!(diagonals.1.contains(&(28usize)));
+
+    let diagonals = board.get_diagonals(98);
+    let horizontals = board.get_horizontales(98);
+    assert!(diagonals.0.contains(&(98usize)));
+    assert!(diagonals.1.contains(&(98usize)));
+
+    let diagonals = board.get_diagonals(42);
+    let horizontals = board.get_horizontales(42);
+    assert!(diagonals.0.contains(&(42usize)));
+    assert!(diagonals.1.contains(&(42usize)));
+
+    let diagonals = board.get_diagonals(67);
+    let horizontals = board.get_horizontales(67);
+    assert!(diagonals.0.contains(&(67usize)));
+    assert!(diagonals.1.contains(&(67usize)));
 }
 
 fn pty_005() {
