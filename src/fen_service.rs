@@ -1,6 +1,7 @@
 use crate::model::Board;
 use crate::notation_util::NotationUtil;
 
+
 pub struct FenServiceImpl;
 
 impl FenServiceImpl {

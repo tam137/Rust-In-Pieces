@@ -1,5 +1,112 @@
 use std::collections::HashMap;
-use crate::model::{CastleInformation, GameStatus, MoveInformation, Turn};
+
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum GameStatus {
+    Normal,
+    Remis,
+    WhiteWon,
+    BlackWon,
+}
+
+
+#[derive(Debug, Clone)]
+pub struct Turn {
+    pub from: i32,
+    pub to: i32,
+    pub capture: i32,
+    pub promotion: i32,
+    pub eval: i32,
+}
+
+impl Turn {
+    // Constructor with all fields
+    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, eval: i32) -> Self {
+        Turn {
+            from,
+            to,
+            capture,
+            promotion,
+            eval,
+        }
+    }
+
+    // Copy constructor
+    pub fn from_other(other: &Turn) -> Self {
+        Turn {
+            from: other.from,
+            to: other.to,
+            capture: other.capture,
+            promotion: other.promotion,
+            eval: other.eval,
+        }
+    }
+
+    // Constructor with only 'from' and 'to' fields
+    pub fn from_to(from: i32, to: i32) -> Self {
+        Turn {
+            from,
+            to,
+            capture: 0,
+            promotion: 0,
+            eval: 0,
+        }
+    }
+
+    // Check if the move is a promotion
+    pub fn is_promotion(&self) -> bool {
+        self.promotion != 0
+    }
+
+    // Set promotion with fluent interface
+    pub fn set_promotion(mut self, promotion: i32) -> Self {
+        self.promotion = promotion;
+        self
+    }
+}
+
+
+
+#[derive(Debug)]
+pub struct MoveInformation {
+    pub castle_information: CastleInformation,
+    pub hash: u64,
+    pub en_passante: i32,
+}
+
+impl MoveInformation {
+    // Constructor
+    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i32) -> Self {
+        MoveInformation {
+            castle_information,
+            hash,
+            en_passante,
+        }
+    }
+}
+
+
+#[derive(Debug)]
+pub struct CastleInformation {
+    pub white_possible_to_castle_long: bool,
+    pub white_possible_to_castle_short: bool,
+    pub black_possible_to_castle_long: bool,
+    pub black_possible_to_castle_short: bool,
+}
+
+impl CastleInformation {
+    // Constructor
+    pub fn new(white_possible_to_castle_long: bool, white_possible_to_castle_short: bool,
+               black_possible_to_castle_long: bool, black_possible_to_castle_short: bool) -> Self {
+        CastleInformation {
+            white_possible_to_castle_long,
+            white_possible_to_castle_short,
+            black_possible_to_castle_long,
+            black_possible_to_castle_short,
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub struct Board {
@@ -105,7 +212,7 @@ impl Board {
 
         // Handle promotion
         if turn.is_promotion() {
-            self.field[turn.to as usize] = turn.get_promotion();
+            self.field[turn.to as usize] = turn.promotion;
         } else {
             self.field[turn.to as usize] = self.field[turn.from as usize];
         }
@@ -183,7 +290,7 @@ impl Board {
         }
 
         // Decrement move count if it was white's move
-        if self.is_white_to_move() {
+        if self.white_to_move {
             self.move_count -= 1;
         }
         self.white_to_move = !self.white_to_move;

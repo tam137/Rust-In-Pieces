@@ -77,20 +77,20 @@ impl NotationUtil {
         // Handle promotion
         if notation.len() == 5 {
             match notation.chars().nth(4) {
-                Some('q') => target_turn.set_promotion(14),
-                Some('n') => target_turn.set_promotion(12),
+                Some('q') => target_turn.promotion = 14,
+                Some('n') => target_turn.promotion = 12,
                 _ => panic!("Invalid promotion"),
             }
 
-            if target_turn.get_to() / 90 == 1 {
-                target_turn.set_promotion(target_turn.get_promotion() + 10); // for black promotion
+            if target_turn.to / 90 == 1 {
+                target_turn.promotion = target_turn.promotion + 10; // for black promotion
             }
         }
 
         for move_turn in move_list {
-            if move_turn.get_from() == target_turn.get_from()
-                && move_turn.get_to() == target_turn.get_to()
-                && move_turn.get_promotion() == target_turn.get_promotion()
+            if move_turn.from == target_turn.from
+                && move_turn.to == target_turn.to
+                && move_turn.promotion == target_turn.promotion
             {
                 return move_turn.clone(); // Return the found move
             }
