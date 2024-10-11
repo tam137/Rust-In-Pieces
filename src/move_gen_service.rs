@@ -21,7 +21,7 @@ impl MoveGenService {
 
             // Check for castling
             if board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2) {
-                if self.is_valid_castling(board, white_turn, idx1) {
+                if !self.is_valid_castling(board, white_turn, idx1) {
                     continue;
                 }
             }
@@ -43,9 +43,9 @@ impl MoveGenService {
             // If valid, add the move to the list
             if valid {
                 valid_moves.push(move_turn.clone());
-                if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
+                if move_turn.promotion != 0 {
                     let mut turn = move_turn.clone();
-                    turn.promotion = promotion_move.promotion - 2;
+                    turn.promotion = move_turn.promotion - 2;
                     valid_moves.push(turn); // Knight promotion
                 }
             }
@@ -90,7 +90,6 @@ impl MoveGenService {
                 return false;
             }
         }
-
         true
     }
 
@@ -395,6 +394,7 @@ impl MoveGenService {
 #[cfg(test)]
 mod tests {
     use crate::fen_service::FenServiceImpl;
+    use crate::notation_util::NotationUtil;
     use super::*;
 
     #[test]
@@ -448,5 +448,177 @@ mod tests {
         assert!(check_idx_list.contains(&63), "Check index list should contain 63");
         assert!(check_idx_list.contains(&65), "Check index list should contain 65");
         assert_eq!(check_idx_list.len(), 2);
+    }
+
+    #[test]
+    fn generate_moves_list_for_fen_test() {
+        let fen_service = FenServiceImpl;
+        let move_gen_service = MoveGenService;
+
+        // Test: Standard starting position of a chess game
+        let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
+
+        // Expected moves for the initial position (pawns and knights)
+        let expected_moves = vec![
+            81, 71, 81, 61, 82, 72, 82, 62, 83, 73, 83, 63, 84, 74, 84, 64,
+            85, 75, 85, 65, 86, 76, 86, 66, 87, 77, 87, 67, 88, 78, 88, 68,
+            92, 71, 92, 73, 97, 76, 97, 78
+        ];
+        assert_eq!(moves, expected_moves, "Move Gen for start-up setup is wrong");
+
+        // Test: White is in check and only a few moves are available for the king
+        let board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
+        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
+
+        // Expected king moves in double check situation
+        let expected_moves_in_check = vec![95, 84, 95, 96];
+        assert_eq!(moves, expected_moves_in_check, "Check list is not working");
+    }
+
+
+    #[test]
+    fn get_valid_moves_from_move_list_test_double_check() {
+        let fen_service = FenServiceImpl;
+        let move_gen_service = MoveGenService;
+
+        // Double check, only one king move is possible for white
+        let mut board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
+        let valid_turn_list = move_gen_service.generate_valid_moves_list(&mut board);
+        assert_eq!(valid_turn_list.len(), 1);  // Check that only one valid move exists
+        assert!(valid_turn_list[0].from == 95 && valid_turn_list[0].to == 96);  // King move from 95 to 96
+
+        // Double check, only one king move is possible for black
+        let mut board = fen_service.set_fen("rnb1k1nr/ppppp1Np/2N5/7Q/8/4P3/PPPP1PPP/RNB1KB1R b KQkq - 0 1");
+        let valid_turn_list = move_gen_service.generate_valid_moves_list(&mut board);
+        assert_eq!(valid_turn_list.len(), 1);  // Check that only one valid move exists
+        assert!(valid_turn_list[0].from == 25 && valid_turn_list[0].to == 26);  // King move from 25 to 26
+    }
+
+    #[test]
+    fn get_valid_moves_when_in_check_easy() {
+        // Test cases for white in check
+        // Expected number of valid moves in these positions
+        test_fen("rnbqk1nr/pppp1ppp/4p3/8/1b6/3P1P2/PPP1P1PP/RNBQKBNR w KQkq - 1 3", 6);
+        test_fen("rnbqkb1r/pppppppp/8/8/8/5n2/PPPPQ1PP/RNB1KBNR w KQkq - 0 1", 5);
+        test_fen("8/5k2/3r4/5n2/3N4/3K4/1q6/8 w - - 0 1", 2);
+        test_fen("8/5k2/3r4/5n2/8/3K1N2/1q6/8 w - - 0 1", 3);
+
+        // Test cases for black in check
+        test_fen("rnbqkbnr/ppp1pppp/3p4/1B6/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 1 2", 5);
+        test_fen("r1bqkbnr/pp1npppp/2Bp4/8/4P3/3P4/PPP2PPP/RNBQK1NR b KQkq - 0 4", 20);
+        test_fen("rnbqk2r/pppp2pp/5p1n/2b1p2Q/2B1P3/P6N/1PPP1PPP/RNB1K2R b KQkq - 1 5", 4);
+        test_fen("8/8/3k1N1p/3b4/3Q4/8/4R3/3K4 b - - 0 1", 3);
+    }
+
+    #[test]
+    fn castling_test() {
+        // Test castling moves and expected valid move counts
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1", 25, "e1g1");
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b KQkq - 0 1", 25, "e8g8");
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w Kk - 0 1", 24, "e1g1");
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b Kk - 0 1", 24, "e8g8");
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w Qq - 0 1", 24, "e1c1");
+        test_fen_with_move("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b Qq - 0 1", 24, "e8c8");
+        test_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w - - 0 1", 23);
+        test_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b - - 0 1", 23);
+        test_fen("r3k2r/pppppppp/8/8/8/1n4n1/PPPPPPPP/R3K2R w KQkq - 0 1", 22);
+        test_fen("r3k2r/pppppppp/1N4N1/8/8/8/PPPPPPPP/R3K2R b KQkq - 0 1", 22);
+    }
+
+    #[test]
+    fn en_passante_test() {
+        // Set the board using the FEN string with en passant available
+        let fen_service = FenServiceImpl;
+        let mut board = fen_service.set_fen("rnbqkbnr/ppp1ppp1/7p/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        let board_copy = board.clone();
+
+        // Check if the en passant field is correctly set
+        assert_eq!(board.field_for_en_passante, 44, "En Passant square should be 44 (d6)");
+
+        // Get the turn corresponding to the en passant move "e5e6"
+        let turn = NotationUtil::get_turn_from_notation("e5e6");
+        let move_info = board.do_move(&turn);
+        board.undo_move(&turn, move_info);
+
+        // assert_eq!(board, board_copy, "Board should be restored after undoing the en passant move");
+        // TODO more tests
+    }
+
+    #[test]
+    fn promotion_test() {
+        // White promotion to queen
+        test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 12, "e7f8q");
+
+        let fen_service = FenServiceImpl;
+
+        let mut board = fen_service.set_fen("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1");
+        let board_copy = board.clone();
+
+        let mut promotion_move = NotationUtil::get_turn_from_notation("e7f8q");
+        promotion_move.capture = 22;
+        let move_info = board.do_move(&promotion_move);
+
+        assert_eq!(board.field[26], 14, "White promotion should result in a queen (14)");
+        board.undo_move(&promotion_move, move_info);
+        assert_eq!(board.field[26], 22, "Piece should revert to captured knight (22)");
+        assert_eq!(board.field[35], 10, "White pawn should be back at e7");
+        assert_eq!(board, board_copy, "Board should be restored");
+
+        // Testing knight promotion
+        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 7, "e7e8n");
+        assert_eq!(move_list.len(), 8, "Expected 8 moves after knight promotion");
+
+        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 7, "e7e8q");
+        assert_eq!(move_list.len(), 24, "Expected 24 moves after queen promotion");
+
+        let move_list = test_fen_with_move("5k2/R6P/8/8/8/2K5/8/6r1 w - - 0 1", 23, "h7h8q");
+        assert_eq!(move_list.len(), 1, "Expected 1 move after queen promotion on h8");
+
+        // Black promotion to queen
+        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 6, "f2f1q");
+        assert_eq!(move_list.len(), 7, "Expected 7 moves after black queen promotion");
+
+        // Black promotion to knight
+        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 6, "f2f1n");
+        assert_eq!(move_list.len(), 8, "Expected 8 moves after black knight promotion");
+
+        // Black promotion on h1
+        let move_list = test_fen_with_move("8/8/3k4/8/8/8/1K5p/8 b - - 0 1", 10, "h2h1q");
+        assert_eq!(move_list.len(), 5, "Expected 5 moves after black queen promotion on h1");
+    }
+
+
+    // Function to test FEN position and check if the allowed moves match the expected count
+    fn test_fen(fen: &str, allowed_moves: usize) -> Board {
+        let fen_service = FenServiceImpl;
+        let move_gen_service = MoveGenService;
+        let mut board = fen_service.set_fen(fen);
+        let moves = move_gen_service.generate_valid_moves_list(&mut board);
+        assert_eq!(moves.len(), allowed_moves, "Expected {} moves, but got {} for FEN: {}", allowed_moves, moves.len(), fen);
+        board
+    }
+
+    /**
+     * Function to test a FEN position, check the number of valid moves, and make a specific move.
+     * After the move, it checks the possible moves for the opponent.
+     *
+     * @param fen the board's FEN string
+     * @param allowed_moves the number of allowed moves for the given FEN position
+     * @param notation the move expected to be allowed for the given FEN position
+     * @return a vector of moves that are possible after the notation move for the opponent
+     */
+    fn test_fen_with_move(fen: &str, allowed_moves: usize, notation: &str) -> Vec<Turn> {
+        let fen_service = FenServiceImpl;
+        let move_gen_service = MoveGenService;
+        let mut board = test_fen(fen, allowed_moves);
+        let board_copy = board.clone();
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let move_turn = NotationUtil::get_turn_from_list(&move_list, notation);
+        let move_info = board.do_move(&move_turn);
+        let opponent_moves = move_gen_service.generate_valid_moves_list(&mut board);
+        board.undo_move(&move_turn, move_info);
+        assert_eq!(&board, &board_copy, "Board should be restored after undoing the move");
+        opponent_moves
     }
 }

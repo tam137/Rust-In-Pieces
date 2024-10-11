@@ -108,7 +108,7 @@ impl CastleInformation {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Board {
     pub field: [i32; 120],
     pub white_possible_to_castle_long: bool,
@@ -145,22 +145,6 @@ impl Board {
             move_count,
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
-        }
-    }
-
-    // Copy constructor
-    pub fn from_other(other: &Board) -> Self {
-        Board {
-            field: other.field,
-            white_possible_to_castle_long: other.white_possible_to_castle_long,
-            white_possible_to_castle_short: other.white_possible_to_castle_short,
-            black_possible_to_castle_long: other.black_possible_to_castle_long,
-            black_possible_to_castle_short: other.black_possible_to_castle_short,
-            field_for_en_passante: other.field_for_en_passante,
-            white_to_move: other.white_to_move,
-            move_count: other.move_count,
-            game_status: other.game_status.clone(),
-            move_repetition_map: other.move_repetition_map.clone(),
         }
     }
 
@@ -326,5 +310,22 @@ impl Board {
         hash = hash.wrapping_mul(31).wrapping_add(self.field_for_en_passante as u64);
         hash = hash.wrapping_mul(31).wrapping_add(self.white_to_move as u64);
         hash
+    }
+}
+
+// Implement `PartialEq` manually for the `Board` struct, for unittests
+impl PartialEq for Board {
+    fn eq(&self, other: &Self) -> bool {
+        // Check if all the fields of the Board match
+        self.white_possible_to_castle_long == other.white_possible_to_castle_long &&
+            self.white_possible_to_castle_short == other.white_possible_to_castle_short &&
+            self.black_possible_to_castle_long == other.black_possible_to_castle_long &&
+            self.black_possible_to_castle_short == other.black_possible_to_castle_short &&
+            self.field_for_en_passante == other.field_for_en_passante &&
+            self.white_to_move == other.white_to_move &&
+            self.move_count == other.move_count &&
+            self.game_status == other.game_status &&
+            self.field == other.field &&  // Direct comparison of arrays (fixed-size arrays implement PartialEq)
+            self.move_repetition_map == other.move_repetition_map  // HashMap comparison
     }
 }

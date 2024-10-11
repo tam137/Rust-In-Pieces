@@ -1,4 +1,4 @@
 initial build with
 ```
-stable-x86_64-unknown-linux-gnu unchanged - rustc 1.81.0 (eeb90cda1 2024-09-04)
+nightly-x86_64-unknown-linux-gnu unchanged - rustc 1.83.0-nightly (eb4e23467 2024-10-09)
 ```
