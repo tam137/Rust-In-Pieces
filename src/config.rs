@@ -1,0 +1,109 @@
+#[derive(Clone)]
+pub struct Config {
+    pub use_depth_modificator: bool,
+    pub use_book: bool,
+    pub use_zobrist: bool,
+    pub max_zobrist_hash_entries: u32,
+    pub search_depth: i32,
+    pub search_depth_quite: i32,
+    pub calc_variants: i16,
+    pub truncate_bad_moves: usize,
+
+    pub move_freedom_bonus: i32,
+    pub undeveloped_knight_malus: i16,
+    pub undeveloped_bishop_malus: i16,
+    pub pawn_on_last_rank_bonus: i16,
+    pub pawn_on_before_last_rank_bonus: i16,
+    pub pawn_on_before_before_last_rank_bonus: i16,
+    pub early_queen_malus: i16,
+    pub undeveloped_center_pawn_malus: i16,
+    pub short_castle_bonus: i16,
+    pub long_castle_bonus: i16,
+    pub max_push_bonus: i16,
+
+    pub piece_eval_pawn: i16,
+    pub piece_eval_rook: i16,
+    pub piece_eval_knight: i16,
+    pub piece_eval_bishop: i16,
+    pub piece_eval_queen: i16,
+    pub piece_eval_king: i16,
+
+    // additional values for new eval
+    pub pawn_structure: i16,
+    pub pawn_supports_knight_outpost: i16,
+    pub pawn_centered: i16,
+    pub pawn_undeveloped_malus: i16,
+    pub rooks_on_same_rank: i16,
+    pub knight_on_rim_malus: i16,
+    pub knight_attacks_rook: i16,
+    pub knight_attacks_queen: i16,
+    pub queen_in_bishop_line_malus: i16,
+    pub queen_in_rook_line_malus: i16,
+    pub king_shield: i16,
+}
+
+
+impl Config {
+    pub fn new() -> Config {
+        Config {
+            use_depth_modificator: false,
+            use_book: false,
+            use_zobrist: false,
+            max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
+            search_depth: 4,
+            search_depth_quite: 8,
+            calc_variants: 1,
+            truncate_bad_moves: 99,
+
+            move_freedom_bonus: 0,
+            undeveloped_knight_malus: 36,
+            undeveloped_bishop_malus: 25,
+            pawn_on_last_rank_bonus: 200,
+            pawn_on_before_last_rank_bonus: 120,
+            pawn_on_before_before_last_rank_bonus: 60,
+            early_queen_malus: 80,
+            undeveloped_center_pawn_malus: 90,
+            short_castle_bonus: 110,
+            long_castle_bonus: 75,
+            max_push_bonus: 15,
+
+            piece_eval_pawn: 100,
+            piece_eval_rook: 500,
+            piece_eval_knight: 300,
+            piece_eval_bishop: 300,
+            piece_eval_queen: 950,
+            piece_eval_king: 15000,
+
+            // additional values for new eval
+            pawn_structure: 8,
+            pawn_supports_knight_outpost: 15,
+            pawn_centered: 14,
+            pawn_undeveloped_malus: 18,
+            rooks_on_same_rank: 20,
+            knight_on_rim_malus: 8,
+            knight_attacks_rook: 8,
+            knight_attacks_queen: 25,
+            queen_in_bishop_line_malus: 45,
+            queen_in_rook_line_malus: 30,
+            king_shield: 20,
+        }
+    }
+
+    pub fn get_eval_value_for_piece(&self, fig: i8) -> i16 {
+        match fig {
+            10 => self.piece_eval_pawn,
+            20 => -self.piece_eval_pawn,
+            11 => self.piece_eval_rook,
+            21 => -self.piece_eval_rook,
+            12 => self.piece_eval_knight,
+            22 => -self.piece_eval_knight,
+            13 => self.piece_eval_bishop,
+            23 => -self.piece_eval_bishop,
+            14 => self.piece_eval_queen,
+            24 => -self.piece_eval_queen,
+            15 => self.piece_eval_king,
+            25 => -self.piece_eval_king,
+            _ => 0
+        }
+    }
+}

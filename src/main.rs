@@ -2,6 +2,8 @@ mod fen_service;
 mod move_gen_service;
 mod notation_util;
 mod model;
+mod eval;
+mod config;
 
 use crate::fen_service::FenServiceImpl;
 use crate::move_gen_service::MoveGenService;
