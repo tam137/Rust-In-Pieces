@@ -67,7 +67,7 @@ impl Turn {
 
 
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct MoveInformation {
     pub castle_information: CastleInformation,
     pub hash: u64,
@@ -86,7 +86,7 @@ impl MoveInformation {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct CastleInformation {
     pub white_possible_to_castle_long: bool,
     pub white_possible_to_castle_short: bool,
@@ -328,4 +328,214 @@ impl PartialEq for Board {
             self.field == other.field &&  // Direct comparison of arrays (fixed-size arrays implement PartialEq)
             self.move_repetition_map == other.move_repetition_map  // HashMap comparison
     }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use crate::fen_service::FenServiceImpl;
+    use crate::notation_util::NotationUtil;
+
+    #[test]
+    fn board_properties_move_count_test() {
+        let fen_service = FenServiceImpl;
+        // Create a new board with the FEN string using your chess library.
+        let mut board = fen_service.set_fen("r1bqkb1r/ppppn2p/2n2pp1/4p3/2B1P3/5N1P/PPPP1PP1/RNBQ1RK1 w kq - 0 6");
+
+        // Assert the initial move count is 6
+        assert_eq!(board.move_count, 6);
+
+        // Get two turns from notation, d2d3 and f8g7 (e.g. pawn move and bishop move)
+        let turn1 = &NotationUtil::get_turn_from_notation("d2d3");
+        let turn2 = &NotationUtil::get_turn_from_notation("f8g7");
+
+        // Execute the first move and store the move information (mi1)
+        let mi1 = board.do_move(turn1);
+        // Ensure move count hasn't changed yet
+        assert_eq!(board.move_count, 6);
+
+        // Execute the second move and store the move information (mi2)
+        let mi2 = board.do_move(turn2);
+
+        // Check black castling rights after the move
+        assert!(mi2.castle_information.black_possible_to_castle_long);
+        assert!(mi2.castle_information.black_possible_to_castle_short);
+
+        // Check white castling rights
+        assert!(!mi2.castle_information.white_possible_to_castle_long);
+        assert!(!mi2.castle_information.white_possible_to_castle_short);
+
+        assert_eq!(board.move_count, 7);
+
+        // Undo the second move
+        board.undo_move(turn2, mi2);
+        assert_eq!(board.move_count, 6);
+
+        // Undo the first move
+        board.undo_move(turn1, mi1);
+        // Move count should remain at 6
+        assert_eq!(board.move_count, 6);
+
+        // Castling rights should be restored as before
+        assert!(mi2.castle_information.black_possible_to_castle_long);
+        assert!(mi2.castle_information.black_possible_to_castle_short);
+        assert!(!mi2.castle_information.white_possible_to_castle_long);
+        assert!(!mi2.castle_information.white_possible_to_castle_short);
+    }
+
+    #[test]
+    fn do_move_castle_test() {
+        let fen_service = FenServiceImpl;
+
+        let mut board = fen_service.set_fen("r3k2r/pppqbppp/2npbn2/1B2p3/3PP3/2N1BN2/PPP1QPPP/R3K2R w KQkq - 0 6");
+        let init_board = board.clone();
+
+        // Get the four castle moves for black and white, short and long
+        let castle_white_short = &NotationUtil::get_turn_from_notation("e1g1");
+        let castle_white_long = &NotationUtil::get_turn_from_notation("e1c1");
+        let castle_black_short = &NotationUtil::get_turn_from_notation("e8g8");
+        let castle_black_long = &NotationUtil::get_turn_from_notation("e8c8");
+
+        // White short castle
+        let mi1 = board.do_move(castle_white_short);
+        assert_eq!(board.field[97], 15);
+        assert_eq!(board.field[96], 11);
+        assert!(!board.get_castle_information().white_possible_to_castle_short);
+        assert!(!board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_ne!(board, init_board);
+
+        // Undo white short castle
+        board.undo_move(castle_white_short, mi1);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_eq!(board.field[95], 15);
+        assert_eq!(board.field[98], 11);
+        assert_eq!(board, init_board);
+
+        // White long castle
+        let mi2 = board.do_move(castle_white_long);
+        assert_eq!(board.field[93], 15);
+        assert_eq!(board.field[94], 11);
+        assert!(!board.get_castle_information().white_possible_to_castle_short);
+        assert!(!board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_ne!(board, init_board);
+
+        // Undo white long castle
+        board.undo_move(castle_white_long, mi2);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_eq!(board.field[95], 15);
+        assert_eq!(board.field[98], 11);
+        assert_eq!(board, init_board);
+
+        // Black short castle
+        let mi3 = board.do_move(castle_black_short);
+        assert_eq!(board.field[27], 25);
+        assert_eq!(board.field[26], 21);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(!board.get_castle_information().black_possible_to_castle_short);
+        assert!(!board.get_castle_information().black_possible_to_castle_long);
+        assert_ne!(board, init_board);
+
+        // Undo black short castle
+        board.undo_move(castle_black_short, mi3);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_eq!(board.field[25], 25);
+        assert_eq!(board.field[28], 21);
+        assert_eq!(board, init_board);
+
+        // Black long castle
+        let mi4 = board.do_move(castle_black_long);
+        assert_eq!(board.field[23], 25);
+        assert_eq!(board.field[24], 21);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(!board.get_castle_information().black_possible_to_castle_short);
+        assert!(!board.get_castle_information().black_possible_to_castle_long);
+        assert_ne!(board, init_board);
+
+        // Undo black long castle
+        board.undo_move(castle_black_long, mi4);
+        assert!(board.get_castle_information().white_possible_to_castle_short);
+        assert!(board.get_castle_information().white_possible_to_castle_long);
+        assert!(board.get_castle_information().black_possible_to_castle_short);
+        assert!(board.get_castle_information().black_possible_to_castle_long);
+        assert_eq!(board.field[25], 25);
+        assert_eq!(board.field[28], 21);
+        assert_eq!(board, init_board);
+    }
+
+    #[test]
+    fn board_properties_castle_information_test() {
+        let fen_service = FenServiceImpl;
+
+        let mut board = fen_service.set_fen("r1bqk2r/ppppn1bp/2n2pp1/1B2p3/4P3/3P1N1P/PPP2PP1/RNBQ1RK1 b kq - 0 6");
+        let init_board = board.clone();
+
+        // Check that the initial board is the same as the cloned board
+        assert_eq!(board, init_board);
+
+        // Perform black short castle
+        let ci1 = board.do_move(&NotationUtil::get_turn_from_notation("e8g8"));
+        assert!(ci1.castle_information.black_possible_to_castle_long);
+        assert!(ci1.castle_information.black_possible_to_castle_short);
+        assert!(!ci1.castle_information.white_possible_to_castle_long);
+        assert!(!ci1.castle_information.white_possible_to_castle_short);
+        assert_ne!(board, init_board);
+
+        // Perform the move f1e1 and check castling rights again
+        let ci2 = board.do_move(&NotationUtil::get_turn_from_notation("f1e1"));
+        assert!(!ci2.castle_information.black_possible_to_castle_long);
+        assert!(!ci2.castle_information.black_possible_to_castle_short);
+        assert!(!ci2.castle_information.white_possible_to_castle_long);
+        assert!(!ci2.castle_information.white_possible_to_castle_short);
+
+        // Undo the last move f1e1
+        board.undo_move(&NotationUtil::get_turn_from_notation("f1e1"), ci2);
+
+        // Undo the black short castle
+        board.undo_move(&NotationUtil::get_turn_from_notation("e8g8"), ci1);
+
+        // After undoing both moves, the castling rights should be restored
+        assert!(ci1.castle_information.black_possible_to_castle_long);
+        assert!(ci1.castle_information.black_possible_to_castle_short);
+        assert!(!ci1.castle_information.white_possible_to_castle_long);
+        assert!(!ci1.castle_information.white_possible_to_castle_short);
+
+        // The board should now be identical to the initial state
+        assert_eq!(board, init_board);
+    }
+
+    #[test]
+    fn hash_test() {
+        let fen_service = FenServiceImpl;
+
+        let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let org_hash = board.hash();
+
+        // Get the move "e2e4" and apply it to the board
+        let turn = &NotationUtil::get_turn_from_notation("e2e4");
+        let mi = board.do_move(turn);
+
+        // Ensure the hash has changed after the move
+        assert_ne!(org_hash, board.hash());
+        assert_eq!(board.move_repetition_map.len(), 1);
+        board.undo_move(turn, mi);
+        assert_eq!(org_hash, board.hash());
+        assert_eq!(board.move_repetition_map.len(), 0);
+    }
+
 }

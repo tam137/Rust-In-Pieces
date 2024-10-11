@@ -66,8 +66,7 @@ impl FenServiceImpl {
 
         // Process en passant possibility
         if en_passant_part != "-" {
-            line_for_en_passante = NotationUtil::get_index_from_notation_field(en_passant_part)
-                .expect("Invalid en passant notation");
+            line_for_en_passante = NotationUtil::get_index_from_notation_field(en_passant_part);
         }
 
         // Process move number

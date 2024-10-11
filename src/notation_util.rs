@@ -5,12 +5,8 @@ pub struct NotationUtil;
 
 impl NotationUtil {
     /// Converts a notation field (like "e2") to an index on the 10x12 board.
-    pub fn get_index_from_notation_field(notation: &str) -> Result<i32, String> {
+    pub fn get_index_from_notation_field(notation: &str) -> i32 {
         let err_msg = format!("Invalid notation: {}", notation);
-
-        if notation.len() != 2 {
-            return Err(err_msg);
-        }
 
         let col = match notation.chars().nth(0) {
             Some('a') => 1,
@@ -21,22 +17,16 @@ impl NotationUtil {
             Some('f') => 6,
             Some('g') => 7,
             Some('h') => 8,
-            _ => return Err(err_msg),
+            _ => -1
         };
-
         let row = 10 - notation.chars().nth(1).unwrap().to_digit(10).unwrap_or(0) as i32;
-        if row < 2 || row > 9 {
-            return Err(err_msg);
-        }
-        Ok((row * 10) + col)
+        (row * 10) + col
     }
 
     /// Converts a notation move (like "e2e4") to a `Turn` object.
     pub fn get_turn_from_notation(notation_move: &str) -> Turn {
-        let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2])
-            .expect("Invalid notation for from position");
-        let to = NotationUtil::get_index_from_notation_field(&notation_move[2..4])
-            .expect("Invalid notation for to position");
+        let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
+        let to = NotationUtil::get_index_from_notation_field(&notation_move[2..4]);
         let mut promotion = 0;
 
         // Promotion logic for white
@@ -97,4 +87,73 @@ impl NotationUtil {
         }
         panic!("Turn not found in the move list for notation: {}", notation);
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::notation_util::NotationUtil;
+
+    #[test]
+    fn get_index_from_notation_test() {
+        // Test the conversion from notation ("a1", "h8", etc.) to the board index
+        let idx = NotationUtil::get_index_from_notation_field("a1");
+        assert_eq!(91, idx);
+
+        let idx = NotationUtil::get_index_from_notation_field("h8");
+        assert_eq!(28, idx);
+    }
+
+    #[test]
+    fn get_turn_list_from_notation_test() {
+        // Get a list of turns from the notation string
+        let turn_list = NotationUtil::get_turn_list_from_notation("e2e4 d7d5 e4d5");
+
+        // Check if the list has the correct number of turns
+        assert_eq!(turn_list.len(), 3);
+
+        // First turn (e2e4)
+        let turn1 = &turn_list[0];
+        assert_eq!(85, turn1.from);
+        assert_eq!(65, turn1.to);
+        assert_eq!(0, turn1.capture); // No capture
+        assert_eq!(0, turn1.promotion); // Not a promotion move
+
+        // Second turn (d7d5)
+        let turn2 = &turn_list[1];
+        assert_eq!(34, turn2.from);
+        assert_eq!(54, turn2.to);
+
+        // Third turn (e4d5)
+        let turn3 = &turn_list[2];
+        assert_eq!(65, turn3.from);
+        assert_eq!(54, turn3.to);
+        assert_eq!(0, turn3.capture); // No capture
+        assert_eq!(0, turn3.promotion); // Not a promotion move
+    }
+
+    #[test]
+    fn get_promotional_turn_test() {
+        // Test promotion moves for white
+        let mut turn = NotationUtil::get_turn_from_notation("e7e8q");
+        assert_eq!(14, turn.promotion); // Promotion to queen
+
+        turn = NotationUtil::get_turn_from_notation("e7e8n");
+        assert_eq!(12, turn.promotion); // Promotion to knight
+
+        turn = NotationUtil::get_turn_from_notation("e7d8b");
+        assert_eq!(14, turn.promotion); // Promotion to bishop
+
+        // Test promotion moves for black
+        turn = NotationUtil::get_turn_from_notation("e2e1q");
+        assert_eq!(24, turn.promotion); // Promotion to queen
+
+        turn = NotationUtil::get_turn_from_notation("e2e1n");
+        assert_eq!(22, turn.promotion); // Promotion to knight
+
+        turn = NotationUtil::get_turn_from_notation("e2d1b");
+        assert_eq!(24, turn.promotion); // Promotion to bishop
+    }
+
+
 }
