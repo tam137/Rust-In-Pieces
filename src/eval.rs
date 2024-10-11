@@ -269,13 +269,6 @@ fn black_bishop(idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], 
 fn white_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
     let mut o_eval = 0;
     let mut e_eval = 0;
-    let diagonals = get_diagonals(idx);
-
-    for &field in diagonals.0.iter().chain(&diagonals.1) {
-        if f[field] == 23 {
-            o_eval = o_eval - config.queen_in_bishop_line_malus;
-        }
-    }
 
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval + config.piece_eval_queen
@@ -284,13 +277,6 @@ fn white_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_
 fn black_queen(idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
     let mut o_eval = 0;
     let mut e_eval = 0;
-    let diagonals = get_diagonals(idx);
-
-    for &field in diagonals.0.iter().chain(&diagonals.1) {
-        if f[field] == 13 {
-            o_eval = o_eval + config.queen_in_bishop_line_malus;
-        }
-    }
 
     let mut eval = calculate_weighted_eval(o_eval, e_eval, game_phase);
     eval - config.piece_eval_queen
@@ -341,103 +327,6 @@ pub fn get_game_phase(board: &Board) -> u32 {
     }
     phase
 }
-
-pub fn get_diagonals(idx: usize) -> ([usize; 8], [usize; 8]) {
-    let file = (idx % 10) as i32;
-    let rank = (10 - (idx / 10)) as i32;
-
-    let diagonal_8a = [21, 0, 0, 0, 0, 0, 0, 0];
-    let diagonal_7b = [31, 22, 0, 0, 0, 0, 0, 0];
-    let diagonal_6c = [41, 32, 23, 0, 0, 0, 0, 0];
-    let diagonal_5d = [51, 42, 33, 24, 0, 0, 0, 0];
-    let diagonal_4e = [61, 52, 43, 34, 25, 0, 0, 0];
-    let diagonal_3f = [71, 62, 53, 44, 35, 26, 0, 0];
-    let diagonal_2g = [81, 72, 63, 54, 45, 36, 27, 0];
-    let diagonal_1h = [91, 82, 73, 64, 55, 46, 37, 28];
-    let diagonal_a8 = [91, 82, 73, 64, 55, 46, 37, 28];
-    let diagonal_b7 = [92, 83, 74, 65, 56, 47, 38, 0];
-    let diagonal_c6 = [93, 84, 75, 66, 57, 48, 0, 0];
-    let diagonal_d5 = [94, 85, 76, 67, 58, 0, 0, 0];
-    let diagonal_e4 = [95, 86, 77, 68, 0, 0, 0, 0];
-    let diagonal_f3 = [96, 87, 78, 0, 0, 0, 0, 0];
-    let diagonal_g2 = [97, 88, 0, 0, 0, 0, 0, 0];
-    let diagonal_h1 = [98, 0, 0, 0, 0, 0, 0, 0];
-
-    let diagonal_8h = [28, 0, 0, 0, 0, 0, 0, 0];
-    let diagonal_7g = [38, 27, 0, 0, 0, 0, 0, 0];
-    let diagonal_6f = [48, 37, 26, 0, 0, 0, 0, 0];
-    let diagonal_5e = [58, 47, 36, 25, 0, 0, 0, 0];
-    let diagonal_4d = [68, 57, 46, 35, 24, 0, 0, 0];
-    let diagonal_3c = [78, 67, 56, 45, 34, 23, 0, 0];
-    let diagonal_2b = [88, 77, 66, 55, 44, 33, 22, 0];
-    let diagonal_1a = [98, 87, 76, 65, 54, 43, 32, 21];
-    let diagonal_g7 = [97, 86, 75, 64, 53, 42, 31, 0];
-    let diagonal_f6 = [96, 85, 74, 63, 52, 41, 0, 0];
-    let diagonal_e5 = [95, 84, 73, 62, 51, 0, 0, 0];
-    let diagonal_d4 = [94, 83, 72, 61, 0, 0, 0, 0];
-    let diagonal_c3 = [93, 82, 71, 0, 0, 0, 0, 0];
-    let diagonal_b2 = [92, 81, 0, 0, 0, 0, 0, 0];
-    let diagonal_a1 = [91, 0, 0, 0, 0, 0, 0, 0];
-
-    let horizontale_1 = [91, 92, 93, 94, 95, 96, 97, 98];
-    let horizontale_2 = [81, 82, 83, 84, 85, 86, 87, 88];
-    let horizontale_3 = [71, 72, 73, 74, 75, 76, 77, 78];
-    let horizontale_4 = [61, 62, 63, 64, 65, 66, 67, 68];
-    let horizontale_5 = [51, 52, 53, 54, 55, 56, 57, 58];
-    let horizontale_6 = [41, 42, 43, 44, 45, 46, 47, 48];
-    let horizontale_7 = [31, 32, 33, 34, 35, 36, 37, 38];
-    let horizontale_8 = [21, 22, 23, 24, 25, 26, 27, 28];
-
-    let vertikale_a = [91, 81, 71, 61, 51, 41, 31, 21];
-    let vertikale_b = [92, 82, 72, 62, 52, 42, 32, 22];
-    let vertikale_c = [93, 83, 73, 63, 53, 43, 33, 23];
-    let vertikale_d = [94, 84, 74, 64, 54, 44, 34, 24];
-    let vertikale_e = [95, 85, 75, 65, 55, 45, 35, 25];
-    let vertikale_f = [96, 86, 76, 66, 56, 46, 36, 26];
-    let vertikale_g = [97, 87, 77, 67, 57, 47, 37, 27];
-    let vertikale_h = [98, 88, 78, 68, 58, 48, 38, 28];
-
-
-    let first = match file - rank {
-        0 => diagonal_a8,
-        1 => diagonal_b7,
-        2 => diagonal_c6,
-        3 => diagonal_d5,
-        4 => diagonal_e4,
-        5 => diagonal_f3,
-        6 => diagonal_g2,
-        7 => diagonal_h1,
-        -1 => diagonal_2g,
-        -2 => diagonal_3f,
-        -3 => diagonal_4e,
-        -4 => diagonal_5d,
-        -5 => diagonal_6c,
-        -6 => diagonal_7b,
-        -7 => diagonal_8a,
-        _ => { [0; 8] }
-    };
-
-    let second = match file + rank {
-        16 => diagonal_8h,
-        15 => diagonal_7g,
-        14 => diagonal_6f,
-        13 => diagonal_5e,
-        12 => diagonal_4d,
-        11 => diagonal_3c,
-        10 => diagonal_2b,
-        9 => diagonal_1a,
-        8 => diagonal_g7,
-        7 => diagonal_f6,
-        6 => diagonal_e5,
-        5 => diagonal_d4,
-        4 => diagonal_c3,
-        3 => diagonal_b2,
-        2 => diagonal_a1,
-        _ => { [0; 8] }
-    };
-    (first, second)
-}
-
 
 
 #[cfg(test)]

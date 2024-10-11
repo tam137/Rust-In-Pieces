@@ -37,7 +37,6 @@ pub struct Config {
     pub knight_on_rim_malus: i16,
     pub knight_attacks_rook: i16,
     pub knight_attacks_queen: i16,
-    pub queen_in_bishop_line_malus: i16,
     pub queen_in_rook_line_malus: i16,
     pub king_shield: i16,
 }
@@ -83,7 +82,6 @@ impl Config {
             knight_on_rim_malus: 8,
             knight_attacks_rook: 8,
             knight_attacks_queen: 25,
-            queen_in_bishop_line_malus: 45,
             queen_in_rook_line_malus: 30,
             king_shield: 20,
         }
