@@ -16,12 +16,12 @@ pub struct Turn {
     pub to: i32,
     pub capture: i32,
     pub promotion: i32,
-    pub eval: i32,
+    pub eval: i16,
 }
 
 impl Turn {
     // Constructor with all fields
-    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, eval: i32) -> Self {
+    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, eval: i16) -> Self {
         Turn {
             from,
             to,

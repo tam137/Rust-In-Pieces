@@ -1,3 +1,5 @@
+use crate::config::Config;
+use crate::eval::calc_eval;
 use crate::model::{Board, Turn};
 
 pub struct MoveGenService;
@@ -42,15 +44,21 @@ impl MoveGenService {
 
             // If valid, add the move to the list
             if valid {
+                move_turn.eval = calc_eval(board, &Config::new());
                 valid_moves.push(move_turn.clone());
                 if move_turn.promotion != 0 {
                     let mut turn = move_turn.clone();
                     turn.promotion = move_turn.promotion - 2;
+                    turn.eval = calc_eval(board, &Config::new());
                     valid_moves.push(turn); // Knight promotion
                 }
             }
-
             board.undo_move(&move_turn, move_info);
+        }
+        if white_turn {
+            valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
+        } else {
+            valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
         }
         valid_moves
     }
@@ -586,6 +594,20 @@ mod tests {
         // Black promotion on h1
         let move_list = test_fen_with_move("8/8/3k4/8/8/8/1K5p/8 b - - 0 1", 10, "h2h1q");
         assert_eq!(move_list.len(), 5, "Expected 5 moves after black queen promotion on h1");
+    }
+
+    #[test]
+    fn move_list_sort_test() {
+        let fen_service = FenServiceImpl;
+        let move_gen_service = MoveGenService;
+
+        let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 w Qq - 0 1");
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        assert!(move_list.first().unwrap().eval > move_list.last().unwrap().eval);
+
+        let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 b Qq - 0 1");
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        assert!(move_list.first().unwrap().eval < move_list.last().unwrap().eval);
     }
 
 

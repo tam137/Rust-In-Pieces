@@ -29,7 +29,7 @@ fn main() {
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let mut board = time_it!(fen_service.set_fen(fen));
-    let valid_moves = time_it!(move_gen_service.generate_valid_moves_list(&mut board));
-    time_it!(calc_eval(&board, &Config::new()));
+    time_it!(move_gen_service.generate_valid_moves_list(&mut board)); // ~ 12.000µs
+    time_it!(calc_eval(&board, &Config::new())); // ~ 300ns
 
 }
