@@ -4,10 +4,12 @@ mod notation_util;
 mod model;
 mod eval;
 mod config;
+mod search;
 
 use crate::config::Config;
 use crate::eval::calc_eval;
 use crate::fen_service::FenServiceImpl;
+use crate::model::Stats;
 use crate::move_gen_service::MoveGenService;
 
 
@@ -26,10 +28,11 @@ fn main() {
 
     let fen_service = FenServiceImpl;
     let move_gen_service = MoveGenService;
+    let mut stats = Stats::new();
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let mut board = time_it!(fen_service.set_fen(fen));
-    time_it!(move_gen_service.generate_valid_moves_list(&mut board)); // ~ 12.000µs
+    time_it!(move_gen_service.generate_valid_moves_list(&mut board, &mut stats)); // ~ 12.000µs
     time_it!(calc_eval(&board, &Config::new())); // ~ 300ns
 
 }
