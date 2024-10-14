@@ -1,17 +1,22 @@
 use crate::config::Config;
-use crate::eval::calc_eval;
 use crate::model::{Board, Stats, Turn};
+use crate::service::Service;
 
 pub struct MoveGenService;
 
 impl MoveGenService {
-    /// Generates a list of valid moves for a given board state.
-    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats) -> Vec<Turn> {
-        let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board)
+
+    pub fn new() -> Self {
+        MoveGenService
     }
 
-    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board) -> Vec<Turn> {
+    /// Generates a list of valid moves for a given board state.
+    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
+        let move_list = self.generate_moves_list_for_piece(board, 0);
+        self.get_valid_moves_from_move_list(&move_list, board, service)
+    }
+
+    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, service: &Service) -> Vec<Turn> {
         let mut valid_moves = Vec::new();
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
@@ -44,12 +49,12 @@ impl MoveGenService {
 
             // If valid, add the move to the list
             if valid {
-                move_turn.eval = calc_eval(board, &Config::new());
+                move_turn.eval = service.eval.calc_eval(board, &Config::new());
                 valid_moves.push(move_turn.clone());
                 if move_turn.promotion != 0 {
                     let mut turn = move_turn.clone();
                     turn.promotion = move_turn.promotion - 2;
-                    turn.eval = calc_eval(board, &Config::new());
+                    turn.eval = service.eval.calc_eval(board, &Config::new());
                     valid_moves.push(turn); // Knight promotion
                 }
             }
@@ -401,13 +406,13 @@ impl MoveGenService {
 
 #[cfg(test)]
 mod tests {
-    use crate::fen_service::FenServiceImpl;
+    use crate::fen_service::FenService;
     use crate::notation_util::NotationUtil;
     use super::*;
 
     #[test]
     fn get_check_idx_list_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = FenService;
         let move_gen_service = MoveGenService;
 
         // Test 1: Initial Board Setup - No Check
@@ -460,7 +465,7 @@ mod tests {
 
     #[test]
     fn generate_moves_list_for_fen_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = FenService;
         let move_gen_service = MoveGenService;
 
         // Test: Standard starting position of a chess game
@@ -487,18 +492,17 @@ mod tests {
 
     #[test]
     fn get_valid_moves_from_move_list_test_double_check() {
-        let fen_service = FenServiceImpl;
-        let move_gen_service = MoveGenService;
+        let service = &Service::new();
 
         // Double check, only one king move is possible for white
-        let mut board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
-        let valid_turn_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let mut board = service.fen.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
+        let valid_turn_list = service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service);
         assert_eq!(valid_turn_list.len(), 1);  // Check that only one valid move exists
         assert!(valid_turn_list[0].from == 95 && valid_turn_list[0].to == 96);  // King move from 95 to 96
 
         // Double check, only one king move is possible for black
-        let mut board = fen_service.set_fen("rnb1k1nr/ppppp1Np/2N5/7Q/8/4P3/PPPP1PPP/RNB1KB1R b KQkq - 0 1");
-        let valid_turn_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let mut board = service.fen.set_fen("rnb1k1nr/ppppp1Np/2N5/7Q/8/4P3/PPPP1PPP/RNB1KB1R b KQkq - 0 1");
+        let valid_turn_list = service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service);
         assert_eq!(valid_turn_list.len(), 1);  // Check that only one valid move exists
         assert!(valid_turn_list[0].from == 25 && valid_turn_list[0].to == 26);  // King move from 25 to 26
     }
@@ -537,7 +541,8 @@ mod tests {
     #[test]
     fn en_passante_test() {
         // Set the board using the FEN string with en passant available
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
+
         let mut board = fen_service.set_fen("rnbqkbnr/ppp1ppp1/7p/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
         let board_copy = board.clone();
 
@@ -558,7 +563,7 @@ mod tests {
         // White promotion to queen
         test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 12, "e7f8q");
 
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_fen("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1");
         let board_copy = board.clone();
@@ -598,25 +603,28 @@ mod tests {
 
     #[test]
     fn move_list_sort_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
         let move_gen_service = MoveGenService;
+        let mut stats = Stats::new();
 
         let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 w Qq - 0 1");
-        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         assert!(move_list.first().unwrap().eval > move_list.last().unwrap().eval);
 
         let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 b Qq - 0 1");
-        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         assert!(move_list.first().unwrap().eval < move_list.last().unwrap().eval);
     }
 
 
     // Function to test FEN position and check if the allowed moves match the expected count
     fn test_fen(fen: &str, allowed_moves: usize) -> Board {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
+        let mut stats = Stats::new();
+
         let move_gen_service = MoveGenService;
         let mut board = fen_service.set_fen(fen);
-        let moves = move_gen_service.generate_valid_moves_list(&mut board);
+        let moves = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         assert_eq!(moves.len(), allowed_moves, "Expected {} moves, but got {} for FEN: {}", allowed_moves, moves.len(), fen);
         board
     }
@@ -631,14 +639,16 @@ mod tests {
      * @return a vector of moves that are possible after the notation move for the opponent
      */
     fn test_fen_with_move(fen: &str, allowed_moves: usize, notation: &str) -> Vec<Turn> {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
         let move_gen_service = MoveGenService;
+        let mut stats = Stats::new();
+
         let mut board = test_fen(fen, allowed_moves);
         let board_copy = board.clone();
-        let move_list = move_gen_service.generate_valid_moves_list(&mut board);
+        let move_list = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         let move_turn = NotationUtil::get_turn_from_list(&move_list, notation);
         let move_info = board.do_move(&move_turn);
-        let opponent_moves = move_gen_service.generate_valid_moves_list(&mut board);
+        let opponent_moves = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         board.undo_move(&move_turn, move_info);
         assert_eq!(&board, &board_copy, "Board should be restored after undoing the move");
         opponent_moves

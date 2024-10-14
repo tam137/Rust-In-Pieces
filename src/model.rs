@@ -120,6 +120,7 @@ pub struct Board {
     pub move_count: i32,
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
+    pub current_best_eval: i16,
 }
 
 impl Board {
@@ -145,6 +146,7 @@ impl Board {
             move_count,
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
+            current_best_eval: 0,
         }
     }
 
@@ -379,7 +381,7 @@ impl Stats {
                 self.created_nodes / (self.calc_time_ms + 1),
                 100 - (self.calculated_nodes * 100 / if self.created_nodes == 0 { 1 } else { self.created_nodes }),
                 //self.zobrist_hit)
-                (self.zobrist_hit * 100 / self.eval_nodes))
+                self.zobrist_hit * 100 / self.eval_nodes)
     }
 }
 
@@ -387,12 +389,12 @@ impl Stats {
 
 #[cfg(test)]
 mod tests {
-    use crate::fen_service::FenServiceImpl;
     use crate::notation_util::NotationUtil;
+    use crate::service::Service;
 
     #[test]
     fn board_properties_move_count_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
         // Create a new board with the FEN string using your chess library.
         let mut board = fen_service.set_fen("r1bqkb1r/ppppn2p/2n2pp1/4p3/2B1P3/5N1P/PPPP1PP1/RNBQ1RK1 w kq - 0 6");
 
@@ -439,7 +441,7 @@ mod tests {
 
     #[test]
     fn do_move_castle_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_fen("r3k2r/pppqbppp/2npbn2/1B2p3/3PP3/2N1BN2/PPP1QPPP/R3K2R w KQkq - 0 6");
         let init_board = board.clone();
@@ -533,7 +535,7 @@ mod tests {
 
     #[test]
     fn board_properties_castle_information_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_fen("r1bqk2r/ppppn1bp/2n2pp1/1B2p3/4P3/3P1N1P/PPP2PP1/RNBQ1RK1 b kq - 0 6");
         let init_board = board.clone();
@@ -574,7 +576,7 @@ mod tests {
 
     #[test]
     fn hash_test() {
-        let fen_service = FenServiceImpl;
+        let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         let org_hash = board.hash();

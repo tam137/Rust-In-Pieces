@@ -2,9 +2,9 @@ use crate::model::Board;
 use crate::notation_util::NotationUtil;
 
 
-pub struct FenServiceImpl;
+pub struct FenService;
 
-impl FenServiceImpl {
+impl FenService {
     /// Sets up a board from a given FEN string.
     pub fn set_fen(&self, fen: &str) -> Board {
         let mut field = [0; 120];
