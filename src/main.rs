@@ -1,11 +1,11 @@
 mod fen_service;
-mod move_gen_service;
 mod notation_util;
 mod model;
 mod eval_service;
 mod config;
 mod search_service;
 mod service;
+mod move_gen_service;
 
 use crate::config::Config;
 use crate::model::Stats;

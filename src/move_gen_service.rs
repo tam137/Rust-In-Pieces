@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::model::{Board, Stats, Turn};
+use crate::model::{Board, GameStatus, Stats, Turn};
 use crate::service::Service;
 
 pub struct MoveGenService;
@@ -65,6 +65,16 @@ impl MoveGenService {
         } else {
             valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
         }
+
+        // check Gamestatus
+        if valid_moves.is_empty() {
+            if self.get_check_idx_list(&board.field, board.white_to_move).len() > 0 {
+                board.game_status = if board.white_to_move { GameStatus::BlackWin } else { GameStatus::WhiteWin }
+            } else {
+                board.game_status = GameStatus::Draw;
+            }
+        }
+
         valid_moves
     }
 
@@ -616,6 +626,41 @@ mod tests {
         assert!(move_list.first().unwrap().eval < move_list.last().unwrap().eval);
     }
 
+    #[test]
+    fn game_status_check_mate_test() {
+        // Black mate
+        let board = test_fen("rnbqkbnr/ppppp2p/8/7B/8/8/PPPPPPPP/RNBQK1NR b KQkq - 0 1", 0);
+        assert!(board.game_status == GameStatus::WhiteWin);
+
+        let board = test_fen("3N3B/8/6k1/4K3/8/6RR/8/8 b - - 0 1", 0);
+        assert!(board.game_status == GameStatus::WhiteWin);
+
+        // White Mate
+        let board = test_fen("rn2k1nr/pppppppp/3b4/1b6/4P1PN/1B6/PPPP1P1q/RNBQR1K1 w Qkq - 0 1", 0);
+        assert!(board.game_status == GameStatus::BlackWin);
+
+        let board = test_fen("4r3/8/8/8/b4n1b/4p3/1k1K4/8 w - - 0 1", 0);
+        assert!(board.game_status == GameStatus::BlackWin);
+    }
+
+    #[test]
+    fn game_status_pat_test() {
+        let board = test_fen("3N3B/8/6k1/4K3/5P2/7R/8/8 b - - 0 1", 0);
+        assert!(board.game_status == GameStatus::Draw);
+
+        let board = test_fen("R7/R2pk3/Q5P1/8/8/8/4K3/8 b - - 0 1", 0);
+        assert!(board.game_status == GameStatus::Draw);
+
+        let board = test_fen("8/8/8/8/4k3/2p1n1p1/4K1n1/8 w - - 0 1", 0);
+        assert!(board.game_status == GameStatus::Draw);
+
+        let board = test_fen("8/8/8/8/4k3/8/r2PKN1r/r7 w - - 0 1", 0);
+        assert!(board.game_status == GameStatus::Draw);
+
+
+
+    }
+
 
     // Function to test FEN position and check if the allowed moves match the expected count
     fn test_fen(fen: &str, allowed_moves: usize) -> Board {
@@ -639,7 +684,6 @@ mod tests {
      * @return a vector of moves that are possible after the notation move for the opponent
      */
     fn test_fen_with_move(fen: &str, allowed_moves: usize, notation: &str) -> Vec<Turn> {
-        let fen_service = Service::new().fen;
         let move_gen_service = MoveGenService;
         let mut stats = Stats::new();
 
