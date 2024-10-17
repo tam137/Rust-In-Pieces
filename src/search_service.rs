@@ -1,6 +1,6 @@
 use std::collections::{VecDeque};
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, Turn};
+use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant};
 use crate::service::Service;
 
 
@@ -12,8 +12,7 @@ impl SearchService {
         SearchService
     }
 
-    pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config, service: &Service)
-                     -> Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> {
+    pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config, service: &Service) -> SearchResult {
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
@@ -21,7 +20,7 @@ impl SearchService {
         stats.add_created_nodes(turns.len());
         board.current_best_eval = *(service.eval.calc_eval_piece_map(board, config).get(&0).unwrap());
 
-        let mut sorted_moves: Vec<(Option<Turn>, i16, VecDeque<Option<Turn>>)> = vec![];
+        let mut search_result: SearchResult = SearchResult::default();
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
@@ -37,7 +36,7 @@ impl SearchService {
                     alpha = min_max_eval;
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    sorted_moves.push((Some(turn), min_max_eval, best_move_row));
+                    search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
                     board.current_best_eval = best_eval;
                 }
             } else {
@@ -46,17 +45,17 @@ impl SearchService {
                     beta = min_max_eval;
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    sorted_moves.push((Some(turn), min_max_eval, best_move_row));
+                    search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
                     board.current_best_eval = best_eval;
                 }
             }
         }
         if white {
-            sorted_moves.sort_by(|a, b| b.1.cmp(&a.1)); // Highest first for white
-            sorted_moves
+            search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
+            search_result
         } else {
-            sorted_moves.sort_by(|a, b| a.1.cmp(&b.1)); // Lowest first for black
-            sorted_moves
+            search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
+            search_result
         }
     }
 
@@ -165,5 +164,79 @@ impl SearchService {
             (None, service.eval.calc_eval(board, config), empty_vec)
         }
     */
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::{config::Config, eval_service, service::Service, Stats};
+
+    #[test]
+    fn white_matt_tests() {
+        let fen_service = Service::new().fen;
+        let search_service = Service::new().search;
+        let config = &Config::new();
+        
+        let mut board = fen_service.set_fen("8/3K4/8/8/5RR1/8/k7/8 w - - 0 1");
+        let result = search_service.get_moves(&mut board, 6, true, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_best_move_algebraic(), "f4f3");
+
+        let mut board = fen_service.set_fen("r1q1r1k1/ppppppp1/n1b4p/7N/2B1P2N/2B2Q1P/PPPP1PP1/R3R1K1 w Qq - 0 1");
+        let result = search_service.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_best_move_algebraic(), "f3f7");
+        
+
+        let mut board = fen_service.set_fen("6rk/R2R4/7P/8/p1B2P2/2P4P/P5K1/8 w - - 5 39");
+        let result = search_service.get_moves(&mut board, 6, true, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_best_move_algebraic(), "c4g8");
+    }
+
+
+    #[test]
+    fn black_matt_tests() {
+        let fen_service = Service::new().fen;
+        let search_service = Service::new().search;
+        let config = &Config::new();
+        
+        let mut board = fen_service.set_fen("8/1p6/p1P5/2p5/K1p2P2/P2kPn1P/1r6/8 b - - 3 43");
+        let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_best_move_algebraic(), "b7b6");
+
+        let mut board = fen_service.set_fen("8/8/8/2k5/8/5p1r/1K6/8 b - - 0 1");
+        let result = search_service.get_moves(&mut board, 8, false, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_best_move_algebraic(), "f3f2");
+
+        let mut board = fen_service.set_fen("8/5pkp/p5p1/4p3/1P3P2/P3P1KP/2q3P1/3r4 b - - 0 37");
+        let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new());
+        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_best_move_algebraic(), "d1g1");
+    }
+
+
+    #[test]
+    fn black_find_hit_move() {
+        let fen_service = Service::new().fen;
+        let search_service = Service::new().search;
+        let eval_service = Service::new().eval;
+        let config = &Config::new();
+        
+        let mut board = fen_service.set_fen("2r2rk1/1b2bppp/pqn1pn2/8/1PBB4/P3PN2/5PPP/RN1Q1RK1 b - - 2 14");
+        print!("{}", eval_service.calc_eval(&board, config));
+        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
+        result.print_all_variants();
+        //assert!(result.get_eval() < -200);
+        assert_eq!(result.get_best_move_algebraic(), "c6d4");
+
+        let mut board = fen_service.set_fen("5rrq/4n3/4b3/3k4/3P2N1/N1P1Q2P/1P1RKPP1/7R b - - 0 1");
+        let result = search_service.get_moves(&mut board, 4, false, &mut Stats::new(), &config, &Service::new());
+        result.print_all_variants();
+        assert!(result.get_eval() < 600);
+        assert_eq!(result.get_best_move_algebraic(), "e6g4");
     }
 }

@@ -33,7 +33,6 @@ fn main() {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service)); // ~ 13.000µs
     time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns
     let result = time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 1, true, &mut Stats::new(), &Config::new(), service)); // ~ 18.000µs
-    println!("{:?}", result);
 
 
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -62,6 +62,21 @@ impl Turn {
     pub fn set_promotion(mut self, promotion: i32) -> Self {
         self.promotion = promotion;
         self
+    }
+
+    pub fn to_algebraic(&self) -> String {
+        let column_from = (self.from % 10 + 96) as u8;
+        let row_from = (10 - (self.from / 10) + 48) as u8;
+        let column_to = (self.to % 10 + 96) as u8;
+        let row_to = (10 - (self.to / 10) + 48) as u8;
+        let mut promotional_lit = "";
+        if self.promotion != 0 {
+            promotional_lit = if self.promotion % 10 == 4 { "q" }
+                                else {
+                                    "k"
+                                };
+        }
+        format!("{}{}{}{}{}", column_from as char, row_from as char, column_to as char, row_to as char, &promotional_lit)
     }
 }
 
@@ -384,6 +399,75 @@ impl Stats {
                 self.zobrist_hit * 100 / self.eval_nodes)
     }
 }
+
+#[derive(Default)]
+pub struct SearchResult {
+    pub variants: Vec<Variant>
+}
+
+#[derive(Debug)]
+pub struct Variant {
+    pub eval: i16,
+    pub best_move: Option<Turn>,
+    pub move_row: VecDeque<Option<Turn>>,
+}
+
+impl SearchResult {
+    pub fn add_variant(&mut self, variant: Variant) {
+        self.variants.push(variant);
+    }
+
+    pub fn get_eval(&self) -> i16 {
+        if let Some(variant) = self.variants.get(0) {
+            variant.eval
+        } else {
+            0
+        }
+    }
+
+    pub fn print_debug(&self) {
+        if let Some(variant) = self.variants.get(0) {
+            print!("{:?}", variant);
+        } else {
+            println!("No variants available");
+        }
+    }
+
+    pub fn print_best_variant(&self) {
+        if let Some(variant) = self.variants.get(0) {
+            print!("{} ", self.get_eval());
+            let move_row = variant.move_row.clone();            
+            move_row.iter()
+                .map(|turn_option| {
+                    turn_option.as_ref().map(|turn| turn.to_algebraic()).unwrap_or_default()
+                })
+                .for_each(|algebraic_turn| print!("{} ", algebraic_turn));
+        }
+    }
+
+    pub fn print_all_variants(&self) {
+        self.variants.iter().for_each(|variant| {
+            print!("{:>6} ", variant.eval);
+            let move_row = variant.move_row.clone();            
+            move_row.iter()
+                .map(|turn_option| {
+                    turn_option.as_ref().map(|turn| turn.to_algebraic()).unwrap_or_default()
+                })
+                .for_each(|algebraic_turn| print!("{} ", algebraic_turn));
+            println!();
+        });
+    }
+
+    pub fn get_best_move_algebraic(&self) -> String {
+        self.variants.get(0)
+            .and_then(|variant| variant.best_move.as_ref())
+            .map(|best_move| best_move.to_algebraic())
+            .unwrap_or_else(|| "N/A".to_string())
+    }
+    
+    
+}
+
 
 
 
