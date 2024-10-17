@@ -10,6 +10,13 @@ impl MoveGenService {
         MoveGenService
     }
 
+
+    /// Generates a list of valid capture moves for a given board state.
+    pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
+        let move_list = self.generate_moves_list_for_piece(board, 0);
+        self.get_valid_moves_from_move_list(&move_list, board, service).into_iter().filter(|t| t.capture != 0).collect()
+    }
+
     /// Generates a list of valid moves for a given board state.
     pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
         let move_list = self.generate_moves_list_for_piece(board, 0);
