@@ -14,7 +14,10 @@ impl MoveGenService {
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, service).into_iter().filter(|t| t.capture != 0).collect()
+        self.get_valid_moves_from_move_list(&move_list, board, service)
+            .into_iter()
+            .filter(|t| t.capture != 0 || t.gives_check)
+            .collect()
     }
 
     /// Generates a list of valid moves for a given board state.
@@ -656,6 +659,9 @@ mod tests {
 
         let board = test_fen("4r3/8/8/8/b4n1b/4p3/1k1K4/8 w - - 0 1", 0);
         assert!(board.game_status == GameStatus::BlackWin);
+
+        let board = test_fen("3R3k/6pp/8/8/4P3/8/6PP/7K b - - 0 1", 0);
+        assert!(board.game_status == GameStatus::WhiteWin);
     }
 
     #[test]
