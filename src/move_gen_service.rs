@@ -31,7 +31,7 @@ impl MoveGenService {
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
             let idx1 = move_list[i + 1];
-            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0);
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
 
             // Check for castling
             if board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2) {
@@ -57,6 +57,12 @@ impl MoveGenService {
             // If valid, add the move to the list
             if valid {
                 move_turn.eval = service.eval.calc_eval(board, &Config::new());
+
+                // check if the moves gives opponent check
+                if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
+                    move_turn.gives_check = true;
+                }
+
                 valid_moves.push(move_turn.clone());
                 if move_turn.promotion != 0 {
                     let mut turn = move_turn.clone();
@@ -131,6 +137,7 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 14,
                 eval: 0,
+                gives_check: false,
             })
         } else if !white_turn && idx0 / 10 == 8 && board.field[idx0 as usize] == 20 {
             Some(Turn {
@@ -139,6 +146,7 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 24,
                 eval: 0,
+                gives_check: false,
             })
         } else {
             None
@@ -661,11 +669,40 @@ mod tests {
         let board = test_fen("8/8/8/8/4k3/2p1n1p1/4K1n1/8 w - - 0 1", 0);
         assert!(board.game_status == GameStatus::Draw);
 
-        let board = test_fen("8/8/8/8/4k3/8/r2PKN1r/r7 w - - 0 1", 0);
+        let board = test_fen("8/8/8/8/3k2p1/8/r2PKN1r/r7 w - - 0 1", 0);
         assert!(board.game_status == GameStatus::Draw);
 
 
 
+    }
+
+    #[test]
+    fn gives_check_test() {
+        let fen_service = Service::new().fen;
+        let move_gen_service = Service::new().move_gen;
+        let mut stats = &mut Stats::new();
+
+        // for white
+        let mut board = fen_service.set_fen("rnbqkbnr/ppp2ppp/8/4p2N/4P3/8/PPP2PPP/R1BQKBNR w KQkq - 0 1");
+        let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
+        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
+        assert_eq!(5, check_turns.len());
+
+        let mut board = fen_service.set_fen("8/8/8/3k4/8/3K4/3RPR2/3B4 w - - 0 1");
+        let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
+        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
+        assert_eq!(6, check_turns.len());
+
+        // for black
+        let mut board = fen_service.set_fen("rnb1kb1r/p1q2ppp/1p2p3/3pP1n1/3P4/P7/1PP2PPP/RNBQKBNR b KQkq - 0 1");
+        let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
+        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
+        assert_eq!(4, check_turns.len());
+
+        let mut board = fen_service.set_fen("3rr3/8/5b2/8/2pk4/8/3K4/8 b - - 0 1");
+        let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
+        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
+        assert_eq!(6, check_turns.len());
     }
 
 

@@ -1,5 +1,4 @@
 use crate::model::Turn;
-use std::collections::HashMap;
 
 pub struct NotationUtil;
 
@@ -44,7 +43,7 @@ impl NotationUtil {
                 _ => 24, // default to queen
             };
         }
-        Turn::new(from, to, 0, promotion, 0)
+        Turn::new(from, to, 0, promotion, 0, false)
     }
 
     /// Converts a space-separated list of notation moves (like "e2e4 e7e5") to a list of `Turn` objects.

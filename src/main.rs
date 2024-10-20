@@ -29,10 +29,10 @@ fn main() {
     let mut config = &Config::new();
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut board = time_it!(service.fen.set_fen(fen)); // ~3.000µs
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service)); // ~ 13.000µs
+    let mut board = time_it!(service.fen.set_fen(fen)); // ~3µs
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service)); // ~ 13µs - 18µs
     time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns
-    let result = time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 1, true, &mut Stats::new(), &Config::new(), service)); // ~ 18.000µs
+    let result = time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 1, true, &mut Stats::new(), &Config::new(), service)); // ~ 38µs
 
 
 }
