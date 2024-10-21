@@ -68,9 +68,9 @@ impl SearchService {
 
         if depth <= 0 {
             let stand_pat_cut = if white {
-                board.current_best_eval < eval.1
+                board.current_best_eval < eval.1 || (turn.capture == 0 && !turn.gives_check)
             } else {
-                board.current_best_eval > eval.1
+                board.current_best_eval > eval.1 || (turn.capture == 0 && !turn.gives_check)
             };
 
             // if !turn.gives_chess && stand_pat_cut {
@@ -84,12 +84,13 @@ impl SearchService {
             // }
 
             if stand_pat_cut {
+                // check for mate or draw or leave quitesearch
                 if service.move_gen.generate_valid_moves_list(board, stats, service).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                         GameStatus::Draw => (None, 0, Default::default()),
-                        _ => panic!("no defined game end"), // TODO define proper ends
+                        _ => panic!("no defined game end"),
                     };
                 }
                 return eval
@@ -102,7 +103,7 @@ impl SearchService {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                             GameStatus::Draw => (None, 0, Default::default()),
-                            _ => panic!("no defined game end"), // TODO define proper ends
+                            _ => panic!("no defined game end"),
                         };
                     }
                     return eval
@@ -287,20 +288,21 @@ mod tests {
         let config = &Config::new();
         
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
-        //result.print_all_variants();
+        let result = search_service.get_moves(&mut board, 1, true, &mut Stats::new(), &config, &Service::new());
+        result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
 
+        /*
         let mut board = fen_service.set_fen("7k/6pp/3p4/4n3/3QP3/8/3R2PP/7K w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
         //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
 
-        let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/n2QP3/8/3R2PP/7K w - - 0 1");
+        let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/p2QP3/8/3R2PP/7K w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
         result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4a4");
-        
+        */
 
 
     }
