@@ -245,37 +245,29 @@ mod tests {
 
 
     #[test]
-    #[ignore]
     fn black_find_hit_move() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let eval_service = Service::new().eval;
+        //let eval_service = Service::new().eval;
         let config = &Config::new();
         
         let mut board = fen_service.set_fen("2r2rk1/1b2bppp/pqn1pn2/8/1PBB4/P3PN2/5PPP/RN1Q1RK1 b - - 2 14");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
         //result.print_all_variants();
-        //assert!(result.get_eval() < -100);
+        assert!(result.get_eval() < -100);
         assert_eq!(result.get_best_move_algebraic(), "c6d4");
         
-        let mut board = fen_service.set_fen("5rrq/4n3/p2pb3/pp1k4/2pP2N1/N1P1Q2P/1P1RKPP1/7R b - - 0 1");
+        let mut board = fen_service.set_fen("5rrq/4n3/p2pb3/pp1k4/2pP2N1/N1P1R2P/1P2KPP1/7R b - - 0 1");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
         //result.print_all_variants();
-        assert!(result.get_eval() < 250);
-        //assert_eq!(result.get_best_move_algebraic(), "g8g4");
-
-        let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
-        //result.print_all_variants();
-        //assert!(result.get_eval() < -100);
-        //assert_eq!(result.get_best_move_algebraic(), "d5e4");
+        assert!(result.get_eval() < -800);
+        assert_eq!(result.get_best_move_algebraic(), "e6g4");
 
         let mut board = fen_service.set_fen("6k1/5pp1/5rnp/2Npb3/3PP3/r1P1R2P/5PP1/4BR1K b - - 0 1");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
-        println!("{}", eval_service.calc_eval(&board, config));
-        result.print_all_variants();
-        //assert!(result.get_eval() < -50);
-        //assert_eq!(result.get_best_move_algebraic(), "e5d4");
+        //result.print_all_variants();
+        assert!(result.get_eval() > 0);
+        assert_eq!(result.get_best_move_algebraic(), "e5d4");
 
     }
 
@@ -288,23 +280,37 @@ mod tests {
         let config = &Config::new();
         
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
-        let result = search_service.get_moves(&mut board, 1, true, &mut Stats::new(), &config, &Service::new());
-        result.print_all_variants();
+        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
+        //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
 
-        /*
+        
         let mut board = fen_service.set_fen("7k/6pp/3p4/4n3/3QP3/8/3R2PP/7K w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
         //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
 
+
         let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/p2QP3/8/3R2PP/7K w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
+        //result.print_all_variants();
+        assert_ne!(result.get_best_move_algebraic(), "d4a4");
+
+    }
+
+
+    #[test]
+    #[ignore]
+    fn hit_move_unsolved() {
+        let fen_service = Service::new().fen;
+        let search_service = Service::new().search;
+        let config = &Config::new();
+
+        let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
+        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
         result.print_all_variants();
-        assert_eq!(result.get_best_move_algebraic(), "d4a4");
-        */
-
-
+        //assert!(result.get_eval() < -100);
+        //assert_eq!(result.get_best_move_algebraic(), "d5e4");
     }
 
 }
