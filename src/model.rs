@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
+use crate::notation_util::NotationUtil;
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum GameStatus {
@@ -7,6 +9,27 @@ pub enum GameStatus {
     Draw,
     WhiteWin,
     BlackWin,
+}
+
+
+pub struct Uci_game {
+    pub board: Board,
+    pub  made_moves_str: String,
+}
+
+impl Uci_game {
+
+    pub fn new(board: Board) -> Self {
+        Uci_game {
+            board,
+            made_moves_str: String::from(""),
+        }
+    }
+
+    pub fn do_move(&mut self, notation_move: &str) -> () {
+        self.board.do_move(&NotationUtil::get_turn_from_notation(notation_move));
+        self.made_moves_str.push_str(notation_move);
+    }
 }
 
 
@@ -156,6 +179,7 @@ impl Board {
             current_best_eval: 0,
         }
     }
+
 
     // Method for performing a move
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {

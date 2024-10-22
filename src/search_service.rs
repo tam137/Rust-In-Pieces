@@ -276,7 +276,7 @@ mod tests {
     fn white_find_hit_move() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let eval_service = Service::new().eval;
+        //let eval_service = Service::new().eval;
         let config = &Config::new();
         
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
