@@ -30,6 +30,10 @@ impl Uci_game {
         self.board.do_move(&NotationUtil::get_turn_from_notation(notation_move));
         self.made_moves_str.push_str(notation_move);
     }
+
+    pub fn white_to_move(&self) -> bool  {
+        self.board.white_to_move
+    }
 }
 
 
@@ -441,6 +445,14 @@ impl SearchResult {
         }
     }
 
+    pub fn get_depth(&self) -> i32 {
+        if let Some(variant) = self.variants.get(0) {
+            variant.move_row.len() as i32
+        } else {
+            0
+        }
+    }
+
     pub fn print_debug(&self) {
         if let Some(variant) = self.variants.get(0) {
             print!("{:?}", variant);
@@ -479,6 +491,19 @@ impl SearchResult {
             .and_then(|variant| variant.best_move.as_ref())
             .map(|best_move| best_move.to_algebraic())
             .unwrap_or_else(|| "N/A".to_string())
+    }
+
+    pub fn get_best_move_row(&self) -> String {
+        if let Some(variant) = self.variants.get(0) {
+            let move_row = variant.move_row.clone();
+            return move_row.iter()
+                .map(|turn_option| {
+                    turn_option.as_ref().map(|turn| turn.to_algebraic()).unwrap_or_default()
+                })
+                .collect::<Vec<String>>()
+                .join(" ");
+        }
+        String::new()
     }
     
     

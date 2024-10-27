@@ -39,7 +39,6 @@ fn main() {
     //run_time_check();
 
     let service = &Service::new();
-    let mut config = &Config::new();
 
     let (tx, rx) = mpsc::channel();
 
@@ -55,7 +54,7 @@ fn main() {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
 
-                        println!("id name RustInPieces V88_");
+                        println!("id name SupraH V00a");
 
                         println!("id author Jan Lange");
                         println!("uciok");
@@ -99,8 +98,10 @@ fn main() {
     let config = Config::new();
     let mut white = true;
 
-    let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    let game = Uci_game::new(board);
+    let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    let mut board = service.fen.set_fen(starting_fen);
+    let mut game = Uci_game::new(board.clone());
 
 
     loop {
@@ -110,20 +111,19 @@ fn main() {
 
             let calc_time = Instant::now();
 
-            let algebraic_turns = game.made_moves_str;
 
-
-            let best_move = &service.search.get_moves(&mut board, config.search_depth, white, &mut stats, &config, &service);
-            game.do_move(&best_move.get_best_move_algebraic());
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
+
+            let search_result = &service.search.get_moves(&mut board, config.search_depth, white, &mut stats, &config, &service);
+            game.do_move(&search_result.get_best_move_algebraic());
+            
             let calc_time: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
-            let move_row = best_move.get_best_move_row_str();
-            println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", best_move.get_depth(), best_move.get_eval(), 0, stats.created_nodes, stats.created_nodes / (calc_time + 1) as usize, move_row);
-            println!("bestmove {}", best_move.get_best_turn().to_algebraic(false));
-        
-            stats.set_calc_time(calc_time.elapsed().as_millis().try_into().unwrap());
+            let move_row = search_result.get_best_move_row();
+
+            println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(), search_result.get_eval(), 0, stats.created_nodes, stats.created_nodes / (calc_time + 1) as usize, move_row);
+            println!("bestmove {}", search_result.get_best_move_algebraic());
+
             stats.reset_stats();
-            board.clean_up_hash_if_needed();
         } else if received.starts_with("move") {
             let algebraic_notation;
             if received.chars().nth(9) == Some('q') {
@@ -133,13 +133,14 @@ fn main() {
                 algebraic_notation = &received[5..9];
             };
 
-            let turn = Turn::generate_turns(algebraic_notation);
-            board.do_turn(&turn[0]);
-            white = board.is_white_field(turn[0].to);
-        } else if received == "ucinewgame" { board = Board::new(); white = true; continue;
-        } else if received == "test" { test_game() }
+            game.do_move(algebraic_notation);
+        } else if received == "ucinewgame" {
+            board = service.fen.set_fen(starting_fen);
+            white = true;
+            continue;
+        }// else if received == "test" { test_game() }
 
-        white = !white;
+        white = game.white_to_move();
     }
 }
 
