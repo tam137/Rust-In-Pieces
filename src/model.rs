@@ -12,23 +12,29 @@ pub enum GameStatus {
 }
 
 
-pub struct Uci_game {
+pub struct UciGame {
     pub board: Board,
     pub  made_moves_str: String,
 }
 
-impl Uci_game {
+impl UciGame {
 
     pub fn new(board: Board) -> Self {
-        Uci_game {
+        UciGame {
             board,
             made_moves_str: String::from(""),
         }
     }
 
-    pub fn do_move(&mut self, notation_move: &str) -> () {
+    pub fn do_move(&mut self, notation_move: &str) {
         self.board.do_move(&NotationUtil::get_turn_from_notation(notation_move));
-        self.made_moves_str.push_str(notation_move);
+        
+        if self.made_moves_str.is_empty() {
+            self.made_moves_str.push_str(notation_move);
+        } else {
+            self.made_moves_str.push(' ');
+            self.made_moves_str.push_str(notation_move);
+        }
     }
 
     pub fn white_to_move(&self) -> bool  {
@@ -516,6 +522,7 @@ impl SearchResult {
 mod tests {
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
+    use crate::UciGame;
 
     #[test]
     fn board_properties_move_count_test() {
@@ -716,6 +723,33 @@ mod tests {
         board.undo_move(turn, mi);
         assert_eq!(org_hash, board.hash());
         assert_eq!(board.move_repetition_map.len(), 0);
+    }
+
+    #[test]
+    fn uci_game() {
+        let service = Service::new();
+
+        let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let mut game = UciGame::new(service.fen.set_fen(starting_fen));
+
+        assert_eq!(true, game.white_to_move());
+        assert_eq!("", game.made_moves_str);
+        assert_eq!(1, game.board.move_count);
+
+        game.do_move("e2e4");
+        assert_eq!(false, game.white_to_move());
+        assert_eq!("e2e4", game.made_moves_str);
+        
+        game.do_move("e7e5");
+        assert_eq!(true, game.white_to_move());
+        assert_eq!(2, game.board.move_count);
+
+        game.do_move("d2d3");
+        assert_eq!(false, game.white_to_move());
+        assert_eq!(2, game.board.move_count);
+        assert_eq!("e2e4 e7e5 d2d3", game.made_moves_str);
+        
+
     }
 
 }

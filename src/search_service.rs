@@ -17,7 +17,6 @@ impl SearchService {
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
         let turns = service.move_gen.generate_valid_moves_list(board, stats, service);
-        stats.add_created_nodes(turns.len());
         board.current_best_eval = service.eval.calc_eval(board, config);
 
         let mut search_result: SearchResult = SearchResult::default();
@@ -115,8 +114,6 @@ impl SearchService {
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
         let mut best_move: Option<Turn> = None;
-
-        stats.add_created_nodes(turns.len());
 
         if turns.len() == 0 { // TODO do not loose game in quite mode with zero moves
             return match board.game_status {
