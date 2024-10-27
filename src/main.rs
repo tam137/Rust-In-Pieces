@@ -170,8 +170,8 @@ fn run_time_check() {
     let mut stats = Stats::new();
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut board = time_it!(service.fen.set_fen(fen)); // ~3µs
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs
-    time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns
+    let mut board = time_it!(service.fen.set_fen(fen)); // ~3µs / ~11µs
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
+    time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns / ~1µs
     time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
 }
