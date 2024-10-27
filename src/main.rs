@@ -49,7 +49,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00b");
+                        println!("id name SupraH V00c");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -150,7 +150,7 @@ fn log(msg: String) {
         .write(true)
         .append(true)
         .create(true)
-        .open("/home/tam137/engines/log.txt") {
+        .open("log.txt") {
             Ok(mut file) => {
                 match file.write_all(log_entry.as_bytes()) {
                     Ok(_) => (),
