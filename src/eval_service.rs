@@ -343,8 +343,6 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::eval_service::EvalService;
-    use crate::fen_service::FenService;
     use crate::service::Service;
 
     #[test]

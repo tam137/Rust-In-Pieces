@@ -14,7 +14,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::fs::OpenOptions;
 use chrono::Local;
-use model::Uci_game;
+use model::UciGame;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -36,13 +36,9 @@ macro_rules! time_it {
 
 fn main() {
 
-    //run_time_check();
-
-    let service = &Service::new();
-
     let (tx, rx) = mpsc::channel();
 
-    log("Programm gestartet".to_string());
+    log("Engine startet".to_string());
 
 
     let _handle = thread::spawn(move || {
@@ -53,9 +49,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-
                         println!("id name SupraH V00a");
-
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -73,7 +67,7 @@ fn main() {
                         tx.send(format!("move {}", last_four_chars)).unwrap();
                     }
                     else if uci_token.starts_with("go") {
-                        sleep(Duration::from_millis(100));
+                        sleep(Duration::from_millis(10));
                         tx.send(format!("go")).unwrap();
                     }
                     else if uci_token.starts_with("test") {
@@ -94,17 +88,17 @@ fn main() {
     });
 
 
+    let service = &Service::new();
     let mut stats = Stats::new();
     let config = Config::new();
     let mut white = true;
 
     let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-    let mut board = service.fen.set_fen(starting_fen);
-    let mut game = Uci_game::new(board.clone());
+    let mut game = UciGame::new(service.fen.set_fen(starting_fen));
 
 
-    loop {
+    loop {        
+
         let received = rx.recv().unwrap();
 
         if received == "go" {
@@ -114,13 +108,14 @@ fn main() {
 
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
 
-            let search_result = &service.search.get_moves(&mut board, config.search_depth, white, &mut stats, &config, &service);
+            let search_result = &service.search.get_moves(&mut game.board, config.search_depth, white, &mut stats, &config, &service);
             game.do_move(&search_result.get_best_move_algebraic());
             
-            let calc_time: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
+            let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
             let move_row = search_result.get_best_move_row();
 
-            println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(), search_result.get_eval(), 0, stats.created_nodes, stats.created_nodes / (calc_time + 1) as usize, move_row);
+            println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(),
+                    search_result.get_eval(), calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
             println!("bestmove {}", search_result.get_best_move_algebraic());
 
             stats.reset_stats();
@@ -135,16 +130,16 @@ fn main() {
 
             game.do_move(algebraic_notation);
         } else if received == "ucinewgame" {
-            board = service.fen.set_fen(starting_fen);
-            white = true;
+            game = UciGame::new(service.fen.set_fen(starting_fen).clone());
+            white = game.white_to_move();
             continue;
-        }// else if received == "test" { test_game() }
+        } else if received == "test" {
+            run_time_check();
+        }
 
         white = game.white_to_move();
     }
 }
-
-
 
 
 
@@ -170,15 +165,13 @@ fn log(msg: String) {
 
 
 fn run_time_check() {
-
     let service = &Service::new();
     let mut config = &Config::new();
+    let mut stats = Stats::new();
 
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let mut board = time_it!(service.fen.set_fen(fen)); // ~3µs
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), service)); // ~ 13µs - 18µs
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs
     time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns
-    let result = time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
-
-
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
 }
