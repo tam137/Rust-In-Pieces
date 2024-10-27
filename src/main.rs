@@ -49,7 +49,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00a");
+                        println!("id name SupraH V00b");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -77,7 +77,7 @@ fn main() {
                         std::process::exit(0);
                     }
                     else {
-                        //println!("cmd unknown or empty: {}", uci_token);
+                        println!("cmd unknown or empty: {}", uci_token);
                         thread::sleep(Duration::from_millis(2));
                     }
                 },
@@ -91,7 +91,7 @@ fn main() {
     let service = &Service::new();
     let mut stats = Stats::new();
     let config = Config::new();
-    let mut white = true;
+    let mut white;
 
     let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let mut game = UciGame::new(service.fen.set_fen(starting_fen));
@@ -105,6 +105,7 @@ fn main() {
 
             let calc_time = Instant::now();
 
+            white = game.white_to_move();
 
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
 
@@ -135,9 +136,7 @@ fn main() {
             continue;
         } else if received == "test" {
             run_time_check();
-        }
-
-        white = game.white_to_move();
+        }        
     }
 }
 
