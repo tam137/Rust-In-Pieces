@@ -713,6 +713,12 @@ mod tests {
     }
 
 
+    #[test]
+    fn gives_check_and_promote() {
+        test_fen("8/1P4k1/1K5p/4p2P/4r3/8/8/6q1 w - - 0 59", 5);
+    }
+
+
     // Function to test FEN position and check if the allowed moves match the expected count
     fn test_fen(fen: &str, allowed_moves: usize) -> Board {
         let fen_service = Service::new().fen;
