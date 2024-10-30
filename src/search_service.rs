@@ -72,16 +72,6 @@ impl SearchService {
                 board.current_best_eval > eval.1 || (turn.capture == 0 && !turn.gives_check)
             };
 
-            // if !turn.gives_chess && stand_pat_cut {
-            //     return eval;
-            // }
-            //
-            // if turn.gives_chess {
-            //     turns = board.get_turn_list(white, false, stats);
-            // } else {
-            //     turns = board.get_turn_list(white, true, stats);
-            // }
-
             if stand_pat_cut {
                 // check for mate or draw or leave quitesearch
                 if service.move_gen.generate_valid_moves_list(board, stats, service).is_empty() {
@@ -120,7 +110,7 @@ impl SearchService {
                 GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                 GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                 GameStatus::Draw => (None, 0, Default::default()),
-                _ => panic!("no defined game end"), // TODO define proper ends
+                _ => panic!("no defined game end"),
             };
         }
 
@@ -308,6 +298,20 @@ mod tests {
         result.print_all_variants();
         //assert!(result.get_eval() < -100);
         //assert_eq!(result.get_best_move_algebraic(), "d5e4");
+    }
+
+    // 
+    #[test]
+    #[ignore]
+    fn practical_moves_from_games() {
+        let fen_service = Service::new().fen;
+        let search_service = Service::new().search;
+        let config = &Config::new();
+
+        let mut board = fen_service.set_fen("r3q2r/1ppkP3/6p1/p2Q3p/7P/P2B4/1PP3P1/R3K2R b KQ - 0 24");
+        let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new());
+        result.print_all_variants();
+        assert_eq!(result.get_best_move_algebraic(), "d7c8");
     }
 
 }

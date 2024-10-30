@@ -1,4 +1,5 @@
 use crate::model::Turn;
+use regex::Regex;
 
 pub struct NotationUtil;
 
@@ -24,6 +25,12 @@ impl NotationUtil {
 
     /// Converts a notation move (like "e2e4") to a `Turn` object.
     pub fn get_turn_from_notation(notation_move: &str) -> Turn {
+
+        let forbidden_chars = Regex::new(r"[+#90=]").unwrap();
+        if forbidden_chars.is_match(notation_move) {
+            panic!("Invalid characters in notation move: +, #, 9, 0, = are not allowed");
+        }
+
         let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
         let to = NotationUtil::get_index_from_notation_field(&notation_move[2..4]);
         let mut promotion = 0;
@@ -68,6 +75,8 @@ impl NotationUtil {
             match notation.chars().nth(4) {
                 Some('q') => target_turn.promotion = 14,
                 Some('n') => target_turn.promotion = 12,
+                Some('Q') => target_turn.promotion = 14,
+                Some('N') => target_turn.promotion = 12,
                 _ => panic!("Invalid promotion"),
             }
 
@@ -151,7 +160,13 @@ mod tests {
         assert_eq!(22, turn.promotion); // Promotion to knight
 
         turn = NotationUtil::get_turn_from_notation("e2d1b");
-        assert_eq!(24, turn.promotion); // Promotion to bishop
+        assert_eq!(24, turn.promotion); // Promotion to bishop        
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid characters in notation move: +, #, 9, 0, = are not allowed")]
+    fn test_invalid_notation_hash() {
+        NotationUtil::get_turn_from_notation("g1=Q+");
     }
 
 
