@@ -2,12 +2,16 @@ use crate::config::Config;
 use crate::model::{Board, GameStatus, Stats, Turn};
 use crate::service::Service;
 
-pub struct MoveGenService;
+pub struct MoveGenService {
+    config: Config,
+}
 
 impl MoveGenService {
 
     pub fn new() -> Self {
-        MoveGenService
+        MoveGenService {
+            config: Config::new()
+        }
     }
 
 
@@ -27,61 +31,45 @@ impl MoveGenService {
     }
 
     fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
-        let mut valid_moves = Vec::new();
+        let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
-
+    
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
             let idx1 = move_list[i + 1];
             let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
-
+    
             // Check for castling
             if board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2) {
                 if !self.is_valid_castling(board, white_turn, idx1) {
                     continue;
                 }
             }
-
+    
             // Check for promotion
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
+                // Validate and add the promotion moves (e.g., Queen, Knight)
+                self.validate_and_add_promotion_moves(board, &mut move_turn, service, &mut valid_moves, white_turn);
+            } else {
+                // Validate and add the regular move
+                self.validate_and_add_move(board, &mut move_turn, service, &mut valid_moves, white_turn);
             }
-
-            // Perform the move
-            let move_info = board.do_move(&move_turn);
-            let mut valid = true;
-
-            // Check if the move leads to check
-            if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
-                valid = false;
-            }
-
-            // If valid, add the move to the list
-            if valid {
-                move_turn.eval = service.eval.calc_eval(board, &Config::new());
-
-                // check if the moves gives opponent check
-                if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
-                    move_turn.gives_check = true;
-                }
-
-                valid_moves.push(move_turn.clone());
-                if move_turn.promotion != 0 {
-                    let mut turn = move_turn.clone();
-                    turn.promotion = move_turn.promotion - 2;
-                    turn.eval = service.eval.calc_eval(board, &Config::new());
-                    valid_moves.push(turn); // Knight promotion
-                }
-            }
-            board.undo_move(&move_turn, move_info);
         }
+    
+        // Add en passant moves
+        let en_passante_turns = self.get_en_passante_turns(board, white_turn);
+        for mut turn in en_passante_turns {
+            self.validate_and_add_move(board, &mut turn, service, &mut valid_moves, white_turn);
+        }
+    
         if white_turn {
             valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
         } else {
             valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
         }
-
+    
         // check Gamestatus
         if valid_moves.is_empty() {
             if self.get_check_idx_list(&board.field, board.white_to_move).len() > 0 {
@@ -90,10 +78,58 @@ impl MoveGenService {
                 board.game_status = GameStatus::Draw;
             }
         }
-
+    
         stats.add_created_nodes(valid_moves.len());
         valid_moves
     }
+    
+    fn get_en_passante_turns(&self, board: &Board, white_turn: bool) -> Vec<Turn> {
+        let mut en_passante_turns = Vec::with_capacity(4);
+        if board.field_for_en_passante != -1 {
+            let target_piece = if white_turn { 20 } else { 10 };
+            let offsets = if white_turn { [9, 11] } else { [-9, -11] };
+            for &offset in &offsets {
+                if board.field[(board.field_for_en_passante + offset) as usize] == if white_turn { 10 } else { 20 } {
+                    en_passante_turns.push(
+                        Turn::new(board.field_for_en_passante + offset, board.field_for_en_passante, target_piece, 0, 0, false)
+                    );
+                }
+            }
+        }
+        en_passante_turns
+    }
+    
+    fn validate_and_add_move(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool) {
+        let move_info = board.do_move(turn);
+        let mut valid = true;
+    
+        // Check if the move leads to check
+        if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
+            valid = false;
+        }
+    
+        // If valid, add the move to the list
+        if valid {
+            turn.eval = service.eval.calc_eval(board, &self.config);
+    
+            // check if the move gives opponent check
+            if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
+                turn.gives_check = true;
+            }
+            valid_moves.push(turn.clone());
+        }
+        board.undo_move(turn, move_info);
+    }
+    
+    fn validate_and_add_promotion_moves(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool) {
+        let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
+        for &promotion in &promotion_types {
+            turn.promotion = promotion;
+            self.validate_and_add_move(board, turn, service, valid_moves, white_turn);
+        }
+    }
+
+    
 
     fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32) -> bool {
         let check_squares = if white_turn {
@@ -435,14 +471,13 @@ impl MoveGenService {
 
 #[cfg(test)]
 mod tests {
-    use crate::fen_service::FenService;
     use crate::notation_util::NotationUtil;
     use super::*;
 
     #[test]
     fn get_check_idx_list_test() {
-        let fen_service = FenService;
-        let move_gen_service = MoveGenService;
+        let fen_service = Service::new().fen;
+        let move_gen_service = Service::new().move_gen;
 
         // Test 1: Initial Board Setup - No Check
         let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -494,8 +529,8 @@ mod tests {
 
     #[test]
     fn generate_moves_list_for_fen_test() {
-        let fen_service = FenService;
-        let move_gen_service = MoveGenService;
+        let fen_service = Service::new().fen;
+        let move_gen_service = Service::new().move_gen;
 
         // Test: Standard starting position of a chess game
         let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -568,26 +603,6 @@ mod tests {
     }
 
     #[test]
-    fn en_passante_test() {
-        // Set the board using the FEN string with en passant available
-        let fen_service = Service::new().fen;
-
-        let mut board = fen_service.set_fen("rnbqkbnr/ppp1ppp1/7p/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
-        let board_copy = board.clone();
-
-        // Check if the en passant field is correctly set
-        assert_eq!(board.field_for_en_passante, 44, "En Passant square should be 44 (d6)");
-
-        // Get the turn corresponding to the en passant move "e5e6"
-        let turn = NotationUtil::get_turn_from_notation("e5e6");
-        let move_info = board.do_move(&turn);
-        board.undo_move(&turn, move_info);
-
-        // assert_eq!(board, board_copy, "Board should be restored after undoing the en passant move");
-        // TODO more tests
-    }
-
-    #[test]
     fn promotion_test() {
         // White promotion to queen
         test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 12, "e7f8q");
@@ -633,7 +648,7 @@ mod tests {
     #[test]
     fn move_list_sort_test() {
         let fen_service = Service::new().fen;
-        let move_gen_service = MoveGenService;
+        let move_gen_service = Service::new().move_gen;
         let mut stats = Stats::new();
 
         let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 w Qq - 0 1");
@@ -714,8 +729,32 @@ mod tests {
 
 
     #[test]
-    fn gives_check_and_promote() {
+    fn gives_check_and_promote_test() {
         test_fen("8/1P4k1/1K5p/4p2P/4r3/8/8/6q1 w - - 0 59", 5);
+
+        // TODO for black please
+    }
+
+
+    #[test]
+    fn en_passante_test() {
+        let fen_service = Service::new().fen;
+
+        // Test if fen works
+        let board = fen_service.set_fen("rnbqkbnr/ppp1ppp1/8/3pP2p/8/7P/PPPP1PP1/RNBQKBNR w KQkq d6 0 4");
+        assert_eq!(44, board.field_for_en_passante);
+
+        let board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/3pP2P/6P1/PPPP1P2/RNBQKBNR b KQkq e3 0 3");
+        assert_eq!(75, board.field_for_en_passante);
+
+        // test if movegen finds en passante move
+        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31, "b5c6");
+        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31, "d5c6");
+        test_fen("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w - KQkq 0 5", 29);
+
+        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31, "d4e3");
+        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31, "f4e3");
+        test_fen("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq - 0 5", 29);
     }
 
 
@@ -723,8 +762,8 @@ mod tests {
     fn test_fen(fen: &str, allowed_moves: usize) -> Board {
         let fen_service = Service::new().fen;
         let mut stats = Stats::new();
+        let move_gen_service = Service::new().move_gen;
 
-        let move_gen_service = MoveGenService;
         let mut board = fen_service.set_fen(fen);
         let moves = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         assert_eq!(moves.len(), allowed_moves, "Expected {} moves, but got {} for FEN: {}", allowed_moves, moves.len(), fen);
@@ -741,7 +780,7 @@ mod tests {
      * @return a vector of moves that are possible after the notation move for the opponent
      */
     fn test_fen_with_move(fen: &str, allowed_moves: usize, notation: &str) -> Vec<Turn> {
-        let move_gen_service = MoveGenService;
+        let move_gen_service = Service::new().move_gen;
         let mut stats = Stats::new();
 
         let mut board = test_fen(fen, allowed_moves);

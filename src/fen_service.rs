@@ -16,7 +16,7 @@ impl FenService {
         let mut white_possible_to_castle_short = false;
         let mut black_possible_to_castle_long = false;
         let mut black_possible_to_castle_short = false;
-        let mut line_for_en_passante = 0;
+        let mut line_for_en_passante = -1;
         let mut move_number = 1;
 
         let parts: Vec<&str> = fen.split_whitespace().collect();
@@ -82,6 +82,10 @@ impl FenService {
             white_to_move,
             move_number,
         )
+    }
+
+    pub fn set_init_board(&self) -> Board {
+        self.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     }
 
     /// Clears the board by initializing all positions to -11 (out of bounds) or 0 (empty squares).
