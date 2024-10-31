@@ -40,9 +40,7 @@ fn main() {
 
     log("Engine startet".to_string());
 
-
     let _handle = thread::spawn(move || {
-
         loop {
             let mut uci_token = String::new();
             match io::stdin().read_line(&mut uci_token) {
@@ -57,31 +55,35 @@ fn main() {
                         println!("readyok");
                     }
                     else if uci_token.trim() == "ucinewgame" {
-                        tx.send(format!("ucinewgame")).unwrap();
+                        tx.send(format!("ucinewgame")).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
                     else if uci_token.trim() == "isready" {
                         println!("readyok");
                     }
                     else if uci_token.starts_with("position startpos moves") {
                         let last_four_chars = &uci_token[uci_token.len() - 5..];
-                        tx.send(format!("move {}", last_four_chars)).unwrap();
+                        tx.send(format!("move {}", last_four_chars)).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
                     else if uci_token.starts_with("go") {
                         sleep(Duration::from_millis(10));
-                        tx.send(format!("go")).unwrap();
+                        tx.send(format!("go")).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
                     else if uci_token.starts_with("test") {
-                        tx.send(format!("test")).unwrap();
+                        tx.send(format!("test")).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
                     else if uci_token.starts_with("quit") {
-                        std::process::exit(0);
+                        tx.send("quit".to_string()).unwrap_or_else(|e| eprintln!("Error sending quit message: {}", e));
+                        break;
                     }
                     else {
                         println!("cmd unknown or empty: {}", uci_token);
                         thread::sleep(Duration::from_millis(2));
                     }
                 },
-                Err(error) => println!("Error reading input: {}", error),
+                Err(error) => {
+                    log(format!("Error reading input: {}", error));
+                    println!("Error reading input: {}", error);
+                }
             }
             io::stdout().flush().unwrap();
         }
@@ -98,7 +100,13 @@ fn main() {
 
     loop {        
 
-        let received = rx.recv().unwrap();
+        let received = match rx.recv() {
+            Ok(msg) => msg,
+            Err(_) => {
+                println!("Channel closed, exiting");
+                break;
+            }
+        };
 
         if received == "go" {
 
@@ -135,7 +143,10 @@ fn main() {
             continue;
         } else if received == "test" {
             run_time_check();
-        }        
+        } else if received == "quit" {
+            println!("Quitting gracefully...");
+            break;
+        }       
     }
 }
 
