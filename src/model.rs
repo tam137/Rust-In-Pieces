@@ -290,12 +290,15 @@ impl Board {
         self.game_status = GameStatus::Normal;
 
         let castle_information = move_information.castle_information;
+        let mut is_en_passante_move = false;
 
         // Handle en passante undo
         if turn.to == move_information.en_passante && self.field[turn.to as usize] == 10 {
             self.field[(turn.to + 10) as usize] = 20;
+            is_en_passante_move = true;
         } else if turn.to == move_information.en_passante && self.field[turn.to as usize] == 20 {
             self.field[(turn.to - 10) as usize] = 10;
+            is_en_passante_move = true;
         }
 
         // Handle promotion undo
@@ -308,7 +311,11 @@ impl Board {
             self.field[turn.from as usize] = self.field[turn.to as usize];
         }
 
-        self.field[turn.to as usize] = turn.capture.max(0);
+        if is_en_passante_move {
+            self.field[turn.to as usize] = 0;
+        } else {
+            self.field[turn.to as usize] = turn.capture.max(0);
+        }        
 
         // Restore castling rights and en passante information
         self.white_possible_to_castle_long = castle_information.white_possible_to_castle_long;
@@ -548,6 +555,8 @@ mod tests {
     use crate::service::Service;
     use crate::UciGame;
 
+    use super::Stats;
+
     #[test]
     fn board_properties_move_count_test() {
         let fen_service = Service::new().fen;
@@ -625,14 +634,14 @@ mod tests {
         assert_eq!(-1, board.field_for_en_passante);
     }
 
-
     #[test]
     fn undo_move_en_passante_test() {
         let fen_service = Service::new().fen;
 
         // for white
         let mut board = fen_service.set_fen("rnbqkbnr/p1pppp1p/8/1p4pP/7R/8/PPPPPPP1/RNBQKBN1 w Qkq g6 0 4");
-        let turn = NotationUtil::get_turn_from_notation("h5g6");
+        let mut turn = NotationUtil::get_turn_from_notation("h5g6");
+        turn.capture = 20;
         let mi = board.do_move(&turn);
         assert_eq!(47, mi.en_passante);
         assert_eq!(0, board.field[57]);
@@ -644,7 +653,8 @@ mod tests {
 
         // for black
         let mut board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/P1Pp4/8/1P1PPPPP/RNBQKBNR b KQkq c3 0 3");
-        let turn = NotationUtil::get_turn_from_notation("d4c3");
+        let mut turn = NotationUtil::get_turn_from_notation("d4c3");
+        turn.capture = 10;
         let mi = board.do_move(&turn);
         assert_eq!(73, mi.en_passante);
         assert_eq!(0, board.field[63]);
@@ -810,7 +820,7 @@ mod tests {
     }
 
     #[test]
-    fn uci_game() {
+    fn uci_game_test() {
         let service = Service::new();
 
         let mut game = UciGame::new(service.fen.set_init_board());
@@ -831,6 +841,44 @@ mod tests {
         assert_eq!(false, game.white_to_move());
         assert_eq!(2, game.board.move_count);
         assert_eq!("e2e4 e7e5 d2d3", game.made_moves_str);
+    }
+
+    #[test]
+    fn uci_game_en_passante_test() {
+        let service = Service::new();
+        let stats = &mut Stats::new();
+
+        let mut game = UciGame::new(service.fen.set_init_board());
+        game.do_move("e2e4");
+        game.do_move("h7h6");
+        game.do_move("e4e5");
+        game.do_move("d7d5");
+
+        let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
+        assert_eq!(31, turns.len());
+        assert_eq!(20, turns.get(0).unwrap().capture);
+
+        game.do_move("e5d6");
+        assert_eq!(0, game.board.field[54]);
+        assert_eq!(10, game.board.field[44]);
+        assert_eq!(0, game.board.field[55]);
+
+
+        let mut game = UciGame::new(service.fen.set_init_board());
+        game.do_move("a2a4");
+        game.do_move("d7d5");
+        game.do_move("a4a5");
+        game.do_move("d5d4");
+        game.do_move("e2e4");
+
+        let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
+        assert_eq!(29, turns.len());
+        assert_eq!(10, turns.get(0).unwrap().capture);
+
+        game.do_move("d4e3");
+        assert_eq!(20, game.board.field[75]);
+        assert_eq!(0, game.board.field[65]);
+        assert_eq!(0, game.board.field[55]);
     }
 
 }
