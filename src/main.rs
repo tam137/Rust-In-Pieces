@@ -61,8 +61,14 @@ fn main() {
                         println!("readyok");
                     }
                     else if uci_token.starts_with("position startpos moves") {
-                        let last_four_chars = &uci_token[uci_token.len() - 5..];
-                        tx.send(format!("move {}", last_four_chars)).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
+                        let len = uci_token.len();
+                        let move_str = if matches!(uci_token.chars().last(), Some('q' | 'k')) {
+                            &uci_token[len - 5..]
+                        } else {
+                            &uci_token[len - 4..]
+                        };                    
+                        tx.send(format!("move {}", move_str))
+                            .unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
                     else if uci_token.starts_with("go") {
                         sleep(Duration::from_millis(10));
@@ -130,7 +136,10 @@ fn main() {
         } else if received.starts_with("move") {
             let algebraic_notation;
             if received.chars().nth(9) == Some('q') {
-                println!("log found promotion");
+                println!("log found queen promotion");
+                algebraic_notation = &received[5..10];
+            } else if received.chars().nth(9) == Some('k') {
+                println!("log found knight promotion");
                 algebraic_notation = &received[5..10];
             } else {
                 algebraic_notation = &received[5..9];
