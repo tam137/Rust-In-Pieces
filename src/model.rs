@@ -14,7 +14,7 @@ pub enum GameStatus {
 
 pub struct UciGame {
     pub board: Board,
-    pub  made_moves_str: String,
+    pub made_moves_str: String,
 }
 
 impl UciGame {
@@ -193,9 +193,18 @@ impl Board {
 
     // Method for performing a move
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
-        self.field_for_en_passante = 0;
-
+        
         let old_castle_information = self.get_castle_information();
+        let old_field_for_en_passante = self.field_for_en_passante;
+
+        // Handling en passante information
+        self.field_for_en_passante = -1;
+        if (self.white_to_move && turn.from / 10 == 8 && turn.to / 10 == 6 && self.field[turn.from as usize] == 10) 
+            || (!self.white_to_move && turn.from / 10 == 3 && turn.to / 10 == 5 && self.field[turn.from as usize] == 20) {
+            
+            let base = if self.white_to_move { 70 } else { 40 };
+            self.field_for_en_passante = base + (turn.from % 10);
+        }
 
         // Handling castling for white and black
         if self.field[turn.from as usize] == 15 || self.field[turn.from as usize] == 25 {
@@ -246,6 +255,13 @@ impl Board {
 
         self.field[turn.from as usize] = 0;
 
+        // Handle en passante
+        if old_field_for_en_passante == turn.to && self.field[turn.to as usize] == 10 {
+            self.field[(turn.to + 10) as usize] = 0;
+        } else if old_field_for_en_passante == turn.to && self.field[turn.to as usize] == 20 {
+            self.field[(turn.to - 10) as usize] = 0;
+        }
+
         // Increment move count if it's black's turn
         if !self.white_to_move {
             self.move_count += 1;
@@ -265,7 +281,7 @@ impl Board {
                 self.game_status = GameStatus::Draw;
             }
         }
-        MoveInformation::new(old_castle_information, board_hash, self.field_for_en_passante)
+        MoveInformation::new(old_castle_information, board_hash, old_field_for_en_passante)
     }
 
 
@@ -274,6 +290,13 @@ impl Board {
         self.game_status = GameStatus::Normal;
 
         let castle_information = move_information.castle_information;
+
+        // Handle en passante undo
+        if turn.to == move_information.en_passante && self.field[turn.to as usize] == 10 {
+            self.field[(turn.to + 10) as usize] = 20;
+        } else if turn.to == move_information.en_passante && self.field[turn.to as usize] == 20 {
+            self.field[(turn.to - 10) as usize] = 10;
+        }
 
         // Handle promotion undo
         if turn.is_promotion() {
@@ -287,11 +310,12 @@ impl Board {
 
         self.field[turn.to as usize] = turn.capture.max(0);
 
-        // Restore castling rights
+        // Restore castling rights and en passante information
         self.white_possible_to_castle_long = castle_information.white_possible_to_castle_long;
         self.white_possible_to_castle_short = castle_information.white_possible_to_castle_short;
         self.black_possible_to_castle_long = castle_information.black_possible_to_castle_long;
         self.black_possible_to_castle_short = castle_information.black_possible_to_castle_short;
+        self.field_for_en_passante = move_information.en_passante;
 
         // Handle castling undo
         if self.field[turn.from as usize] == 15 || self.field[turn.from as usize] == 25 {
@@ -572,6 +596,66 @@ mod tests {
     }
 
     #[test]
+    fn do_move_en_passante_test() {
+        let fen_service = Service::new().fen;
+
+        let mut board = fen_service.set_init_board();
+        let turn = NotationUtil::get_turn_from_notation("e2e4");
+        let mi1 = board.do_move(&turn);
+        assert_eq!(75, board.field_for_en_passante);
+        assert_eq!(-1, mi1.en_passante);
+
+        let turn2 = NotationUtil::get_turn_from_notation("e7e5");
+        let mi2 = board.do_move(&turn2);
+        assert_eq!(45, board.field_for_en_passante);
+        assert_eq!(75, mi2.en_passante);
+
+        let turn3 = NotationUtil::get_turn_from_notation("d7d6");
+        let mi3 = board.do_move(&turn3);
+        assert_eq!(-1, board.field_for_en_passante);
+        assert_eq!(45, mi3.en_passante);
+
+        board.undo_move(&turn3, mi3);
+        assert_eq!(45, board.field_for_en_passante);
+
+        board.undo_move(&turn2, mi2);
+        assert_eq!(75, board.field_for_en_passante);
+
+        board.undo_move(&turn2, mi1);
+        assert_eq!(-1, board.field_for_en_passante);
+    }
+
+
+    #[test]
+    fn undo_move_en_passante_test() {
+        let fen_service = Service::new().fen;
+
+        // for white
+        let mut board = fen_service.set_fen("rnbqkbnr/p1pppp1p/8/1p4pP/7R/8/PPPPPPP1/RNBQKBN1 w Qkq g6 0 4");
+        let turn = NotationUtil::get_turn_from_notation("h5g6");
+        let mi = board.do_move(&turn);
+        assert_eq!(47, mi.en_passante);
+        assert_eq!(0, board.field[57]);
+
+        board.undo_move(&turn, mi);
+        assert_eq!(0, board.field[47]);
+        assert_eq!(20, board.field[57]);
+        assert_eq!(10, board.field[58]);
+
+        // for black
+        let mut board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/P1Pp4/8/1P1PPPPP/RNBQKBNR b KQkq c3 0 3");
+        let turn = NotationUtil::get_turn_from_notation("d4c3");
+        let mi = board.do_move(&turn);
+        assert_eq!(73, mi.en_passante);
+        assert_eq!(0, board.field[63]);
+
+        board.undo_move(&turn, mi);
+        assert_eq!(0, board.field[73]);
+        assert_eq!(10, board.field[63]);
+        assert_eq!(20, board.field[64]);    
+    }
+
+    #[test]
     fn do_move_castle_test() {
         let fen_service = Service::new().fen;
 
@@ -710,7 +794,7 @@ mod tests {
     fn hash_test() {
         let fen_service = Service::new().fen;
 
-        let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut board = fen_service.set_init_board();
         let org_hash = board.hash();
 
         // Get the move "e2e4" and apply it to the board
@@ -729,8 +813,7 @@ mod tests {
     fn uci_game() {
         let service = Service::new();
 
-        let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let mut game = UciGame::new(service.fen.set_fen(starting_fen));
+        let mut game = UciGame::new(service.fen.set_init_board());
 
         assert_eq!(true, game.white_to_move());
         assert_eq!("", game.made_moves_str);
@@ -748,8 +831,6 @@ mod tests {
         assert_eq!(false, game.white_to_move());
         assert_eq!(2, game.board.move_count);
         assert_eq!("e2e4 e7e5 d2d3", game.made_moves_str);
-        
-
     }
 
 }

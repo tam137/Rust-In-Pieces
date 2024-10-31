@@ -49,7 +49,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00c");
+                        println!("id name SupraH V00d");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -93,8 +93,7 @@ fn main() {
     let config = Config::new();
     let mut white;
 
-    let starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut game = UciGame::new(service.fen.set_fen(starting_fen));
+    let mut game = UciGame::new(service.fen.set_init_board());
 
 
     loop {        
@@ -131,7 +130,7 @@ fn main() {
 
             game.do_move(algebraic_notation);
         } else if received == "ucinewgame" {
-            game = UciGame::new(service.fen.set_fen(starting_fen).clone());
+            game = UciGame::new(service.fen.set_init_board());
             white = game.white_to_move();
             continue;
         } else if received == "test" {
@@ -168,9 +167,16 @@ fn run_time_check() {
     let mut config = &Config::new();
     let mut stats = Stats::new();
 
-    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut board = time_it!(service.fen.set_fen(fen)); // ~3µs / ~11µs
+    let mut board = time_it!(service.fen.set_init_board()); // ~3µs / ~11µs
+    
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
-    time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns / ~1µs
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(fen), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
+    time_it!(service.eval.calc_eval(&board, &mut config)); // ~ 300ns / ~1µs    
+    
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
+
+    let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service)); // ~ 210ms
+
+    let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service)); // ~ 360ms
 }
