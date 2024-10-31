@@ -53,6 +53,23 @@ pub struct Turn {
     pub gives_check: bool,
 }
 
+impl PartialEq for Turn {
+    fn eq(&self, other: &Self) -> bool {
+        self.from == other.from
+            && self.to == other.to
+            && self.capture == other.capture
+            && self.promotion == other.promotion
+            && self.eval == other.eval
+            && self.gives_check == other.gives_check
+    }
+}
+
+impl PartialEq<&Turn> for Turn {
+    fn eq(&self, other: &&Turn) -> bool {
+        self == *other
+    }
+}
+
 impl Turn {
     // Constructor with all fields
     pub fn new(from: i32, to: i32, capture: i32, promotion: i32, eval: i16, gives_check: bool) -> Self {
@@ -96,12 +113,12 @@ impl Turn {
         let row_to = (10 - (self.to / 10) + 48) as u8;
         let mut promotional_lit = "";
         if self.promotion != 0 {
-            promotional_lit = if self.promotion % 10 == 4 { "q" }
-                                else {
-                                    "k"
-                                };
+            promotional_lit = if self.promotion % 10 == 4 { "q" } else { "k" };
         }
-        format!("{}{}{}{}{}", column_from as char, row_from as char, column_to as char, row_to as char, &promotional_lit)
+        format!(
+            "{}{}{}{}{}",
+            column_from as char, row_from as char, column_to as char, row_to as char, &promotional_lit
+        )
     }
 }
 
@@ -555,7 +572,7 @@ mod tests {
     use crate::service::Service;
     use crate::UciGame;
 
-    use super::Stats;
+    use super::{Board, Stats};
 
     #[test]
     fn board_properties_move_count_test() {
@@ -880,5 +897,4 @@ mod tests {
         assert_eq!(0, game.board.field[65]);
         assert_eq!(0, game.board.field[55]);
     }
-
 }

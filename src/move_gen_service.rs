@@ -608,6 +608,7 @@ mod tests {
         test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 12, "e7f8q");
 
         let fen_service = Service::new().fen;
+        let movegen_service = Service::new().move_gen;
 
         let mut board = fen_service.set_fen("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1");
         let board_copy = board.clone();
@@ -621,6 +622,26 @@ mod tests {
         assert_eq!(board.field[26], 22, "Piece should revert to captured knight (22)");
         assert_eq!(board.field[35], 10, "White pawn should be back at e7");
         assert_eq!(board, board_copy, "Board should be restored");
+
+        // black Promotion to queen
+        let mut board = fen_service.set_fen("8/2p2p1p/p4kp1/1r6/8/K7/3p4/8 b - - 1 51");
+        let turns = movegen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &Service::new());
+        let promotion_move = turns.iter().find(|t| t.is_promotion()).expect("No Promotion move found");
+        assert_eq!(24, promotion_move.promotion);
+        let mi = board.do_move(promotion_move);
+        assert_eq!(24, board.field[94]);
+        assert_eq!(0, board.field[84]);
+
+        board.undo_move(promotion_move, mi);
+        assert_eq!(0, board.field[94]);
+        assert_eq!(20, board.field[84]);
+
+        let move_from_notation_util = NotationUtil::get_turn_from_notation("d2d1q");
+        let mi = board.do_move(&move_from_notation_util);
+        //assert_eq!(move_from_notation_util, promotion_move);
+        assert_eq!(24, board.field[94]);
+        assert_eq!(0, board.field[84]);
+
 
         // Testing knight promotion
         let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 7, "e7e8n");
@@ -756,7 +777,6 @@ mod tests {
         test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31, "f4e3");
         test_fen("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq - 0 5", 29);
     }
-
 
     // Function to test FEN position and check if the allowed moves match the expected count
     fn test_fen(fen: &str, allowed_moves: usize) -> Board {

@@ -8,7 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-
 ## [V00d] - 2024-10-31
 
 ### Added
@@ -18,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed bug in promotion notation in the UCI protocol
 
 ### Changed
 
