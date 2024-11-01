@@ -756,6 +756,30 @@ mod tests {
         // TODO for black please
     }
 
+    #[test]
+    fn hit_moves_count_and_undo_test() {
+        let fen_service = Service::new().fen;
+        let move_gen = Service::new().move_gen;
+
+        let mut board = fen_service.set_fen("r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10");
+        let capture_moves = move_gen.generate_valid_moves_list_capture(&mut board, &mut Stats::new(), &Service::new());
+        assert_eq!(6, capture_moves.len());
+        let copy_board = board.clone();
+        let capture_move = capture_moves.get(0).unwrap();
+        let mi = board.do_move(capture_move);
+        board.undo_move(capture_move, mi);
+        assert_eq!(copy_board, board);
+
+        let mut board = fen_service.set_fen("r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 b - - 0 10");
+        let capture_moves = move_gen.generate_valid_moves_list_capture(&mut board, &mut Stats::new(), &Service::new());
+        assert_eq!(5, capture_moves.len());
+        let copy_board = board.clone();
+        let capture_move = capture_moves.get(0).unwrap();
+        let mi = board.do_move(capture_move);
+        board.undo_move(capture_move, mi);
+        assert_eq!(copy_board, board);
+    }
+
 
     #[test]
     fn en_passante_test() {

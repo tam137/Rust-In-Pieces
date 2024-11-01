@@ -4,9 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [V00e] - 2024-11-01
 
 ### Added
+
+- Tests, Logging and error-handling
+
+### Fixed
+
+- Fixed critical bug in UCI protocol move parser
+
+### Changed
+
+### Removed
 
 ## [V00d] - 2024-10-31
 
