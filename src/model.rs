@@ -210,6 +210,11 @@ impl Board {
 
     // Method for performing a move
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
+
+        // validation
+        if self.field[turn.from as usize] == 0 {
+            panic!("do_move(): Field on turn.from is 0\n{:?}", turn);
+        }
         
         let old_castle_information = self.get_castle_information();
         let old_field_for_en_passante = self.field_for_en_passante;
@@ -304,6 +309,12 @@ impl Board {
 
     // Undo move
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
+
+        // validation
+        if self.field[turn.to as usize] == 0 {
+            panic!("undo_move(): Field on turn.to is 0\n{:?}", turn);
+        }
+
         self.game_status = GameStatus::Normal;
 
         let castle_information = move_information.castle_information;
@@ -626,8 +637,8 @@ mod tests {
         let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_init_board();
-        let turn = NotationUtil::get_turn_from_notation("e2e4");
-        let mi1 = board.do_move(&turn);
+        let turn1 = NotationUtil::get_turn_from_notation("e2e4");
+        let mi1 = board.do_move(&turn1);
         assert_eq!(75, board.field_for_en_passante);
         assert_eq!(-1, mi1.en_passante);
 
@@ -647,7 +658,7 @@ mod tests {
         board.undo_move(&turn2, mi2);
         assert_eq!(75, board.field_for_en_passante);
 
-        board.undo_move(&turn2, mi1);
+        board.undo_move(&turn1, mi1);
         assert_eq!(-1, board.field_for_en_passante);
     }
 
@@ -896,5 +907,27 @@ mod tests {
         assert_eq!(20, game.board.field[75]);
         assert_eq!(0, game.board.field[65]);
         assert_eq!(0, game.board.field[55]);
+    }
+
+    #[test]
+    fn undo_capture_move_test_white() {
+        let fen_service = Service::new().fen;
+
+        let board = fen_service.set_init_board();
+        let mut game = UciGame::new(board);
+        game.do_move("e2e4");
+        game.do_move("d7d5");
+        game.do_move("b1c3");
+        game.do_move("d5d4");
+        game.do_move("e4e5");
+        
+        let mut capture_move = NotationUtil::get_turn_from_notation("d4c3");
+        capture_move.capture = 12;
+        let mi = game.board.do_move(&capture_move);
+        assert_eq!(20, game.board.field[73]);
+
+        
+        game.board.undo_move(&capture_move, mi);
+        assert_eq!(12, game.board.field[73]);
     }
 }

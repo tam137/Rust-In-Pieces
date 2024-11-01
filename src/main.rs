@@ -47,7 +47,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00d");
+                        println!("id name SupraH V00e");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -63,9 +63,9 @@ fn main() {
                     else if uci_token.starts_with("position startpos moves") {
                         let len = uci_token.len();
                         let move_str = if matches!(uci_token.chars().last(), Some('q' | 'k')) {
-                            &uci_token[len - 5..]
+                            &uci_token[len - 6..]
                         } else {
-                            &uci_token[len - 4..]
+                            &uci_token[len - 5..]
                         };                    
                         tx.send(format!("move {}", move_str))
                             .unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
