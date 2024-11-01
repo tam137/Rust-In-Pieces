@@ -6,6 +6,7 @@ mod config;
 mod search_service;
 mod service;
 mod move_gen_service;
+mod book;
 
 use std::io::Write;
 use std::thread;
@@ -21,6 +22,8 @@ use std::time::Instant;
 use crate::config::Config;
 use crate::model::Stats;
 use crate::service::Service;
+use crate::book::Book;
+
 
 
 macro_rules! time_it {
@@ -47,7 +50,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00e");
+                        println!("id name SupraH V00f-candidate");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -95,7 +98,7 @@ fn main() {
         }
     });
 
-
+    let book = Book::new();
     let service = &Service::new();
     let mut stats = Stats::new();
     let config = Config::new();
@@ -122,17 +125,27 @@ fn main() {
 
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
 
-            let search_result = &service.search.get_moves(&mut game.board, config.search_depth, white, &mut stats, &config, &service);
-            game.do_move(&search_result.get_best_move_algebraic());
-            
-            let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
-            let move_row = search_result.get_best_move_row();
+            let made_moves = game.made_moves_str.clone();
+            let book_move = book.get_random_book_move(&made_moves);
 
-            println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(),
-                    search_result.get_eval(), calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
-            println!("bestmove {}", search_result.get_best_move_algebraic());
+            if book_move.is_empty() {
+                let search_result = &service.search.get_moves(&mut game.board, config.search_depth, white, &mut stats, &config, &service);
+                game.do_move(&search_result.get_best_move_algebraic());
+                
+                let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
+                let move_row = search_result.get_best_move_row();
+    
+                println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(),
+                        search_result.get_eval(), calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
+                        println!("bestmove {}", search_result.get_best_move_algebraic());
+            } else {
+                log(format!("found Book move: {} for position {}", book_move, made_moves));
+                game.do_move(book_move);
+                println!("bestmove {}", book_move);
+            }
 
             stats.reset_stats();
+
         } else if received.starts_with("move") {
             let algebraic_notation;
             if received.chars().nth(9) == Some('q') {
@@ -158,7 +171,6 @@ fn main() {
         }       
     }
 }
-
 
 
 
