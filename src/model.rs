@@ -177,7 +177,6 @@ pub struct Board {
     pub move_count: i32,
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
-    pub current_best_eval: i16,
 }
 
 impl Board {
@@ -203,7 +202,6 @@ impl Board {
             move_count,
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
-            current_best_eval: 0,
         }
     }
 
