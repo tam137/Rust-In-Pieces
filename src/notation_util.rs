@@ -6,8 +6,6 @@ pub struct NotationUtil;
 impl NotationUtil {
     /// Converts a notation field (like "e2") to an index on the 10x12 board.
     pub fn get_index_from_notation_field(notation: &str) -> i32 {
-        let err_msg = format!("Invalid notation: {}", notation);
-
         let col = match notation.chars().nth(0) {
             Some('a') => 1,
             Some('b') => 2,
@@ -26,9 +24,9 @@ impl NotationUtil {
     /// Converts a notation move (like "e2e4") to a `Turn` object.
     pub fn get_turn_from_notation(notation_move: &str) -> Turn {
 
-        let forbidden_chars = Regex::new(r"[+#90=]").unwrap();
-        if forbidden_chars.is_match(notation_move) {
-            panic!("Invalid characters in notation move: +, #, 9, 0, = are not allowed");
+        let valid_move_regex = Regex::new(r"^[a-h][1-8][a-h][1-8][qkbnr]?$").unwrap();
+        if !valid_move_regex.is_match(notation_move) {
+            panic!("Invalid chess move notation: Must be in standard algebraic format. Found: '{}'", notation_move);
         }
 
         let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
@@ -103,6 +101,16 @@ mod tests {
     use crate::notation_util::NotationUtil;
 
     #[test]
+    fn normal_notation_test() {
+        let turn = NotationUtil::get_turn_from_notation("d7d5");
+        assert_eq!(34, turn.from);
+        assert_eq!(54, turn.to);
+        assert_eq!(0, turn.capture);
+        assert_eq!(false, turn.is_promotion());
+        assert_eq!(false, turn.gives_check);        
+    }
+
+    #[test]
     fn get_index_from_notation_test() {
         // Test the conversion from notation ("a1", "h8", etc.) to the board index
         let idx = NotationUtil::get_index_from_notation_field("a1");
@@ -164,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid characters in notation move: +, #, 9, 0, = are not allowed")]
+    #[should_panic(expected = "Invalid chess move notation: Must be in standard algebraic format. Found: 'g1=Q+'")]
     fn test_invalid_notation_hash() {
         NotationUtil::get_turn_from_notation("g1=Q+");
     }

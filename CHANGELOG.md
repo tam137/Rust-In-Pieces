@@ -9,10 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Basic Book for move variance
+- logging in rust-in-piece.log
 
 ### Fixed
 
+- improved and fixed UCI protocol move parser when promotion
+
 ### Changed
+
+- improved stand pat cuts in Quiescence Search
 
 ### Removed
 

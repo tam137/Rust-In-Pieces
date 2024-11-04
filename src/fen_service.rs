@@ -98,4 +98,138 @@ impl FenService {
             }
         }
     }
+
+    /// Generates a FEN string from a given Board.
+    pub fn get_fen(&self, board: &Board) -> String {
+        let mut fen = String::new();
+        let mut empty_count = 0;
+
+        // Process board positions
+        for rank in 0..8 {
+            for file in 0..8 {
+                let index = 21 + rank * 10 + file;
+                let piece = board.field[index];
+
+                if piece == 0 {
+                    empty_count += 1;
+                } else {
+                    if empty_count > 0 {
+                        fen.push_str(&empty_count.to_string());
+                        empty_count = 0;
+                    }
+                    let piece_char = match piece {
+                        15 => 'K',
+                        14 => 'Q',
+                        11 => 'R',
+                        13 => 'B',
+                        12 => 'N',
+                        10 => 'P',
+                        25 => 'k',
+                        24 => 'q',
+                        21 => 'r',
+                        23 => 'b',
+                        22 => 'n',
+                        20 => 'p',
+                        _ => ' ',
+                    };
+                    if piece_char != ' ' {
+                        fen.push(piece_char);
+                    }
+                }
+            }
+            if empty_count > 0 {
+                fen.push_str(&empty_count.to_string());
+                empty_count = 0;
+            }
+            if rank < 7 {
+                fen.push('/');
+            }
+        }
+
+        // Whose turn is it?
+        fen.push(' ');
+        fen.push(if board.white_to_move { 'w' } else { 'b' });
+
+        // Castling rights
+        fen.push(' ');
+        let mut castling_rights = String::new();
+        if board.white_possible_to_castle_short {
+            castling_rights.push('K');
+        }
+        if board.white_possible_to_castle_long {
+            castling_rights.push('Q');
+        }
+        if board.black_possible_to_castle_short {
+            castling_rights.push('k');
+        }
+        if board.black_possible_to_castle_long {
+            castling_rights.push('q');
+        }
+        if castling_rights.is_empty() {
+            castling_rights.push('-');
+        }
+        fen.push_str(&castling_rights);
+
+        // En passant target square
+        fen.push(' ');
+        if board.field_for_en_passante != -1 {
+            fen.push_str(self.get_notation_from_index(board.field_for_en_passante).as_str());
+        } else {
+            fen.push('-');
+        }
+
+        // Halfmove clock and fullmove number
+        fen.push_str(" 0 "); // Assuming halfmove clock is always 0 for now
+        fen.push_str(&board.move_count.to_string());
+
+        fen
+    }
+
+    /// Converts a board index to a notation field (e.g., 34 -> "d6").
+    pub fn get_notation_from_index(&self, index: i32) -> String {
+        if index < 21 || index > 98 || index % 10 == 0 || index % 10 == 9 {
+            return String::from("-"); // Invalid index
+        }
+
+        let rank_index = 7 - ((index - 21) / 10);
+        let file_index = (index % 10) - 1;
+
+        let file = (b'a' + file_index as u8) as char;
+        let rank = (b'1' + rank_index as u8) as char;
+
+        format!("{}{}", file, rank)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::service::Service;
+
+
+    #[test]
+    fn fen_comparing_test() {
+        let fen_service = Service::new().fen;
+
+        let test_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let board = fen_service.set_fen(&test_fen);
+        let result_fen = fen_service.get_fen(&board);
+        assert_eq!(test_fen, result_fen);
+
+        let test_fen = "rnbq1rk1/pp2n1bp/2pppp2/6p1/3P4/2PBPP1P/PP1NN1PB/R2QK2R b KQ - 0 10";
+        let board = fen_service.set_fen(&test_fen);
+        let result_fen = fen_service.get_fen(&board);
+        assert_eq!(test_fen, result_fen);
+
+        let test_fen = "rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
+        let board = fen_service.set_fen(&test_fen);
+        let result_fen = fen_service.get_fen(&board);
+        assert_eq!(test_fen, result_fen);
+
+        let test_fen = "rnbqk1nr/pp2ppbp/6p1/3pP3/1PpP4/2P2N2/P4PPP/RNBQKB1R b KQkq b3 0 6";
+        let board = fen_service.set_fen(&test_fen);
+        let result_fen = fen_service.get_fen(&board);
+        assert_eq!(test_fen, result_fen);
+    }
+
 }
