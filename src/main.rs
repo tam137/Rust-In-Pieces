@@ -50,7 +50,7 @@ fn main() {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
                         log("send ID back".to_string());
-                        println!("id name SupraH V00f-candidate");
+                        println!("id name SupraH V00f2-candidate");
                         println!("id author Jan Lange");
                         println!("uciok");
                     }
@@ -63,13 +63,13 @@ fn main() {
                     else if uci_token.trim() == "isready" {
                         println!("readyok");
                     }
-                    else if uci_token.starts_with("position startpos moves") {
+                    else if uci_token.trim().starts_with("position startpos moves") {
                         let len = uci_token.len();
-                        let move_str = if matches!(uci_token.chars().last(), Some('q' | 'k')) {
-                            &uci_token[len - 6..]
+                        let move_str = if matches!(uci_token.chars().rev().nth(1), Some('q' | 'k')) {
+                            &uci_token[len - 6..len -1]
                         } else {
-                            &uci_token[len - 5..]
-                        };                    
+                            &uci_token[len - 5..len -1]
+                        };
                         tx.send(format!("move {}", move_str))
                             .unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
                     }
@@ -107,7 +107,7 @@ fn main() {
     let mut game = UciGame::new(service.fen.set_init_board());
 
 
-    loop {        
+    loop {
 
         let received = match rx.recv() {
             Ok(msg) => msg,
@@ -125,8 +125,9 @@ fn main() {
 
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
 
-            let made_moves = game.made_moves_str.clone();
-            let book_move = book.get_random_book_move(&made_moves);
+            let game_fen = service.fen.get_fen(&game.board);
+            //log(format!("got fen: {}", game_fen));
+            let book_move = book.get_random_book_move(&game_fen);
 
             if book_move.is_empty() {
                 let search_result = &service.search.get_moves(&mut game.board, config.search_depth, white, &mut stats, &config, &service);
@@ -139,7 +140,7 @@ fn main() {
                         search_result.get_eval(), calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
                         println!("bestmove {}", search_result.get_best_move_algebraic());
             } else {
-                log(format!("found Book move: {} for position {}", book_move, made_moves));
+                log(format!("found Book move: {} for position {}", book_move, game_fen));
                 game.do_move(book_move);
                 println!("bestmove {}", book_move);
             }
@@ -147,17 +148,8 @@ fn main() {
             stats.reset_stats();
 
         } else if received.starts_with("move") {
-            let algebraic_notation;
-            if received.chars().nth(9) == Some('q') {
-                println!("log found queen promotion");
-                algebraic_notation = &received[5..10];
-            } else if received.chars().nth(9) == Some('k') {
-                println!("log found knight promotion");
-                algebraic_notation = &received[5..10];
-            } else {
-                algebraic_notation = &received[5..9];
-            };
-
+            let algebraic_notation = &received[5..];
+            log(format!("uci: received move '{}' ", algebraic_notation));
             game.do_move(algebraic_notation);
         } else if received == "ucinewgame" {
             game = UciGame::new(service.fen.set_init_board());
@@ -181,7 +173,7 @@ fn log(msg: String) {
         .write(true)
         .append(true)
         .create(true)
-        .open("log.txt") {
+        .open("rust-in-piece.log") {
             Ok(mut file) => {
                 match file.write_all(log_entry.as_bytes()) {
                     Ok(_) => (),
