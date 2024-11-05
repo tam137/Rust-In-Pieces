@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::config::Config;
 use crate::model::Board;
+use crate::move_gen_service::MoveGenService;
 
 
 pub struct EvalService;
@@ -11,7 +11,7 @@ impl EvalService {
         EvalService
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
         let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
         // oder service.eval.get_game_phase(board) as i16
@@ -22,14 +22,14 @@ impl EvalService {
                 10 => self.white_pawn(idx, board, config, field, game_phase),
                 11 => self.white_rook(idx, board, config, field, game_phase),
                 12 => self.white_knight(idx, board, config, field, game_phase),
-                13 => self.white_bishop(idx, board, config, field, game_phase),
-                14 => self.white_queen(idx, board, config, field, game_phase),
+                13 => self.white_bishop(idx, board, config, field, game_phase, movegen),
+                14 => self.white_queen(idx, board, config, field, game_phase, movegen),
                 15 => self.white_king(idx, board, config, field, game_phase),
                 20 => self.black_pawn(idx, board, config, field, game_phase),
                 21 => self.black_rook(idx, board, config, field, game_phase),
                 22 => self.black_knight(idx, board, config, field, game_phase),
-                23 => self.black_bishop(idx, board, config, field, game_phase),
-                24 => self.black_queen(idx, board, config, field, game_phase),
+                23 => self.black_bishop(idx, board, config, field, game_phase, movegen),
+                24 => self.black_queen(idx, board, config, field, game_phase, movegen),
                 25 => self.black_king(idx, board, config, field, game_phase),
                 _ => 0,
             };
@@ -38,6 +38,7 @@ impl EvalService {
         eval
     }
 
+    /*
     pub(crate) fn calc_eval_piece_map(&self, board: &Board, config: &Config) -> HashMap<usize, i16> {
         let mut eval: i16 = 0;
         let mut eval_map: HashMap<usize, i16> = HashMap::default();
@@ -114,6 +115,7 @@ impl EvalService {
         eval_map.insert(0, eval);
         eval_map
     }
+    */
 
     fn white_pawn(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
@@ -138,7 +140,7 @@ impl EvalService {
             _ => ()
         }
 
-        if f[idx-9] == 10 || f[idx+1] == 10 || f[idx-11] == 10 {
+        if f[idx-9] == 10 || f[idx-11] == 10 {
             e_eval = e_eval + config.pawn_structure;
         }
 
@@ -146,7 +148,7 @@ impl EvalService {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_pawn
     }
 
@@ -173,7 +175,7 @@ impl EvalService {
             _ => ()
         }
 
-        if f[idx+9] == 20 || f[idx+1] == 20 || f[idx+11] == 20 {
+        if f[idx+9] == 20 || f[idx+11] == 20 {
             e_eval = e_eval - config.pawn_structure;
         }
 
@@ -181,7 +183,7 @@ impl EvalService {
             o_eval = o_eval + config.pawn_undeveloped_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_pawn
     }
 
@@ -219,7 +221,7 @@ impl EvalService {
             o_eval = o_eval - config.undeveloped_knight_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_knight
     }
 
@@ -245,77 +247,95 @@ impl EvalService {
             o_eval = o_eval + config.undeveloped_knight_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_knight
     }
 
 
-    fn white_bishop(&self, idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_bishop(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
 
-        if idx == 23 || idx == 26 {
+        if idx == 93 || idx == 96 {
             o_eval = o_eval - config.undeveloped_bishop_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_bishop
     }
 
-    fn black_bishop(&self, idx: usize, mut board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_bishop(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
 
-        if idx == 93 || idx == 96 {
+        if idx == 23 || idx == 26 {
             o_eval = o_eval + config.undeveloped_bishop_malus;
         }
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_bishop
     }
 
 
-    fn white_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
     }
 
-    fn black_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen
     }
-
-
+ 
     fn white_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
+
+        if idx == 94 || idx == 95 || idx == 96 || idx == 84 || idx == 85 || idx == 86 {
+            o_eval -= config.undeveloped_king_malus
+        }
 
         o_eval = o_eval + if f[idx-9]/10==1 { config.king_shield } else { 0 };
         o_eval = o_eval + if f[idx-10]/10==1 { config.king_shield } else { 0 };
         o_eval = o_eval + if f[idx-11]/10==1 { config.king_shield } else { 0 };
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_king
     }
 
     fn black_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
+
+        if idx == 24 || idx == 25 || idx == 26 || idx == 34 || idx == 35 || idx == 36 {
+            o_eval += config.undeveloped_king_malus
+        }
 
         o_eval = o_eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };
         o_eval = o_eval - if f[idx+10]/20==1 { config.king_shield } else { 0 };
         o_eval = o_eval - if f[idx+11]/20==1 { config.king_shield } else { 0 };
 
-        let mut eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_king
     }
-
 
     fn calculate_weighted_eval(&self, o_eval: i16, e_eval: i16, game_phase: i16) -> i16 {
         let o_eval = o_eval as i32;
@@ -347,6 +367,7 @@ mod tests {
 
     #[test]
     fn get_eval_even_test() {
+        equal_eval("rnbqk1nr/2p2pp1/1p2p3/8/8/1P2P3/2P2PP1/RNBQK1NR w KQkq - 0 1");
         equal_eval("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         equal_eval("rnbqkbnr/1ppp1pp1/8/8/8/8/1PPP1PP1/RNBQKBNR w KQkq - 0 1");
         equal_eval("rnbqk1n1/pppp1ppp/4p3/8/8/4P3/PPPP1PPP/RNBQK1N1 w HQhq - 0 1");
@@ -378,20 +399,24 @@ mod tests {
     fn equal_eval(fen: &str) {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
+        let movegen = Service::new().move_gen;
 
         let config = &Config::new();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config);
+        let eval = eval_service.calc_eval(board, config, &movegen);
         assert_eq!(0, eval);
     }
 
     fn eval_between(fen: &str, lower: i16, higher: i16) {
+        print!("Test: {} | ", fen);
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
+        let movegen = Service::new().move_gen;
 
         let config = &Config::new();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config);
+        let eval = eval_service.calc_eval(board, config, &movegen);
+        println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
     }

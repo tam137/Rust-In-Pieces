@@ -1,3 +1,5 @@
+use std::process::id;
+
 use crate::config::Config;
 use crate::model::{Board, GameStatus, Stats, Turn};
 use crate::service::Service;
@@ -116,7 +118,7 @@ impl MoveGenService {
     
         // If valid, add the move to the list
         if valid {
-            turn.eval = service.eval.calc_eval(board, &self.config);
+            turn.eval = service.eval.calc_eval(board, &self.config, &service.move_gen);
     
             // check if the move gives opponent check
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
@@ -203,7 +205,13 @@ impl MoveGenService {
     pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32) -> Vec<i32> {
         let check_idx_list = self.get_check_idx_list(&board.field, board.white_to_move);
         let field = board.field;
-        let white = board.white_to_move;
+
+        let white = if idx == 0 {
+            board.white_to_move
+        } else {
+            if board.field[idx as usize] <= 0 { panic!("no piece in idx {}", idx) };
+            if board.field[idx as usize] / 10 == 1 { true } else { false }
+        };
 
         let king_value = if white { 15 } else { 25 };
         let queen_value = if white { 14 } else { 24 };

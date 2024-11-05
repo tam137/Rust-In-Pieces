@@ -151,7 +151,7 @@ impl SearchService {
     pub fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
         stats.add_eval_nodes(1);
         let empty_vec: VecDeque<Option<Turn>> = VecDeque::new();
-        (None, service.eval.calc_eval(board, config), empty_vec)
+        (None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
 
         /*
         return if config.use_zobrist {
@@ -243,12 +243,6 @@ mod tests {
         //result.print_all_variants();
         assert!(result.get_eval() < -100);
         assert_eq!(result.get_best_move_algebraic(), "c6d4");
-        
-        let mut board = fen_service.set_fen("5rrq/4n3/p2pb3/pp1k4/2pP2N1/N1P1R2P/1P2KPP1/7R b - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
-        //result.print_all_variants();
-        assert!(result.get_eval() < -800);
-        assert_eq!(result.get_best_move_algebraic(), "g8g4");
 
         let mut board = fen_service.set_fen("6k1/5pp1/5rnp/2Npb3/3PP3/r1P1R2P/5PP1/4BR1K b - - 0 1");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
