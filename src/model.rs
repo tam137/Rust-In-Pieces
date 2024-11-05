@@ -206,7 +206,6 @@ impl Board {
     }
 
 
-    // Method for performing a move
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
 
         // validation
@@ -305,7 +304,6 @@ impl Board {
     }
 
 
-    // Undo move
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
 
         // validation
@@ -389,7 +387,7 @@ impl Board {
         }
     }
 
-    // Generate the castle information based on the current state
+    /// Generate the castle information based on the current state
     pub fn get_castle_information(&self) -> CastleInformation {
         CastleInformation {
             white_possible_to_castle_long: self.white_possible_to_castle_long,
@@ -399,7 +397,28 @@ impl Board {
         }
     }
 
-    // Hash function for the board (used for 3-move repetition)
+    /// gives an indicator wich depth to the search can be applied. 100 is maximum
+    pub fn calculate_complexity(&self) -> i32 {
+        let mut complexity = 0;
+        
+        for &field in self.field.iter() {
+            if field == 0 { 
+                continue;
+            }
+            
+            complexity += match field % 10 {
+                0 => 1,  // pawn
+                1 => 6,  // rook
+                2 => 3,  // knight
+                3 => 6,  // bishop
+                4 => 12, // queen
+                _ => 0,
+            };
+        }
+        complexity
+    }
+
+    /// Hash function for the board (used for 3-move repetition)
     pub fn hash(&self) -> u64 {
         let mut hash = 17u64;
         hash = hash.wrapping_mul(31).wrapping_add(self.field.iter().fold(0, |acc, &x| acc.wrapping_add(x as u64)));
@@ -927,5 +946,26 @@ mod tests {
         
         game.board.undo_move(&capture_move, mi);
         assert_eq!(12, game.board.field[73]);
+    }
+
+
+    #[test]
+    fn calculate_complexity_test() {
+        let fen_service = Service::new().fen;
+
+        let board = fen_service.set_init_board();
+        assert_eq!(100, board.calculate_complexity());
+
+        // midgame. Queen + 3 light pieces each + 2 rook
+        let board = fen_service.set_fen("r2q1rk1/ppp2ppp/2n5/3p1b2/3Pn3/2PB1N2/P1Q2PPP/R1B2RK1 w - - 4 12");
+        assert_eq!(88, board.calculate_complexity());
+
+        // late midgame. Queen + 1 light pieces each + 1 rook
+        let board = fen_service.set_fen("3q1rk1/Q1p2pp1/3n2p1/3p4/3P1B2/2P5/P4PPP/5RK1 b - - 0 20");
+        assert_eq!(56, board.calculate_complexity());
+
+        // rook endgame + 1 light peace each
+        let board = fen_service.set_fen("r5k1/2B2pp1/6p1/3p4/3P4/2n5/P4PPP/R5K1 w - - 2 25");
+        assert_eq!(30, board.calculate_complexity());
     }
 }
