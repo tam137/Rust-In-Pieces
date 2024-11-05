@@ -17,6 +17,9 @@ impl MoveGenService {
 
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
+        if board.game_status != GameStatus::Normal {
+            return vec![]
+        }
         let move_list = self.generate_moves_list_for_piece(board, 0);
         self.get_valid_moves_from_move_list(&move_list, board, stats, service)
             .into_iter()
@@ -26,6 +29,9 @@ impl MoveGenService {
 
     /// Generates a list of valid moves for a given board state.
     pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
+        if board.game_status != GameStatus::Normal {
+            return vec![]
+        }
         let move_list = self.generate_moves_list_for_piece(board, 0);
         self.get_valid_moves_from_move_list(&move_list, board, stats, service)
     }
