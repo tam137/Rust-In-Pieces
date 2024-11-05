@@ -162,13 +162,19 @@ fn main() {
                 game.do_move(&search_result.get_best_move_algebraic());
                 
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
+                stats.calc_time_ms = calc_time_ms as usize;
+                stats.calculate();
+
                 let move_row = search_result.get_best_move_row();
 
                 let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
     
                 println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(),
                         cp, calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
-                        println!("bestmove {}", search_result.get_best_move_algebraic());
+                
+                println!("bestmove {}", search_result.get_best_move_algebraic());
+
+                log(format!("{:?}", stats));
             } else {
                 log(format!("found Book move: {} for position {}", book_move, game_fen));
                 game.do_move(book_move);
