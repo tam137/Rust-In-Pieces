@@ -8,6 +8,7 @@ mod service;
 mod move_gen_service;
 mod book;
 mod uci_parser_service;
+mod zobrist;
 
 use std::io::Write;
 use std::thread;

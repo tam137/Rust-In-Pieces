@@ -1,5 +1,6 @@
 use crate::model::Board;
 use crate::notation_util::NotationUtil;
+use crate::zobrist::ZobristTable;
 
 
 pub struct FenService;
@@ -81,6 +82,7 @@ impl FenService {
             line_for_en_passante,
             white_to_move,
             move_number,
+            ZobristTable::new(),
         )
     }
 
