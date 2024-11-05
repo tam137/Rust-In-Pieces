@@ -445,21 +445,45 @@ impl PartialEq for Board {
     }
 }
 
+#[derive(Debug)]
 pub struct Stats {
     pub created_nodes: usize,
-    calculated_nodes: usize,
-    eval_nodes: usize,
-    calc_time_ms: usize,
-    zobrist_hit: usize,
+    pub created_capture_node: usize,
+    pub calculated_nodes: usize,
+    pub eval_nodes: usize,
+    pub calc_time_ms: usize,
+    pub zobrist_hit: usize,
+    pub cuts: i32,
+    pub capture_share: i32,
+    pub nodes_per_ms: i32,
 }
 
 impl Stats {
     pub fn new() -> Stats {
-        Stats { calc_time_ms: 0, calculated_nodes: 0, created_nodes: 0, eval_nodes: 0, zobrist_hit: 0 }
+        Stats { calc_time_ms: 0,
+            calculated_nodes: 0,
+            created_capture_node: 0,
+            created_nodes: 0,
+            eval_nodes: 0,
+            zobrist_hit: 0,
+            cuts: 0,
+            capture_share: 0,
+            nodes_per_ms: 0,
+         }
+    }
+
+    pub fn calculate(&mut self) {
+        self.cuts = 100 - (self.calculated_nodes as i32 * 100 / self.created_nodes as i32);
+        self.capture_share = self.created_capture_node as i32 * 100 / self.created_nodes as i32;
+        self.nodes_per_ms = self.created_nodes as i32 / self.calc_time_ms as i32;
     }
 
     pub fn add_created_nodes(&mut self, value: usize) {
         self.created_nodes += value;
+    }
+
+    pub fn add_created_capture_nodes(&mut self, value: usize) {
+        self.created_capture_node += value;
     }
 
     pub fn add_calculated_nodes(&mut self, value: usize) {
@@ -480,6 +504,7 @@ impl Stats {
 
     pub fn reset_stats(&mut self) {
         self.created_nodes = 0;
+        self.created_capture_node = 0;
         self.calculated_nodes = 0;
         self.eval_nodes = 0;
         self.calc_time_ms = 0;

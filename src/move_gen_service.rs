@@ -1,5 +1,3 @@
-use std::process::id;
-
 use crate::config::Config;
 use crate::model::{Board, GameStatus, Stats, Turn};
 use crate::service::Service;
@@ -23,10 +21,12 @@ impl MoveGenService {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, service)
-            .into_iter()
-            .filter(|t| t.capture != 0 || t.gives_check)
-            .collect()
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service)
+                            .into_iter()
+                            .filter(|t| t.capture != 0 || t.gives_check)
+                            .collect();
+        stats.add_created_capture_nodes(capture_moves.len());
+        capture_moves
     }
 
     /// Generates a list of valid moves for a given board state.
@@ -86,7 +86,6 @@ impl MoveGenService {
                 board.game_status = GameStatus::Draw;
             }
         }
-    
         stats.add_created_nodes(valid_moves.len());
         valid_moves
     }
@@ -124,7 +123,12 @@ impl MoveGenService {
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
                 turn.gives_check = true;
             }
-            valid_moves.push(turn.clone());
+            if turn.promotion != 0 || turn.capture != 0 || turn.gives_check {
+                valid_moves.push(turn.clone());
+            } else {
+                valid_moves.push(turn.clone());
+            }
+            
         }
         board.undo_move(turn, move_info);
     }
