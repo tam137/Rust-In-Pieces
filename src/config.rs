@@ -58,7 +58,7 @@ impl Config {
             move_freedom_bonus: 3,
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
-            undeveloped_king_malus: 30,
+            undeveloped_king_malus: 45,
             pawn_on_last_rank_bonus: 250,
             pawn_on_before_last_rank_bonus: 125,
             pawn_on_before_before_last_rank_bonus: 60,
@@ -85,7 +85,7 @@ impl Config {
             knight_attacks_rook: 14,
             knight_attacks_queen: 22,
             queen_in_rook_line_malus: 30,
-            king_shield: 20,
+            king_shield: 30,
         }
     }
 

@@ -260,8 +260,8 @@ impl EvalService {
             o_eval = o_eval - config.undeveloped_bishop_malus;
         }
 
-        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        //o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_bishop
@@ -275,8 +275,8 @@ impl EvalService {
             o_eval = o_eval + config.undeveloped_bishop_malus;
         }
 
-        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        //o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_bishop
@@ -287,8 +287,8 @@ impl EvalService {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
-        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
@@ -298,8 +298,8 @@ impl EvalService {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
-        let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
+        //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen
