@@ -50,7 +50,7 @@ impl Config {
             use_zobrist: false,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
-            search_depth_quite: 8,
+            search_depth_quite: 12,
             calc_variants: 1,
             truncate_bad_moves: 99,
 

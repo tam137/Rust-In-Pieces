@@ -4,12 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [V00f] - 2024-11-01
+## [V00f] - 2024-11-05
 
 ### Added
 
+- parse UCI time commands and add time management to engine
 - Basic Book for move variance
 - logging in rust-in-piece.log
+- print "info cp" from engine perspective
 
 ### Fixed
 
