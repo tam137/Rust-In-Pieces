@@ -86,6 +86,7 @@ impl MoveGenService {
                 board.game_status = GameStatus::Draw;
             }
         }
+    
         stats.add_created_nodes(valid_moves.len());
         valid_moves
     }
@@ -123,12 +124,7 @@ impl MoveGenService {
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
                 turn.gives_check = true;
             }
-            if turn.promotion != 0 || turn.capture != 0 || turn.gives_check {
-                valid_moves.push(turn.clone());
-            } else {
-                valid_moves.push(turn.clone());
-            }
-            
+            valid_moves.push(turn.clone());
         }
         board.undo_move(turn, move_info);
     }
