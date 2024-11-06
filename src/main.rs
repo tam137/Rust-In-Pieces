@@ -55,7 +55,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00g-candidate";
+    let version = "V00g";
 
     log(format!("Engine startet: {}", version));
 
@@ -68,7 +68,6 @@ fn main() {
             match io::stdin().read_line(&mut uci_token) {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
-                        log("send ID back".to_string());
                         println!("id name SupraH {}", version);
                         println!("id author Jan Lange");
                         println!("uciok");
@@ -156,7 +155,7 @@ fn main() {
             if book_move.is_empty() {
 
                 let my_time_ms = if white { wtime } else { btime };
-                let calculated_depth = calculate_depth(game.board.calculate_complexity(), benchmark_value, my_time_ms);
+                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms);
 
                 let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service);
                 game.do_move(&search_result.get_best_move_algebraic());
@@ -164,6 +163,8 @@ fn main() {
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
+                let cleaned = game.board.zobrist.clean_up_hash_if_needed(&config);
+                if cleaned > 0 { log(format!("cleaned {} entries from cache", cleaned)); }
 
                 let move_row = search_result.get_best_move_row();
 
@@ -174,9 +175,13 @@ fn main() {
                 
                 println!("bestmove {}", search_result.get_best_move_algebraic());
 
-                log(format!("{:?}", stats));
+                if config.in_debug {
+                    log(format!("{:?}", stats));
+                }                
             } else {
-                log(format!("found Book move: {} for position {}", book_move, game_fen));
+                if config.in_debug {    
+                    log(format!("found Book move: {} for position {}", book_move, game_fen));
+                }
                 game.do_move(book_move);
                 println!("bestmove {}", book_move);
             }
@@ -188,29 +193,37 @@ fn main() {
             log(format!("uci: received move '{}' ", algebraic_notation));
             game.do_move(algebraic_notation);
         } else if received == "ucinewgame" {
+            log(format!("uci: received 'ucinewgame'"));
             game = UciGame::new(service.fen.set_init_board());
             continue;
         } else if received == "test" {
             run_time_check();
         } else if received == "quit" {
+            log(format!("uci: received 'quit'"));
             println!("Quitting gracefully...");
             break;
         }       
     }
 }
 
-fn calculate_depth(complexity: i32, benchmark: i32, time: i32) -> i32 {
+fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) -> i32 {
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / complexity;
 
-    if value > 125 {
-        log(format!("time threshold: {} -> depth: {}", value, 6));
+    if value > 80 {
+        if config.in_debug {
+            log(format!("time threshold: {} -> depth: {}", value, 6));
+        }        
         return 6;
     } else if value > 10 {
-        log(format!("time threshold: {} -> depth: {}", value, 4));
+        if config.in_debug {
+            log(format!("time threshold: {} -> depth: {}", value, 4));
+        }
         return 4;
     } else {
-        log(format!("time threshold: {} -> depth: {}", value, 2));
+        if config.in_debug {
+            log(format!("time threshold: {} -> depth: {}", value, 2));
+        }
         return 2;
     }
 }

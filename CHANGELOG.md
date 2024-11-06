@@ -8,9 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- added basic evaluation
+- added pawn, king, knight and bishop evaluation
+- extend logging
+- add zobrist hashing
 
 ### Fixed
+
+- three move repetition / board hashing
 
 ### Changed
 
