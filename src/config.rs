@@ -8,6 +8,7 @@ pub struct Config {
     pub search_depth_quite: i32,
     pub calc_variants: i16,
     pub truncate_bad_moves: usize,
+    pub in_debug: bool,
 
     pub move_freedom_bonus: i32,
     pub undeveloped_knight_malus: i16,
@@ -39,6 +40,7 @@ pub struct Config {
     pub knight_on_rim_malus: i16,
     pub knight_attacks_rook: i16,
     pub knight_attacks_queen: i16,
+    pub knight_attacks_bishop: i16,    
     pub queen_in_rook_line_malus: i16,
     pub queen_in_attack: i16,
     pub king_shield: i16,
@@ -53,12 +55,13 @@ impl Config {
         Config {
             use_depth_modificator: false,
             use_book: false,
-            use_zobrist: false,
+            use_zobrist: true,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
             search_depth_quite: 12,
             calc_variants: 1,
             truncate_bad_moves: 99,
+            in_debug: true,
 
             move_freedom_bonus: 3,
             undeveloped_knight_malus: 36,
@@ -90,6 +93,7 @@ impl Config {
             knight_on_rim_malus: 8,
             knight_attacks_rook: 14,
             knight_attacks_queen: 22,
+            knight_attacks_bishop: 10,
             queen_in_rook_line_malus: 30,
             queen_in_attack: 80,
             king_shield: 30,

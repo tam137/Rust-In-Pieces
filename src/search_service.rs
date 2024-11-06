@@ -1,4 +1,4 @@
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use crate::config::Config;
 use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant};
 use crate::service::Service;
@@ -25,7 +25,7 @@ impl SearchService {
 
         let mut turn_counter = 0;
 
-        for turn in turns {
+        for turn in &turns {
             turn_counter += 1;
             let mi = board.do_move(&turn);   
             let min_max_result = self.minimax(board, &turn, depth - 1, !white, alpha, beta, stats, config, service);
@@ -37,7 +37,7 @@ impl SearchService {
                     alpha = min_max_eval;
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
+                    search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     stats.best_turn_nr = turn_counter;
                 }
             } else {
@@ -46,7 +46,7 @@ impl SearchService {
                     beta = min_max_eval;
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
+                    search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     stats.best_turn_nr = turn_counter;
                 }
             }
@@ -125,7 +125,7 @@ impl SearchService {
 
         let mut turn_counter = 0;
 
-        for turn in turns {
+        for turn in &turns {
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(&turn);
@@ -139,8 +139,11 @@ impl SearchService {
                     alpha = min_max_eval;
                     best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    best_move = Some(turn);
-                    if turn_counter > 30 { stats.add_turn_nr_gt_trashhold(1) };
+                    best_move = Some(turn.clone());
+                    if config.in_debug && turn_counter > 30 {
+                        stats.add_turn_nr_gt_trashhold(1);
+                        stats.add_log(format!("{} move {} was the {}.", service.fen.get_fen(board), &turn.to_algebraic(), turn_counter));
+                    };
                 }
             } else {
                 if eval > min_max_eval {
@@ -148,8 +151,11 @@ impl SearchService {
                     beta = min_max_eval;
                     best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
-                    best_move = Some(turn);
-                    if turn_counter > 30 { stats.add_turn_nr_gt_trashhold(1) };
+                    best_move = Some(turn.clone());
+                    if config.in_debug && turn_counter > 30 {
+                        stats.add_turn_nr_gt_trashhold(1);
+                        stats.add_log(format!("{} move {} was the {}.", service.fen.get_fen(board), &turn.to_algebraic(), turn_counter));
+                    };
                 }
             }
             if beta <= alpha {
@@ -163,27 +169,24 @@ impl SearchService {
     pub fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
         stats.add_eval_nodes(1);
         let empty_vec: VecDeque<Option<Turn>> = VecDeque::new();
-        (None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
+        //(None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
 
-        /*
         return if config.use_zobrist {
-
             let board_hash = board.hash();
-            match board.get_eval_for_hash(&board_hash) {
+            match board.zobrist.get_eval_for_hash(&board_hash) {
                 Some(eval) => {
                     stats.add_zobrist_hit(1);
                     (None, *eval, empty_vec)
                 },
                 None => {
-                    let eval = service.eval.calc_eval(board, config);
-                    board.set_new_hash(&board_hash, eval);
+                    let eval = service.eval.calc_eval(board, config, &service.move_gen);
+                    board.zobrist.set_new_hash(&board_hash, eval);
                     (None, eval, empty_vec)
                 }
             }
         } else {
-            (None, service.eval.calc_eval(board, config), empty_vec)
+            (None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
         }
-    */
     }
 }
 
@@ -319,6 +322,14 @@ mod tests {
         //assert_eq!( "c8d7", result.get_best_move_algebraic());
 
         //  r2qk2r/pppbnppp/4pn2/bNQp4/5B2/2PP1N2/PP2PPPP/R3KB1R b KQkq - 6 9
+    }
+
+    #[test]
+    fn optimize_truncate() {
+        //let service = Service::new();
+        //let fen_service = Service::new().fen;
+        //let move_gen = Service::new().move_gen;        
+        //let mut stats = Stats::new();
     }
 
 }

@@ -48,9 +48,9 @@ impl ZobristTable {
 
     pub fn gen(&self, board: &Board) -> u64 {
         let mut hash = 0u64;
-        if board.white_to_move {
-            hash ^= self.white_to_move;
-        }
+        //if board.white_to_move {
+        //    hash ^= self.white_to_move;
+        //}
         for i in 0..BOARD_SIZE {
             let piece = board.field[i];
             if piece > 0 {

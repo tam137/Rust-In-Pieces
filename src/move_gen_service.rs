@@ -137,9 +137,7 @@ impl MoveGenService {
             turn.promotion = promotion;
             self.validate_and_add_move(board, turn, service, valid_moves, white_turn);
         }
-    }
-
-    
+    }    
 
     fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32) -> bool {
         let check_squares = if white_turn {

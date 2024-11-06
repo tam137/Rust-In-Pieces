@@ -141,7 +141,7 @@ impl EvalService {
         }
 
         if f[idx-9] == 10 || f[idx-11] == 10 {
-            e_eval = e_eval + config.pawn_structure;
+            o_eval = o_eval + config.pawn_structure;
         }
 
         if moves_until_promote >= 5 {
@@ -181,7 +181,7 @@ impl EvalService {
         }
 
         if f[idx+9] == 20 || f[idx+11] == 20 {
-            e_eval = e_eval - config.pawn_structure;
+            o_eval = o_eval - config.pawn_structure;
         }
 
         if moves_until_promote >= 5 {
@@ -214,52 +214,77 @@ impl EvalService {
         let e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
-
+    
         if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
-            o_eval = o_eval - config.knight_on_rim_malus;
+            o_eval -= config.knight_on_rim_malus;
         }
-
-        if f[idx-21]==21||f[idx-19]==21||f[idx-12]==21||f[idx-8]==21||f[idx+21]==21||f[idx+19]==21||f[idx+12]==21||f[idx+8]==21 {
-            o_eval = o_eval + config.knight_attacks_rook;
+    
+        let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
+    
+        let attack_bonus = [
+            (21, config.knight_attacks_rook),            
+            (23, config.knight_attacks_bishop),
+            (24, config.knight_attacks_queen),
+        ];
+    
+        // Evaluate knight attacks on other pieces
+        for &offset in &knight_moves {
+            if let Some(&piece) = f.get((idx as isize + offset) as usize) {
+                for &(target, bonus) in &attack_bonus {
+                    if piece == target {
+                        o_eval += bonus;
+                        break;
+                    }
+                }
+            }
         }
-
-        if f[idx-21]==24||f[idx-19]==24||f[idx-12]==24||f[idx-8]==24||f[idx+21]==24||f[idx+19]==24||f[idx+12]==24||f[idx+8]==24 {
-            o_eval = o_eval + config.knight_attacks_queen;
-        }
-
+    
         if idx == 92 || idx == 97 {
-            o_eval = o_eval - config.undeveloped_knight_malus;
+            o_eval -= config.undeveloped_knight_malus;
         }
-
+    
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_knight
     }
+    
 
     fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
-
+    
         if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
-            o_eval = o_eval + config.knight_on_rim_malus;
+            o_eval += config.knight_on_rim_malus;
         }
-
-        if f[idx-21]==11||f[idx-19]==11||f[idx-12]==11||f[idx-8]==11||f[idx+21]==11||f[idx+19]==11||f[idx+12]==11||f[idx+8]==11 {
-            o_eval = o_eval - config.knight_attacks_rook;
+    
+        let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
+    
+        let attack_bonus = [
+            (11, config.knight_attacks_rook),            
+            (13, config.knight_attacks_bishop),
+            (14, config.knight_attacks_queen),
+        ];
+    
+        // Evaluate knight attacks on other pieces
+        for &offset in &knight_moves {
+            if let Some(&piece) = f.get((idx as isize + offset) as usize) {
+                for &(target, malus) in &attack_bonus {
+                    if piece == target {
+                        o_eval -= malus;
+                        break;
+                    }
+                }
+            }
         }
-
-        if f[idx-21]==14||f[idx-19]==14||f[idx-12]==14||f[idx-8]==14||f[idx+21]==14||f[idx+19]==14||f[idx+12]==14||f[idx+8]==14 {
-            o_eval = o_eval - config.knight_attacks_queen;
-        }
-
+    
         if idx == 22 || idx == 27 {
-            o_eval = o_eval + config.undeveloped_knight_malus;
+            o_eval += config.undeveloped_knight_malus;
         }
-
+    
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_knight
-    }
+    }   
 
 
     fn white_bishop(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
