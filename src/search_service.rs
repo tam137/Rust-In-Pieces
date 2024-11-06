@@ -23,7 +23,10 @@ impl SearchService {
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
 
+        let mut turn_counter = 0;
+
         for turn in turns {
+            turn_counter += 1;
             let mi = board.do_move(&turn);   
             let min_max_result = self.minimax(board, &turn, depth - 1, !white, alpha, beta, stats, config, service);
             let min_max_eval = min_max_result.1;
@@ -35,6 +38,7 @@ impl SearchService {
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
+                    stats.best_turn_nr = turn_counter;
                 }
             } else {
                 if min_max_eval < best_eval {
@@ -43,6 +47,7 @@ impl SearchService {
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn), move_row: best_move_row, eval: min_max_eval });
+                    stats.best_turn_nr = turn_counter;
                 }
             }
         }
@@ -118,7 +123,10 @@ impl SearchService {
             };
         }
 
+        let mut turn_counter = 0;
+
         for turn in turns {
+            turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(&turn);
             let min_max_result = self.minimax(board, &turn, depth - 1, !white, alpha, beta, stats, config, service);
@@ -132,6 +140,7 @@ impl SearchService {
                     best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     best_move = Some(turn);
+                    if turn_counter > 30 { stats.add_turn_nr_gt_trashhold(1) };
                 }
             } else {
                 if eval > min_max_eval {
@@ -140,6 +149,7 @@ impl SearchService {
                     best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     best_move = Some(turn);
+                    if turn_counter > 30 { stats.add_turn_nr_gt_trashhold(1) };
                 }
             }
             if beta <= alpha {

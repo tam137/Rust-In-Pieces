@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::model::Board;
-use crate::move_gen_service::MoveGenService;
+use crate::model::{Board, Stats};
+use crate::move_gen_service::{self, MoveGenService};
 
 
 pub struct EvalService;
@@ -24,13 +24,13 @@ impl EvalService {
                 12 => self.white_knight(idx, board, config, field, game_phase),
                 13 => self.white_bishop(idx, board, config, field, game_phase, movegen),
                 14 => self.white_queen(idx, board, config, field, game_phase, movegen),
-                15 => self.white_king(idx, board, config, field, game_phase),
+                15 => self.white_king(idx, board, config, field, game_phase, movegen),
                 20 => self.black_pawn(idx, board, config, field, game_phase),
                 21 => self.black_rook(idx, board, config, field, game_phase),
                 22 => self.black_knight(idx, board, config, field, game_phase),
                 23 => self.black_bishop(idx, board, config, field, game_phase, movegen),
                 24 => self.black_queen(idx, board, config, field, game_phase, movegen),
-                25 => self.black_king(idx, board, config, field, game_phase),
+                25 => self.black_king(idx, board, config, field, game_phase, movegen),
                 _ => 0,
             };
             eval = eval + eval_for_piece;
@@ -148,6 +148,11 @@ impl EvalService {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
 
+        if board.field[idx-9] / 20 == 1 || board.field[idx-11] / 20 == 1 {
+            o_eval += config.pawn_attacks_opponent_fig;
+            e_eval += config.pawn_attacks_opponent_fig;
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_pawn
     }
@@ -183,25 +188,30 @@ impl EvalService {
             o_eval = o_eval + config.pawn_undeveloped_malus;
         }
 
+        if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
+            o_eval -= config.pawn_attacks_opponent_fig;
+            e_eval -= config.pawn_attacks_opponent_fig;
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_pawn
     }
 
 
     fn white_rook(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
-        let mut eval = config.piece_eval_rook;
+        let eval = config.piece_eval_rook;
         eval
     }
 
     fn black_rook(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
-        let mut eval = -config.piece_eval_rook;
+        let eval = -config.piece_eval_rook;
         eval
     }
 
 
     fn white_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
 
@@ -227,7 +237,7 @@ impl EvalService {
 
     fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
 
@@ -285,10 +295,15 @@ impl EvalService {
 
     fn white_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
 
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let in_attack = movegen.get_attack_idx_list(&board.field, true, idx as i32).len();        
+        if in_attack > 0 {
+            o_eval -= config.queen_in_attack * in_attack as i16;
+        }        
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
@@ -296,21 +311,42 @@ impl EvalService {
 
     fn black_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let mut e_eval = 0;
+        let e_eval = 0;
 
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        let in_attack = movegen.get_attack_idx_list(&board.field, false, idx as i32).len();        
+        if in_attack > 0 {
+            o_eval += config.queen_in_attack * in_attack as i16;
+        }   
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen
     }
  
-    fn white_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let e_eval = 0;
+        let mut e_eval = 0;
 
         if idx == 94 || idx == 95 || idx == 96 || idx == 84 || idx == 85 || idx == 86 {
             o_eval -= config.undeveloped_king_malus
+        }
+
+        let in_check = movegen.get_attack_idx_list(&board.field, true, idx as i32).len();
+        if in_check == 1 {
+            o_eval -= config.king_in_check_malus;
+            e_eval -= config.king_in_check_malus;
+        } else if in_check > 1 {
+            o_eval -= config.king_in_double_check_malus;
+            e_eval -= config.king_in_double_check_malus;
+        }
+
+        if idx==43||idx==44||idx==45||idx==46||
+           idx==53||idx==54||idx==55||idx==56||
+           idx==63||idx==64||idx==65||idx==66||
+           idx==73||idx==74||idx==75||idx==76 {
+            e_eval += config.king_centered;
         }
 
         o_eval = o_eval + if f[idx-9]/10==1 { config.king_shield } else { 0 };
@@ -321,13 +357,29 @@ impl EvalService {
         eval + config.piece_eval_king
     }
 
-    fn black_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
-        let e_eval = 0;
+        let mut e_eval = 0;
 
         if idx == 24 || idx == 25 || idx == 26 || idx == 34 || idx == 35 || idx == 36 {
             o_eval += config.undeveloped_king_malus
         }
+
+        let in_check = movegen.get_attack_idx_list(&board.field, false, idx as i32).len();
+        if in_check == 1 {
+            o_eval += config.king_in_check_malus;
+            e_eval += config.king_in_check_malus;
+        } else if in_check > 1 {
+            o_eval += config.king_in_double_check_malus;
+            e_eval += config.king_in_double_check_malus;
+        }
+
+        if idx==43||idx==44||idx==45||idx==46||
+        idx==53||idx==54||idx==55||idx==56||
+        idx==63||idx==64||idx==65||idx==66||
+        idx==73||idx==74||idx==75||idx==76 {
+         e_eval -= config.king_centered;
+     }
 
         o_eval = o_eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };
         o_eval = o_eval - if f[idx+10]/20==1 { config.king_shield } else { 0 };
@@ -374,6 +426,7 @@ mod tests {
         equal_eval("rnk2bnr/pppppppp/8/8/8/8/PPPPPPPP/RNK2BNR w KQkq - 0 1");
         equal_eval("3qk1r1/ppppp1pp/3bbp1n/8/r7/R2BBP1N/PPPPP1PP/3QK1R1 w Kk - 0 1");
         equal_eval("r1b1k2r/ppp1p1p1/5P1p/2npN1B1/2NPn1b1/5p1P/PPP1P1P1/R1B1K2R w Qq - 0 1");
+        equal_eval("8/8/8/8/2k5/4K3/8/8 w - - 0 1");
     }
 
     #[test]
@@ -393,6 +446,11 @@ mod tests {
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1050, -850);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -1950, -1750);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -3200, -2900);
+    }
+
+    #[test]
+    fn unequal_position_test() {
+        eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
     }
 
 
