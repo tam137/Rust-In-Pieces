@@ -447,6 +447,8 @@ impl PartialEq for Board {
 
 #[derive(Debug)]
 pub struct Stats {
+    pub best_turn_nr: i8,
+    pub turn_number_gt_trashhold: i32,
     pub created_nodes: usize,
     pub created_capture_node: usize,
     pub calculated_nodes: usize,
@@ -460,11 +462,14 @@ pub struct Stats {
 
 impl Stats {
     pub fn new() -> Stats {
-        Stats { calc_time_ms: 0,
+        Stats {
+            best_turn_nr: 0,
+            turn_number_gt_trashhold: 0,
             calculated_nodes: 0,
             created_capture_node: 0,
             created_nodes: 0,
             eval_nodes: 0,
+            calc_time_ms: 0,
             zobrist_hit: 0,
             cuts: 0,
             capture_share: 0,
@@ -475,7 +480,7 @@ impl Stats {
     pub fn calculate(&mut self) {
         self.cuts = 100 - (self.calculated_nodes as i32 * 100 / self.created_nodes as i32);
         self.capture_share = self.created_capture_node as i32 * 100 / self.created_nodes as i32;
-        self.nodes_per_ms = self.created_nodes as i32 / self.calc_time_ms as i32;
+        self.nodes_per_ms = self.created_nodes as i32 / self.calc_time_ms as i32 + 1;
     }
 
     pub fn add_created_nodes(&mut self, value: usize) {
@@ -498,11 +503,18 @@ impl Stats {
         self.zobrist_hit += value;
     }
 
+    pub fn add_turn_nr_gt_trashhold(&mut self, value: i32) {
+        self.turn_number_gt_trashhold += value;
+    }
+
     pub fn set_calc_time(&mut self, value: usize) {
         self.calc_time_ms = value;
     }
 
+
     pub fn reset_stats(&mut self) {
+        self.best_turn_nr = 0;
+        self.turn_number_gt_trashhold = 0;
         self.created_nodes = 0;
         self.created_capture_node = 0;
         self.calculated_nodes = 0;
@@ -617,7 +629,7 @@ impl SearchResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::notation_util::NotationUtil;
+    use crate::{config::Config, notation_util::NotationUtil};
     use crate::service::Service;
     use crate::UciGame;
 
@@ -931,6 +943,7 @@ mod tests {
 
     #[test]
     fn uci_game_en_passante_test() {
+        use crate::model::Turn;
         let service = Service::new();
         let stats = &mut Stats::new();
 
@@ -941,8 +954,9 @@ mod tests {
         game.do_move("d7d5");
 
         let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
-        assert_eq!(31, turns.len());
-        assert_eq!(20, turns.get(0).unwrap().capture);
+        assert_eq!(31.min(Config::new().truncate_bad_moves), turns.len());
+        let en_passante_move: &Turn = turns.iter().find(|t| t.capture == 20).expect("Found no en passante move");
+        assert_eq!(20, en_passante_move.capture);
 
         game.do_move("e5d6");
         assert_eq!(0, game.board.field[54]);
@@ -959,7 +973,8 @@ mod tests {
 
         let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
         assert_eq!(29, turns.len());
-        assert_eq!(10, turns.get(0).unwrap().capture);
+        let en_passante_move: &Turn = turns.iter().find(|t| t.capture == 10).expect("Found no en passante move");
+        assert_eq!(10, en_passante_move.capture);
 
         game.do_move("d4e3");
         assert_eq!(20, game.board.field[75]);

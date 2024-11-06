@@ -34,12 +34,17 @@ pub struct Config {
     pub pawn_supports_knight_outpost: i16,
     pub pawn_centered: i16,
     pub pawn_undeveloped_malus: i16,
+    pub pawn_attacks_opponent_fig: i16,
     pub rooks_on_same_rank: i16,
     pub knight_on_rim_malus: i16,
     pub knight_attacks_rook: i16,
     pub knight_attacks_queen: i16,
     pub queen_in_rook_line_malus: i16,
+    pub queen_in_attack: i16,
     pub king_shield: i16,
+    pub king_in_check_malus: i16,
+    pub king_in_double_check_malus: i16,
+    pub king_centered: i16
 }
 
 
@@ -80,12 +85,17 @@ impl Config {
             pawn_supports_knight_outpost: 15,
             pawn_centered: 20,
             pawn_undeveloped_malus: 10,
+            pawn_attacks_opponent_fig: 25,
             rooks_on_same_rank: 20,
             knight_on_rim_malus: 8,
             knight_attacks_rook: 14,
             knight_attacks_queen: 22,
             queen_in_rook_line_malus: 30,
+            queen_in_attack: 80,
             king_shield: 30,
+            king_in_check_malus: 100,
+            king_in_double_check_malus: 300,
+            king_centered: 120,
         }
     }
 

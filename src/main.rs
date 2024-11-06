@@ -203,10 +203,10 @@ fn calculate_depth(complexity: i32, benchmark: i32, time: i32) -> i32 {
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / complexity;
 
-    if value > 200 {
+    if value > 125 {
         log(format!("time threshold: {} -> depth: {}", value, 6));
         return 6;
-    } else if value > 20 {
+    } else if value > 10 {
         log(format!("time threshold: {} -> depth: {}", value, 4));
         return 4;
     } else {

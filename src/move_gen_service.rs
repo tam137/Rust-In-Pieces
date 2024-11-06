@@ -87,8 +87,10 @@ impl MoveGenService {
             }
         }
     
+        valid_moves.truncate(self.config.truncate_bad_moves);
         stats.add_created_nodes(valid_moves.len());
         valid_moves
+        
     }
     
     fn get_en_passante_turns(&self, board: &Board, white_turn: bool) -> Vec<Turn> {
@@ -806,14 +808,18 @@ mod tests {
         let board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/3pP2P/6P1/PPPP1P2/RNBQKBNR b KQkq e3 0 3");
         assert_eq!(75, board.field_for_en_passante);
 
+        let truncate = Config::new().truncate_bad_moves;
+
         // test if movegen finds en passante move
-        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31, "b5c6");
-        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31, "d5c6");
+        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31.min(truncate), "b5c6");
+        test_fen_with_move("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w KQkq c6 0 5", 31.min(truncate), "d5c6");
         test_fen("rnbqkbnr/pp1ppp2/7p/1PpP2p1/8/8/P1P1PPPP/RNBQKBNR w - KQkq 0 5", 29);
 
-        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31, "d4e3");
-        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31, "f4e3");
+        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31.min(truncate), "d4e3");
+        test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31.min(truncate), "f4e3");
         test_fen("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq - 0 5", 29);
+
+        // TODO do tests with less then truncate number moves
     }
 
     // Function to test FEN position and check if the allowed moves match the expected count
