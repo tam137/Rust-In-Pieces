@@ -141,7 +141,8 @@ impl SearchService {
                     best_move = Some(turn.clone());
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_trashhold(1);
-                        stats.add_log(format!("{} move {} was the {}.", service.fen.get_fen(board), &turn.to_algebraic(), turn_counter));
+                        stats.add_log(format!("{}, move {} was the {} lvl:{}",
+                        service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
                 }
             } else {
@@ -153,7 +154,8 @@ impl SearchService {
                     best_move = Some(turn.clone());
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_trashhold(1);
-                        stats.add_log(format!("{} move {} was the {}.", service.fen.get_fen(board), &turn.to_algebraic(), turn_counter));
+                        stats.add_log(format!("{}, move {} was the {} lvl:{}",
+                        service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
                 }
             }
@@ -168,7 +170,7 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, eval_service, service::Service, Stats};
+    use crate::{config::Config, service::Service, Stats};
 
     #[test]
     #[ignore]
@@ -247,13 +249,8 @@ mod tests {
     fn white_find_hit_move() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let eval_service = Service::new().eval;
-        let move_gen = Service::new().move_gen;
         let config = &Config::new();
 
-        let eval = eval_service.calc_eval(&fen_service.set_fen("3R2nk/6pp/8/4p3/4P3/8/6PP/6NK b - - 0 2"), config, &move_gen);
-        let cap = move_gen.generate_valid_moves_list_capture(&mut fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1"), &mut Stats::new(), &Service::new());
-        
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
         result.print_all_variants();
@@ -297,7 +294,7 @@ mod tests {
         let mut board = fen_service.set_fen("r1q1k2r/p1pRbp2/5p2/1p5p/5B2/6P1/PPQ1PP1P/4KB1R b Kkq - 0 20");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new());
         //result.print_all_variants();
-        //assert_eq!( "c8d7", result.get_best_move_algebraic());
+        assert_eq!( "c8d7", result.get_best_move_algebraic());
 
         //  r2qk2r/pppbnppp/4pn2/bNQp4/5B2/2PP1N2/PP2PPPP/R3KB1R b KQkq - 6 9
     }
