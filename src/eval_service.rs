@@ -218,10 +218,10 @@ impl EvalService {
         if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
             o_eval -= config.knight_on_rim_malus;
         }
-    
+        /*
         let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
     
-    /*
+
         let attack_bonus = [
             (21, config.knight_attacks_rook),            
             (23, config.knight_attacks_bishop),
