@@ -221,6 +221,7 @@ impl EvalService {
     
         let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
     
+    /*
         let attack_bonus = [
             (21, config.knight_attacks_rook),            
             (23, config.knight_attacks_bishop),
@@ -238,6 +239,7 @@ impl EvalService {
                 }
             }
         }
+         */
     
         if idx == 92 || idx == 97 {
             o_eval -= config.undeveloped_knight_malus;
@@ -258,6 +260,7 @@ impl EvalService {
             o_eval += config.knight_on_rim_malus;
         }
     
+    /*
         let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
     
         let attack_bonus = [
@@ -277,6 +280,7 @@ impl EvalService {
                 }
             }
         }
+         */
     
         if idx == 22 || idx == 27 {
             o_eval += config.undeveloped_knight_malus;
