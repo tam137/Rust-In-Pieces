@@ -55,7 +55,7 @@ impl Config {
         Config {
             use_depth_modificator: false,
             use_book: false,
-            use_zobrist: true,
+            use_zobrist: false,
             max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
             search_depth: 4,
             search_depth_quite: 12,

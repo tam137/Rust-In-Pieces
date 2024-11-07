@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::model::{Board, GameStatus, Stats, Turn};
 use crate::service::Service;
+use std::collections::VecDeque;
 
 pub struct MoveGenService {
     config: Config,
@@ -57,11 +58,11 @@ impl MoveGenService {
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
-                self.validate_and_add_promotion_moves(board, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
+                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
-                self.validate_and_add_move(board, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
+                self.validate_and_add_move(board, stats, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
             }
         }
     
@@ -69,7 +70,7 @@ impl MoveGenService {
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
-                self.validate_and_add_move(board, &mut turn, service, &mut valid_moves, white_turn, only_captures);
+                self.validate_and_add_move(board, stats, &mut turn, service, &mut valid_moves, white_turn, only_captures);
             }
         }
     
@@ -112,7 +113,9 @@ impl MoveGenService {
         en_passante_turns
     }
     
-    fn validate_and_add_move(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
+    fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service,
+        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
+
         let move_info = board.do_move(turn);
         let mut valid = true;
     
@@ -123,7 +126,7 @@ impl MoveGenService {
     
         // If valid, add the move to the list
         if valid {
-            turn.eval = service.eval.calc_eval(board, &self.config, &service.move_gen); // TODO use zobrist hash
+            turn.eval = self.check_hash_or_calculate_eval(board, stats, &self.config, service);
     
             // check if the move gives opponent check
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
@@ -139,11 +142,11 @@ impl MoveGenService {
         board.undo_move(turn, move_info);
     }
     
-    fn validate_and_add_promotion_moves(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
+    fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, turn, service, valid_moves, white_turn, only_captures);
+            self.validate_and_add_move(board, stats, turn, service, valid_moves, white_turn, only_captures);
         }
     }    
 
@@ -206,6 +209,28 @@ impl MoveGenService {
             })
         } else {
             None
+        }
+    }
+
+    fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service) -> i16 {
+        
+        stats.add_eval_nodes(1);
+
+        return if config.use_zobrist {
+            let board_hash = board.hash();
+            match board.zobrist.get_eval_for_hash(&board_hash) {
+                Some(eval) => {
+                    stats.add_zobrist_hit(1);
+                    *eval
+                },
+                None => {
+                    let eval = service.eval.calc_eval(board, config, &service.move_gen);
+                    board.zobrist.set_new_hash(&board_hash, eval);
+                    eval
+                }
+            }
+        } else {
+            service.eval.calc_eval(board, config, &service.move_gen)
         }
     }
 

@@ -65,7 +65,7 @@ impl SearchService {
 
         let mut turns: Vec<Turn> = Default::default();
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
-        let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = self.check_hash_or_calculate_eval(board, stats, config, service); // TODO eval known from turn
+        let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = (None, turn.eval, Default::default());
 
         if depth <= 0 {
             let stand_pat_cut = if white {
@@ -79,7 +79,6 @@ impl SearchService {
                 turns = service.move_gen.generate_valid_moves_list(board, stats, service);
             }
             */          
-
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
@@ -163,30 +162,6 @@ impl SearchService {
             }
         }
         return (best_move, eval, best_move_row);
-    }
-
-
-    pub fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service) -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
-        stats.add_eval_nodes(1);
-        let empty_vec: VecDeque<Option<Turn>> = VecDeque::new();
-        //(None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
-
-        return if config.use_zobrist {
-            let board_hash = board.hash();
-            match board.zobrist.get_eval_for_hash(&board_hash) {
-                Some(eval) => {
-                    stats.add_zobrist_hit(1);
-                    (None, *eval, empty_vec)
-                },
-                None => {
-                    let eval = service.eval.calc_eval(board, config, &service.move_gen);
-                    board.zobrist.set_new_hash(&board_hash, eval);
-                    (None, eval, empty_vec)
-                }
-            }
-        } else {
-            (None, service.eval.calc_eval(board, config, &service.move_gen), empty_vec)
-        }
     }
 }
 
