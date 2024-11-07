@@ -248,7 +248,7 @@ fn log(msg: String) {
 }
 
 fn calculate_benchmark (normalized_value: i32) -> i32 {
-    let mut board = Service::new().fen.set_init_board();
+    let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &Config::new(), &service))
 }
@@ -263,13 +263,16 @@ fn run_time_check() {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &mut config, &service.move_gen)); // ~ 300ns / ~1µs    
     
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service)); // ~ 950ms
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service)); 
+    // ~ 950ms -> 1900ms
 
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service)); // ~ 210ms
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service));
+    // ~ 210ms -> 310ms
 
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service)); // ~ 360ms
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service));
+    // ~ 360ms -> 140ms
 
     println!("Benchmark Value: {}", calculate_benchmark(10000));
 }
