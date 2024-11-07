@@ -144,6 +144,10 @@ impl EvalService {
             o_eval = o_eval + config.pawn_structure;
         }
 
+        if f[idx-9] == 13 || f[idx-11] == 13 {
+            e_eval = e_eval + config.pawn_defends_bishop;
+        }
+
         if moves_until_promote >= 5 {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
@@ -182,6 +186,10 @@ impl EvalService {
 
         if f[idx+9] == 20 || f[idx+11] == 20 {
             o_eval = o_eval - config.pawn_structure;
+        }
+
+        if f[idx+9] == 23 || f[idx+11] == 23 {
+            e_eval = e_eval - config.pawn_defends_bishop;
         }
 
         if moves_until_promote >= 5 {
@@ -456,6 +464,7 @@ mod tests {
         equal_eval("3qk1r1/ppppp1pp/3bbp1n/8/r7/R2BBP1N/PPPPP1PP/3QK1R1 w Kk - 0 1");
         equal_eval("r1b1k2r/ppp1p1p1/5P1p/2npN1B1/2NPn1b1/5p1P/PPP1P1P1/R1B1K2R w Qq - 0 1");
         equal_eval("8/8/8/8/2k5/4K3/8/8 w - - 0 1");
+        equal_eval("rn2k2r/p2ppppp/4b3/8/8/4B3/P2PPPPP/RN2K2R w KQkq - 0 1");
     }
 
     #[test]
