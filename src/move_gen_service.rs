@@ -21,10 +21,7 @@ impl MoveGenService {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service)
-                            .into_iter()
-                            .filter(|t| t.capture != 0 || t.gives_check)
-                            .collect();
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service, true);
         stats.add_created_capture_nodes(capture_moves.len());
         capture_moves
     }
@@ -35,10 +32,10 @@ impl MoveGenService {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, service)
+        self.get_valid_moves_from_move_list(&move_list, board, stats, service, false)
     }
 
-    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service) -> Vec<Turn> {
+    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, only_captures: bool) -> Vec<Turn> {
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
@@ -46,7 +43,18 @@ impl MoveGenService {
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
             let idx1 = move_list[i + 1];
-            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
+
+            let mut move_turn;
+
+            if only_captures && board.field[idx1 as usize] > 0 {
+                move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
+            } else if !only_captures {
+                move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
+            } else {
+                continue;
+            }
+
+            
     
             // Check for castling
             if board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2) {
@@ -392,8 +400,7 @@ impl MoveGenService {
     }
 
 
-    pub fn get_attack_idx_list(&self, field: &[i32], white: bool, mut target_idx: i32) -> Vec<i32> {
-        let (white_king_pos, black_king_pos) = self.calc_king_positions(field);
+    pub fn get_attack_idx_list(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
 
         let mut check_idx_list = Vec::new();
 
@@ -403,10 +410,6 @@ impl MoveGenService {
         let opponent_knight = if white { 22 } else { 12 };
         let opponent_bishop = if white { 23 } else { 13 };
         let opponent_queen = if white { 24 } else { 14 };
-
-        if target_idx == 0 {
-            target_idx = if white { white_king_pos } else { black_king_pos };
-        }
 
         // Pawns attacking
         if white {
@@ -478,7 +481,8 @@ impl MoveGenService {
 
     /// Checks if the king is under attack.
     pub fn get_check_idx_list(&self, field: &[i32], white: bool) -> Vec<i32> {
-        self.get_attack_idx_list(field, white, 0)
+        let king_pos = if white { self.calc_king_positions(field).0 } else { self.calc_king_positions(field).1 };
+        self.get_attack_idx_list(field, white, king_pos)
     }
 }
 
@@ -738,6 +742,7 @@ mod tests {
         let fen_service = Service::new().fen;
         let move_gen_service = Service::new().move_gen;
         let mut stats = &mut Stats::new();
+        let truncate = Config::new().truncate_bad_moves;
 
         // for white
         let mut board = fen_service.set_fen("rnbqkbnr/ppp2ppp/8/4p2N/4P3/8/PPP2PPP/R1BQKBNR w KQkq - 0 1");
@@ -754,7 +759,12 @@ mod tests {
         let mut board = fen_service.set_fen("rnb1kb1r/p1q2ppp/1p2p3/3pP1n1/3P4/P7/1PP2PPP/RNBQKBNR b KQkq - 0 1");
         let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
-        assert_eq!(4, check_turns.len());
+        if truncate <= 30 {
+            assert_eq!(3, check_turns.len());
+        } else {
+            assert_eq!(4, check_turns.len());
+        }
+        
 
         let mut board = fen_service.set_fen("3rr3/8/5b2/8/2pk4/8/3K4/8 b - - 0 1");
         let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
