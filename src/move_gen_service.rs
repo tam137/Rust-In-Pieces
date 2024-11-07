@@ -44,20 +44,10 @@ impl MoveGenService {
             let idx0 = move_list[i];
             let idx1 = move_list[i + 1];
 
-            let mut move_turn;
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
 
-            if only_captures && board.field[idx1 as usize] > 0 {
-                move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
-            } else if !only_captures {
-                move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
-            } else {
-                continue;
-            }
-
-            
-    
             // Check for castling
-            if board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2) {
+            if !only_captures && (board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2)) {
                 if !self.is_valid_castling(board, white_turn, idx1) {
                     continue;
                 }
@@ -67,17 +57,20 @@ impl MoveGenService {
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
-                self.validate_and_add_promotion_moves(board, &mut move_turn, service, &mut valid_moves, white_turn);
+                self.validate_and_add_promotion_moves(board, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
             } else {
                 // Validate and add the regular move
-                self.validate_and_add_move(board, &mut move_turn, service, &mut valid_moves, white_turn);
+                // only if we are not in quiescence search
+                self.validate_and_add_move(board, &mut move_turn, service, &mut valid_moves, white_turn, only_captures);
             }
         }
     
         // Add en passant moves
-        let en_passante_turns = self.get_en_passante_turns(board, white_turn);
-        for mut turn in en_passante_turns {
-            self.validate_and_add_move(board, &mut turn, service, &mut valid_moves, white_turn);
+        if !only_captures {
+            let en_passante_turns = self.get_en_passante_turns(board, white_turn);
+            for mut turn in en_passante_turns {
+                self.validate_and_add_move(board, &mut turn, service, &mut valid_moves, white_turn, only_captures);
+            }
         }
     
         if white_turn {
@@ -91,7 +84,9 @@ impl MoveGenService {
             if self.get_check_idx_list(&board.field, board.white_to_move).len() > 0 {
                 board.game_status = if board.white_to_move { GameStatus::BlackWin } else { GameStatus::WhiteWin }
             } else {
-                board.game_status = GameStatus::Draw;
+                if !only_captures {
+                    board.game_status = GameStatus::Draw;
+                }                
             }
         }
     
@@ -117,7 +112,7 @@ impl MoveGenService {
         en_passante_turns
     }
     
-    fn validate_and_add_move(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool) {
+    fn validate_and_add_move(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
         let move_info = board.do_move(turn);
         let mut valid = true;
     
@@ -128,22 +123,27 @@ impl MoveGenService {
     
         // If valid, add the move to the list
         if valid {
-            turn.eval = service.eval.calc_eval(board, &self.config, &service.move_gen);
+            turn.eval = service.eval.calc_eval(board, &self.config, &service.move_gen); // TODO use zobrist hash
     
             // check if the move gives opponent check
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
                 turn.gives_check = true;
             }
-            valid_moves.push(turn.clone());
+
+            if only_captures && (turn.capture > 0 || turn.gives_check) {
+                valid_moves.push(turn.clone());
+            } else if !only_captures {
+                valid_moves.push(turn.clone());
+            }            
         }
         board.undo_move(turn, move_info);
     }
     
-    fn validate_and_add_promotion_moves(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool) {
+    fn validate_and_add_promotion_moves(&self, board: &mut Board, turn: &mut Turn, service: &Service, valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool) {
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, turn, service, valid_moves, white_turn);
+            self.validate_and_add_move(board, turn, service, valid_moves, white_turn, only_captures);
         }
     }    
 
@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(20, board.field[84]);
 
         let move_from_notation_util = NotationUtil::get_turn_from_notation("d2d1q");
-        let mi = board.do_move(&move_from_notation_util);
+        board.do_move(&move_from_notation_util);
         //assert_eq!(move_from_notation_util, promotion_move);
         assert_eq!(24, board.field[94]);
         assert_eq!(0, board.field[84]);
