@@ -217,15 +217,14 @@ impl MoveGenService {
         stats.add_eval_nodes(1);
 
         return if config.use_zobrist {
-            let board_hash = board.hash();
-            match board.zobrist.get_eval_for_hash(&board_hash) {
+            match board.zobrist.get_eval_for_hash(&board.cached_hash) {
                 Some(eval) => {
                     stats.add_zobrist_hit(1);
                     *eval
                 },
                 None => {
                     let eval = service.eval.calc_eval(board, config, &service.move_gen);
-                    board.zobrist.set_new_hash(&board_hash, eval);
+                    board.zobrist.set_new_hash(&board.cached_hash, eval);
                     eval
                 }
             }

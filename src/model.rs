@@ -178,6 +178,7 @@ pub struct Board {
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
     pub zobrist: ZobristTable,
+    pub cached_hash: u64,
 }
 
 impl Board {
@@ -191,7 +192,6 @@ impl Board {
         field_for_en_passante: i32,
         white_to_move: bool,
         move_count: i32,
-        zobrist: ZobristTable,
     ) -> Self {
         Board {
             field,
@@ -205,6 +205,7 @@ impl Board {
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
             zobrist: ZobristTable::new(),
+            cached_hash: 0
         }
     }
 
@@ -292,6 +293,7 @@ impl Board {
 
         // Calculate the board hash and update the move repetition map
         let board_hash = self.hash();
+        self.cached_hash = board_hash;
         self.move_repetition_map
             .entry(board_hash)
             .and_modify(|count| *count += 1)
@@ -309,6 +311,8 @@ impl Board {
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
+
+        self.cached_hash = 0;
 
         // validation
         if self.field[turn.to as usize] == 0 {
@@ -423,7 +427,7 @@ impl Board {
     }
 
     /// Zobrist-Hash function for the board (used for 3-move repetition and Zobrist-Hash Table)
-    pub fn hash(&self) -> u64 {
+    fn hash(&self) -> u64 {
         self.zobrist.gen(&self)
     }
 }
