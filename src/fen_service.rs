@@ -82,7 +82,6 @@ impl FenService {
             line_for_en_passante,
             white_to_move,
             move_number,
-            ZobristTable::new(),
         )
     }
 

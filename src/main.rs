@@ -55,7 +55,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00h-candidate-no-capture-check";
+    let version = "V00h-candidate";
 
     log(format!("Engine startet: {}", version));
 
