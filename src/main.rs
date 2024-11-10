@@ -210,7 +210,12 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) 
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / complexity;
 
-    if value > 80 {
+    if value > 160 {
+        if config.in_debug {
+            log(format!("time threshold: {} -> depth: {}", value, 8));
+        }        
+        return 8;
+    } else if value > 75 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 6));
         }        

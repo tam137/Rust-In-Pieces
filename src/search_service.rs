@@ -299,12 +299,4 @@ mod tests {
         //  r2qk2r/pppbnppp/4pn2/bNQp4/5B2/2PP1N2/PP2PPPP/R3KB1R b KQkq - 6 9
     }
 
-    #[test]
-    fn optimize_truncate() {
-        //let service = Service::new();
-        //let fen_service = Service::new().fen;
-        //let move_gen = Service::new().move_gen;        
-        //let mut stats = Stats::new();
-    }
-
 }

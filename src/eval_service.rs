@@ -140,6 +140,13 @@ impl EvalService {
             _ => ()
         }
 
+        match moves_until_promote {
+            1 => o_eval = o_eval + config.pawn_on_last_rank_bonus / 2,
+            2 => o_eval = o_eval + config.pawn_on_before_last_rank_bonus / 2,
+            3 => o_eval = o_eval + config.pawn_on_before_before_last_rank_bonus / 2,
+            _ => ()
+        }
+
         if f[idx-9] == 10 || f[idx-11] == 10 {
             o_eval = o_eval + config.pawn_structure;
         }
@@ -154,7 +161,7 @@ impl EvalService {
 
         if board.field[idx-9] / 20 == 1 || board.field[idx-11] / 20 == 1 {
             o_eval += config.pawn_attacks_opponent_fig;
-            e_eval += config.pawn_attacks_opponent_fig;
+            e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -184,6 +191,13 @@ impl EvalService {
             _ => ()
         }
 
+        match moves_until_promote {
+            1 => o_eval = o_eval - config.pawn_on_last_rank_bonus / 2,
+            2 => o_eval = o_eval - config.pawn_on_before_last_rank_bonus / 2,
+            3 => o_eval = o_eval - config.pawn_on_before_before_last_rank_bonus / 2,
+            _ => ()
+        }
+
         if f[idx+9] == 20 || f[idx+11] == 20 {
             o_eval = o_eval - config.pawn_structure;
         }
@@ -198,7 +212,7 @@ impl EvalService {
 
         if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
             o_eval -= config.pawn_attacks_opponent_fig;
-            e_eval -= config.pawn_attacks_opponent_fig;
+            e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -219,7 +233,7 @@ impl EvalService {
 
     fn white_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let e_eval = 0;
+        let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
     
@@ -247,7 +261,15 @@ impl EvalService {
                 }
             }
         }
-         */
+        */
+
+
+        if idx==43||idx==44||idx==45||idx==46||
+            idx==53||idx==54||idx==55||idx==56||
+            idx==63||idx==64||idx==65||idx==66 {
+            e_eval += config.knight_centered;
+            o_eval += config.knight_centered / 2;
+        }
     
         if idx == 92 || idx == 97 {
             o_eval -= config.undeveloped_knight_malus;
@@ -260,7 +282,7 @@ impl EvalService {
 
     fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
-        let e_eval = 0;
+        let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
         let on_file = idx % 10;
     
@@ -289,6 +311,13 @@ impl EvalService {
             }
         }
          */
+
+        if  idx==53||idx==54||idx==55||idx==56||
+            idx==63||idx==64||idx==65||idx==66||
+            idx==73||idx==74||idx==75||idx==76 {
+            e_eval -= config.knight_centered;
+            o_eval -= config.knight_centered / 2;
+        }
     
         if idx == 22 || idx == 27 {
             o_eval += config.undeveloped_knight_malus;
@@ -465,6 +494,10 @@ mod tests {
         equal_eval("r1b1k2r/ppp1p1p1/5P1p/2npN1B1/2NPn1b1/5p1P/PPP1P1P1/R1B1K2R w Qq - 0 1");
         equal_eval("8/8/8/8/2k5/4K3/8/8 w - - 0 1");
         equal_eval("rn2k2r/p2ppppp/4b3/8/8/4B3/P2PPPPP/RN2K2R w KQkq - 0 1");
+        equal_eval("rnbqkb1r/pppppppp/8/5n2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("rnbqkbnr/p6p/1p4p1/2pPPp2/2PppP2/1P4P1/P6P/RNBQKBNR w KQkq - 0 1");        
+        equal_eval("1k6/3p4/4P3/8/8/4p3/3P4/1K6 w - - 0 1");
     }
 
     #[test]
@@ -484,6 +517,15 @@ mod tests {
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1050, -850);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -1950, -1750);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -3200, -2900);
+    }
+
+    #[test]
+    fn position_unequel_test() {
+        // position unequel
+        eval_between("rnbqkb1r/pppppppp/8/5n2/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1", -50, -10);
+        eval_between("rnbqkb1r/pppppppp/5n2/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", 10, 50);
+        eval_between("1k6/8/8/4P3/8/4p3/8/1K6 w - - 0 1", -150, -10);
+        eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -150, -10);
     }
 
     #[test]

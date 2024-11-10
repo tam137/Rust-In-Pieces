@@ -513,7 +513,7 @@ impl MoveGenService {
 
 #[cfg(test)]
 mod tests {
-    use crate::notation_util::NotationUtil;
+    use crate::{eval_service, notation_util::NotationUtil};
     use super::*;
 
     #[test]
@@ -784,7 +784,7 @@ mod tests {
         let turns = move_gen_service.generate_valid_moves_list(&mut board, &mut stats, &Service::new());
         let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
         if truncate <= 30 {
-            assert_eq!(3, check_turns.len());
+            assert_eq!(4, check_turns.len());
         } else {
             assert_eq!(4, check_turns.len());
         }
@@ -852,6 +852,39 @@ mod tests {
         test_fen("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq - 0 5", 29);
 
         // TODO do tests with less then truncate number moves
+    }
+
+    #[test]
+    fn optimize_truncate() {
+
+        let fen = "r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11";
+        let turns = from(fen);
+        check_turn_order_of("d4d3", turns, 30);
+
+        let eval = Service::new().eval.calc_eval(&Service::new().fen.set_fen(fen), &Config::new(), &Service::new().move_gen);
+        assert!(eval > 0);
+
+    }
+
+    fn check_turn_order_of(notation: &str, turns: Vec<Turn>, expected_below: i32) -> () {
+        let mut counter = 0;
+        let target_turn = NotationUtil::get_turn_from_notation(notation);
+        for t in &turns {
+            counter += 1;
+            if t.from == target_turn.from {
+                if counter <= expected_below {
+                    return;
+                } else {
+                    panic!("Counter = {} allowed expected {}", counter, expected_below);
+                }
+            }
+        }
+        panic!("Did not found target move");
+    }
+
+    fn from(fen: &str) -> Vec<Turn> {
+        let mut board = Service::new().fen.set_fen(fen);
+        Service::new().move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &Service::new())
     }
 
     // Function to test FEN position and check if the allowed moves match the expected count
