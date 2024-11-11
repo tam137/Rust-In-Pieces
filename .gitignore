@@ -4,3 +4,5 @@ Cargo.lock
 .vscode/
 buildVersions/
 log.txt
+rust-in-piece.log
+start-x86.sh
