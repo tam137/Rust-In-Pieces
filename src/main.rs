@@ -55,7 +55,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00h-candidate";
+    let version = "V00h-candidate2";
 
     log(format!("Engine startet: {}", version));
 
@@ -76,7 +76,7 @@ fn main() {
                         println!("readyok");
                     }
                     else if uci_token.trim() == "ucinewgame" {
-                        tx.send(format!("ucinewgame")).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
+                        tx.send(format!("ucinewgame")).expect("Could not send 'ucinewgame' as internal cmd");
                     }
                     else if uci_token.trim() == "isready" {
                         println!("readyok");
@@ -88,18 +88,17 @@ fn main() {
                         } else {
                             &uci_token[len - 5..len -1]
                         };
-                        tx.send(format!("move {}", move_str))
-                            .unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
+                        tx.send(format!("move {}", move_str)).expect("Could not send 'move' as internal cmd");
                     }
                     else if uci_token.starts_with("go") {
                         sleep(Duration::from_millis(5));
-                        tx.send(uci_token).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
+                        tx.send(uci_token).expect("Could not send 'go' as internal cmd");
                     }
                     else if uci_token.starts_with("test") {
-                        tx.send(format!("test")).unwrap_or_else(|e| eprintln!("Error sending message: {}", e));
+                        tx.send(format!("test")).expect("Could not send 'test' as internal cmd");
                     }
                     else if uci_token.starts_with("quit") {
-                        tx.send("quit".to_string()).unwrap_or_else(|e| eprintln!("Error sending quit message: {}", e));
+                        tx.send("quit".to_string()).expect("Could not send 'quit' as internal cmd");
                         break;
                     }
                     else {
@@ -108,11 +107,11 @@ fn main() {
                     }
                 },
                 Err(error) => {
-                    log(format!("Error reading input: {}", error));
-                    println!("Error reading input: {}", error);
+                    log(format!("Error reading std input: {}", error));
+                    println!("Error reading std input: {}", error);
                 }
             }
-            io::stdout().flush().unwrap();
+            io::stdout().flush().expect("failed when flush std buffer");
         }
     });
 
@@ -208,19 +207,19 @@ fn main() {
 
 fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) -> i32 {
     let time_in_sec = (time / 1000) + 1;
-    let value = time_in_sec * benchmark / complexity;
+    let value = time_in_sec * benchmark / (complexity + 1);
 
-    if value > 160 {
+    if value > 50 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 8));
         }        
         return 8;
-    } else if value > 75 {
+    } else if value > 30 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 6));
         }        
         return 6;
-    } else if value > 10 {
+    } else if value >= 5 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 4));
         }

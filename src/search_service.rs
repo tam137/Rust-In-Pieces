@@ -67,11 +67,16 @@ impl SearchService {
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
         let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = (None, turn.eval, Default::default());
 
+
+        if depth <= 0 && turn.from == 61 && turn.to == 72 && turn.capture == 11 && board.cached_hash == 6026442690037892337 {
+            println!("hier");
+        }
+
         if depth <= 0 {
             let stand_pat_cut = if white {
-                alpha >= eval.1 || (turn.capture == 0 && !turn.gives_check)
+                beta < eval.1 || (turn.capture == 0 && !turn.gives_check)
             } else {
-                beta <= eval.1 || (turn.capture == 0 && !turn.gives_check)
+                alpha > eval.1 || (turn.capture == 0 && !turn.gives_check)
             };
 
             /*
@@ -297,6 +302,17 @@ mod tests {
         assert_eq!( "c8d7", result.get_best_move_algebraic());
 
         //  r2qk2r/pppbnppp/4pn2/bNQp4/5B2/2PP1N2/PP2PPPP/R3KB1R b KQkq - 6 9
+
+        let mut board = fen_service.set_fen("7r/p1p2p1p/P3k1p1/2KR1nr1/2P5/8/8/8 w - - 2 35");
+        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
+        assert_ne!("d5e5", result.get_best_move_algebraic());
+
+        let hash = fen_service.set_fen("rnb1k1n1/pp4p1/2p4r/3p4/5N1p/1qP3PB/3NPP1P/3QK2R w Kq - 0 21").hash();
+
+        // hash 6026442690037892337
+        let mut board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
+        let result = search_service.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &Service::new());
+        result.print_all_variants();
     }
 
 }

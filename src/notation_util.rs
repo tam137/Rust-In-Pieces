@@ -26,7 +26,7 @@ impl NotationUtil {
 
         let valid_move_regex = Regex::new(r"^[a-h][1-8][a-h][1-8][qkbnr]?$").unwrap();
         if !valid_move_regex.is_match(notation_move) {
-            panic!("Invalid chess move notation: Must be in standard algebraic format. Found: '{}'", notation_move);
+            panic!("Invalid chess move notation: Must be in standard algebraic format. But: '{}'", notation_move);
         }
 
         let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid chess move notation: Must be in standard algebraic format. Found: 'g1=Q+'")]
+    #[should_panic(expected = "Invalid chess move notation: Must be in standard algebraic format. But: 'g1=Q+'")]
     fn test_invalid_notation_hash() {
         NotationUtil::get_turn_from_notation("g1=Q+");
     }
