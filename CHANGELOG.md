@@ -5,14 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [V00h] - 2024-11-08
+## [V00h] - 2024-11-12
 
 ### Added
 
 - improved movegen performance
 - improved performance in quiescence search
-- use cached hashing value instead of double calculation, improving performance
+- improved ELO in quiescence search a lot by better cutting
+- use cached hashing value instead of doubled eval calculation, improving performance
 - added more Book moves
+- extended evaluation
 
 ### Fixed
 

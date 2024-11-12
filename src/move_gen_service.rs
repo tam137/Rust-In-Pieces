@@ -81,13 +81,11 @@ impl MoveGenService {
         }
     
         // check Gamestatus
-        if valid_moves.is_empty() {
+        if valid_moves.is_empty() && !only_captures {
             if self.get_check_idx_list(&board.field, board.white_to_move).len() > 0 {
                 board.game_status = if board.white_to_move { GameStatus::BlackWin } else { GameStatus::WhiteWin }
             } else {
-                if !only_captures {
-                    board.game_status = GameStatus::Draw;
-                }                
+                board.game_status = GameStatus::Draw;
             }
         }
     
@@ -864,6 +862,18 @@ mod tests {
         let eval = Service::new().eval.calc_eval(&Service::new().fen.set_fen(fen), &Config::new(), &Service::new().move_gen);
         assert!(eval > 0);
 
+    }
+
+
+    #[test]
+    fn check_moves_when_in_check() {
+        let service = Service::new();
+        let mut stats = Stats::new();
+
+        let board = &mut service.fen.set_fen("7r/p1p2p1p/P3k1p1/2K2r2/2P5/8/8/8 w - - 0 36");
+        
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut stats, &service);
+        assert_eq!(3, turns.len());
     }
 
     fn check_turn_order_of(notation: &str, turns: Vec<Turn>, expected_below: i32) -> () {

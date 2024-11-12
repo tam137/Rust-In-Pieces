@@ -427,7 +427,7 @@ impl Board {
     }
 
     /// Zobrist-Hash function for the board (used for 3-move repetition and Zobrist-Hash Table)
-    fn hash(&self) -> u64 {
+    pub fn hash(&self) -> u64 {
         self.zobrist.gen(&self)
     }
 }

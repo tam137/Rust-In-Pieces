@@ -366,10 +366,8 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        let in_attack = movegen.get_attack_idx_list(&board.field, true, idx as i32).len();        
-        if in_attack > 0 {
-            o_eval -= config.queen_in_attack * in_attack as i16;
-        }        
+        o_eval -= config.queen_in_attack;
+
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
@@ -382,10 +380,7 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        let in_attack = movegen.get_attack_idx_list(&board.field, false, idx as i32).len();        
-        if in_attack > 0 {
-            o_eval += config.queen_in_attack * in_attack as i16;
-        }   
+        o_eval += config.queen_in_attack;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen
@@ -481,7 +476,7 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::service::Service;
+    use crate::service::{self, Service};
 
     #[test]
     fn get_eval_even_test() {
@@ -526,6 +521,35 @@ mod tests {
         eval_between("rnbqkb1r/pppppppp/5n2/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", 10, 50);
         eval_between("1k6/8/8/4P3/8/4p3/8/1K6 w - - 0 1", -150, -10);
         eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -150, -10);
+        eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -150, -10);
+    }
+
+    #[test]
+    fn compare_eval_test() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let config = &Config::new();
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
+        let eval1 = eval_service.calc_eval(&board, config, movegen);
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
+        let eval2 = eval_service.calc_eval(&board, config, movegen);
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
+        let eval3 = eval_service.calc_eval(&board, config, movegen);
+
+        let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
+        let eval4 = eval_service.calc_eval(&board, config, movegen);
+
+        println!("{}", eval1);
+        println!("{}", eval2);
+        println!("{}", eval3);
+        println!("{}", eval4);
+
+        
+
     }
 
     #[test]
