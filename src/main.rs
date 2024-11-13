@@ -55,7 +55,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00h-candidate2";
+    let version = "V00h";
 
     log(format!("Engine startet: {}", version));
 

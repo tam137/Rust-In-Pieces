@@ -67,12 +67,22 @@ impl SearchService {
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
         let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = (None, turn.eval, Default::default());
 
-
+/*
         if depth <= 0 && turn.from == 61 && turn.to == 72 && turn.capture == 11 && board.cached_hash == 6026442690037892337 {
-            println!("hier");
+            println!("stop");
         }
-
+ */
         if depth <= 0 {
+
+            /*
+            let stand_pat_cut = if white {
+                beta >= eval.1 || (turn.capture == 0 && !turn.gives_check)
+            } else {
+                alpha <= eval.1 || (turn.capture == 0 && !turn.gives_check)
+            };
+             */
+
+
             let stand_pat_cut = if white {
                 beta < eval.1 || (turn.capture == 0 && !turn.gives_check)
             } else {
