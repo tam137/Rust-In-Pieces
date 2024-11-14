@@ -9,6 +9,7 @@ mod move_gen_service;
 mod book;
 mod uci_parser_service;
 mod zobrist;
+mod stdout_wrapper;
 
 use std::io::Write;
 use std::thread;
@@ -63,23 +64,26 @@ fn main() {
     log(format!("Benchmark Value: {}", benchmark_value));
 
     let _handle = thread::spawn(move || {
+
+        let stdout = Service::new().stdout;
+
         loop {
             let mut uci_token = String::new();
             match io::stdin().read_line(&mut uci_token) {
                 Ok(_) => {
                     if uci_token.trim() == "uci" {
-                        println!("id name SupraH {}", version);
-                        println!("id author Jan Lange");
-                        println!("uciok");
+                        stdout.write(&format!("id name SupraH {}", version));
+                        stdout.write("id author Jan Lange");
+                        stdout.write("uciok");
                     }
                     else if uci_token.trim() == "uciready" {
-                        println!("readyok");
+                        stdout.write("readyok");
                     }
                     else if uci_token.trim() == "ucinewgame" {
-                        tx.send(format!("ucinewgame")).expect("Could not send 'ucinewgame' as internal cmd");
+                        tx.send(format!("ucinewgame")).expect("RIP Could not send 'ucinewgame' as internal cmd");
                     }
                     else if uci_token.trim() == "isready" {
-                        println!("readyok");
+                        stdout.write("readyok");
                     }
                     else if uci_token.trim().starts_with("position startpos moves") {
                         let len = uci_token.len();
@@ -88,30 +92,33 @@ fn main() {
                         } else {
                             &uci_token[len - 5..len -1]
                         };
-                        tx.send(format!("move {}", move_str)).expect("Could not send 'move' as internal cmd");
+                        tx.send(format!("move {}", move_str)).expect("RIP Could not send 'move' as internal cmd");
                     }
                     else if uci_token.starts_with("go") {
                         sleep(Duration::from_millis(5));
-                        tx.send(uci_token).expect("Could not send 'go' as internal cmd");
+                        tx.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
                     }
                     else if uci_token.starts_with("test") {
-                        tx.send(format!("test")).expect("Could not send 'test' as internal cmd");
+                        tx.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
                     }
                     else if uci_token.starts_with("quit") {
-                        tx.send("quit".to_string()).expect("Could not send 'quit' as internal cmd");
+                        tx.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                         break;
                     }
                     else {
-                        println!("cmd unknown or empty: {}", uci_token);
-                        thread::sleep(Duration::from_millis(2));
+                        if !uci_token.is_empty() {
+                            log("cmd unknown".to_string() + &uci_token);
+                        }                        
+                        thread::sleep(Duration::from_millis(5));
                     }
                 },
-                Err(error) => {
-                    log(format!("Error reading std input: {}", error));
-                    println!("Error reading std input: {}", error);
+                Err(_) => {
+                    panic!("RIP Error reading std input");
                 }
             }
-            io::stdout().flush().expect("failed when flush std buffer");
+            if let Err(_e) = io::stdout().flush() {
+                log("RIP failed to flush stdout".to_string());
+            };
         }
     });
 
@@ -121,6 +128,7 @@ fn main() {
     let mut stats = Stats::new();
     let config = Config::new();
     let mut white;
+    let stdout = &service.stdout;
 
     let mut game = UciGame::new(service.fen.set_init_board());
 
@@ -130,7 +138,7 @@ fn main() {
         let received = match rx.recv() {
             Ok(msg) => msg,
             Err(_) => {
-                println!("Channel closed, exiting");
+                log("Message Channel closed, exiting".to_string());
                 break;
             }
         };
@@ -159,7 +167,7 @@ fn main() {
                 let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service);
                 game.do_move(&search_result.get_best_move_algebraic());
                 
-                let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().unwrap();
+                let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
                 let cleaned = game.board.zobrist.clean_up_hash_if_needed(&config);
@@ -169,10 +177,19 @@ fn main() {
 
                 let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
     
-                println!("info depth {} score cp {} time {} nodes {} nps {} pv {}", search_result.get_depth(),
-                        cp, calc_time_ms, stats.created_nodes, stats.created_nodes / (calc_time_ms + 1) as usize, move_row);
+                if let Err(_e) = stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
+                search_result.get_depth(),
+                cp,
+                calc_time_ms,
+                stats.created_nodes,
+                stats.created_nodes / (calc_time_ms + 1) as usize,
+                move_row)
+                ) {
+                    log("Std Channel closed exiting".to_string());
+                    break;
+                }
                 
-                println!("bestmove {}", search_result.get_best_move_algebraic());
+                stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
 
                 if config.in_debug {
                     log(format!("{:?}", stats));
@@ -182,7 +199,7 @@ fn main() {
                     log(format!("found Book move: {} for position {}", book_move, game_fen));
                 }
                 game.do_move(book_move);
-                println!("bestmove {}", book_move);
+                stdout.write(&format!("bestmove {}", book_move));
             }
 
             stats.reset_stats();
@@ -199,7 +216,6 @@ fn main() {
             run_time_check();
         } else if received == "quit" {
             log(format!("uci: received 'quit'"));
-            println!("Quitting gracefully...");
             break;
         }       
     }
@@ -209,17 +225,17 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) 
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / (complexity + 1);
 
-    if value > 50 {
+    if value > 70 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 8));
         }        
         return 8;
-    } else if value > 30 {
+    } else if value > 50 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 6));
         }        
         return 6;
-    } else if value >= 5 {
+    } else if value >= 6 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 4));
         }
@@ -234,20 +250,20 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) 
 
 
 fn log(msg: String) {
-    let timestamp = Local::now().format("%H:%M:%S");
+    let timestamp = Local::now().format("%H:%M:%S%.3f");
     let log_entry = format!("{} {}", timestamp, msg + "\n");
     match OpenOptions::new()
         .write(true)
         .append(true)
         .create(true)
-        .open("rust-in-piece.log") {
+        .open("rust-in-piece2.log") {
             Ok(mut file) => {
                 match file.write_all(log_entry.as_bytes()) {
                     Ok(_) => (),
-                    Err(e) => println!("Error writing to file: {}", e),
+                    Err(e) => panic!("RIP Error writing to file {}", e),
                 }
             },
-            Err(e) => println!("Error opening file: {}", e),
+            Err(e) => panic!("Error opening file: {}", e),
         }
 }
 

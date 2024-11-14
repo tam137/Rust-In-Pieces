@@ -102,7 +102,7 @@ impl SearchService {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                         GameStatus::Draw => (None, 0, Default::default()),
-                        _ => panic!("no defined game end"),
+                        _ => panic!("RIP no defined game end"),
                     };
                 }
                 return eval
@@ -115,7 +115,7 @@ impl SearchService {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                             GameStatus::Draw => (None, 0, Default::default()),
-                            _ => panic!("no defined game end"),
+                            _ => panic!("RIP no defined game end"),
                         };
                     }
                     return eval
@@ -133,7 +133,7 @@ impl SearchService {
                 GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                 GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
                 GameStatus::Draw => (None, 0, Default::default()),
-                _ => panic!("no defined game end"),
+                _ => panic!("RIP no defined game end"),
             };
         }
 
@@ -316,8 +316,6 @@ mod tests {
         let mut board = fen_service.set_fen("7r/p1p2p1p/P3k1p1/2KR1nr1/2P5/8/8/8 w - - 2 35");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new());
         assert_ne!("d5e5", result.get_best_move_algebraic());
-
-        let hash = fen_service.set_fen("rnb1k1n1/pp4p1/2p4r/3p4/5N1p/1qP3PB/3NPP1P/3QK2R w Kq - 0 21").hash();
 
         // hash 6026442690037892337
         let mut board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");

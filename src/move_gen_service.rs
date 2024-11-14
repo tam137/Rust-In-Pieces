@@ -239,7 +239,7 @@ impl MoveGenService {
         let white = if idx == 0 {
             board.white_to_move
         } else {
-            if board.field[idx as usize] <= 0 { panic!("no piece in idx {}", idx) };
+            if board.field[idx as usize] <= 0 { panic!("RIP no piece in idx {}", idx) };
             if board.field[idx as usize] / 10 == 1 { true } else { false }
         };
 
@@ -885,11 +885,11 @@ mod tests {
                 if counter <= expected_below {
                     return;
                 } else {
-                    panic!("Counter = {} allowed expected {}", counter, expected_below);
+                    panic!("RIP Counter = {} allowed expected {}", counter, expected_below);
                 }
             }
         }
-        panic!("Did not found target move");
+        panic!("RIP Did not found target move");
     }
 
     fn from(fen: &str) -> Vec<Turn> {
