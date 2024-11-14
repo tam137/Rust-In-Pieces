@@ -214,7 +214,7 @@ impl Board {
 
         // validation
         if self.field[turn.from as usize] == 0 {
-            panic!("do_move(): Field on turn.from is 0\n{:?}", turn);
+            panic!("RIP do_move(): Field on turn.from is 0\n{:?}", turn);
         }
         
         let old_castle_information = self.get_castle_information();
@@ -301,7 +301,7 @@ impl Board {
 
         // Check for 3-move repetition
         if let Some(&count) = self.move_repetition_map.get(&board_hash) {
-            if count > 3 { panic!("move_repetition_map vale {}", count) }
+            if count > 3 { panic!("RIP move_repetition_map vale {}", count) }
             if count == 3 {
                 self.game_status = GameStatus::Draw;
             }
@@ -316,7 +316,7 @@ impl Board {
 
         // validation
         if self.field[turn.to as usize] == 0 {
-            panic!("undo_move(): Field on turn.to is 0\n{:?}", turn);
+            panic!("RIP undo_move(): Field on turn.to is 0\n{:?}", turn);
         }
 
         self.game_status = GameStatus::Normal;

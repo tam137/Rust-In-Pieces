@@ -26,7 +26,7 @@ impl NotationUtil {
 
         let valid_move_regex = Regex::new(r"^[a-h][1-8][a-h][1-8][qkbnr]?$").unwrap();
         if !valid_move_regex.is_match(notation_move) {
-            panic!("Invalid chess move notation: Must be in standard algebraic format. But: '{}'", notation_move);
+            panic!("RIP Invalid chess move notation: Must be in standard algebraic format. But: '{}'", notation_move);
         }
 
         let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
@@ -75,7 +75,7 @@ impl NotationUtil {
                 Some('n') => target_turn.promotion = 12,
                 Some('Q') => target_turn.promotion = 14,
                 Some('N') => target_turn.promotion = 12,
-                _ => panic!("Invalid promotion"),
+                _ => panic!("RIP Invalid promotion"),
             }
 
             if target_turn.to / 90 == 1 {
@@ -91,7 +91,7 @@ impl NotationUtil {
                 return move_turn.clone(); // Return the found move
             }
         }
-        panic!("Turn not found in the move list for notation: {}", notation);
+        panic!("RIP Turn not found in the move list for notation: {}", notation);
     }
 }
 
