@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V00i] - 2024-11-15
+
+### Added
+
+### Fixed
+
+- fixed error when quitting and stdout channel is closed
+
+### Changed
+
+### Removed
+
+
 ## [V00h] - 2024-11-13
 
 ### Added
