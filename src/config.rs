@@ -1,3 +1,5 @@
+use crate::model::QuiescenceSearchMode;
+
 #[derive(Clone)]
 pub struct Config {
     pub use_zobrist: bool,
@@ -5,6 +7,7 @@ pub struct Config {
     pub search_depth: i32,
     pub truncate_bad_moves: usize,
     pub in_debug: bool,
+    pub quiescence_search_mode: QuiescenceSearchMode,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -45,6 +48,7 @@ impl Config {
             search_depth: 4,
             truncate_bad_moves: 30,
             in_debug: true,
+            quiescence_search_mode: QuiescenceSearchMode::Alpha3,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,

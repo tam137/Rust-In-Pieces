@@ -11,6 +11,7 @@ mod uci_parser_service;
 mod zobrist;
 mod stdout_wrapper;
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::thread;
 use std::io;
@@ -18,6 +19,8 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::fs::OpenOptions;
 use chrono::Local;
+use model::DataMapKey;
+use model::QuiescenceSearchMode;
 use model::UciGame;
 use uci_parser_service::UciParserService;
 use std::sync::mpsc;
@@ -56,7 +59,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00h";
+    let version = "V00i-alpha3";
 
     log(format!("Engine startet: {}", version));
 
@@ -71,6 +74,7 @@ fn main() {
             let mut uci_token = String::new();
             match io::stdin().read_line(&mut uci_token) {
                 Ok(_) => {
+                    log(format!("RIP received '{}'", uci_token));
                     if uci_token.trim() == "uci" {
                         stdout.write(&format!("id name SupraH {}", version));
                         stdout.write("id author Jan Lange");
@@ -129,8 +133,14 @@ fn main() {
     let config = Config::new();
     let mut white;
     let stdout = &service.stdout;
+    let mut data_map: HashMap<DataMapKey, i32> = HashMap::default();
 
     let mut game = UciGame::new(service.fen.set_init_board());
+
+    if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
+        data_map.insert(DataMapKey::WhiteTrashhold, 0);
+        data_map.insert(DataMapKey::BlackTrashhold, 0);
+    }
 
 
     loop {
@@ -164,8 +174,18 @@ fn main() {
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms);
 
-                let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service);
+                log(format!("data_map: {:?}", &data_map));
+                let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &data_map);
                 game.do_move(&search_result.get_best_move_algebraic());
+
+                if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
+                    if white {
+                        data_map.insert(DataMapKey::WhiteTrashhold, search_result.get_eval() as i32);
+                    } else {
+                        data_map.insert(DataMapKey::BlackTrashhold, search_result.get_eval() as i32);
+                    }
+                    
+                }
                 
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
                 stats.calc_time_ms = calc_time_ms as usize;
@@ -225,12 +245,17 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) 
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / (complexity + 1);
 
-    if value > 70 {
+    if value > 200 {
+        if config.in_debug {
+            log(format!("time threshold: {} -> depth: {}", value, 10));
+        }        
+        return 10;
+    } else if value > 150 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 8));
         }        
         return 8;
-    } else if value > 50 {
+    } else if value > 90 {
         if config.in_debug {
             log(format!("time threshold: {} -> depth: {}", value, 6));
         }        
@@ -256,7 +281,7 @@ fn log(msg: String) {
         .write(true)
         .append(true)
         .create(true)
-        .open("rust-in-piece2.log") {
+        .open("rust-in-piece.log") {
             Ok(mut file) => {
                 match file.write_all(log_entry.as_bytes()) {
                     Ok(_) => (),
@@ -270,7 +295,10 @@ fn log(msg: String) {
 fn calculate_benchmark (normalized_value: i32) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
-    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &Config::new(), &service))
+    let mut config = Config::new();
+    config.quiescence_search_mode = QuiescenceSearchMode::Alpha1;
+
+    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &HashMap::default()))
 }
 
 fn run_time_check() {
@@ -283,15 +311,15 @@ fn run_time_check() {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &mut config, &service.move_gen)); // ~ 300ns / ~1µs    
     
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service)); 
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, &HashMap::default())); 
     // ~ 950ms -> 1900ms
 
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, &HashMap::default()));
     // ~ 210ms -> 310ms
 
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, &HashMap::default()));
     // ~ 360ms -> 140ms
 
     println!("Benchmark Value: {}", calculate_benchmark(10000));
