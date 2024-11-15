@@ -7,7 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V00i] - 2024-11-15
 
+- UCI understand debug command
+- UCI understand stop command
+
 ### Added
+
+- improved quiescence search
 
 ### Fixed
 

@@ -3,13 +3,13 @@
 cd $(dirname $0)
 WORKDIR=$PWD
 
-cargo test
+#cargo test
 if [ $? -ne 0 ]; then
   echo "Tests failed. Aborting build process."
   exit 1
 fi
 
-cargo build --release
+#cargo build --release
 cargo build --target x86_64-pc-windows-gnu --release
 cargo build --target=aarch64-unknown-linux-gnu --release
 

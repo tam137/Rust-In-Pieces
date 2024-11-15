@@ -11,6 +11,19 @@ pub enum GameStatus {
     BlackWin,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum QuiescenceSearchMode {
+    None,
+    Alpha1,
+    Alpha2,
+    Alpha3,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum DataMapKey {
+    WhiteTrashhold,
+    BlackTrashhold,
+}
 
 pub struct UciGame {
     pub board: Board,
