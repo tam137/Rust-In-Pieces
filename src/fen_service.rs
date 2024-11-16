@@ -1,4 +1,4 @@
-use crate::model::Board;
+use crate::model::{Board, INIT_BOARD_FEN};
 use crate::notation_util::NotationUtil;
 use crate::zobrist::ZobristTable;
 
@@ -86,7 +86,7 @@ impl FenService {
     }
 
     pub fn set_init_board(&self) -> Board {
-        self.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        self.set_fen(INIT_BOARD_FEN)
     }
 
     /// Clears the board by initializing all positions to -11 (out of bounds) or 0 (empty squares).

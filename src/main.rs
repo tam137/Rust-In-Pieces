@@ -15,13 +15,13 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::thread;
 use std::io;
-use std::thread::sleep;
 use std::time::Duration;
 use std::fs::OpenOptions;
 use chrono::Local;
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
 use model::UciGame;
+use model::INIT_BOARD_FEN;
 use uci_parser_service::UciParserService;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -59,7 +59,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let version = "V00i-alpha3";
+    let version = "V00i-candidate";
 
     log(format!("Engine startet: {}", version));
 
@@ -69,12 +69,13 @@ fn main() {
     let _handle = thread::spawn(move || {
 
         let stdout = Service::new().stdout;
+        let uci_parser = UciParserService::new();
 
         loop {
             let mut uci_token = String::new();
             match io::stdin().read_line(&mut uci_token) {
                 Ok(_) => {
-                    log(format!("RIP received '{}'", uci_token));
+                    //log(format!("RIP received '{}'", uci_token));
                     if uci_token.trim() == "uci" {
                         stdout.write(&format!("id name SupraH {}", version));
                         stdout.write("id author Jan Lange");
@@ -89,19 +90,18 @@ fn main() {
                     else if uci_token.trim() == "isready" {
                         stdout.write("readyok");
                     }
-                    else if uci_token.trim().starts_with("position startpos moves") {
-                        let len = uci_token.len();
-                        let move_str = if matches!(uci_token.chars().rev().nth(1), Some('q' | 'k')) {
-                            &uci_token[len - 6..len -1]
-                        } else {
-                            &uci_token[len - 5..len -1]
-                        };
-                        tx.send(format!("move {}", move_str)).expect("RIP Could not send 'move' as internal cmd");
+                    else if uci_token.starts_with("position") {
+                        let (fen, moves_str) = uci_parser.parse_position(&uci_token);
+                        tx.send(format!("board {}", fen)).expect("RIP Could not send 'board' as internal cmd");
+                        tx.send(format!("moves {}", moves_str)).expect("RIP Could not send 'move' as internal cmd");
                     }
-                    else if uci_token.starts_with("go") {
-                        sleep(Duration::from_millis(5));
+                    else if uci_token.trim() == "go infinite" {
+                        tx.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
+                    }
+                    else if uci_token.trim().starts_with("go") {
                         tx.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
                     }
+
                     else if uci_token.starts_with("test") {
                         tx.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
                     }
@@ -142,18 +142,36 @@ fn main() {
         data_map.insert(DataMapKey::BlackTrashhold, 0);
     }
 
+    let mut update_board_via_uci_token: bool = false;
 
     loop {
 
         let received = match rx.recv() {
             Ok(msg) => msg,
             Err(_) => {
-                log("Message Channel closed, exiting".to_string());
+                log("Internal Command Channel closed, exiting".to_string());
                 break;
             }
         };
 
-        if received.starts_with("go") {
+        if received == "infinite" {
+            let white = game.board.white_to_move;
+            for depth in (2..100).step_by(2) {
+                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &data_map);
+            }
+        }
+
+        else if received.starts_with("board") {
+            update_board_via_uci_token = false;
+            let fen = received[6..].to_string();
+            if fen != game.init_board_setup_fen {
+                 log(format!("received new Board informations {} -> {}", game.init_board_setup_fen, fen));
+                 game = UciGame::new(service.fen.set_fen(&fen));
+                 update_board_via_uci_token = true;
+            }
+        }
+
+        else if received.starts_with("go") {
 
             let calc_time = Instant::now();
 
@@ -179,12 +197,8 @@ fn main() {
                 game.do_move(&search_result.get_best_move_algebraic());
 
                 if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                    if white {
-                        data_map.insert(DataMapKey::WhiteTrashhold, search_result.get_eval() as i32);
-                    } else {
-                        data_map.insert(DataMapKey::BlackTrashhold, search_result.get_eval() as i32);
-                    }
-                    
+                    data_map.insert(DataMapKey::WhiteTrashhold, search_result.get_eval() as i32);
+                    data_map.insert(DataMapKey::BlackTrashhold, search_result.get_eval() as i32);                
                 }
                 
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
@@ -224,10 +238,20 @@ fn main() {
 
             stats.reset_stats();
 
-        } else if received.starts_with("move") {
-            let algebraic_notation = &received[5..];
-            log(format!("uci: received move '{}' ", algebraic_notation));
-            game.do_move(algebraic_notation);
+        } else if received.starts_with("moves") {
+            if update_board_via_uci_token {
+                let moves_str = &received[5..];
+                let moves_iter = moves_str.split_whitespace();
+                for mv in moves_iter {
+                    game.do_move(mv);
+                }
+            } else {
+                let moves_str = &received[5..];
+                let algebraic_notation = uci_parser.parse_last_move_from_moves_str(moves_str);
+                log(format!("uci: received move '{}' ", algebraic_notation));                
+                game.do_move(&algebraic_notation);
+            }
+            
         } else if received == "ucinewgame" {
             log(format!("uci: received 'ucinewgame'"));
             game = UciGame::new(service.fen.set_init_board());

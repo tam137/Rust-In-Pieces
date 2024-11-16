@@ -3,6 +3,10 @@ use std::collections::{HashMap, VecDeque};
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
 
+
+pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum GameStatus {
     Normal,
@@ -28,6 +32,7 @@ pub enum DataMapKey {
 pub struct UciGame {
     pub board: Board,
     pub made_moves_str: String,
+    pub init_board_setup_fen: String,
 }
 
 impl UciGame {
@@ -36,6 +41,7 @@ impl UciGame {
         UciGame {
             board,
             made_moves_str: String::from(""),
+            init_board_setup_fen: INIT_BOARD_FEN.to_string(),
         }
     }
 
