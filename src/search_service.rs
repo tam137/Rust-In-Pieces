@@ -44,6 +44,17 @@ impl SearchService {
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     stats.best_turn_nr = turn_counter;
+
+                    let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
+                    if let Err(_e) = service.stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
+                    search_result.get_depth(),
+                    cp,
+                    0,
+                    stats.created_nodes,
+                    0 as usize,
+                    search_result.get_best_move_row())
+                    ) { }
+                    
                 }
             } else {
                 if min_max_eval < best_eval {
@@ -53,6 +64,16 @@ impl SearchService {
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     stats.best_turn_nr = turn_counter;
+
+                    let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
+                    if let Err(_e) = service.stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
+                    search_result.get_depth(),
+                    cp,
+                    0,
+                    stats.created_nodes,
+                    0 as usize,
+                    search_result.get_best_move_row())
+                    ) { }
                 }
             }
         }
