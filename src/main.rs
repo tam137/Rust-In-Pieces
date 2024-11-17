@@ -12,24 +12,30 @@ mod zobrist;
 mod stdout_wrapper;
 
 use std::collections::HashMap;
+use std::io;
 use std::io::Write;
 use std::thread;
-use std::io;
-use std::time::Duration;
+
 use std::fs::OpenOptions;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::mpsc;
+use std::time::Duration;
+use std::time::Instant;
+
 use chrono::Local;
+
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
 use model::UciGame;
-use model::INIT_BOARD_FEN;
-use uci_parser_service::UciParserService;
-use std::sync::mpsc;
-use std::time::Instant;
 
+use crate::book::Book;
 use crate::config::Config;
 use crate::model::Stats;
+use crate::model::DataValue;
 use crate::service::Service;
-use crate::book::Book;
+
+
 
 
 
@@ -69,7 +75,7 @@ fn main() {
     let _handle = thread::spawn(move || {
 
         let stdout = Service::new().stdout;
-        let uci_parser = UciParserService::new();
+        let uci_parser = Service::new().uci_parser;
 
         loop {
             let mut uci_token = String::new();
@@ -128,18 +134,19 @@ fn main() {
 
     let book = Book::new();
     let service = &Service::new();
-    let uci_parser = &UciParserService::new();
+    let uci_parser = &service.uci_parser;
     let mut stats = Stats::new();
     let config = Config::new();
     let mut white;
     let stdout = &service.stdout;
-    let mut data_map: HashMap<DataMapKey, i32> = HashMap::default();
-
+    let mut data_map: HashMap<DataMapKey, DataValue> = HashMap::default();
     let mut game = UciGame::new(service.fen.set_init_board());
+    let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-        data_map.insert(DataMapKey::WhiteTrashhold, 0);
-        data_map.insert(DataMapKey::BlackTrashhold, 0);
+        data_map.insert(DataMapKey::WhiteTrashhold, DataValue::Integer(0));
+        data_map.insert(DataMapKey::BlackTrashhold, DataValue::Integer(0));
+        data_map.insert(DataMapKey::StopFlag, DataValue::ArcMutexBool(stop_flag));
     }
 
     let mut update_board_via_uci_token: bool = false;
@@ -319,21 +326,20 @@ fn log(msg: String) {
 fn calculate_benchmark (normalized_value: i32) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
-    let mut config = Config::new().wo_info_print();
-    config.quiescence_search_mode = QuiescenceSearchMode::Alpha1;
+    let config = &Config::new().for_tests();
 
     normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &HashMap::default()))
 }
 
 fn run_time_check() {
     let service = &Service::new();
-    let mut config = &Config::new().wo_info_print();
+    let config = &Config::new().for_tests();
     let mut stats = Stats::new();
 
     let mut board = time_it!(service.fen.set_init_board()); // ~3µs / ~11µs
     
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
-    time_it!(service.eval.calc_eval(&board, &mut config, &service.move_gen)); // ~ 300ns / ~1µs    
+    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
     
     time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, &HashMap::default())); 
     // ~ 950ms -> 1900ms
