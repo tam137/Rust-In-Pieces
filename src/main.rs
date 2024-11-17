@@ -11,7 +11,6 @@ mod uci_parser_service;
 mod zobrist;
 mod stdout_wrapper;
 
-use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use std::thread;
@@ -32,10 +31,8 @@ use model::UciGame;
 use crate::book::Book;
 use crate::config::Config;
 use crate::model::Stats;
-use crate::model::DataValue;
+use crate::model::DataMap;
 use crate::service::Service;
-
-
 
 
 
@@ -135,19 +132,21 @@ fn main() {
     let book = Book::new();
     let service = &Service::new();
     let uci_parser = &service.uci_parser;
-    let mut stats = Stats::new();
     let config = Config::new();
-    let mut white;
     let stdout = &service.stdout;
-    let mut data_map: HashMap<DataMapKey, DataValue> = HashMap::default();
-    let mut game = UciGame::new(service.fen.set_init_board());
+    let mut white;
+    let mut stats = Stats::new();
+    
     let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+    let mut game = UciGame::new(service.fen.set_init_board());    
+    let mut data_map = DataMap::new();
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-        data_map.insert(DataMapKey::WhiteTrashhold, DataValue::Integer(0));
-        data_map.insert(DataMapKey::BlackTrashhold, DataValue::Integer(0));
-        data_map.insert(DataMapKey::StopFlag, DataValue::ArcMutexBool(stop_flag));
+        data_map.insert(DataMapKey::WhiteThreshold, 0);
+        data_map.insert(DataMapKey::BlackThreshold, 0);
     }
+    
+    data_map.insert(DataMapKey::StopFlag, stop_flag);
 
     let mut update_board_via_uci_token: bool = false;
 
@@ -199,13 +198,13 @@ fn main() {
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms);
 
-                log(format!("data_map: {:?}", &data_map));
+                log(format!("quiescence_search_threshold: {:?}", data_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
                 let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &data_map);
                 game.do_move(&search_result.get_best_move_algebraic());
 
                 if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                    data_map.insert(DataMapKey::WhiteTrashhold, search_result.get_eval() as i32);
-                    data_map.insert(DataMapKey::BlackTrashhold, search_result.get_eval() as i32);                
+                    data_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
+                    data_map.insert(DataMapKey::BlackThreshold, search_result.get_eval() as i32);                
                 }
                 
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
@@ -328,7 +327,7 @@ fn calculate_benchmark (normalized_value: i32) -> i32 {
     let service = Service::new();
     let config = &Config::new().for_tests();
 
-    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &HashMap::default()))
+    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &DataMap::new()))
 }
 
 fn run_time_check() {
@@ -341,15 +340,15 @@ fn run_time_check() {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
     
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, &HashMap::default())); 
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, &DataMap::new())); 
     // ~ 950ms -> 1900ms
 
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, &HashMap::default()));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, &DataMap::new()));
     // ~ 210ms -> 310ms
 
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, &HashMap::default()));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, &DataMap::new()));
     // ~ 360ms -> 140ms
 
     println!("Benchmark Value: {}", calculate_benchmark(10000));
