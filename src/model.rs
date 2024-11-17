@@ -15,11 +15,72 @@ pub enum DataValue {
     ArcMutexBool(Arc<Mutex<bool>>),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum DataMapKey {
     WhiteThreshold,
     BlackThreshold,
     StopFlag,
+}
+
+pub struct DataMap {
+    data_map: HashMap<DataMapKey, DataValue>,
+}
+
+impl DataMap {
+    pub fn new() -> Self {
+        DataMap {
+            data_map: HashMap::new(),
+        }
+    }
+
+    pub fn insert<T>(&mut self, key: DataMapKey, value: T)
+    where
+        DataMapKey: KeyToType<T>,
+    {
+        let data_value = key.create_value(value);
+        self.data_map.insert(key, data_value);
+    }
+
+    pub fn get_data<'a, T>(&'a self, key: DataMapKey) -> Option<&'a T>
+    where
+        DataMapKey: KeyToType<T>,
+    {
+        self.data_map.get(&key).and_then(|value| key.get_value(value))
+    }
+}
+
+trait KeyToType<T> {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a T>;
+    fn create_value(&self, value: T) -> DataValue;
+}
+
+// Implementierung für i32
+impl KeyToType<i32> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a i32> {
+        match (self, value) {
+            (DataMapKey::WhiteThreshold, DataValue::Integer(i))
+            | (DataMapKey::BlackThreshold, DataValue::Integer(i)) => Some(i),
+            _ => None,
+        }
+    }
+
+    fn create_value(&self, value: i32) -> DataValue {
+        DataValue::Integer(value)
+    }
+}
+
+// Implementierung für Arc<Mutex<bool>>
+impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a Arc<Mutex<bool>>> {
+        match (self, value) {
+            (DataMapKey::StopFlag, DataValue::ArcMutexBool(a)) => Some(a),
+            _ => None,
+        }
+    }
+
+    fn create_value(&self, value: Arc<Mutex<bool>>) -> DataValue {
+        DataValue::ArcMutexBool(value)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -37,41 +98,6 @@ pub enum QuiescenceSearchMode {
     Alpha2,
     Alpha3,
 }
-
-pub struct DataMap {
-    pub data_map: HashMap<DataMapKey, DataValue>,
-}
-
-impl DataMap {
-    pub fn new() -> Self {
-        DataMap {
-            data_map: HashMap::default(),
-        }
-    }
-
-    pub fn get_data<'a, T>(&'a self, key: DataMapKey) -> Option<&'a T>
-    where
-        DataMapKey: KeyToType<T>,
-    {
-        self.data_map.get(&key).and_then(|value| key.get_value(value))
-    }
-}
-
-trait KeyToType<T> {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a T>;
-}
-
-
-impl KeyToType<i32> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a i32> {
-        match (self, value) {
-            (DataMapKey::WhiteThreshold, DataValue::Integer(i)) => Some(i),
-            (DataMapKey::BlackThreshold, DataValue::Integer(i)) => Some(i),
-            _ => None,
-        }
-    }
-}
-
 
 pub struct UciGame {
     pub board: Board,
@@ -515,7 +541,7 @@ impl PartialEq for Board {
 #[derive(Debug)]
 pub struct Stats {
     pub best_turn_nr: i8,
-    pub turn_number_gt_trashhold: i32,
+    pub turn_number_gt_threshold: i32,
     pub created_nodes: usize,
     pub created_capture_node: usize,
     pub calculated_nodes: usize,
@@ -532,7 +558,7 @@ impl Stats {
     pub fn new() -> Stats {
         Stats {
             best_turn_nr: 0,
-            turn_number_gt_trashhold: 0,
+            turn_number_gt_threshold: 0,
             calculated_nodes: 0,
             created_capture_node: 0,
             created_nodes: 0,
@@ -577,8 +603,8 @@ impl Stats {
         self.zobrist_hit += value;
     }
 
-    pub fn add_turn_nr_gt_trashhold(&mut self, value: i32) {
-        self.turn_number_gt_trashhold += value;
+    pub fn add_turn_nr_gt_threshold(&mut self, value: i32) {
+        self.turn_number_gt_threshold += value;
     }
 
     pub fn set_calc_time(&mut self, value: usize) {
@@ -588,7 +614,7 @@ impl Stats {
 
     pub fn reset_stats(&mut self) {
         self.best_turn_nr = 0;
-        self.turn_number_gt_trashhold = 0;
+        self.turn_number_gt_threshold = 0;
         self.created_nodes = 0;
         self.created_capture_node = 0;
         self.calculated_nodes = 0;
