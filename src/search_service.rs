@@ -100,9 +100,7 @@ impl SearchService {
         }
  */
         if depth <= 0 {
-
             let mut stand_pat_cut = true;
-
             
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha1 {
                 stand_pat_cut = if white {
@@ -238,7 +236,7 @@ mod tests {
     fn white_matt_tests() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("8/3K4/8/8/5RR1/8/k7/8 w - - 0 1");
         let result = search_service.get_moves(&mut board, 6, true, &mut Stats::new(), &config, &Service::new(), &HashMap::default());
@@ -263,7 +261,7 @@ mod tests {
     fn black_matt_tests() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("8/1p6/p1P5/2p5/K1p2P2/P2kPn1P/1r6/8 b - - 3 43");
         let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new(), &HashMap::default());
@@ -289,7 +287,7 @@ mod tests {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
         //let eval_service = Service::new().eval;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("2r2rk1/1b2bppp/pqn1pn2/8/1PBB4/P3PN2/5PPP/RN1Q1RK1 b - - 2 14");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &HashMap::default());
@@ -310,7 +308,7 @@ mod tests {
     fn white_find_hit_move() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
         let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new(), &HashMap::default());
@@ -336,7 +334,7 @@ mod tests {
     fn hit_move_unsolved() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &HashMap::default());
@@ -350,7 +348,7 @@ mod tests {
     fn practical_moves_from_games() {
         let fen_service = Service::new().fen;
         let search_service = Service::new().search;
-        let config = &Config::new();
+        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("r1q1k2r/p1pRbp2/5p2/1p5p/5B2/6P1/PPQ1PP1P/4KB1R b Kkq - 0 20");
         let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &HashMap::default());

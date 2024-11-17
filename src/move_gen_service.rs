@@ -89,8 +89,8 @@ impl MoveGenService {
             }
         }
     
-        valid_moves.truncate(self.config.truncate_bad_moves);
         stats.add_created_nodes(valid_moves.len());
+        valid_moves.truncate(self.config.truncate_bad_moves);
         valid_moves
         
     }
