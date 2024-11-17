@@ -8,6 +8,7 @@ pub struct Config {
     pub truncate_bad_moves: usize,
     pub in_debug: bool,
     pub quiescence_search_mode: QuiescenceSearchMode,
+    pub print_info_string: bool,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -49,6 +50,7 @@ impl Config {
             truncate_bad_moves: 30,
             in_debug: true,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
+            print_info_string: true,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
@@ -81,5 +83,19 @@ impl Config {
             king_in_double_check_malus: 300,
             king_centered: 120,
         }
+    }
+
+    pub fn wo_info_print(&self) -> Self {
+        let mut config = Config::new();
+        config.print_info_string = false;
+        config
+    }
+
+    /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
+    pub fn for_tests(&self) -> Self {
+        let mut config = Config::new();
+        config.print_info_string = false;
+        config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
+        config
     }
 }

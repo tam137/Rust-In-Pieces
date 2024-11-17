@@ -319,7 +319,7 @@ fn log(msg: String) {
 fn calculate_benchmark (normalized_value: i32) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
-    let mut config = Config::new();
+    let mut config = Config::new().wo_info_print();
     config.quiescence_search_mode = QuiescenceSearchMode::Alpha1;
 
     normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &HashMap::default()))
@@ -327,7 +327,7 @@ fn calculate_benchmark (normalized_value: i32) -> i32 {
 
 fn run_time_check() {
     let service = &Service::new();
-    let mut config = &Config::new();
+    let mut config = &Config::new().wo_info_print();
     let mut stats = Stats::new();
 
     let mut board = time_it!(service.fen.set_init_board()); // ~3µs / ~11µs
