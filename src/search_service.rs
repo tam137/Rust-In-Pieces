@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::collections::HashMap;
 use crate::config::Config;
 use crate::model::DataMapKey;
+use crate::model::DataValue;
 use crate::model::QuiescenceSearchMode;
 use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant};
 use crate::service::Service;
@@ -16,7 +17,7 @@ impl SearchService {
     }
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
-        service: &Service, data_map: &HashMap<DataMapKey, i32>) -> SearchResult {
+        service: &Service, data_map: &HashMap<DataMapKey, DataValue>) -> SearchResult {
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
@@ -46,7 +47,10 @@ impl SearchService {
                     search_result.is_white_move = white;
                     stats.best_turn_nr = turn_counter;
                     if config.print_info_string {
-                        service.stdout.write(&service.uci_parser.get_info_str(&search_result, stats));
+                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
+                            stats.add_log("stdout channel closed during search".to_string());
+                            break;
+                        }
                     }                    
                 }
             } else {
@@ -59,8 +63,11 @@ impl SearchService {
                     search_result.is_white_move = white;
                     stats.best_turn_nr = turn_counter;
                     if config.print_info_string {
-                        service.stdout.write(&service.uci_parser.get_info_str(&search_result, stats));
-                    }
+                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
+                            stats.add_log("stdout channel closed during search".to_string());
+                            break;
+                        }
+                    } 
                 }
             }
         }
@@ -74,7 +81,7 @@ impl SearchService {
     }
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
-        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, data_map: &HashMap<DataMapKey, i32>)
+        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, data_map: &HashMap<DataMapKey, DataValue>)
         ->(Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -211,6 +218,24 @@ impl SearchService {
     }
 }
 
+
+fn get_data<'a, T>(map: &'a HashMap<DataMapKey, DataValue>, key: &DataMapKey) -> Option<&'a T>
+where
+    T: 'static,
+{
+    map.get(key).and_then(|value| match value {
+        DataValue::Integer(i) if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() => {
+            // Cast `i` to the expected type
+            Some(unsafe { &*(i as *const i32 as *const T) })
+        }
+        DataValue::ArcMutexBool(a) if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Arc<Mutex<bool>>>() => {
+            Some(unsafe { &*(a as *const Arc<Mutex<bool>> as *const T) })
+        }
+        _ => None,
+    })
+}
+
+       
 
 #[cfg(test)]
 mod tests {

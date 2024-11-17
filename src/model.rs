@@ -1,4 +1,6 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
@@ -6,6 +8,19 @@ use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+
+#[derive(Debug, Clone)]
+pub enum DataValue {
+    Integer(i32),
+    ArcMutexBool(Arc<Mutex<bool>>),
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+pub enum DataMapKey {
+    WhiteThreshold,
+    BlackThreshold,
+    StopFlag,
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum GameStatus {
@@ -23,11 +38,40 @@ pub enum QuiescenceSearchMode {
     Alpha3,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum DataMapKey {
-    WhiteTrashhold,
-    BlackTrashhold,
+pub struct DataMap {
+    pub data_map: HashMap<DataMapKey, DataValue>,
 }
+
+impl DataMap {
+    pub fn new() -> Self {
+        DataMap {
+            data_map: HashMap::default(),
+        }
+    }
+
+    pub fn get_data<'a, T>(&'a self, key: DataMapKey) -> Option<&'a T>
+    where
+        DataMapKey: KeyToType<T>,
+    {
+        self.data_map.get(&key).and_then(|value| key.get_value(value))
+    }
+}
+
+trait KeyToType<T> {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a T>;
+}
+
+
+impl KeyToType<i32> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a i32> {
+        match (self, value) {
+            (DataMapKey::WhiteThreshold, DataValue::Integer(i)) => Some(i),
+            (DataMapKey::BlackThreshold, DataValue::Integer(i)) => Some(i),
+            _ => None,
+        }
+    }
+}
+
 
 pub struct UciGame {
     pub board: Board,
