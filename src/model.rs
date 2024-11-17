@@ -568,7 +568,8 @@ impl Stats {
 
 #[derive(Default)]
 pub struct SearchResult {
-    pub variants: Vec<Variant>
+    pub variants: Vec<Variant>,
+    pub is_white_move: bool,
 }
 
 #[derive(Debug)]

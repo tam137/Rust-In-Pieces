@@ -1,5 +1,6 @@
 use crate::model::INIT_BOARD_FEN;
-
+use crate::model::SearchResult;
+use crate::model::Stats;
 
 
 pub struct UciParserService;
@@ -87,6 +88,17 @@ impl UciParserService {
             &moves_str[len - 4..]
         };
         move_str.to_string()
+    }
+
+    pub fn get_info_str(&self, search_result: &SearchResult, stats: &Stats) -> String {
+        let cp = if search_result.is_white_move { search_result.get_eval() } else { search_result.get_eval() *(-1) };
+        format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
+            search_result.get_depth(),
+            cp,
+            0,
+            stats.created_nodes,
+            0 as usize,
+            search_result.get_best_move_row())
     }
 
 }

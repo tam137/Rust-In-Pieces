@@ -43,18 +43,11 @@ impl SearchService {
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
+                    search_result.is_white_move = white;
                     stats.best_turn_nr = turn_counter;
-
-                    let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
-                    if let Err(_e) = service.stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
-                    search_result.get_depth(),
-                    cp,
-                    0,
-                    stats.created_nodes,
-                    0 as usize,
-                    search_result.get_best_move_row())
-                    ) { }
-                    
+                    if config.print_info_string {
+                        service.stdout.write(&service.uci_parser.get_info_str(&search_result, stats));
+                    }                    
                 }
             } else {
                 if min_max_eval < best_eval {
@@ -63,17 +56,11 @@ impl SearchService {
                     let mut best_move_row = min_max_result.2;
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
+                    search_result.is_white_move = white;
                     stats.best_turn_nr = turn_counter;
-
-                    let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
-                    if let Err(_e) = service.stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
-                    search_result.get_depth(),
-                    cp,
-                    0,
-                    stats.created_nodes,
-                    0 as usize,
-                    search_result.get_best_move_row())
-                    ) { }
+                    if config.print_info_string {
+                        service.stdout.write(&service.uci_parser.get_info_str(&search_result, stats));
+                    }
                 }
             }
         }
