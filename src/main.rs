@@ -66,8 +66,14 @@ fn main() {
 
     log(format!("Engine startet: {}", version));
 
-    let benchmark_value = calculate_benchmark(10000);
+    let mut data_map = DataMap::new();
+    let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+    data_map.insert(DataMapKey::StopFlag, stop_flag);
+
+    let benchmark_value = calculate_benchmark(10000, &data_map);
     log(format!("Benchmark Value: {}", benchmark_value));
+
+    let stop_flag_input_thread1 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
 
     let _handle = thread::spawn(move || {
 
@@ -84,34 +90,58 @@ fn main() {
                         stdout.write("id author Jan Lange");
                         stdout.write("uciok");
                     }
+
                     else if uci_token.trim() == "uciready" {
                         stdout.write("readyok");
                     }
+
                     else if uci_token.trim() == "ucinewgame" {
-                        tx.send(format!("ucinewgame")).expect("RIP Could not send 'ucinewgame' as internal cmd");
+                        tx.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
                     }
+
                     else if uci_token.trim() == "isready" {
                         stdout.write("readyok");
                     }
-                    else if uci_token.starts_with("position") {
+
+                    else if uci_token.trim().starts_with("position") {
                         let (fen, moves_str) = uci_parser.parse_position(&uci_token);
                         tx.send(format!("board {}", fen)).expect("RIP Could not send 'board' as internal cmd");
                         tx.send(format!("moves {}", moves_str)).expect("RIP Could not send 'move' as internal cmd");
                     }
+
                     else if uci_token.trim() == "go infinite" {
+                        tx.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
                         tx.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
                     }
+
                     else if uci_token.trim().starts_with("go") {
                         tx.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
                     }
 
-                    else if uci_token.starts_with("test") {
+                    else if uci_token.trim().starts_with("test") {
                         tx.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
                     }
-                    else if uci_token.starts_with("quit") {
+
+                    else if uci_token.trim().starts_with("stop") {
+                        if let Some(flag) = stop_flag_input_thread1.as_ref() {
+                            let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
+                            *stop_flag = true;
+                        } else {
+                            panic!("RIP Cant read stop flag");
+                        }
+                    }
+
+                    else if uci_token.trim().starts_with("quit") {
+                        if let Some(flag) = stop_flag_input_thread1.as_ref() {
+                            let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
+                            *stop_flag = true;
+                        } else {
+                            panic!("RIP Cant read stop flag");
+                        }
                         tx.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                         break;
                     }
+
                     else {
                         if !uci_token.is_empty() {
                             log("cmd unknown".to_string() + &uci_token);
@@ -134,19 +164,18 @@ fn main() {
     let uci_parser = &service.uci_parser;
     let config = Config::new();
     let stdout = &service.stdout;
-    let mut white;
-    let mut stats = Stats::new();
+
+    let stop_flag_input_thread2 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
     
-    let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-    let mut game = UciGame::new(service.fen.set_init_board());    
-    let mut data_map = DataMap::new();
+    let mut stats = Stats::new();
+    let mut game = UciGame::new(service.fen.set_init_board());  
+    let mut white = game.board.white_to_move; 
+
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
         data_map.insert(DataMapKey::WhiteThreshold, 0);
         data_map.insert(DataMapKey::BlackThreshold, 0);
     }
-    
-    data_map.insert(DataMapKey::StopFlag, stop_flag);
 
     let mut update_board_via_uci_token: bool = false;
 
@@ -161,7 +190,6 @@ fn main() {
         };
 
         if received == "infinite" {
-            let white = game.board.white_to_move;
             for depth in (2..100).step_by(2) {
                 let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &data_map);
             }
@@ -244,7 +272,9 @@ fn main() {
 
             stats.reset_stats();
 
-        } else if received.starts_with("moves") {
+        }
+        
+        else if received.starts_with("moves") {
             if update_board_via_uci_token {
                 let moves_str = &received[5..];
                 let moves_iter = moves_str.split_whitespace();
@@ -258,13 +288,26 @@ fn main() {
                 game.do_move(&algebraic_notation);
             }
             
-        } else if received == "ucinewgame" {
-            log(format!("uci: received 'ucinewgame'"));
-            game = UciGame::new(service.fen.set_init_board());
+        }
+        
+        else if received == "ucinewgame" {
+            stats = Stats::new();
+            game = UciGame::new(service.fen.set_init_board());  
+            white = game.board.white_to_move; 
+            if let Some(flag) = stop_flag_input_thread2.as_ref() {
+                let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
+                *stop_flag = false;
+            } else {
+                panic!("RIP Cant read stop flag");
+            }
             continue;
-        } else if received == "test" {
-            run_time_check();
-        } else if received == "quit" {
+        }
+        
+        else if received == "test" {
+            run_time_check(&data_map);
+        }
+        
+        else if received == "quit" {
             log(format!("uci: received 'quit'"));
             break;
         }       
@@ -322,15 +365,15 @@ fn log(msg: String) {
         }
 }
 
-fn calculate_benchmark (normalized_value: i32) -> i32 {
+fn calculate_benchmark (normalized_value: i32, data_map: &DataMap) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::new().for_tests();
 
-    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, &DataMap::new()))
+    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, data_map))
 }
 
-fn run_time_check() {
+fn run_time_check(data_map: &DataMap) {
     let service = &Service::new();
     let config = &Config::new().for_tests();
     let mut stats = Stats::new();
@@ -340,16 +383,16 @@ fn run_time_check() {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
     
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, &DataMap::new())); 
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, data_map)); 
     // ~ 950ms -> 1900ms
 
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, &DataMap::new()));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, data_map));
     // ~ 210ms -> 310ms
 
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, &DataMap::new()));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, data_map));
     // ~ 360ms -> 140ms
 
-    println!("Benchmark Value: {}", calculate_benchmark(10000));
+    println!("Benchmark Value: {}", calculate_benchmark(10000, data_map));
 }

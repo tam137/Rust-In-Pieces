@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::{Mutex, Arc};
 use crate::config::Config;
 use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant, DataMap, QuiescenceSearchMode, DataMapKey};
 use crate::service::Service;
@@ -31,6 +32,11 @@ impl SearchService {
             let mi = board.do_move(&turn);   
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, &data_map);
+
+            if self.is_stop_flag(data_map) {
+                break;
+            }
+
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
             if white {
@@ -174,6 +180,9 @@ impl SearchService {
         let mut turn_counter = 0;
 
         for turn in &turns {
+            if self.is_stop_flag(data_map) {
+                break;
+            }
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(&turn);
@@ -215,6 +224,18 @@ impl SearchService {
         }
         return (best_move, eval, best_move_row);
     }
+
+
+    fn is_stop_flag(&self, data_map: &DataMap) -> bool {
+        if let Some(flag) = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
+            let stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
+            *stop_flag
+        } else {
+            panic!("RIP Cant read stop flag");
+        }
+    }
+    
+
 }
 
 
