@@ -122,6 +122,10 @@ fn main() {
                         tx.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
                     }
 
+                    else if uci_token.trim().starts_with("debug") {
+                        // debug on /debug off as Arc Mutex
+                    }
+
                     else if uci_token.trim().starts_with("stop") {
                         if let Some(flag) = stop_flag_input_thread1.as_ref() {
                             let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
