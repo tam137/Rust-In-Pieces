@@ -5,14 +5,13 @@ use std::sync::Mutex;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
 
-
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum DataValue {
     Integer(i32),
     ArcMutexBool(Arc<Mutex<bool>>),
+    LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -20,6 +19,7 @@ pub enum DataMapKey {
     WhiteThreshold,
     BlackThreshold,
     StopFlag,
+    Logger,
 }
 
 pub struct DataMap {
@@ -54,7 +54,6 @@ trait KeyToType<T> {
     fn create_value(&self, value: T) -> DataValue;
 }
 
-// Implementierung für i32
 impl KeyToType<i32> for DataMapKey {
     fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a i32> {
         match (self, value) {
@@ -69,7 +68,6 @@ impl KeyToType<i32> for DataMapKey {
     }
 }
 
-// Implementierung für Arc<Mutex<bool>>
 impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a Arc<Mutex<bool>>> {
         match (self, value) {
@@ -82,6 +80,20 @@ impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
         DataValue::ArcMutexBool(value)
     }
 }
+
+impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a Arc<dyn Fn(String) + Send + Sync>> {
+        match (self, value) {
+            (DataMapKey::Logger, DataValue::LoggerFn(a)) => Some(a),
+            _ => None,
+        }
+    }
+
+    fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> DataValue {
+        DataValue::LoggerFn(value)
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum GameStatus {

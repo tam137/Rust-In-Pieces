@@ -58,22 +58,40 @@ macro_rules! get_time_it {
     }};
 }
 
+fn get_initial_logging_info(logger: Arc<dyn Fn(String) + Send + Sync>, version: &str, benchmark_value: i32) {
+    logger(format!("Engine startet: {}", version));
+    logger(format!("Benchmark Value: {}", benchmark_value));
+}
+
 fn main() {
 
-    let (tx, rx) = mpsc::channel();
+    let file = Arc::new(Mutex::new(
+        OpenOptions::new()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open("rust-in-piece.log")
+            .expect("Failed to open log file"),
+    ));
 
     let version = "V00i-candidate";
 
-    log(format!("Engine startet: {}", version));
+    let mut debug_mode_on = false;
+    let mut logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
+        // empty logging function can be applied by uci "debug on"
+    });
+    //let mut logger_t1 = logger.clone();
+
+    let (tx, rx) = mpsc::channel();    
 
     let mut data_map = DataMap::new();
     let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     data_map.insert(DataMapKey::StopFlag, stop_flag);
+    data_map.insert(DataMapKey::Logger, logger.clone());    
 
-    let benchmark_value = calculate_benchmark(10000, &data_map);
-    log(format!("Benchmark Value: {}", benchmark_value));
+    let benchmark_value = calculate_benchmark(10000, &data_map);    
 
-    let stop_flag_input_thread1 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
+    let stop_flag_input_t1 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
 
     let _handle = thread::spawn(move || {
 
@@ -123,11 +141,30 @@ fn main() {
                     }
 
                     else if uci_token.trim().starts_with("debug") {
-                        // debug on /debug off as Arc Mutex
+                        logger = if uci_token.starts_with("debug on") {
+                            let file = Arc::clone(&file);
+                            debug_mode_on = true;
+                            Arc::from(Box::new(move |msg: String| {
+                                let timestamp = Local::now().format("%H:%M:%S%.3f");
+                                let log_entry = format!("{} {}\n", timestamp, msg);
+                                let mut file = file.lock().unwrap();
+                                if let Err(e) = file.write_all(log_entry.as_bytes()) {
+                                    eprintln!("RIP Error writing to file {}", e);
+                                }
+                            }) as Box<dyn Fn(String) + Send + Sync>)
+                        } else if uci_token.starts_with("debug off") {
+                            debug_mode_on = false;
+                            Arc::from(Box::new(|_msg: String| {
+                                // No logging
+                            }) as Box<dyn Fn(String) + Send + Sync>)
+                        } else {
+                            panic!("RIP Could not parse uci debug cmd");
+                        };
+                        get_initial_logging_info(logger.clone(), &version, benchmark_value);
                     }
 
                     else if uci_token.trim().starts_with("stop") {
-                        if let Some(flag) = stop_flag_input_thread1.as_ref() {
+                        if let Some(flag) = stop_flag_input_t1.as_ref() {
                             let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
                             *stop_flag = true;
                         } else {
@@ -136,7 +173,7 @@ fn main() {
                     }
 
                     else if uci_token.trim().starts_with("quit") {
-                        if let Some(flag) = stop_flag_input_thread1.as_ref() {
+                        if let Some(flag) = stop_flag_input_t1.as_ref() {
                             let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
                             *stop_flag = true;
                         } else {
@@ -148,7 +185,7 @@ fn main() {
 
                     else {
                         if !uci_token.is_empty() {
-                            log("cmd unknown".to_string() + &uci_token);
+                            logger("cmd unknown".to_string() + &uci_token);
                         }                        
                         thread::sleep(Duration::from_millis(5));
                     }
@@ -158,7 +195,7 @@ fn main() {
                 }
             }
             if let Err(_e) = io::stdout().flush() {
-                log("RIP failed to flush stdout".to_string());
+                logger("RIP failed to flush stdout".to_string());
             };
         }
     });
@@ -169,17 +206,19 @@ fn main() {
     let config = Config::new();
     let stdout = &service.stdout;
 
-    let stop_flag_input_thread2 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
-    
-    let mut stats = Stats::new();
-    let mut game = UciGame::new(service.fen.set_init_board());  
-    let mut white = game.board.white_to_move; 
-
+    let logger = data_map.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
+        .expect("RIP Could not get logger from data map").clone();
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
         data_map.insert(DataMapKey::WhiteThreshold, 0);
         data_map.insert(DataMapKey::BlackThreshold, 0);
     }
+
+    let stop_flag_input_t2 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
+    
+    let mut stats = Stats::new();
+    let mut game = UciGame::new(service.fen.set_init_board());  
+    let mut white = game.board.white_to_move; 
 
     let mut update_board_via_uci_token: bool = false;
 
@@ -188,7 +227,7 @@ fn main() {
         let received = match rx.recv() {
             Ok(msg) => msg,
             Err(_) => {
-                log("Internal Command Channel closed, exiting".to_string());
+                logger("Internal Command Channel closed, exiting".to_string());
                 break;
             }
         };
@@ -203,7 +242,7 @@ fn main() {
             update_board_via_uci_token = false;
             let fen = received[6..].to_string();
             if fen != game.init_board_setup_fen {
-                 log(format!("received new Board informations {} -> {}", game.init_board_setup_fen, fen));
+                logger(format!("received new Board informations {} -> {}", game.init_board_setup_fen, fen));
                  game = UciGame::new(service.fen.set_fen(&fen));
                  update_board_via_uci_token = true;
             }
@@ -228,9 +267,9 @@ fn main() {
             if book_move.is_empty() {
 
                 let my_time_ms = if white { wtime } else { btime };
-                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms);
+                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &data_map);
 
-                log(format!("quiescence_search_threshold: {:?}", data_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
+                logger(format!("quiescence_search_threshold: {:?}", data_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
                 let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &data_map);
                 game.do_move(&search_result.get_best_move_algebraic());
 
@@ -243,7 +282,7 @@ fn main() {
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
                 let cleaned = game.board.zobrist.clean_up_hash_if_needed(&config);
-                if cleaned > 0 { log(format!("cleaned {} entries from cache", cleaned)); }
+                if cleaned > 0 { logger(format!("cleaned {} entries from cache", cleaned)); }
 
                 let move_row = search_result.get_best_move_row();
 
@@ -257,18 +296,18 @@ fn main() {
                 stats.created_nodes / (calc_time_ms + 1) as usize,
                 move_row)
                 ) {
-                    log("Std Channel closed exiting".to_string());
+                    logger("Std Channel closed exiting".to_string());
                     break;
                 }
                 
                 stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
 
                 if config.in_debug {
-                    log(format!("{:?}", stats));
+                    logger(format!("{:?}", stats));
                 }                
             } else {
                 if config.in_debug {    
-                    log(format!("found Book move: {} for position {}", book_move, game_fen));
+                    logger(format!("found Book move: {} for position {}", book_move, game_fen));
                 }
                 game.do_move(book_move);
                 stdout.write(&format!("bestmove {}", book_move));
@@ -288,7 +327,7 @@ fn main() {
             } else {
                 let moves_str = &received[5..];
                 let algebraic_notation = uci_parser.parse_last_move_from_moves_str(moves_str);
-                log(format!("uci: received move '{}' ", algebraic_notation));                
+                logger(format!("uci: received move '{}' ", algebraic_notation));                
                 game.do_move(&algebraic_notation);
             }
             
@@ -298,7 +337,7 @@ fn main() {
             stats = Stats::new();
             game = UciGame::new(service.fen.set_init_board());  
             white = game.board.white_to_move; 
-            if let Some(flag) = stop_flag_input_thread2.as_ref() {
+            if let Some(flag) = stop_flag_input_t2.as_ref() {
                 let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
                 *stop_flag = false;
             } else {
@@ -312,62 +351,46 @@ fn main() {
         }
         
         else if received == "quit" {
-            log(format!("uci: received 'quit'"));
+            logger(format!("uci: received 'quit'"));
             break;
         }       
     }
 }
 
-fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32) -> i32 {
+fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, data_map: &DataMap) -> i32 {
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / (complexity + 1);
+    let logger = data_map.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
+        .expect("RIP Could not get logger from data map");
 
     if value > 200 {
         if config.in_debug {
-            log(format!("time threshold: {} -> depth: {}", value, 10));
+            logger(format!("time threshold: {} -> depth: {}", value, 10));
         }        
         return 10;
     } else if value > 150 {
         if config.in_debug {
-            log(format!("time threshold: {} -> depth: {}", value, 8));
+            logger(format!("time threshold: {} -> depth: {}", value, 8));
         }        
         return 8;
     } else if value > 90 {
         if config.in_debug {
-            log(format!("time threshold: {} -> depth: {}", value, 6));
+            logger(format!("time threshold: {} -> depth: {}", value, 6));
         }        
         return 6;
     } else if value >= 6 {
         if config.in_debug {
-            log(format!("time threshold: {} -> depth: {}", value, 4));
+            logger(format!("time threshold: {} -> depth: {}", value, 4));
         }
         return 4;
     } else {
         if config.in_debug {
-            log(format!("time threshold: {} -> depth: {}", value, 2));
+            logger(format!("time threshold: {} -> depth: {}", value, 2));
         }
         return 2;
     }
 }
 
-
-fn log(msg: String) {
-    let timestamp = Local::now().format("%H:%M:%S%.3f");
-    let log_entry = format!("{} {}", timestamp, msg + "\n");
-    match OpenOptions::new()
-        .write(true)
-        .append(true)
-        .create(true)
-        .open("rust-in-piece.log") {
-            Ok(mut file) => {
-                match file.write_all(log_entry.as_bytes()) {
-                    Ok(_) => (),
-                    Err(e) => panic!("RIP Error writing to file {}", e),
-                }
-            },
-            Err(e) => panic!("Error opening file: {}", e),
-        }
-}
 
 fn calculate_benchmark (normalized_value: i32, data_map: &DataMap) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
