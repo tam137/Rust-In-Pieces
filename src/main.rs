@@ -19,6 +19,7 @@ use std::fs::OpenOptions;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
+use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -27,6 +28,7 @@ use chrono::Local;
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
 use model::UciGame;
+use model::ThreadSafeDataMap;
 
 use crate::book::Book;
 use crate::config::Config;
@@ -59,39 +61,53 @@ macro_rules! get_time_it {
 }
 
 fn get_initial_logging_info(logger: Arc<dyn Fn(String) + Send + Sync>, version: &str, benchmark_value: i32) {
+    println!("got debug on33");
     logger(format!("Engine startet: {}", version));
     logger(format!("Benchmark Value: {}", benchmark_value));
 }
 
 fn main() {
 
-    let file = Arc::new(Mutex::new(
-        OpenOptions::new()
-            .write(true)
-            .append(true)
-            .create(true)
-            .open("rust-in-piece.log")
-            .expect("Failed to open log file"),
-    ));
-
     let version = "V00i-candidate";
-
-    let mut debug_mode_on = false;
+    
     let mut logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
-        // empty logging function can be applied by uci "debug on"
+        // empty logging function but can be applied by uci "debug on"
     });
-    //let mut logger_t1 = logger.clone();
 
-    let (tx, rx) = mpsc::channel();    
+    let debug_flag = Arc::new(Mutex::new(false));
+    let stop_flag = Arc::new(Mutex::new(false));
 
-    let mut data_map = DataMap::new();
-    let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-    data_map.insert(DataMapKey::StopFlag, stop_flag);
-    data_map.insert(DataMapKey::Logger, logger.clone());    
+    let global_map = Arc::new(RwLock::new(DataMap::new()));
+    let global_map_t2 = global_map.clone();
 
-    let benchmark_value = calculate_benchmark(10000, &data_map);    
+    {
+        let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+        global_map_value.insert(DataMapKey::StopFlag, stop_flag.clone());
+        global_map_value.insert(DataMapKey::DebugFlag, debug_flag.clone());
+        global_map_value.insert(DataMapKey::Logger, logger.clone());
+    }
 
-    let stop_flag_input_t1 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
+    let benchmark_value = calculate_benchmark(10000, &global_map, &mut DataMap::new()); // TODO needs to fil map?
+
+    let book = Book::new();
+    let service = &Service::new();
+    let uci_parser = &service.uci_parser;
+    let config = Config::new();
+    let stdout = &service.stdout;
+    
+    let mut local_map = DataMap::new();
+    if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
+        local_map.insert(DataMapKey::WhiteThreshold, 0);
+        local_map.insert(DataMapKey::BlackThreshold, 0);
+    }
+
+    let mut stats = Stats::new();
+    let mut game = UciGame::new(service.fen.set_init_board());  
+    let mut white = game.board.white_to_move; 
+
+    let mut update_board_via_uci_token: bool = false;
+
+    let (tx, rx) = mpsc::channel();
 
     let _handle = thread::spawn(move || {
 
@@ -142,8 +158,16 @@ fn main() {
 
                     else if uci_token.trim().starts_with("debug") {
                         logger = if uci_token.starts_with("debug on") {
-                            let file = Arc::clone(&file);
-                            debug_mode_on = true;
+                            let file = Arc::new(Mutex::new(
+                                OpenOptions::new()
+                                    .write(true)
+                                    .append(true)
+                                    .create(true)
+                                    .open("rust-in-piece.log")
+                                    .expect("Failed to open log file"),
+                            ));
+                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
+                            *debug_flag_value = true;
                             Arc::from(Box::new(move |msg: String| {
                                 let timestamp = Local::now().format("%H:%M:%S%.3f");
                                 let log_entry = format!("{} {}\n", timestamp, msg);
@@ -153,32 +177,27 @@ fn main() {
                                 }
                             }) as Box<dyn Fn(String) + Send + Sync>)
                         } else if uci_token.starts_with("debug off") {
-                            debug_mode_on = false;
+                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
+                            *debug_flag_value = false;
                             Arc::from(Box::new(|_msg: String| {
                                 // No logging
                             }) as Box<dyn Fn(String) + Send + Sync>)
                         } else {
                             panic!("RIP Could not parse uci debug cmd");
                         };
+                        let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+                        global_map_value.insert(DataMapKey::Logger, logger.clone());                            
                         get_initial_logging_info(logger.clone(), &version, benchmark_value);
                     }
 
                     else if uci_token.trim().starts_with("stop") {
-                        if let Some(flag) = stop_flag_input_t1.as_ref() {
-                            let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
-                            *stop_flag = true;
-                        } else {
-                            panic!("RIP Cant read stop flag");
-                        }
+                        let mut stop_flag_value = stop_flag.lock().expect("RIP Can not lock stop_flag");
+                        *stop_flag_value = true;
                     }
 
                     else if uci_token.trim().starts_with("quit") {
-                        if let Some(flag) = stop_flag_input_t1.as_ref() {
-                            let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
-                            *stop_flag = true;
-                        } else {
-                            panic!("RIP Cant read stop flag");
-                        }
+                        let mut value = stop_flag.lock().expect("RIP Can not lock stop_flag");
+                        *value = true;
                         tx.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                         break;
                     }
@@ -200,29 +219,23 @@ fn main() {
         }
     });
 
-    let book = Book::new();
-    let service = &Service::new();
-    let uci_parser = &service.uci_parser;
-    let config = Config::new();
-    let stdout = &service.stdout;
 
-    let logger = data_map.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
-        .expect("RIP Could not get logger from data map").clone();
-
-    if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-        data_map.insert(DataMapKey::WhiteThreshold, 0);
-        data_map.insert(DataMapKey::BlackThreshold, 0);
-    }
-
-    let stop_flag_input_t2 = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag).cloned();
-    
-    let mut stats = Stats::new();
-    let mut game = UciGame::new(service.fen.set_init_board());  
-    let mut white = game.board.white_to_move; 
-
-    let mut update_board_via_uci_token: bool = false;
 
     loop {
+
+        let logger;
+        let stop_flag;
+
+        {
+            let global_map_value = global_map_t2.read().expect("RIP Could not lock global map");
+            logger =
+                global_map_value.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
+                .expect("RIP Could not get logger from data map").clone();
+
+            stop_flag =
+                global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
+                .expect("RIP Could not get stop flag from data map").clone();
+        }
 
         let received = match rx.recv() {
             Ok(msg) => msg,
@@ -234,7 +247,7 @@ fn main() {
 
         if received == "infinite" {
             for depth in (2..100).step_by(2) {
-                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &data_map);
+                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &global_map_t2, &mut local_map);
             }
         }
 
@@ -267,15 +280,21 @@ fn main() {
             if book_move.is_empty() {
 
                 let my_time_ms = if white { wtime } else { btime };
-                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &data_map);
+                let calculated_depth = 
+                    calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map_t2);
 
-                logger(format!("quiescence_search_threshold: {:?}", data_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
-                let search_result = &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &data_map);
+                {
+                    let global_map_value = global_map_t2.read().expect("RIP Could not write data map");
+                    logger(format!("quiescence_search_thresholdsss: {:?}", global_map_value.get_data::<i32>(DataMapKey::WhiteThreshold)));
+                }
+                let search_result =
+                    &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map_t2.clone(), &mut local_map);
                 game.do_move(&search_result.get_best_move_algebraic());
 
                 if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                    data_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
-                    data_map.insert(DataMapKey::BlackThreshold, search_result.get_eval() as i32);                
+                    //let mut global_map_value = global_map_t2.write().expect("RIP Could not write data map");
+                    local_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
+                    local_map.insert(DataMapKey::BlackThreshold, search_result.get_eval() as i32);
                 }
                 
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
@@ -336,18 +355,14 @@ fn main() {
         else if received == "ucinewgame" {
             stats = Stats::new();
             game = UciGame::new(service.fen.set_init_board());  
-            white = game.board.white_to_move; 
-            if let Some(flag) = stop_flag_input_t2.as_ref() {
-                let mut stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
-                *stop_flag = false;
-            } else {
-                panic!("RIP Cant read stop flag");
-            }
+            white = game.board.white_to_move;
+            let mut stop_flag_value = stop_flag.lock().expect("RIP Can not lock stop flag");
+            *stop_flag_value = false;
             continue;
         }
         
         else if received == "test" {
-            run_time_check(&data_map);
+            run_time_check(&global_map_t2, &mut local_map);
         }
         
         else if received == "quit" {
@@ -357,11 +372,15 @@ fn main() {
     }
 }
 
-fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, data_map: &DataMap) -> i32 {
+fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, global_map: &ThreadSafeDataMap) -> i32 {
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / (complexity + 1);
-    let logger = data_map.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
-        .expect("RIP Could not get logger from data map");
+    let logger;
+    {
+        let global_map_value = global_map.read().expect("RIP Could not write data map");
+        logger = global_map_value.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
+            .expect("RIP Could not get logger from data map").clone();
+    }
 
     if value > 200 {
         if config.in_debug {
@@ -392,15 +411,15 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, 
 }
 
 
-fn calculate_benchmark (normalized_value: i32, data_map: &DataMap) -> i32 {
+fn calculate_benchmark (normalized_value: i32, global_map: &Arc<RwLock<DataMap>>, local_map: &mut DataMap) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::new().for_tests();
 
-    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, data_map))
+    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, global_map, local_map))
 }
 
-fn run_time_check(data_map: &DataMap) {
+fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     let service = &Service::new();
     let config = &Config::new().for_tests();
     let mut stats = Stats::new();
@@ -410,16 +429,16 @@ fn run_time_check(data_map: &DataMap) {
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
     
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), &Config::new(), service, data_map)); 
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 
     // ~ 950ms -> 1900ms
 
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), &Config::new(), service, data_map));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, global_map, local_map));
     // ~ 210ms -> 310ms
 
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), &Config::new(), service, data_map));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, global_map, local_map));
     // ~ 360ms -> 140ms
 
-    println!("Benchmark Value: {}", calculate_benchmark(10000, data_map));
+    println!("Benchmark Value: {}", calculate_benchmark(10000, global_map, local_map));
 }

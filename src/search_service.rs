@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, Arc};
 use crate::config::Config;
-use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant, DataMap, QuiescenceSearchMode, DataMapKey};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant};
 use crate::service::Service;
 
 
@@ -14,7 +14,7 @@ impl SearchService {
     }
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
-        service: &Service, data_map: &DataMap) -> SearchResult {
+        service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
@@ -31,9 +31,9 @@ impl SearchService {
             turn_counter += 1;
             let mi = board.do_move(&turn);   
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &data_map);
+                alpha, beta, stats, config, service, global_map, local_map);
 
-            if self.is_stop_flag(data_map) {
+            if self.is_stop_flag(global_map) {
                 break;
             }
 
@@ -83,7 +83,7 @@ impl SearchService {
     }
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
-        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, data_map: &DataMap)
+        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
         ->(Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -120,11 +120,9 @@ impl SearchService {
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                 stand_pat_cut = if white {
 
-                    data_map.get_data::<i32>(DataMapKey::WhiteThreshold)
-                    .expect("RIP white_threshold missed") < &(eval.1 as i32) || (turn.capture == 0 && !turn.gives_check)
+                    self.get_white_threshold_value(&local_map) < eval.1 as i32 || (turn.capture == 0 && !turn.gives_check)
                 } else {
-                    data_map.get_data::<i32>(DataMapKey::BlackThreshold)
-                    .expect("RIP black_threshold missed") > &(eval.1 as i32) || (turn.capture == 0 && !turn.gives_check)
+                    self.get_black_threshold_value(&local_map) > eval.1 as i32 || (turn.capture == 0 && !turn.gives_check)
                 };
             }
             
@@ -180,14 +178,14 @@ impl SearchService {
         let mut turn_counter = 0;
 
         for turn in &turns {
-            if self.is_stop_flag(data_map) {
+            if self.is_stop_flag(global_map) {
                 break;
             }
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(&turn);
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &data_map);
+                alpha, beta, stats, config, service, global_map, local_map);
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
 
@@ -226,12 +224,31 @@ impl SearchService {
     }
 
 
-    fn is_stop_flag(&self, data_map: &DataMap) -> bool {
-        if let Some(flag) = data_map.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
-            let stop_flag = flag.lock().expect("RIP Can not lock stop_flag");
+    fn is_stop_flag(&self, global_map: &ThreadSafeDataMap) -> bool {
+        let global_map_value = global_map.read().expect("RIP Could not lock global map");
+        if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
+            let stop_flag = flag.lock().expect("RIP Can not read stop_flag");
             *stop_flag
         } else {
             panic!("RIP Cant read stop flag");
+        }
+    }
+
+    fn get_white_threshold_value(&self, local_map: &DataMap) -> i32 {
+        if let Some(white_threshold) = local_map.get_data::<i32>(DataMapKey::WhiteThreshold) {
+            *white_threshold
+        }
+        else {
+            panic!("RIP Cant read white threshold");
+        }
+    }
+
+    fn get_black_threshold_value(&self, local_map: &DataMap) -> i32 {
+        if let Some(black_threshold) = local_map.get_data::<i32>(DataMapKey::BlackThreshold) {
+            *black_threshold
+        }
+        else {
+            panic!("RIP Cant read white threshold");
         }
     }
     
@@ -241,28 +258,53 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, model::DataMap, service::Service, Stats};
+    use crate::{config::Config, Stats};
+    use crate::service::Service;
+    use crate::model::{Board, SearchResult, DataMap, DataMapKey};
+    use crate::{Arc, RwLock, Mutex};    
+
+    pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
+        let service = Service::new();
+        let config = Config::new().for_tests();
+        let mut stats = Stats::new();
+        let global_map = Arc::new(RwLock::new(DataMap::new()));
+        let mut local_map = DataMap::new();
+
+        let debug_flag = Arc::new(Mutex::new(false));
+        let stop_flag = Arc::new(Mutex::new(false));
+
+        let logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
+        });
+
+        {
+            let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+            global_map_value.insert(DataMapKey::StopFlag, stop_flag.clone());
+            global_map_value.insert(DataMapKey::DebugFlag, debug_flag.clone());
+            global_map_value.insert(DataMapKey::Logger, logger.clone());
+        }
+
+        service.search.get_moves(&mut *board, depth, white, &mut stats, &config, &service, &global_map, &mut local_map)
+    }
+    
 
     #[test]
     #[ignore]
     fn white_matt_tests() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("8/3K4/8/8/5RR1/8/k7/8 w - - 0 1");
-        let result = search_service.get_moves(&mut board, 6, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 6, true);
         assert_eq!(result.get_eval(), 32766);
         assert_eq!(result.get_best_move_algebraic(), "f4f3");
 
         let mut board = fen_service.set_fen("r1q1r1k1/ppppppp1/n1b4p/7N/2B1P2N/2B2Q1P/PPPP1PP1/R3R1K1 w Qq - 0 1");
-        let result = search_service.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 4, true);
         assert_eq!(result.get_eval(), 32766);
         assert_eq!(result.get_best_move_algebraic(), "f3f7");
         
 
         let mut board = fen_service.set_fen("6rk/R2R4/7P/8/p1B2P2/2P4P/P5K1/8 w - - 5 39");
-        let result = search_service.get_moves(&mut board, 6, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 6, true);
         assert_eq!(result.get_eval(), 32766);
         assert_eq!(result.get_best_move_algebraic(), "c4g8");
     }
@@ -272,23 +314,21 @@ mod tests {
     #[ignore]
     fn black_matt_tests() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("8/1p6/p1P5/2p5/K1p2P2/P2kPn1P/1r6/8 b - - 3 43");
-        let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 6, false);
         assert_eq!(result.get_eval(), -32767);
         assert_eq!(result.get_best_move_algebraic(), "b7b6");
 
         
         let mut board = fen_service.set_fen("8/8/8/2k5/8/5p1r/1K6/8 b - - 0 1");
-        let result = search_service.get_moves(&mut board, 8, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 8, false);
         assert_eq!(result.get_eval(), -32767);
         assert_eq!(result.get_best_move_algebraic(), "f3f2");
         
 
         let mut board = fen_service.set_fen("8/5pkp/p5p1/4p3/1P3P2/P3P1KP/2q3P1/3r4 b - - 0 37");
-        let result = search_service.get_moves(&mut board, 6, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 6, false);
         assert_eq!(result.get_eval(), -32767);
         assert_eq!(result.get_best_move_algebraic(), "d1g1");
     }
@@ -297,18 +337,15 @@ mod tests {
     #[test]
     fn black_find_hit_move() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        //let eval_service = Service::new().eval;
-        let config = &Config::new().for_tests();
         
         let mut board = fen_service.set_fen("2r2rk1/1b2bppp/pqn1pn2/8/1PBB4/P3PN2/5PPP/RN1Q1RK1 b - - 2 14");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, false);
         result.print_all_variants();
         assert!(result.get_eval() < -100);
         assert_eq!(result.get_best_move_algebraic(), "c6d4");
 
         let mut board = fen_service.set_fen("6k1/5pp1/5rnp/2Npb3/3PP3/r1P1R2P/5PP1/4BR1K b - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, false);
         //result.print_all_variants();
         assert!(result.get_eval() > 0);
         // assert_eq!(result.get_best_move_algebraic(), "e5d4"); // TODO activate
@@ -319,22 +356,20 @@ mod tests {
     #[test]
     fn white_find_hit_move() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, true);
         result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
         
         let mut board = fen_service.set_fen("7k/6pp/3p4/4n3/3QP3/8/3R2PP/7K w - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, true);
         //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
 
 
         let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/p2QP3/8/3R2PP/7K w - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, true);
         //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4a4");
 
@@ -345,11 +380,9 @@ mod tests {
     #[ignore]
     fn hit_move_unsolved() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, false);
         result.print_all_variants();
         //assert!(result.get_eval() < -100);
         //assert_eq!(result.get_best_move_algebraic(), "d5e4");
@@ -359,23 +392,21 @@ mod tests {
     #[test]
     fn practical_moves_from_games() {
         let fen_service = Service::new().fen;
-        let search_service = Service::new().search;
-        let config = &Config::new().for_tests();
 
         let mut board = fen_service.set_fen("r1q1k2r/p1pRbp2/5p2/1p5p/5B2/6P1/PPQ1PP1P/4KB1R b Kkq - 0 20");
-        let result = search_service.get_moves(&mut board, 2, false, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, false);
         //result.print_all_variants();
         assert_eq!( "c8d7", result.get_best_move_algebraic());
 
         //  r2qk2r/pppbnppp/4pn2/bNQp4/5B2/2PP1N2/PP2PPPP/R3KB1R b KQkq - 6 9
 
         let mut board = fen_service.set_fen("7r/p1p2p1p/P3k1p1/2KR1nr1/2P5/8/8/8 w - - 2 35");
-        let result = search_service.get_moves(&mut board, 2, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 2, true);
         assert_ne!("d5e5", result.get_best_move_algebraic());
 
         // hash 6026442690037892337
         let mut board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let result = search_service.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &Service::new(), &DataMap::new());
+        let result = search(&mut board, 4, true);
         result.print_all_variants();
     }
 

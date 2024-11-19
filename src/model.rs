@@ -1,9 +1,11 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::sync::Mutex;
 
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
+
+pub type ThreadSafeDataMap = Arc<RwLock<DataMap>>;
 
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -19,6 +21,7 @@ pub enum DataMapKey {
     WhiteThreshold,
     BlackThreshold,
     StopFlag,
+    DebugFlag,
     Logger,
 }
 
@@ -49,7 +52,7 @@ impl DataMap {
     }
 }
 
-trait KeyToType<T> {
+pub trait KeyToType<T> {
     fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a T>;
     fn create_value(&self, value: T) -> DataValue;
 }

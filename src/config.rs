@@ -85,17 +85,12 @@ impl Config {
         }
     }
 
-    pub fn wo_info_print(&self) -> Self {
-        let mut config = Config::new();
-        config.print_info_string = false;
-        config
-    }
-
     /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
     pub fn for_tests(&self) -> Self {
         let mut config = Config::new();
         config.print_info_string = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
+        config.print_info_string = false;
         config
     }
 }
