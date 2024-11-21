@@ -95,9 +95,9 @@ impl UciParserService {
         format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
             search_result.get_depth(),
             cp,
-            0,
+            stats.calc_time_ms,
             stats.created_nodes,
-            0 as usize,
+            stats.created_nodes / (stats.calc_time_ms + 1) as usize,
             search_result.get_best_move_row())
     }
 

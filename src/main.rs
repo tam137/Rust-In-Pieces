@@ -282,22 +282,19 @@ fn main() {
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = 
                     calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map_t2);
-
-                {
-                    let global_map_value = global_map_t2.read().expect("RIP Could not write data map");
-                    logger(format!("quiescence_search_thresholdsss: {:?}", global_map_value.get_data::<i32>(DataMapKey::WhiteThreshold)));
-                }
+                
                 let search_result =
                     &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map_t2.clone(), &mut local_map);
+                
                 game.do_move(&search_result.get_best_move_algebraic());
 
                 if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                    //let mut global_map_value = global_map_t2.write().expect("RIP Could not write data map");
                     local_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
                     local_map.insert(DataMapKey::BlackThreshold, search_result.get_eval() as i32);
+                    logger(format!("quiescence_search_threshold: {:?}", local_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
                 }
                 
-                let calc_time_ms: u128 = calc_time.elapsed().as_millis().try_into().expect("RIP Could not collect elapsed time");
+                let calc_time_ms: u128 = calc_time.elapsed().as_millis();
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
                 let cleaned = game.board.zobrist.clean_up_hash_if_needed(&config);
