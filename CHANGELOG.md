@@ -5,15 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [V00i] - 2024-11-15
-
-- UCI understand debug command
-- UCI understand stop command
-- UCI understand go infinite command
+## [V00i] - 2024-11-21
 
 ### Added
 
-- improved quiescence search
+- UCI understand debug on/off command
+- UCI understand stop command
+- UCI understand go infinite command
+- log improved UCI info strings
+- improved ELO in quiescence search (again..) a lot by better cutting (alpha3)
 
 ### Fixed
 

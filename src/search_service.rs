@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, Arc};
+use std::time::Instant;
+
 use crate::config::Config;
 use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant};
 use crate::service::Service;
@@ -15,6 +17,8 @@ impl SearchService {
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
         service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
+
+        let calc_time = Instant::now();
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
@@ -37,6 +41,8 @@ impl SearchService {
                 break;
             }
 
+            let calc_time_ms: u128 = calc_time.elapsed().as_millis();
+
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
             if white {
@@ -47,7 +53,10 @@ impl SearchService {
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
+                    search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
                     stats.best_turn_nr = turn_counter;
+                    stats.calc_time_ms = calc_time_ms as usize;
+                    stats.calculate();
                     if config.print_info_string {
                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
                             stats.add_log("stdout channel closed during search".to_string());
@@ -63,7 +72,10 @@ impl SearchService {
                     best_move_row.insert(0, Some(turn.clone()));
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
+                    search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
                     stats.best_turn_nr = turn_counter;
+                    stats.calc_time_ms = calc_time_ms as usize;
+                    stats.calculate();
                     if config.print_info_string {
                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
                             stats.add_log("stdout channel closed during search".to_string());
@@ -73,13 +85,7 @@ impl SearchService {
                 }
             }
         }
-        if white {
-            search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
-            search_result
-        } else {
-            search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
-            search_result
-        }
+        search_result
     }
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
