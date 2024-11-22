@@ -61,14 +61,13 @@ macro_rules! get_time_it {
 }
 
 fn get_initial_logging_info(logger: Arc<dyn Fn(String) + Send + Sync>, version: &str, benchmark_value: i32) {
-    println!("got debug on33");
     logger(format!("Engine startet: {}", version));
     logger(format!("Benchmark Value: {}", benchmark_value));
 }
 
 fn main() {
 
-    let version = "V00i-candidate";
+    let version = "V00i";
     
     let mut logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
         // empty logging function but can be applied by uci "debug on"

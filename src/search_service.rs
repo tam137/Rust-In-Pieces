@@ -94,7 +94,6 @@ impl SearchService {
 
         let mut turns: Vec<Turn> = Default::default();
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
-        let eval: (Option<Turn>, i16, VecDeque<Option<Turn>>) = (None, turn.eval, Default::default());
 
 /*
         if depth <= 0 && turn.from == 61 && turn.to == 72 && turn.capture == 11 && board.cached_hash == 6026442690037892337 {
@@ -106,9 +105,9 @@ impl SearchService {
             
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha1 {
                 stand_pat_cut = if white {
-                    beta >= eval.1 || (turn.capture == 0 && !turn.gives_check)
+                    beta >= turn.eval || (turn.capture == 0 && !turn.gives_check)
                 } else {
-                    alpha <= eval.1 || (turn.capture == 0 && !turn.gives_check)
+                    alpha <= turn.eval || (turn.capture == 0 && !turn.gives_check)
                 };
             }
                 
@@ -116,9 +115,9 @@ impl SearchService {
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha2 {
                 stand_pat_cut = if white {
-                    beta < eval.1 || (turn.capture == 0 && !turn.gives_check)
+                    beta < turn.eval || (turn.capture == 0 && !turn.gives_check)
                 } else {
-                    alpha > eval.1 || (turn.capture == 0 && !turn.gives_check)
+                    alpha > turn.eval || (turn.capture == 0 && !turn.gives_check)
                 };
             }
                 
@@ -126,9 +125,9 @@ impl SearchService {
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                 stand_pat_cut = if white {
 
-                    self.get_white_threshold_value(&local_map) < eval.1 as i32 || (turn.capture == 0 && !turn.gives_check)
+                    self.get_white_threshold_value(&local_map) < turn.eval as i32 || (turn.capture == 0 && !turn.gives_check)
                 } else {
-                    self.get_black_threshold_value(&local_map) > eval.1 as i32 || (turn.capture == 0 && !turn.gives_check)
+                    self.get_black_threshold_value(&local_map) > turn.eval as i32 || (turn.capture == 0 && !turn.gives_check)
                 };
             }
             
@@ -149,7 +148,7 @@ impl SearchService {
                         _ => panic!("RIP no defined game end"),
                     };
                 }
-                return eval
+                return (None, turn.eval, Default::default());
             } else {
                 turns = service.move_gen.generate_valid_moves_list_capture(board, stats, service);
                 if turns.is_empty() {
@@ -162,7 +161,7 @@ impl SearchService {
                             _ => panic!("RIP no defined game end"),
                         };
                     }
-                    return eval
+                    return (None, turn.eval, Default::default());
                 }
             }
         } else {

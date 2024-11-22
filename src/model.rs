@@ -10,7 +10,7 @@ pub type ThreadSafeDataMap = Arc<RwLock<DataMap>>;
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Clone)]
-pub enum DataValue {
+pub enum ValueType {
     Integer(i32),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
@@ -26,7 +26,7 @@ pub enum DataMapKey {
 }
 
 pub struct DataMap {
-    data_map: HashMap<DataMapKey, DataValue>,
+    data_map: HashMap<DataMapKey, ValueType>,
 }
 
 impl DataMap {
@@ -53,47 +53,47 @@ impl DataMap {
 }
 
 pub trait KeyToType<T> {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a T>;
-    fn create_value(&self, value: T) -> DataValue;
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a T>;
+    fn create_value(&self, value: T) -> ValueType;
 }
 
 impl KeyToType<i32> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a i32> {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a i32> {
         match (self, value) {
-            (DataMapKey::WhiteThreshold, DataValue::Integer(i))
-            | (DataMapKey::BlackThreshold, DataValue::Integer(i)) => Some(i),
+            (DataMapKey::WhiteThreshold, ValueType::Integer(i))
+            | (DataMapKey::BlackThreshold, ValueType::Integer(i)) => Some(i),
             _ => None,
         }
     }
 
-    fn create_value(&self, value: i32) -> DataValue {
-        DataValue::Integer(value)
+    fn create_value(&self, value: i32) -> ValueType {
+        ValueType::Integer(value)
     }
 }
 
 impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a Arc<Mutex<bool>>> {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<bool>>> {
         match (self, value) {
-            (DataMapKey::StopFlag, DataValue::ArcMutexBool(a)) => Some(a),
+            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a)) => Some(a),
             _ => None,
         }
     }
 
-    fn create_value(&self, value: Arc<Mutex<bool>>) -> DataValue {
-        DataValue::ArcMutexBool(value)
+    fn create_value(&self, value: Arc<Mutex<bool>>) -> ValueType {
+        ValueType::ArcMutexBool(value)
     }
 }
 
 impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a DataValue) -> Option<&'a Arc<dyn Fn(String) + Send + Sync>> {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<dyn Fn(String) + Send + Sync>> {
         match (self, value) {
-            (DataMapKey::Logger, DataValue::LoggerFn(a)) => Some(a),
+            (DataMapKey::Logger, ValueType::LoggerFn(a)) => Some(a),
             _ => None,
         }
     }
 
-    fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> DataValue {
-        DataValue::LoggerFn(value)
+    fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> ValueType {
+        ValueType::LoggerFn(value)
     }
 }
 
@@ -108,7 +108,6 @@ pub enum GameStatus {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QuiescenceSearchMode {
-    None,
     Alpha1,
     Alpha2,
     Alpha3,
@@ -187,27 +186,9 @@ impl Turn {
         }
     }
 
-    // Constructor with only 'from' and 'to' fields
-    pub fn from_to(from: i32, to: i32) -> Self {
-        Turn {
-            from,
-            to,
-            capture: 0,
-            promotion: 0,
-            eval: 0,
-            gives_check: false
-        }
-    }
-
     // Check if the move is a promotion
     pub fn is_promotion(&self) -> bool {
         self.promotion != 0
-    }
-
-    // Set promotion with fluent interface
-    pub fn set_promotion(mut self, promotion: i32) -> Self {
-        self.promotion = promotion;
-        self
     }
 
     pub fn to_algebraic(&self) -> String {
@@ -638,17 +619,6 @@ impl Stats {
         self.zobrist_hit = 0;
         self.logging = Vec::default();
     }
-
-    pub fn to_string(&self) -> String {
-        format!("Cre_{}\tCalc_{}\tEva_{}\tN/s_{}K CF_0.{}\tZb_0.{}",
-                self.created_nodes,
-                self.calculated_nodes,
-                self.eval_nodes,
-                self.created_nodes / (self.calc_time_ms + 1),
-                100 - (self.calculated_nodes * 100 / if self.created_nodes == 0 { 1 } else { self.created_nodes }),
-                //self.zobrist_hit)
-                self.zobrist_hit * 100 / self.eval_nodes)
-    }
 }
 
 #[derive(Default)]
@@ -750,7 +720,7 @@ mod tests {
     use crate::service::Service;
     use crate::UciGame;
 
-    use super::{Board, GameStatus, Stats};
+    use super::{GameStatus, Stats};
 
     #[test]
     fn board_properties_move_count_test() {
