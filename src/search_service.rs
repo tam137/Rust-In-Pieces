@@ -22,7 +22,7 @@ impl SearchService {
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, global_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
 
         let mut search_result: SearchResult = SearchResult::default();
 
@@ -140,7 +140,7 @@ impl SearchService {
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, service, global_map).is_empty() {
+                if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -150,10 +150,10 @@ impl SearchService {
                 }
                 return (None, turn.eval, Default::default());
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, service, global_map);
+                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, service, global_map);
                 if turns.is_empty() {
                     // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, service, global_map).is_empty() {
+                    if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map).is_empty() {
                         return match board.game_status {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -165,7 +165,7 @@ impl SearchService {
                 }
             }
         } else {
-            turns = service.move_gen.generate_valid_moves_list(board, stats, service, global_map);
+            turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };

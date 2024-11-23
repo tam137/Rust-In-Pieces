@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::sync::Mutex;
+use std::sync::mpsc::Sender;
 
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
@@ -12,13 +13,16 @@ pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
+pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
+pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
 
 #[derive(Clone)]
 pub enum ValueType {
     Integer(i32),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
-    ArcMutexZobrist(Arc<Mutex<ZobristTable>>),
+    ArcRwZobrist(Arc<RwLock<ZobristTable>>),
+    SenderU64I16(Sender<(u64, i16)>)
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -29,6 +33,7 @@ pub enum DataMapKey {
     DebugFlag,
     Logger,
     ZobristTable,
+    HashSender,
 }
 
 pub struct DataMap {
@@ -71,7 +76,6 @@ impl KeyToType<i32> for DataMapKey {
             _ => None,
         }
     }
-
     fn create_value(&self, value: i32) -> ValueType {
         ValueType::Integer(value)
     }
@@ -84,8 +88,7 @@ impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
             | (DataMapKey::DebugFlag, ValueType::ArcMutexBool(a)) => Some(a),
             _ => None,
         }
-    }    
-
+    }
     fn create_value(&self, value: Arc<Mutex<bool>>) -> ValueType {
         ValueType::ArcMutexBool(value)
     }
@@ -98,22 +101,32 @@ impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
             _ => None,
         }
     }
-
     fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> ValueType {
         ValueType::LoggerFn(value)
     }
 }
 
-impl KeyToType<Arc<Mutex<ZobristTable>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<ZobristTable>>> {
+impl KeyToType<Arc<RwLock<ZobristTable>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<RwLock<ZobristTable>>> {
         match (self, value) {
-            (DataMapKey::ZobristTable, ValueType::ArcMutexZobrist(a)) => Some(a),
+            (DataMapKey::ZobristTable, ValueType::ArcRwZobrist(a)) => Some(a),
             _ => None,
         }
     }
+    fn create_value(&self, value: Arc<RwLock<ZobristTable>>) -> ValueType {
+        ValueType::ArcRwZobrist(value)
+    }
+}
 
-    fn create_value(&self, value: Arc<Mutex<ZobristTable>>) -> ValueType {
-        ValueType::ArcMutexZobrist(value)
+impl KeyToType<Sender<(u64, i16)>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Sender<(u64, i16)>> {
+        match (self, value) {
+            (DataMapKey::HashSender, ValueType::SenderU64I16(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Sender<(u64, i16)>) -> ValueType {
+        ValueType::SenderU64I16(value)
     }
 }
 
