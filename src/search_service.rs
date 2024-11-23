@@ -22,7 +22,7 @@ impl SearchService {
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, service);
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, global_map);
 
         let mut search_result: SearchResult = SearchResult::default();
 
@@ -140,7 +140,7 @@ impl SearchService {
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, service).is_empty() {
+                if service.move_gen.generate_valid_moves_list(board, stats, service, global_map).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -150,10 +150,10 @@ impl SearchService {
                 }
                 return (None, turn.eval, Default::default());
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, service);
+                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, service, global_map);
                 if turns.is_empty() {
                     // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, service).is_empty() {
+                    if service.move_gen.generate_valid_moves_list(board, stats, service, global_map).is_empty() {
                         return match board.game_status {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -165,7 +165,7 @@ impl SearchService {
                 }
             }
         } else {
-            turns = service.move_gen.generate_valid_moves_list(board, stats, service);
+            turns = service.move_gen.generate_valid_moves_list(board, stats, service, global_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
@@ -265,28 +265,16 @@ impl SearchService {
 mod tests {
     use crate::{config::Config, Stats};
     use crate::service::Service;
-    use crate::model::{Board, SearchResult, DataMap, DataMapKey};
-    use crate::{Arc, RwLock, Mutex};    
+    use crate::model::{Board, SearchResult, DataMap};
+    use crate::global_map_handler;
 
     pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
         let service = Service::new();
         let config = Config::new().for_tests();
         let mut stats = Stats::new();
-        let global_map = Arc::new(RwLock::new(DataMap::new()));
         let mut local_map = DataMap::new();
 
-        let debug_flag = Arc::new(Mutex::new(false));
-        let stop_flag = Arc::new(Mutex::new(false));
-
-        let logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
-        });
-
-        {
-            let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
-            global_map_value.insert(DataMapKey::StopFlag, stop_flag.clone());
-            global_map_value.insert(DataMapKey::DebugFlag, debug_flag.clone());
-            global_map_value.insert(DataMapKey::Logger, logger.clone());
-        }
+        let global_map = global_map_handler::create_new_global_map();
 
         service.search.get_moves(&mut *board, depth, white, &mut stats, &config, &service, &global_map, &mut local_map)
     }

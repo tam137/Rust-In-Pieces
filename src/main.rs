@@ -10,6 +10,7 @@ mod book;
 mod uci_parser_service;
 mod zobrist;
 mod stdout_wrapper;
+mod global_map_handler;
 
 use std::io;
 use std::io::Write;
@@ -29,6 +30,7 @@ use model::DataMapKey;
 use model::QuiescenceSearchMode;
 use model::UciGame;
 use model::ThreadSafeDataMap;
+use model::RIP_COULDN_LOCK_ZOBRIST;
 
 use crate::book::Book;
 use crate::config::Config;
@@ -69,42 +71,34 @@ fn main() {
 
     let version = "V00i";
     
-    let mut logger: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_msg: String| {
-        // empty logging function but can be applied by uci "debug on"
-    });
-
-    let debug_flag = Arc::new(Mutex::new(false));
-    let stop_flag = Arc::new(Mutex::new(false));
-
-    let global_map = Arc::new(RwLock::new(DataMap::new()));
+    let global_map  = global_map_handler::create_new_global_map();
     let global_map_t2 = global_map.clone();
 
-    {
-        let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
-        global_map_value.insert(DataMapKey::StopFlag, stop_flag.clone());
-        global_map_value.insert(DataMapKey::DebugFlag, debug_flag.clone());
-        global_map_value.insert(DataMapKey::Logger, logger.clone());
-    }
-
-    let benchmark_value = calculate_benchmark(10000, &global_map, &mut DataMap::new()); // TODO needs to fil map?
+    let mut local_map = DataMap::new();
 
     let book = Book::new();
     let service = &Service::new();
     let uci_parser = &service.uci_parser;
     let config = Config::new();
     let stdout = &service.stdout;
-    
-    let mut local_map = DataMap::new();
+
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
         local_map.insert(DataMapKey::WhiteThreshold, 0);
         local_map.insert(DataMapKey::BlackThreshold, 0);
     }
+
+    let benchmark_value = calculate_benchmark(10000, &global_map, &mut local_map);
 
     let mut stats = Stats::new();
     let mut game = UciGame::new(service.fen.set_init_board());  
     let mut white = game.board.white_to_move; 
 
     let mut update_board_via_uci_token: bool = false;
+
+    let mut logger = global_map_handler::get_logger(&global_map);
+    let stop_flag = global_map_handler::get_stop_flag(&global_map);
+    let debug_flag = global_map_handler::get_debug_flag(&global_map);
+    let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
 
     let (tx, rx) = mpsc::channel();
 
@@ -222,19 +216,10 @@ fn main() {
 
     loop {
 
-        let logger;
-        let stop_flag;
+        let global_map = global_map_t2.clone();
 
-        {
-            let global_map_value = global_map_t2.read().expect("RIP Could not lock global map");
-            logger =
-                global_map_value.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
-                .expect("RIP Could not get logger from data map").clone();
-
-            stop_flag =
-                global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
-                .expect("RIP Could not get stop flag from data map").clone();
-        }
+        let logger = global_map_handler::get_logger(&global_map);
+        let stop_flag = global_map_handler::get_stop_flag(&global_map);
 
         let received = match rx.recv() {
             Ok(msg) => msg,
@@ -246,7 +231,7 @@ fn main() {
 
         if received == "infinite" {
             for depth in (2..100).step_by(2) {
-                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &global_map_t2, &mut local_map);
+                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
             }
         }
 
@@ -280,10 +265,10 @@ fn main() {
 
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = 
-                    calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map_t2);
+                    calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
                 
                 let search_result =
-                    &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map_t2.clone(), &mut local_map);
+                    &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
                 
                 game.do_move(&search_result.get_best_move_algebraic());
 
@@ -296,8 +281,12 @@ fn main() {
                 let calc_time_ms: u128 = calc_time.elapsed().as_millis();
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
-                let cleaned = game.board.zobrist.clean_up_hash_if_needed(&config);
-                if cleaned > 0 { logger(format!("cleaned {} entries from cache", cleaned)); }
+
+                {
+                    let mut zobrist_table = zobrist_table_mutex.lock().expect(RIP_COULDN_LOCK_ZOBRIST);
+                    let cleaned = zobrist_table.clean_up_hash_if_needed(&config);                    
+                    if cleaned > 0 { logger(format!("cleaned {} entries from cache", cleaned)); }
+                }
 
                 let move_row = search_result.get_best_move_row();
 
@@ -358,7 +347,7 @@ fn main() {
         }
         
         else if received == "test" {
-            run_time_check(&global_map_t2, &mut local_map);
+            run_time_check(&global_map, &mut local_map);
         }
         
         else if received == "quit" {
@@ -422,7 +411,7 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
 
     let mut board = time_it!(service.fen.set_init_board()); // ~3µs / ~11µs
     
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service)); // ~ 13µs - 18µs / ~43µs
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, global_map)); // ~ 13µs - 18µs / ~43µs
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
     
     time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 

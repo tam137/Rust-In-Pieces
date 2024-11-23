@@ -6,7 +6,7 @@ use crate:: model::{DataMap, DataMapKey, LoggerFnType};
 
 /// global map builder: Its not checked here BUT ONLY CALL IT ONCE!
 /// Everything in here and the map itself is an Arc<Mutex>>
-pub fn create_new_global_map() {
+pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
 
     let global_map = Arc::new(RwLock::new(DataMap::new()));
 
@@ -25,6 +25,7 @@ pub fn create_new_global_map() {
         global_map_value.insert(DataMapKey::Logger, logger.clone());
         global_map_value.insert(DataMapKey::ZobristTable, zobrist_table.clone());
     }
+    global_map.clone()
 }
 
 
@@ -54,4 +55,20 @@ pub fn get_stop_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
         .get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
         .expect("RIP Can not find stop flag")
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{global_map_handler::*, model::RIP_COULDN_LOCK_ZOBRIST};
+
+    #[test]
+    fn create_new_global_map_test() {
+        let global_map = create_new_global_map();
+    
+        let debug_flag_mutex = get_debug_flag(&global_map);
+        let debug_flag = debug_flag_mutex.lock().expect(RIP_COULDN_LOCK_ZOBRIST);
+    
+        assert!(*debug_flag == false);
+    }
 }

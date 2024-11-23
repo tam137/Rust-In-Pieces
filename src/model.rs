@@ -7,8 +7,11 @@ use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
 
 pub type ThreadSafeDataMap = Arc<RwLock<DataMap>>;
+pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
 
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
 
 #[derive(Clone)]
 pub enum ValueType {
@@ -77,10 +80,11 @@ impl KeyToType<i32> for DataMapKey {
 impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<bool>>> {
         match (self, value) {
-            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a)) => Some(a),
+            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a))
+            | (DataMapKey::DebugFlag, ValueType::ArcMutexBool(a)) => Some(a),
             _ => None,
         }
-    }
+    }    
 
     fn create_value(&self, value: Arc<Mutex<bool>>) -> ValueType {
         ValueType::ArcMutexBool(value)
