@@ -3,7 +3,6 @@ use crate::fen_service::FenService;
 use crate::move_gen_service::MoveGenService;
 use crate::search_service::SearchService;
 use crate::uci_parser_service::UciParserService;
-use crate::zobrist::ZobristTable;
 use crate::stdout_wrapper::StdoutWrapper;
 
 pub struct Service {
@@ -11,7 +10,6 @@ pub struct Service {
     pub move_gen: MoveGenService,
     pub search: SearchService,
     pub eval: EvalService,
-    pub zobrist: ZobristTable,
     pub stdout: StdoutWrapper,
     pub uci_parser: UciParserService,
 }
@@ -23,7 +21,6 @@ impl Service {
             move_gen: MoveGenService::new(),
             search: SearchService::new(),
             eval: EvalService::new(),
-            zobrist: ZobristTable::new(),
             stdout: StdoutWrapper,
             uci_parser: UciParserService::new(),
         }

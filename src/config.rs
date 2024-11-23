@@ -9,6 +9,7 @@ pub struct Config {
     pub in_debug: bool,
     pub quiescence_search_mode: QuiescenceSearchMode,
     pub print_info_string: bool,
+    pub write_hash_buffer_size: usize,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -45,12 +46,13 @@ impl Config {
     pub fn new() -> Config {
         Config {
             use_zobrist: true,
-            max_zobrist_hash_entries: 100_000, // 100.000 = 1GB
+            max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             truncate_bad_moves: 30,
             in_debug: true,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string: true,
+            write_hash_buffer_size: 100,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
@@ -90,6 +92,7 @@ impl Config {
         let mut config = Config::new();
         config.print_info_string = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
+        config.use_zobrist = false;
         config
     }
 }

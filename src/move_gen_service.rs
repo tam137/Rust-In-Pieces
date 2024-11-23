@@ -1,51 +1,58 @@
 
-use crate::{global_map_handler, Arc, Mutex};
+use std::sync::RwLockReadGuard;
+use std::collections::HashMap;
+
+use crate::global_map_handler;
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
+use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn, RIP_COULDN_LOCK_ZOBRIST, RIP_COULDN_SEND_TO_HASH_QUEUE};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
 
+
 pub struct MoveGenService {
-    config: Config,
 }
 
 impl MoveGenService {
 
     pub fn new() -> Self {
-        MoveGenService {
-            config: Config::new()
-        }
+        MoveGenService {}
     }
 
 
     /// Generates a list of valid capture moves for a given board state.
-    pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, service: &Service, global_map: &ThreadSafeDataMap)
-        -> Vec<Turn> {
+    pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
+        global_map: &ThreadSafeDataMap) -> Vec<Turn> {
+
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service, true, global_map);
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, true, global_map);
         stats.add_created_capture_nodes(capture_moves.len());
         capture_moves
     }
 
     /// Generates a list of valid moves for a given board state.
-    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service, global_map: &ThreadSafeDataMap)
+    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service, config: &Config, global_map: &ThreadSafeDataMap)
         -> Vec<Turn> {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, service, false, global_map)
+        self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, false, global_map)
     }
 
-    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service,
+    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
         only_captures: bool, global_map: &ThreadSafeDataMap) -> Vec<Turn> {
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
-        let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
+        
+        let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
+        let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_ZOBRIST);
+
+        let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
+        
     
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
@@ -64,13 +71,14 @@ impl MoveGenService {
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
-                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, &mut valid_moves, white_turn,
-                    only_captures, &zobrist_table_mutex);
+                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
+                    only_captures, &zobrist_table_read);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
-                self.validate_and_add_move(board, stats, &mut move_turn, service, &mut valid_moves, white_turn,
-                    only_captures, &zobrist_table_mutex);
+                let (hash, eval) = self.validate_and_add_move(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
+                    only_captures, &zobrist_table_read);
+                hash_buffer.insert(hash, eval);
             }
         }
     
@@ -78,8 +86,9 @@ impl MoveGenService {
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
-                self.validate_and_add_move(board, stats, &mut turn, service, &mut valid_moves, white_turn,
-                    only_captures,&zobrist_table_mutex);
+                let (hash, eval) = self.validate_and_add_move(board, stats, &mut turn, service, config, &mut valid_moves, white_turn,
+                    only_captures, &zobrist_table_read);
+                hash_buffer.insert(hash, eval);
             }
         }
     
@@ -97,9 +106,16 @@ impl MoveGenService {
                 board.game_status = GameStatus::Draw;
             }
         }
-    
+
+        if config.use_zobrist {
+            let hash_sender = global_map_handler::get_hash_sender(global_map);
+            for hash in hash_buffer {
+                hash_sender.send(hash).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+            }
+        }
+
         stats.add_created_nodes(valid_moves.len());
-        valid_moves.truncate(self.config.truncate_bad_moves);
+        valid_moves.truncate(config.truncate_bad_moves);
         valid_moves
         
     }
@@ -120,8 +136,9 @@ impl MoveGenService {
         en_passante_turns
     }
     
-    fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_mutex: &Arc<Mutex<ZobristTable>>) {
+    fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
+        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
+        -> (u64, i16) {
 
         let move_info = board.do_move(turn);
         let mut valid = true;
@@ -133,7 +150,7 @@ impl MoveGenService {
     
         // If valid, add the move to the list
         if valid {
-            turn.eval = self.check_hash_or_calculate_eval(board, stats, &self.config, service, zobrist_table_mutex);
+            turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
     
             // check if the move gives opponent check
             if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
@@ -147,15 +164,16 @@ impl MoveGenService {
             }            
         }
         board.undo_move(turn, move_info);
+        (move_info.hash, turn.eval)
     }
     
-    fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_mutex: &Arc<Mutex<ZobristTable>>) {
+    fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
+        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) {
 
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, stats, turn, service, valid_moves, white_turn, only_captures, zobrist_table_mutex);
+            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, only_captures, zobrist_table_read);
         }
     }    
 
@@ -222,21 +240,19 @@ impl MoveGenService {
     }
 
     fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
-        zobrist_table_mutex: &Arc<Mutex<ZobristTable>>)
+        zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
     -> i16 {        
         stats.add_eval_nodes(1);
 
         if config.use_zobrist {
-            let mut zobrist_table = zobrist_table_mutex.lock().expect("Failed to lock ZobristTable");    
-            match zobrist_table.get_eval_for_hash(&board.cached_hash) {
+             
+            match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
                 Some(eval) => {
                     stats.add_zobrist_hit(1);
                     *eval
                 },
                 None => {
-                    let eval = service.eval.calc_eval(board, config, &service.move_gen);
-                    zobrist_table.set_new_hash(&board.cached_hash, eval);
-                    eval
+                    service.eval.calc_eval(board, config, &service.move_gen)
                 }
             }
         } else {
@@ -530,15 +546,17 @@ mod tests {
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
+        let config = Config::new().for_tests();
 
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &global_map)
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map)
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
+        let config = Config::new().for_tests();
 
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &service, &global_map)
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &service, &global_map)
     }
 
     #[test]

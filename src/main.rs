@@ -12,6 +12,7 @@ mod zobrist;
 mod stdout_wrapper;
 mod global_map_handler;
 
+use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use std::thread;
@@ -21,6 +22,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::sync::RwLock;
+use std::sync::mpsc::{Sender, Receiver};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -69,10 +71,15 @@ fn get_initial_logging_info(logger: Arc<dyn Fn(String) + Send + Sync>, version: 
 
 fn main() {
 
-    let version = "V00i";
+    let version = "V00i-threaded";
+
+    let (tx_hashes, rx_hashes): (Sender<(u64, i16)>, Receiver<(u64, i16)>) = mpsc::channel();
     
     let global_map  = global_map_handler::create_new_global_map();
     let global_map_t2 = global_map.clone();
+    let global_map_t3 = global_map.clone();
+
+    global_map_handler::add_hash_sender(&global_map, tx_hashes);
 
     let mut local_map = DataMap::new();
 
@@ -100,9 +107,38 @@ fn main() {
     let debug_flag = global_map_handler::get_debug_flag(&global_map);
     let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
 
-    let (tx, rx) = mpsc::channel();
 
-    let _handle = thread::spawn(move || {
+
+    let _handle1 = thread::spawn(move || {
+        let logger = global_map_handler::get_logger(&global_map_t3);
+        let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
+        loop {
+            let received = match rx_hashes.recv() {
+                Ok(msg) => msg,
+                Err(_) => {
+                    logger("Hash queue closed".to_string());
+                    break;
+                }
+            };
+
+            let (hash, eval) = received;
+            hash_buffer.insert(hash, eval);
+
+            if hash_buffer.len() > config.write_hash_buffer_size {
+                let zobrist_table = global_map_handler::get_zobrist_table(&global_map_t3);
+                let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_ZOBRIST);
+                // Schreibe die gepufferten Werte in den ZobristTable
+                for (hash, eval) in hash_buffer.drain() {
+                    zobrist_table.set_new_hash(&hash, eval);
+                }
+                hash_buffer.clear();
+            }
+        }
+    });
+
+    let (tx_commands, rx_commands) = mpsc::channel();
+
+    let _handle2 = thread::spawn(move || {
 
         let stdout = Service::new().stdout;
         let uci_parser = Service::new().uci_parser;
@@ -123,7 +159,7 @@ fn main() {
                     }
 
                     else if uci_token.trim() == "ucinewgame" {
-                        tx.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
+                        tx_commands.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
                     }
 
                     else if uci_token.trim() == "isready" {
@@ -132,21 +168,21 @@ fn main() {
 
                     else if uci_token.trim().starts_with("position") {
                         let (fen, moves_str) = uci_parser.parse_position(&uci_token);
-                        tx.send(format!("board {}", fen)).expect("RIP Could not send 'board' as internal cmd");
-                        tx.send(format!("moves {}", moves_str)).expect("RIP Could not send 'move' as internal cmd");
+                        tx_commands.send(format!("board {}", fen)).expect("RIP Could not send 'board' as internal cmd");
+                        tx_commands.send(format!("moves {}", moves_str)).expect("RIP Could not send 'move' as internal cmd");
                     }
 
                     else if uci_token.trim() == "go infinite" {
-                        tx.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
-                        tx.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
+                        tx_commands.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
+                        tx_commands.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
                     }
 
                     else if uci_token.trim().starts_with("go") {
-                        tx.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
+                        tx_commands.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
                     }
 
                     else if uci_token.trim().starts_with("test") {
-                        tx.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
+                        tx_commands.send(format!("test")).expect("RIP Could not send 'test' as internal cmd");
                     }
 
                     else if uci_token.trim().starts_with("debug") {
@@ -191,7 +227,7 @@ fn main() {
                     else if uci_token.trim().starts_with("quit") {
                         let mut value = stop_flag.lock().expect("RIP Can not lock stop_flag");
                         *value = true;
-                        tx.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
+                        tx_commands.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                         break;
                     }
 
@@ -221,7 +257,7 @@ fn main() {
         let logger = global_map_handler::get_logger(&global_map);
         let stop_flag = global_map_handler::get_stop_flag(&global_map);
 
-        let received = match rx.recv() {
+        let received = match rx_commands.recv() {
             Ok(msg) => msg,
             Err(_) => {
                 logger("Internal Command Channel closed, exiting".to_string());
@@ -283,7 +319,7 @@ fn main() {
                 stats.calculate();
 
                 {
-                    let mut zobrist_table = zobrist_table_mutex.lock().expect(RIP_COULDN_LOCK_ZOBRIST);
+                    let mut zobrist_table = zobrist_table_mutex.write().expect(RIP_COULDN_LOCK_ZOBRIST);
                     let cleaned = zobrist_table.clean_up_hash_if_needed(&config);                    
                     if cleaned > 0 { logger(format!("cleaned {} entries from cache", cleaned)); }
                 }
@@ -409,21 +445,36 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     let config = &Config::new().for_tests();
     let mut stats = Stats::new();
 
-    let mut board = time_it!(service.fen.set_init_board()); // ~3µs / ~11µs
-    
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, global_map)); // ~ 13µs - 18µs / ~43µs
-    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen)); // ~ 300ns / ~1µs    
-    
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 
-    // ~ 950ms -> 1900ms
+    println!("expected ~1.3µs");
+    let mut board = time_it!(service.fen.set_init_board());
 
+    let turn = &notation_util::NotationUtil::get_turn_from_notation("e2e4");
+    
+    println!("\nexpected ~25µs");
+    let mi = time_it!(board.do_move(turn));
+
+    println!("\nexpected ~100ns");
+    time_it!(board.undo_move(turn, mi));
+
+    println!("\nexpected ???");
+    time_it!(board.hash());
+
+    println!("\nexpected ~45µs");
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map));
+
+    println!("\nexpected ~1µs");
+    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
+    
+    println!("\nexpected ~1900ms");
+    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 
+    
+    println!("\nexpected ~300ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, global_map, local_map));
-    // ~ 210ms -> 310ms
-
+    
+    println!("\nexpected ~150ms");
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, global_map, local_map));
-    // ~ 360ms -> 140ms
 
     println!("Benchmark Value: {}", calculate_benchmark(10000, global_map, local_map));
 }
