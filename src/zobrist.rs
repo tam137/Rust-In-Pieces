@@ -34,6 +34,17 @@ impl ZobristTable {
         self.hash_map.clear();
     }
 
+    pub fn clean_up_hash_if_needed(&mut self, config: &Config) -> u32 {
+        if config.max_zobrist_hash_entries < self.entries {
+            self.hash_map.clear();
+            let ret = self.entries;
+            self.entries = 0;
+            ret
+        } else {
+            0
+        }
+    }
+    
 
 }
 
@@ -78,26 +89,4 @@ pub fn gen(board: &Board) -> u64 {
         }
     }
     hash
-}
-
-
-pub fn clean_up_hash_if_needed(global_map: Arc<RwLock<DataMap>>, config: &Config) -> u32 {
-
-    let mut zobrist_table;
-    {
-    zobrist_table = global_map.read()
-        .expect("RIP Could not lock global map")
-        .get_data::<Arc<Mutex<ZobristTable>>>(crate::model::DataMapKey::ZobristTable)
-        .expect("RIP Could not load Zobrist Table")
-        .lock().expect("RIP Cant lock zobrist table").clone();
-    }
-
-    if config.max_zobrist_hash_entries < zobrist_table.entries {
-        zobrist_table.hash_map.clear();
-        let ret = zobrist_table.entries;
-        zobrist_table.entries = 0;
-        ret
-    } else {
-        0
-    }
 }
