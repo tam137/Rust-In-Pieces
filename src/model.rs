@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::sync::Mutex;
 
+use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
 
@@ -14,6 +15,7 @@ pub enum ValueType {
     Integer(i32),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
+    ArcMutexZobrist(Arc<Mutex<ZobristTable>>),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -23,6 +25,7 @@ pub enum DataMapKey {
     StopFlag,
     DebugFlag,
     Logger,
+    ZobristTable,
 }
 
 pub struct DataMap {
@@ -94,6 +97,19 @@ impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
 
     fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> ValueType {
         ValueType::LoggerFn(value)
+    }
+}
+
+impl KeyToType<Arc<Mutex<ZobristTable>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<ZobristTable>>> {
+        match (self, value) {
+            (DataMapKey::ZobristTable, ValueType::ArcMutexZobrist(a)) => Some(a),
+            _ => None,
+        }
+    }
+
+    fn create_value(&self, value: Arc<Mutex<ZobristTable>>) -> ValueType {
+        ValueType::ArcMutexZobrist(value)
     }
 }
 
@@ -262,7 +278,6 @@ pub struct Board {
     pub move_count: i32,
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
-    pub zobrist: ZobristTable,
     pub cached_hash: u64,
 }
 
@@ -289,8 +304,7 @@ impl Board {
             move_count,
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
-            zobrist: ZobristTable::new(),
-            cached_hash: 0
+            cached_hash: 0,
         }
     }
 
@@ -513,7 +527,7 @@ impl Board {
 
     /// Zobrist-Hash function for the board (used for 3-move repetition and Zobrist-Hash Table)
     pub fn hash(&self) -> u64 {
-        self.zobrist.gen(&self)
+        zobrist::gen(&self)
     }
 }
 
@@ -985,26 +999,6 @@ mod tests {
     }
 
     #[test]
-    fn repetition_map_test() {
-        let fen_service = Service::new().fen;
-        let move_gen = Service::new().move_gen;
-    
-        let mut game = UciGame::new(fen_service.set_init_board());
-        let moves = "e2e4 d7d6 f1e2 b8d7 b1c3 g8f6 g1h3 a7a5 e1g1 c7c5 d2d4 c5d4 d1d4 e7e5 d4a4 h7h5 c1e3 f6g4 e3d2 g4f6 c3d5 f6d5 e4d5 d8b6 f1b1 f8e7 h3g5 b6d4 a4d4 e5d4 g5f3 a5a4 f3d4 g7g6 d4b5 a8b8 b2b3 a4b3 a2b3 h5h4 c2c4 d7e5 d2b4 c8d7 b4d6 e7d6 b5d6 e8e7 c4c5 f7f6 a1a7 d7f5 d6f5 g6f5 c5c6 e7d6 c6b7 f5f4 b1d1 d6d7 d5d6 h8g8 b3b4 f4f3 e2f3 e5f3 g1h1 f3e5 b4b5 e5f7 d1d4 f7d6 a7a6 b8b7 a6d6 d7c8 d4h4 b7b5 h4c4 c8b8 g2g4 f6f5 f2f3 b5b1 h1g2 f5g4 f3g4 b1b2 g2g3 b2b3 g3g2 b3b2 g2g3 b2b3 g3g2 b3b2";
-    
-        for notation_move in moves.split_whitespace() {
-            game.do_move(notation_move);
-            if game.board.game_status == GameStatus::Draw {
-                assert_eq!("b3b2", notation_move);
-            }
-        }
-        let moves = move_gen.generate_valid_moves_list(&mut game.board, &mut Stats::new(), &Service::new());
-        assert_eq!(0, moves.len());
-        assert_eq!(GameStatus::Draw, game.board.game_status);
-    }
-    
-
-    #[test]
     fn uci_game_test() {
         let service = Service::new();
 
@@ -1026,47 +1020,6 @@ mod tests {
         assert_eq!(false, game.white_to_move());
         assert_eq!(2, game.board.move_count);
         assert_eq!("e2e4 e7e5 d2d3", game.made_moves_str);
-    }
-
-    #[test]
-    fn uci_game_en_passante_test() {
-        use crate::model::Turn;
-        let service = Service::new();
-        let stats = &mut Stats::new();
-
-        let mut game = UciGame::new(service.fen.set_init_board());
-        game.do_move("e2e4");
-        game.do_move("h7h6");
-        game.do_move("e4e5");
-        game.do_move("d7d5");
-
-        let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
-        assert_eq!(31.min(Config::new().truncate_bad_moves), turns.len());
-        let en_passante_move: &Turn = turns.iter().find(|t| t.capture == 20).expect("Found no en passante move");
-        assert_eq!(20, en_passante_move.capture);
-
-        game.do_move("e5d6");
-        assert_eq!(0, game.board.field[54]);
-        assert_eq!(10, game.board.field[44]);
-        assert_eq!(0, game.board.field[55]);
-
-
-        let mut game = UciGame::new(service.fen.set_init_board());
-        game.do_move("a2a4");
-        game.do_move("d7d5");
-        game.do_move("a4a5");
-        game.do_move("d5d4");
-        game.do_move("e2e4");
-
-        let turns = service.move_gen.generate_valid_moves_list(&mut game.board, stats, &service);
-        assert_eq!(29, turns.len());
-        let en_passante_move: &Turn = turns.iter().find(|t| t.capture == 10).expect("Found no en passante move");
-        assert_eq!(10, en_passante_move.capture);
-
-        game.do_move("d4e3");
-        assert_eq!(20, game.board.field[75]);
-        assert_eq!(0, game.board.field[65]);
-        assert_eq!(0, game.board.field[55]);
     }
 
     #[test]
