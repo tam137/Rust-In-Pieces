@@ -445,18 +445,18 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     let config = &Config::new().for_tests();
     let mut stats = Stats::new();
 
-    println!("expected ~1.3µs");
+    println!("expected <5µs");
     let mut board = time_it!(service.fen.set_init_board());
 
     let turn = &notation_util::NotationUtil::get_turn_from_notation("e2e4");
     
-    println!("\nexpected ~25µs");
+    println!("\nexpected <5µs");
     let mi = time_it!(board.do_move(turn));
 
-    println!("\nexpected ~100ns");
+    println!("\nexpected <300ns");
     time_it!(board.undo_move(turn, mi));
 
-    println!("\nexpected ???");
+    println!("\nexpected <5µs");
     time_it!(board.hash());
 
     println!("\nexpected ~45µs");
@@ -476,5 +476,6 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, global_map, local_map));
 
+    println!("\nexpected >60");
     println!("Benchmark Value: {}", calculate_benchmark(10000, global_map, local_map));
 }
