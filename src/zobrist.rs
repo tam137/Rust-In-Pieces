@@ -1,13 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
 use rand::{Rng, rngs::StdRng, SeedableRng};
+use once_cell::sync::Lazy;
 
-use crate::model::{Board, DataMap};
+
+use crate::model::Board;
 use crate::config::Config;
-
-const BOARD_SIZE: usize = 120;
-const NUM_PIECES: usize = 12;
-const FIG: [usize; 12] = [10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25];
 
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
@@ -49,11 +46,13 @@ impl ZobristTable {
 }
 
 
+// Definieren Sie Ihre Konstanten
+const NUM_PIECES: usize = 12; // Anzahl der verschiedenen Figuren
+const BOARD_SIZE: usize = 120; // Größe des Bretts
+const FIG: [i32; 12] = [10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25]; // Figurenkennungen
 
-pub fn gen(board: &Board) -> u64 {
-    let mut rng = StdRng::seed_from_u64(137);
-    let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
-
+// Erstellen Sie eine statische `fig_map`
+static FIG_MAP: Lazy<HashMap<i32, usize>> = Lazy::new(|| {
     let mut fig_map = HashMap::new();
     fig_map.insert(10, 0);
     fig_map.insert(11, 1);
@@ -67,25 +66,46 @@ pub fn gen(board: &Board) -> u64 {
     fig_map.insert(23, 9);
     fig_map.insert(24, 10);
     fig_map.insert(25, 11);
+    fig_map
+});
+
+// Erstellen Sie eine statische Zobrist-Tabelle
+static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| {
+    let mut rng = StdRng::seed_from_u64(137);
+    let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
 
     for i in 0..BOARD_SIZE {
-        for j in FIG {
-            let fig_index = fig_map.get(&(j as usize)).unwrap();
+        for &j in &FIG {
+            let fig_index = FIG_MAP.get(&j).unwrap();
             table[i][*fig_index] = rng.gen();
         }
     }
+    table
+});
 
-    let white_to_move: u64 = rng.gen();
+// Erstellen Sie eine statische Variable für `white_to_move`
+static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| {
+    let mut rng = StdRng::seed_from_u64(137);
+    // Überspringen Sie die Werte, die für die Zobrist-Tabelle generiert wurden
+    let skip_count = BOARD_SIZE * FIG.len();
+    for _ in 0..skip_count {
+        rng.gen::<u64>();
+    }
+    rng.gen()
+});
 
+
+// Aktualisieren Sie Ihre `gen`-Funktion
+pub fn gen(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
-        hash ^= white_to_move;
+        hash ^= *WHITE_TO_MOVE;
     }
     for i in 0..BOARD_SIZE {
         let piece = board.field[i];
         if piece > 0 {
-            let piece_index = fig_map.get(&(piece as usize)).unwrap();
-            hash ^= table[i][*piece_index];
+            let piece_index = FIG_MAP.get(&piece).unwrap();
+            hash ^= ZOBRIST_TABLE[i][*piece_index];
         }
     }
     hash
