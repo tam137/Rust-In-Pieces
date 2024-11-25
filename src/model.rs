@@ -166,7 +166,6 @@ pub enum QuiescenceSearchMode {
 pub struct UciGame {
     pub board: Board,
     pub made_moves_str: String,
-    pub init_board_setup_fen: String,
 }
 
 impl UciGame {
@@ -175,7 +174,6 @@ impl UciGame {
         UciGame {
             board,
             made_moves_str: String::from(""),
-            init_board_setup_fen: INIT_BOARD_FEN.to_string(),
         }
     }
 

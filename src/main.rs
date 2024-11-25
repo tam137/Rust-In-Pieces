@@ -104,8 +104,6 @@ fn main() {
     let mut game = UciGame::new(service.fen.set_init_board());  
     let mut white = game.board.white_to_move; 
 
-    let mut update_board_via_uci_token: bool = false;
-
     let mut logger = global_map_handler::get_logger(&global_map);
     let stop_flag = global_map_handler::get_stop_flag(&global_map);
     let debug_flag = global_map_handler::get_debug_flag(&global_map);
@@ -282,13 +280,8 @@ fn main() {
         }
 
         else if received.starts_with("board") {
-            update_board_via_uci_token = false;
             let fen = received[6..].to_string();
-            if fen != game.init_board_setup_fen {
-                logger(format!("received new Board informations {} -> {}", game.init_board_setup_fen, fen));
-                 game = UciGame::new(service.fen.set_fen(&fen));
-                 update_board_via_uci_token = true;
-            }
+            game = UciGame::new(service.fen.set_fen(&fen));
         }
 
         else if received.starts_with("go") {
@@ -332,7 +325,7 @@ fn main() {
                     .expect(RIP_MISSED_DM_KEY)
                     .elapsed()
                     .as_millis();
-                
+
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
 
@@ -363,7 +356,7 @@ fn main() {
                 if config.in_debug {
                     logger(format!("{:?}", stats));
                 }                
-            } else {
+            } else { // do book move
                 if config.in_debug {    
                     logger(format!("found Book move: {} for position {}", book_move, game_fen));
                 }
@@ -376,19 +369,15 @@ fn main() {
         }
         
         else if received.starts_with("moves") {
-            if update_board_via_uci_token {
-                let moves_str = &received[5..];
-                let moves_iter = moves_str.split_whitespace();
-                for mv in moves_iter {
-                    game.do_move(mv);
-                }
-            } else {
-                let moves_str = &received[5..];
-                let algebraic_notation = uci_parser.parse_last_move_from_moves_str(moves_str);
-                logger(format!("uci: received move '{}' ", algebraic_notation));                
-                game.do_move(&algebraic_notation);
+            if received.is_empty() {
+                continue;
             }
-            
+            let moves_str = &received[5..];
+            let moves_iter = moves_str.split_whitespace();
+            for mv in moves_iter {
+                game.do_move(mv);
+            }
+           
         }
         
         else if received == "ucinewgame" {
