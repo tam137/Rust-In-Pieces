@@ -138,6 +138,11 @@ mod tests {
         assert_eq!(INIT_BOARD_FEN, fen);
         assert_eq!("e2e4 d7d5", moves);
 
+        let uci_token = "position startpos\n";
+        let (fen, moves) = parser.parse_position(&uci_token);
+        assert_eq!(INIT_BOARD_FEN, fen);
+        assert_eq!("", moves);
+
         let uci_token = "position fen rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2 moves e2e4 g8f6\n";
         let (fen, moves) = parser.parse_position(&uci_token);
         assert_eq!("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", fen);
