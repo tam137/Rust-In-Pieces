@@ -34,6 +34,7 @@ use model::SearchResult;
 use model::UciGame;
 use model::ThreadSafeDataMap;
 use model::RIP_COULDN_LOCK_ZOBRIST;
+use model::RIP_MISSED_DM_KEY;
 
 use crate::book::Book;
 use crate::config::Config;
@@ -80,19 +81,22 @@ fn main() {
 
     global_map_handler::add_hash_sender(&global_map, tx_hashes);
 
-    let mut local_map = DataMap::new();
-
-    let book = Book::new();
-    let service = &Service::new();
-    let uci_parser = &service.uci_parser;
     let config = Config::new();
-    let version = String::from(config.version.clone());
-    let stdout = &service.stdout;
+
+    let mut local_map = DataMap::new();
+    local_map.insert(DataMapKey::CalcTime, Instant::now());
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
         local_map.insert(DataMapKey::WhiteThreshold, 0);
         local_map.insert(DataMapKey::BlackThreshold, 0);
+        
     }
+
+    let book = Book::new();
+    let service = &Service::new();
+    let uci_parser = &service.uci_parser;
+    let version = String::from(config.version.clone());
+    let stdout = &service.stdout;
 
     let benchmark_value = calculate_benchmark(10000, &global_map, &mut local_map);
 
@@ -116,7 +120,7 @@ fn main() {
             let received = match rx_hashes.recv() {
                 Ok(msg) => msg,
                 Err(_) => {
-                    logger("Hash queue closed".to_string());
+                    logger("Err: Hash queue closed, can not write".to_string());
                     break;
                 }
             };
@@ -127,7 +131,7 @@ fn main() {
             if hash_buffer.len() > config.write_hash_buffer_size {
                 let zobrist_table = global_map_handler::get_zobrist_table(&global_map_t3);
                 let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_ZOBRIST);
-                // Schreibe die gepufferten Werte in den ZobristTable
+
                 for (hash, eval) in hash_buffer.drain() {
                     zobrist_table.set_new_hash(&hash, eval);
                 }
@@ -138,6 +142,7 @@ fn main() {
 
     let (tx_commands, rx_commands) = mpsc::channel();
 
+
     let _handle2 = thread::spawn(move || {
 
         let stdout = Service::new().stdout;
@@ -147,7 +152,9 @@ fn main() {
             let mut uci_token = String::new();
             match io::stdin().read_line(&mut uci_token) {
                 Ok(_) => {
-                    //log(format!("RIP received '{}'", uci_token));
+                    if config.print_commands {
+                        logger(format!("RIP received '{}'", uci_token));
+                    }                    
                     if uci_token.trim() == "uci" {
                         stdout.write(&format!("id name SupraH {}", version));
                         stdout.write("id author Jan Lange");
@@ -266,8 +273,11 @@ fn main() {
         };
 
         if received == "infinite" {
+            let mut local_map = local_map.clone();
+            local_map.insert(DataMapKey::CalcTime, Instant::now());
             for depth in (2..100).step_by(2) {
-                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
+                let _r = &service.search.get_moves(&mut game.board, depth, white, &mut stats, &config, &service,
+                    &global_map, &mut local_map);
             }
         }
 
@@ -283,8 +293,6 @@ fn main() {
 
         else if received.starts_with("go") {
 
-            let calc_time = Instant::now();
-
             white = game.white_to_move();
 
             // info depth 2 score cp 214 time 1242 nodes 2124 nps 34928 pv e2e4 e7e5 g1f3
@@ -293,23 +301,23 @@ fn main() {
             let game_fen = service.fen.get_fen(&game.board);
             let book_move = book.get_random_book_move(&game_fen);
 
-            let times: (i32, i32) = uci_parser.parse_go(received.as_str());
-            let wtime = times.0;
-            let btime = times.1;
+            let (wtime, btime): (i32, i32) = uci_parser.parse_go(received.as_str());
 
             if book_move.is_empty() {
 
                 let my_time_ms = if white { wtime } else { btime };
-                let calculated_depth = 
-                    calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
+                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
 
                 let mut search_result = SearchResult::new();
 
+                let mut local_map = local_map.clone();
+                local_map.insert(DataMapKey::CalcTime, Instant::now());
                 for calculated_depth in (2..calculated_depth + 1).step_by(1) {
-                    search_result =
-                        service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
+                    search_result = service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service,
+                        &global_map, &mut local_map);
                 }
 
+                if global_map_handler::is_stop_flag(&global_map) { break }
                 if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
                 
                 game.do_move(&search_result.get_best_move_algebraic());
@@ -320,7 +328,11 @@ fn main() {
                     logger(format!("quiescence_search_threshold: {:?}", local_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
                 }
                 
-                let calc_time_ms: u128 = calc_time.elapsed().as_millis();
+                let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
+                    .expect(RIP_MISSED_DM_KEY)
+                    .elapsed()
+                    .as_millis();
+                
                 stats.calc_time_ms = calc_time_ms as usize;
                 stats.calculate();
 
@@ -443,7 +455,7 @@ fn calculate_benchmark (normalized_value: i32, global_map: &Arc<RwLock<DataMap>>
     let service = Service::new();
     let config = &Config::new().for_tests();
 
-    normalized_value / get_time_it!(service.search.get_moves(&mut board, 4, true, &mut Stats::new(), &config, &service, global_map, local_map))
+    normalized_value / get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), &config, &service, global_map, local_map))
 }
 
 fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
@@ -471,17 +483,17 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     println!("\nexpected ~1µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
     
-    println!("\nexpected ~1900ms");
+    println!("\nexpected ~2000ms");
     time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 
     
-    println!("\nexpected ~300ms");
+    println!("\nexpected ~2000ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, global_map, local_map));
     
-    println!("\nexpected ~150ms");
+    println!("\nexpected ~900ms");
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, global_map, local_map));
 
-    println!("\nexpected >60");
+    println!("\nexpected >340");
     println!("Benchmark Value: {}", calculate_benchmark(10000, global_map, local_map));
 }

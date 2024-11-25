@@ -8,6 +8,7 @@ use crate::service::Service;
 use crate::global_map_handler;
 
 use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
+use crate::model::RIP_MISSED_DM_KEY;
 
 
 pub struct SearchService;
@@ -20,8 +21,6 @@ impl SearchService {
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
         service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
-
-        let calc_time = Instant::now();
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
@@ -40,11 +39,14 @@ impl SearchService {
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, global_map, local_map);
 
-            if self.is_stop_flag(global_map) {
+            if global_map_handler::is_stop_flag(global_map) {
                 break;
             }
 
-            let calc_time_ms: u128 = calc_time.elapsed().as_millis();
+            let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
+                .expect(RIP_MISSED_DM_KEY)
+                .elapsed()
+                .as_millis();
 
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
@@ -187,7 +189,7 @@ impl SearchService {
         let mut turn_counter = 0;
 
         for turn in &turns {
-            if self.is_stop_flag(global_map) {
+            if global_map_handler::is_stop_flag(global_map) {
                 break;
             }
             turn_counter += 1;
@@ -240,16 +242,6 @@ impl SearchService {
         return (best_move, eval, best_move_row);
     }
 
-    fn is_stop_flag(&self, global_map: &ThreadSafeDataMap) -> bool {
-        let global_map_value = global_map.read().expect("RIP Could not lock global map");
-        if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
-            let stop_flag = flag.lock().expect("RIP Can not read stop_flag");
-            *stop_flag
-        } else {
-            panic!("RIP Cant read stop flag");
-        }
-    }
-
     fn get_white_threshold_value(&self, local_map: &DataMap) -> i32 {
         if let Some(white_threshold) = local_map.get_data::<i32>(DataMapKey::WhiteThreshold) {
             *white_threshold
@@ -274,9 +266,10 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
     use crate::{config::Config, Stats};
     use crate::service::Service;
-    use crate::model::{Board, SearchResult, DataMap};
+    use crate::model::{Board, SearchResult, DataMap, DataMapKey};
     use crate::global_map_handler;
 
     pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
@@ -284,6 +277,7 @@ mod tests {
         let config = Config::new().for_tests();
         let mut stats = Stats::new();
         let mut local_map = DataMap::new();
+        local_map.insert(DataMapKey::CalcTime, Instant::now());
 
         let global_map = global_map_handler::create_new_global_map();
 

@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
@@ -15,7 +16,7 @@ pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w 
 pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
-pub const RIP_FOUND_NO_MOVE: &str = "RIP Found no move";
+pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
 
 #[derive(Clone)]
 pub enum ValueType {
@@ -23,7 +24,8 @@ pub enum ValueType {
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<RwLock<ZobristTable>>),
-    SenderU64I16(Sender<(u64, i16)>)
+    SenderU64I16(Sender<(u64, i16)>),
+    Instant(Instant),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -35,8 +37,10 @@ pub enum DataMapKey {
     Logger,
     ZobristTable,
     HashSender,
+    CalcTime,
 }
 
+#[derive(Clone)]
 pub struct DataMap {
     data_map: HashMap<DataMapKey, ValueType>,
 }
@@ -128,6 +132,18 @@ impl KeyToType<Sender<(u64, i16)>> for DataMapKey {
     }
     fn create_value(&self, value: Sender<(u64, i16)>) -> ValueType {
         ValueType::SenderU64I16(value)
+    }
+}
+
+impl KeyToType<Instant> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Instant> {
+        match (self, value) {
+            (DataMapKey::CalcTime, ValueType::Instant(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Instant) -> ValueType {
+        ValueType::Instant(value)
     }
 }
 
@@ -271,16 +287,6 @@ pub struct CastleInformation {
 }
 
 impl CastleInformation {
-    // Constructor
-    pub fn new(white_possible_to_castle_long: bool, white_possible_to_castle_short: bool,
-               black_possible_to_castle_long: bool, black_possible_to_castle_short: bool) -> Self {
-        CastleInformation {
-            white_possible_to_castle_long,
-            white_possible_to_castle_short,
-            black_possible_to_castle_long,
-            black_possible_to_castle_short,
-        }
-    }
 }
 
 
@@ -635,11 +641,6 @@ impl Stats {
         self.turn_number_gt_threshold += value;
     }
 
-    pub fn set_calc_time(&mut self, value: usize) {
-        self.calc_time_ms = value;
-    }
-
-
     pub fn reset_stats(&mut self) {
         self.best_turn_nr = 0;
         self.turn_number_gt_threshold = 0;
@@ -756,11 +757,10 @@ impl SearchResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, notation_util::NotationUtil};
+    use crate::notation_util::NotationUtil;
     use crate::service::Service;
     use crate::UciGame;
 
-    use super::{GameStatus, Stats};
 
     #[test]
     fn board_properties_move_count_test() {

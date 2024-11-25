@@ -14,7 +14,6 @@ pub struct ZobristTable {
 
 impl ZobristTable {
     pub(crate) fn new() -> Self {
-
         Self { hash_map: HashMap::with_capacity(1000), entries: 0 }
     }
 
