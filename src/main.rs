@@ -30,6 +30,7 @@ use chrono::Local;
 
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
+use model::SearchResult;
 use model::UciGame;
 use model::ThreadSafeDataMap;
 use model::RIP_COULDN_LOCK_ZOBRIST;
@@ -301,9 +302,15 @@ fn main() {
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = 
                     calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
-                
-                let search_result =
-                    &service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
+
+                let mut search_result = SearchResult::new();
+
+                for calculated_depth in (2..calculated_depth + 1).step_by(1) {
+                    search_result =
+                        service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service, &global_map, &mut local_map);
+                }
+
+                if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
                 
                 game.do_move(&search_result.get_best_move_algebraic());
 
