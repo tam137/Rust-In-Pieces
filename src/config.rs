@@ -2,6 +2,7 @@ use crate::model::QuiescenceSearchMode;
 
 #[derive(Clone)]
 pub struct Config {
+    pub version: String,
     pub use_zobrist: bool,
     pub max_zobrist_hash_entries: u32,
     pub search_depth: i32,
@@ -45,6 +46,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
+            version: "V00i-threaded".to_string(),
             use_zobrist: true,
             max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
             search_depth: 4,
