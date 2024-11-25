@@ -15,6 +15,7 @@ pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w 
 pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
+pub const RIP_FOUND_NO_MOVE: &str = "RIP Found no move";
 
 #[derive(Clone)]
 pub enum ValueType {
@@ -666,6 +667,14 @@ pub struct Variant {
 }
 
 impl SearchResult {
+
+    pub fn new() -> Self {
+        SearchResult{
+            variants: Vec::default(),
+            is_white_move: true,        
+        }
+    }
+
     pub fn add_variant(&mut self, variant: Variant) {
         self.variants.push(variant);
     }
