@@ -72,6 +72,16 @@ pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Sender<(u64, i16)> {
         .clone()
 }
 
+pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
+    let global_map_value = global_map.read().expect("RIP Could not lock global map");
+    if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
+        let stop_flag = flag.lock().expect("RIP Can not read stop_flag");
+        *stop_flag
+    } else {
+        panic!("RIP Cant read stop flag");
+    }
+}
+
 
 
 #[cfg(test)]
