@@ -5,6 +5,9 @@ use std::time::Instant;
 use crate::config::Config;
 use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant};
 use crate::service::Service;
+use crate::global_map_handler;
+
+use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
 
 
 pub struct SearchService;
@@ -90,12 +93,13 @@ impl SearchService {
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
-        ->(Option<Turn>, i16, VecDeque<Option<Turn>>) {
+        -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
 
 /*
+        // for debug
         if depth <= 0 && turn.from == 61 && turn.to == 72 && turn.capture == 11 && board.cached_hash == 6026442690037892337 {
             println!("stop");
         }
@@ -206,6 +210,10 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
+                    if config.use_zobrist && depth >= 1 {
+                        let hash_sender = global_map_handler::get_hash_sender(global_map);
+                        hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+                    }
                 }
             } else {
                 if eval > min_max_eval {
@@ -219,6 +227,10 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
+                    if config.use_zobrist && depth >= 1 {
+                        let hash_sender = global_map_handler::get_hash_sender(global_map);
+                        hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+                    }
                 }
             }
             if beta <= alpha {
@@ -227,7 +239,6 @@ impl SearchService {
         }
         return (best_move, eval, best_move_row);
     }
-
 
     fn is_stop_flag(&self, global_map: &ThreadSafeDataMap) -> bool {
         let global_map_value = global_map.read().expect("RIP Could not lock global map");

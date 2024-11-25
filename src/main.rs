@@ -71,8 +71,6 @@ fn get_initial_logging_info(logger: Arc<dyn Fn(String) + Send + Sync>, version: 
 
 fn main() {
 
-    let version = "V00i-threaded";
-
     let (tx_hashes, rx_hashes): (Sender<(u64, i16)>, Receiver<(u64, i16)>) = mpsc::channel();
     
     let global_map  = global_map_handler::create_new_global_map();
@@ -87,6 +85,7 @@ fn main() {
     let service = &Service::new();
     let uci_parser = &service.uci_parser;
     let config = Config::new();
+    let version = String::from(config.version.clone());
     let stdout = &service.stdout;
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
@@ -192,7 +191,7 @@ fn main() {
                                     .write(true)
                                     .append(true)
                                     .create(true)
-                                    .open("rust-in-piece.log")
+                                    .open(format!("rust-in-piece-{}.log", version))
                                     .expect("Failed to open log file"),
                             ));
                             let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
