@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::{Mutex, Arc};
 use std::time::Instant;
 
 use crate::config::Config;
