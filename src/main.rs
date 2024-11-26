@@ -305,7 +305,7 @@ fn main() {
 
                 let mut local_map = local_map.clone();
                 local_map.insert(DataMapKey::CalcTime, Instant::now());
-                for calculated_depth in (2..calculated_depth + 1).step_by(1) {
+                for calculated_depth in (calculated_depth..calculated_depth + 1).step_by(1) {
                     search_result = service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service,
                         &global_map, &mut local_map);
                 }
@@ -410,22 +410,22 @@ fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, 
             .expect("RIP Could not get logger from data map").clone();
     }
 
-    if value > 200 {
+    if value > 500 {
         if config.in_debug {
             logger(format!("time threshold: {} -> depth: {}", value, 10));
         }        
         return 10;
-    } else if value > 150 {
+    } else if value > 200 {
         if config.in_debug {
             logger(format!("time threshold: {} -> depth: {}", value, 8));
         }        
         return 8;
-    } else if value > 90 {
+    } else if value > 120 {
         if config.in_debug {
             logger(format!("time threshold: {} -> depth: {}", value, 6));
         }        
         return 6;
-    } else if value >= 6 {
+    } else if value >= 30 {
         if config.in_debug {
             logger(format!("time threshold: {} -> depth: {}", value, 4));
         }
