@@ -47,13 +47,13 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00i-threaded-1".to_string(),
+            version: "V00i-threaded-2-cab6d8".to_string(),
             use_zobrist: true,
             max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             truncate_bad_moves: 30,
             in_debug: true,
-            print_commands: true,
+            print_commands: false,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string: true,
             write_hash_buffer_size: 100,
