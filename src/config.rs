@@ -47,7 +47,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00i-threaded-2-cab6d8".to_string(),
+            version: "V00i-threaded-3".to_string(),
             use_zobrist: true,
             max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
             search_depth: 4,
