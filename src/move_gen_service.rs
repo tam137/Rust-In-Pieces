@@ -26,8 +26,8 @@ impl MoveGenService {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
-        let mut turn_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&mut turn_list, board, stats, service, config, true, global_map);
+        let move_list = self.generate_moves_list_for_piece(board, 0);
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, true, global_map);
         stats.add_created_capture_nodes(capture_moves.len());
         capture_moves
     }
@@ -38,11 +38,11 @@ impl MoveGenService {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
-        let mut turn_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&mut turn_list, board, stats, service, config, false, global_map)
+        let move_list = self.generate_moves_list_for_piece(board, 0);
+        self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, false, global_map)
     }
 
-    fn get_valid_moves_from_move_list(&self, turn_list: &mut Vec<Turn>, board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
+    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
         only_captures: bool, global_map: &ThreadSafeDataMap) -> Vec<Turn> {
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
@@ -54,32 +54,29 @@ impl MoveGenService {
         let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
         
     
-        for move_turn in turn_list.iter_mut() {
+        for i in (0..move_list.len()).step_by(2) {
+            let idx0 = move_list[i];
+            let idx1 = move_list[i + 1];
 
-            move_turn.capture = board.field[move_turn.to as usize];
-            if only_captures && move_turn.capture == 0 {
-                continue;
-            }
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
 
             // Check for castling
-            if !only_captures && (board.field[move_turn.from as usize] == king_value && (move_turn.to == move_turn.from + 2 ||
-                move_turn.to == move_turn.from - 2)) {
-
-                if !self.is_valid_castling(board, white_turn, move_turn.to) {
+            if !only_captures && (board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2)) {
+                if !self.is_valid_castling(board, white_turn, idx1) {
                     continue;
                 }
             }
     
             // Check for promotion
-            if let Some(promotion_move) = self.get_promotion_move(board, white_turn, move_turn.from, move_turn.to) {
+            if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
-                self.validate_and_add_promotion_moves(board, stats, move_turn, service, config, &mut valid_moves, white_turn,
+                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
                     only_captures, &zobrist_table_read);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
-                let (hash, eval) = self.validate_and_add_move(board, stats, move_turn, service, config, &mut valid_moves, white_turn,
+                let (hash, eval) = self.validate_and_add_move(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
                     only_captures, &zobrist_table_read);
                 hash_buffer.insert(hash, eval);
             }
@@ -264,7 +261,7 @@ impl MoveGenService {
     }
 
 
-    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32) -> Vec<Turn> {
+    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32) -> Vec<i32> {
         let check_idx_list = self.get_check_idx_list(&board.field, board.white_to_move);
         let field = board.field;
 
@@ -282,13 +279,12 @@ impl MoveGenService {
         let knight_value = if white { 12 } else { 22 };
         let pawn_value = if white { 10 } else { 20 };
 
-        let mut turns = Vec::with_capacity(64);
+        let mut moves = Vec::with_capacity(64);
 
         let start_idx = if idx == 0 { 21 } else { idx };
         let end_idx = if idx == 0 { 99 } else { idx + 1 };
 
         for i in start_idx..end_idx {
-
             // Skip other pieces if the king is in check from multiple pieces
             if check_idx_list.len() > 1 && field[i as usize] != king_value {
                 continue;
@@ -319,7 +315,8 @@ impl MoveGenService {
                             }
                         }
                         if valid {
-                            turns.push(Turn::new_to_from(i, target));
+                            moves.push(i);
+                            moves.push(target);
                         }
                     }
                 }
@@ -327,16 +324,20 @@ impl MoveGenService {
                 // Castling moves for White and Black
                 if field[i as usize] == king_value {
                     if i == 95 && field[96] == 0 && field[97] == 0 && field[98] == 11 {
-                        turns.push(Turn::new_to_from(95, 97));
+                        moves.push(95);
+                        moves.push(97);
                     }
                     if i == 25 && field[26] == 0 && field[27] == 0 && field[28] == 21 {
-                        turns.push(Turn::new_to_from(25, 27));
+                        moves.push(25);
+                        moves.push(27);
                     }
                     if i == 95 && field[94] == 0 && field[93] == 0 && field[92] == 0 && field[91] == 11 {
-                        turns.push(Turn::new_to_from(95, 93));
+                        moves.push(95);
+                        moves.push(93);
                     }
                     if i == 25 && field[24] == 0 && field[23] == 0 && field[22] == 0 && field[21] == 21 {
-                        turns.push(Turn::new_to_from(25, 23));
+                        moves.push(25);
+                        moves.push(23);
                     }
                 }
             }
@@ -345,29 +346,37 @@ impl MoveGenService {
             if field[i as usize] == pawn_value {
                 if white {
                     if field[(i - 10) as usize] == 0 {
-                        turns.push(Turn::new_to_from(i, i - 10));
+                        moves.push(i);
+                        moves.push(i - 10);
                         if i >= 81 && i <= 88 && field[(i - 20) as usize] == 0 {
-                            turns.push(Turn::new_to_from(i, i - 20));
+                            moves.push(i);
+                            moves.push(i - 20);
                         }
                     }
                     if field[(i - 9) as usize] >= 20 {
-                        turns.push(Turn::new_to_from(i, i - 9));
+                        moves.push(i);
+                        moves.push(i - 9);
                     }
                     if field[(i - 11) as usize] >= 20 {
-                        turns.push(Turn::new_to_from(i, i - 11));
+                        moves.push(i);
+                        moves.push(i - 11);
                     }
                 } else {
                     if field[(i + 10) as usize] == 0 {
-                        turns.push(Turn::new_to_from(i, i + 10));
+                        moves.push(i);
+                        moves.push(i + 10);
                         if i >= 31 && i <= 38 && field[(i + 20) as usize] == 0 {
-                            turns.push(Turn::new_to_from(i, i + 20));
+                            moves.push(i);
+                            moves.push(i + 20);
                         }
                     }
                     if field[(i + 9) as usize] < 20 && field[(i + 9) as usize] > 0 {
-                        turns.push(Turn::new_to_from(i, i + 9));
+                        moves.push(i);
+                        moves.push(i + 9);
                     }
                     if field[(i + 11) as usize] < 20 && field[(i + 11) as usize] > 0 {
-                        turns.push(Turn::new_to_from(i, i + 11));
+                        moves.push(i);
+                        moves.push(i + 11);
                     }
                 }
             }
@@ -380,7 +389,8 @@ impl MoveGenService {
                     if field[target as usize] == 0
                         || (field[target as usize] / 10 == if white { 2 } else { 1 } && field[target as usize] != -11)
                     {
-                        turns.push(Turn::new_to_from(i, target));
+                        moves.push(i);
+                        moves.push(target);
                     }
                 }
             }
@@ -391,7 +401,8 @@ impl MoveGenService {
                 for offset in offsets {
                     let mut target = i + offset;
                     while field[target as usize] == 0 || field[target as usize] / 10 == if white { 2 } else { 1 } {
-                        turns.push(Turn::new_to_from(i, target));
+                        moves.push(i);
+                        moves.push(target);
                         if field[target as usize] != 0 {
                             break;
                         }
@@ -408,7 +419,8 @@ impl MoveGenService {
                     while (field[target as usize] == 0 || field[target as usize] / 10 == if white { 2 } else { 1 })
                         && field[target as usize] != -11
                     {
-                        turns.push(Turn::new_to_from(i, target));
+                        moves.push(i);
+                        moves.push(target);
                         if field[target as usize] != 0 {
                             break;
                         }
@@ -425,7 +437,8 @@ impl MoveGenService {
                     while (field[target as usize] == 0 || field[target as usize] / 10 == if white { 2 } else { 1 })
                         && field[target as usize] != -11
                     {
-                        turns.push(Turn::new_to_from(i, target));
+                        moves.push(i);
+                        moves.push(target);
                         if field[target as usize] != 0 {
                             break;
                         }
@@ -434,7 +447,7 @@ impl MoveGenService {
                 }
             }
         }
-        turns
+        moves
     }
 
 
@@ -606,6 +619,7 @@ mod tests {
 
         // Test: Standard starting position of a chess game
         let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
 
         // Expected moves for the initial position (pawns and knights)
         let expected_moves = vec![
@@ -613,25 +627,11 @@ mod tests {
             85, 75, 85, 65, 86, 76, 86, 66, 87, 77, 87, 67, 88, 78, 88, 68,
             92, 71, 92, 73, 97, 76, 97, 78
         ];
-
-        let mut moves = Vec::default();
-        let turn_list = move_gen_service.generate_moves_list_for_piece(&board, 0);
-        for turn in turn_list {
-            moves.push(turn.from);
-            moves.push(turn.to);
-        }
-
         assert_eq!(moves, expected_moves, "Move Gen for start-up setup is wrong");
 
         // Test: White is in check and only a few moves are available for the king
         let board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
-
-        let mut moves = Vec::default();
-        let turn_list = move_gen_service.generate_moves_list_for_piece(&board, 0);
-        for turn in turn_list {
-            moves.push(turn.from);
-            moves.push(turn.to);
-        }
+        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
 
         // Expected king moves in double check situation
         let expected_moves_in_check = vec![95, 84, 95, 96];

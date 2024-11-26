@@ -29,7 +29,7 @@ impl Book {
         let e2e4_g8f6 = "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2";
         let e2e4_e7e6 = "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
 
-        book_map.insert(e2e4_d7d5, vec!["e4d5", "e4d5", "d2d3", "d8d5"]);
+        book_map.insert(e2e4_d7d5, vec!["e4d5", "e4d5", "d2d3"]);
         book_map.insert(e2e4_e7e5, vec!["g1f3", "f1c4", "b1c3", "d2d4", "c2c3"]);
         book_map.insert(e2e4_d7d6, vec!["d2d4", "d2d3", "g1f3", "b1c3", "f1c4", "c2c4", "c2c3"]);
         book_map.insert(e2e4_g8f6, vec!["e4e5", "d2d3", "b1c3", "d1f3"]);    
