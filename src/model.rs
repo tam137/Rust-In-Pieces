@@ -234,6 +234,17 @@ impl Turn {
         }
     }
 
+    pub fn new_to_from(from: i32, to: i32) -> Self {
+        Turn {
+            from,
+            to,
+            capture: 0,
+            promotion: 0,
+            eval: 0,
+            gives_check: false,
+        }
+    }
+
     // Check if the move is a promotion
     pub fn is_promotion(&self) -> bool {
         self.promotion != 0

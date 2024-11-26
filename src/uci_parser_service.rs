@@ -46,7 +46,7 @@ impl UciParserService {
     /// Parst den "position" Befehl und gibt ein Tuple (FEN, Moves) zurück
     pub fn parse_position(&self, uci_token: &str) -> (String, String) {
         let tokens: Vec<&str> = uci_token.trim().split_whitespace().collect();
-        let mut fen = String::new();
+        let fen;
         let mut moves = String::new();
 
         if tokens.len() < 2 {
@@ -77,17 +77,6 @@ impl UciParserService {
             }
         }
         (fen, moves)
-    }
-
-    /// parse a move string example: "moves d2d4 d7d6" without \n at end 
-    pub fn parse_last_move_from_moves_str(&self, moves_str: &str) -> String {
-        let len = moves_str.len();
-        let move_str = if matches!(moves_str.chars().rev().nth(0), Some('q' | 'k')) {
-            &moves_str[len - 5..]
-        } else {
-            &moves_str[len - 4..]
-        };
-        move_str.to_string()
     }
 
     pub fn get_info_str(&self, search_result: &SearchResult, stats: &Stats) -> String {
@@ -154,18 +143,4 @@ mod tests {
         assert_eq!("Qd1d5", moves);
 
     }
-
-    #[test]
-    fn parse_last_move_from_moves_str_test() {
-        let parser = UciParserService {};
-
-        let moves_str = "moves e2e4 d7d5 d3d4";
-        let best_move = parser.parse_last_move_from_moves_str(moves_str);
-        assert_eq!("d3d4", best_move);
-
-        let moves_str = "moves e2e4 d7d5 d3d4 f7f8q";
-        let best_move = parser.parse_last_move_from_moves_str(moves_str);
-        assert_eq!("f7f8q", best_move);
-    }
-
 }

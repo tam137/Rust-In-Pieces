@@ -310,7 +310,7 @@ fn main() {
                         &global_map, &mut local_map);
                 }
 
-                if global_map_handler::is_stop_flag(&global_map) { break }
+                if global_map_handler::is_stop_flag(&global_map) { continue; }
                 if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
                 
                 game.do_move(&search_result.get_best_move_algebraic());
@@ -452,37 +452,43 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     let config = &Config::new().for_tests();
     let mut stats = Stats::new();
 
-    println!("expected <5µs");
-    let mut board = time_it!(service.fen.set_init_board());
+    println!("expected <10µs");
+    let mut board = time_it!(service.fen.set_fen("r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8"));
 
-    let turn = &notation_util::NotationUtil::get_turn_from_notation("e2e4");
-    
-    println!("\nexpected <5µs");
-    let mi = time_it!(board.do_move(turn));
-
-    println!("\nexpected <300ns");
-    time_it!(board.undo_move(turn, mi));
+    let turn = &notation_util::NotationUtil::get_turn_from_notation("f6e4");
 
     println!("\nexpected <5µs");
     time_it!(board.hash());
 
-    println!("\nexpected ~45µs");
+    println!("\nexpected <5µs");
+    let mi = time_it!(board.do_move(turn));
+
+    println!("\nexpected <1µs");
+    time_it!(board.undo_move(turn, mi));
+
+    println!("\nexpected <1µs");
+    time_it!(service.move_gen.get_check_idx_list(&board.field, true));
+
+    println!("\nexpected <10µs>");
+    time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0));
+
+    println!("\nexpected <150µs");
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map));
+
+    println!("\nexpected <15µs");
+    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, service, global_map));
 
     println!("\nexpected ~1µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
     
-    println!("\nexpected ~2000ms");
-    time_it!(service.search.get_moves(&mut service.fen.set_init_board(), 6, true, &mut Stats::new(), config, service, global_map, local_map)); 
-    
-    println!("\nexpected ~2000ms");
+    println!("\nexpected <350ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, global_map, local_map));
     
-    println!("\nexpected ~900ms");
+    println!("\nexpected <300ms");
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
     time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, global_map, local_map));
 
-    println!("\nexpected >340");
+    println!("\nexpected ~400");
     println!("Benchmark Value: {}", calculate_benchmark(10000, global_map, local_map));
 }
