@@ -1,42 +1,39 @@
-use std::collections::HashMap;
 use rand::{Rng, rngs::StdRng, SeedableRng};
 use once_cell::sync::Lazy;
 
 use crate::model::Board;
 use crate::config::Config;
 
-// Definieren Sie Ihre Konstanten
-const NUM_PIECES: usize = 12; // Anzahl der verschiedenen Figuren
-const BOARD_SIZE: usize = 120; // Größe des Bretts
-const FIG: [i32; 12] = [10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25]; // Figurenkennungen
+const NUM_PIECES: usize = 12;
+const BOARD_SIZE: usize = 120;
 
-// Erstellen Sie eine statische `fig_map`
-static FIG_MAP: Lazy<HashMap<i32, usize>> = Lazy::new(|| {
-    let mut fig_map = HashMap::new();
-    fig_map.insert(10, 0);
-    fig_map.insert(11, 1);
-    fig_map.insert(12, 2);
-    fig_map.insert(13, 3);
-    fig_map.insert(14, 4);
-    fig_map.insert(15, 5);
-    fig_map.insert(20, 6);
-    fig_map.insert(21, 7);
-    fig_map.insert(22, 8);
-    fig_map.insert(23, 9);
-    fig_map.insert(24, 10);
-    fig_map.insert(25, 11);
+
+const MAX_PIECE_VALUE: usize = 25;
+
+static FIG_MAP_ARRAY: Lazy<[Option<usize>; MAX_PIECE_VALUE + 1]> = Lazy::new(|| {
+    let mut fig_map = [None; MAX_PIECE_VALUE + 1];
+    fig_map[10] = Some(0);
+    fig_map[11] = Some(1);
+    fig_map[12] = Some(2);
+    fig_map[13] = Some(3);
+    fig_map[14] = Some(4);
+    fig_map[15] = Some(5);
+    fig_map[20] = Some(6);
+    fig_map[21] = Some(7);
+    fig_map[22] = Some(8);
+    fig_map[23] = Some(9);
+    fig_map[24] = Some(10);
+    fig_map[25] = Some(11);
     fig_map
 });
 
-// Erstellen Sie eine gemeinsame statische Variable für die Zobrist-Tabelle und `WHITE_TO_MOVE`
 static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(137);
     let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
 
     for i in 0..BOARD_SIZE {
-        for &j in &FIG {
-            let fig_index = FIG_MAP.get(&j).unwrap();
-            table[i][*fig_index] = rng.gen();
+        for piece_index in 0..NUM_PIECES {
+            table[i][piece_index] = rng.gen();
         }
     }
 
@@ -45,19 +42,18 @@ static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(||
     (table, white_to_move)
 });
 
-// Zugriff auf die Zobrist-Tabelle und `WHITE_TO_MOVE`
 static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| ZOBRIST_DATA.0);
 static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
 
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
-    hash_map: HashMap<u64, i16>,
+    hash_map: std::collections::HashMap<u64, i16>,
     entries: u32,
 }
 
 impl ZobristTable {
     pub(crate) fn new() -> Self {
-        Self { hash_map: HashMap::with_capacity(1000), entries: 0 }
+        Self { hash_map: std::collections::HashMap::with_capacity(1000), entries: 0 }
     }
 
     pub fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
@@ -85,7 +81,7 @@ impl ZobristTable {
     }
 }
 
-// Aktualisierte `gen`-Funktion
+
 pub fn gen(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
@@ -93,9 +89,10 @@ pub fn gen(board: &Board) -> u64 {
     }
     for i in 0..BOARD_SIZE {
         let piece = board.field[i];
-        if piece > 0 {
-            let piece_index = FIG_MAP.get(&piece).unwrap();
-            hash ^= ZOBRIST_TABLE[i][*piece_index];
+        if piece > 0 && (piece as usize) <= MAX_PIECE_VALUE {
+            if let Some(piece_index) = FIG_MAP_ARRAY[piece as usize] {
+                hash ^= ZOBRIST_TABLE[i][piece_index];
+            }
         }
     }
     hash
