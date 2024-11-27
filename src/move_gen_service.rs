@@ -51,8 +51,7 @@ impl MoveGenService {
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
         let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_ZOBRIST);
 
-        let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
-        
+        let mut hash_buffer: HashMap<u64, i16> = HashMap::default();        
     
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];

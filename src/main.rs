@@ -300,16 +300,14 @@ fn main() {
 
                 let my_time_ms = if white { wtime } else { btime };
                 let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
-                let calculated_depth = config.search_depth;
 
-                let mut search_result = SearchResult::new();
 
                 let mut local_map = local_map.clone();
                 local_map.insert(DataMapKey::CalcTime, Instant::now());
-                for calculated_depth in (calculated_depth..calculated_depth + 1).step_by(1) {
-                    search_result = service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service,
+
+                let search_result = service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats, &config, &service,
                         &global_map, &mut local_map);
-                }
+
 
                 if global_map_handler::is_stop_flag(&global_map) { continue; }
                 if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
