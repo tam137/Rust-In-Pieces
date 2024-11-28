@@ -57,6 +57,10 @@ impl MoveGenService {
             let idx0 = move_list[i];
             let idx1 = move_list[i + 1];
 
+            if board.field[idx1 as usize] == 0 && only_captures {
+                continue;
+            }
+
             let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
 
             // Check for castling
