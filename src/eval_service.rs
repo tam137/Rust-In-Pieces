@@ -461,7 +461,7 @@ impl EvalService {
 
     /// return Value of 255 means early game and values towards 0 means endgamephase
     /// a middle value like 128 respects early and late game evaluation in the same weight
-    pub fn get_game_phase(&self, board: &Board) -> u32 {
+    fn get_game_phase(&self, board: &Board) -> u32 {
         let field = board.field;
         let mut phase = 0;
         for idx in 21..99 {

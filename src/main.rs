@@ -479,6 +479,18 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
 
     println!("\nexpected ~1µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
+
+    println!("\nexpected XXX");
+    let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
+    time_it!(service.move_gen.get_attack_idx_list(&board.field, board.white_to_move, 44));
+
+    println!("\nexpected XXX");
+    let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
+    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 44));
+    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 33));
+
+    println!("\nexpected XXX");
+    let _my_field: [i32; 120] = time_it!(board.field.try_into().expect("RIP Invalid field size"));
     
     println!("\nexpected <350ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
