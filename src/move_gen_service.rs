@@ -9,7 +9,12 @@ use crate::service::Service;
 use crate::zobrist::ZobristTable;
 
 
+const KNIGHT_OFFSETS: [i32; 8] = [-12, -21, -8, -19, 12, 21, 8, 19];
+const BISHOP_OFFSETS: [i32; 4] = [-11, -9, 9, 11];
+const ROOK_OFFSETS: [i32; 4] = [-10, -1, 1, 10];
+
 pub struct MoveGenService {
+    
 }
 
 impl MoveGenService {
@@ -442,10 +447,7 @@ impl MoveGenService {
     }
 
 
-    /// Checks if the [white] target index is under attack.
-    /// Return a list of Fields, that attacks the [white] target index
     pub fn get_attack_idx_list(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
-
         let mut check_idx_list = Vec::new();
 
         // Opponent's piece values
@@ -457,54 +459,70 @@ impl MoveGenService {
 
         // Pawns attacking
         if white {
-            if field[(target_idx - 9) as usize] == opponent_pawn {
+            let idx1 = (target_idx - 9) as usize;
+            let idx2 = (target_idx - 11) as usize;
+            if field[idx1] == opponent_pawn {
                 check_idx_list.push(target_idx - 9);
             }
-            if field[(target_idx - 11) as usize] == opponent_pawn {
+            if field[idx2] == opponent_pawn {
                 check_idx_list.push(target_idx - 11);
             }
         } else {
-            if field[(target_idx + 9) as usize] == opponent_pawn {
+            let idx1 = (target_idx + 9) as usize;
+            let idx2 = (target_idx + 11) as usize;
+            if field[idx1] == opponent_pawn {
                 check_idx_list.push(target_idx + 9);
             }
-            if field[(target_idx + 11) as usize] == opponent_pawn {
+            if field[idx2] == opponent_pawn {
                 check_idx_list.push(target_idx + 11);
             }
         }
 
         // Knights attacking
-        let knight_offsets = [-12, -21, -8, -19, 12, 21, 8, 19];
-        for &offset in &knight_offsets {
-            if field[(target_idx + offset) as usize] == opponent_knight {
+        for &offset in &KNIGHT_OFFSETS {
+            let idx = (target_idx + offset) as usize;
+            if field[idx] == opponent_knight {
                 check_idx_list.push(target_idx + offset);
             }
         }
 
         // Bishops and Queen attacking (Diagonals)
-        let bishop_offsets = [-11, -9, 9, 11];
-        for &offset in &bishop_offsets {
-            let mut pos = target_idx;
-            while field[(pos + offset) as usize] == 0 {
-                pos += offset;
-            }
-            if field[(pos + offset) as usize] == opponent_bishop || field[(pos + offset) as usize] == opponent_queen {
-                check_idx_list.push(pos + offset);
+        for &offset in &BISHOP_OFFSETS {
+            let mut pos = target_idx + offset;
+            loop {
+                let piece = field[pos as usize];
+                if piece == 0 {
+                    pos += offset;
+                    continue;
+                } else if piece == opponent_bishop || piece == opponent_queen {
+                    check_idx_list.push(pos);
+                    break;
+                } else {
+                    break;
+                }
             }
         }
 
         // Rooks and Queen attacking (Horizontals and Verticals)
-        let rook_offsets = [-10, -1, 1, 10];
-        for &offset in &rook_offsets {
-            let mut pos = target_idx;
-            while field[(pos + offset) as usize] == 0 {
-                pos += offset;
-            }
-            if field[(pos + offset) as usize] == opponent_rook || field[(pos + offset) as usize] == opponent_queen {
-                check_idx_list.push(pos + offset);
+        for &offset in &ROOK_OFFSETS {
+            let mut pos = target_idx + offset;
+            loop {
+                let piece = field[pos as usize];
+                if piece == 0 {
+                    pos += offset;
+                    continue;
+                } else if piece == opponent_rook || piece == opponent_queen {
+                    check_idx_list.push(pos);
+                    break;
+                } else {
+                    break;
+                }
             }
         }
+
         check_idx_list
     }
+
 
     /// Checks if the [white] target index is under attack.
     /// Return a list of Fields, that attacks the [white] target index
