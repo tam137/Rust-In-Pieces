@@ -298,8 +298,8 @@ fn main() {
 
             if book_move.is_empty() {
 
-                let my_time_ms = if white { wtime } else { btime };
-                let calculated_depth = calculate_depth(&config, game.board.calculate_complexity(), benchmark_value, my_time_ms, &global_map);
+                let _my_time_ms = if white { wtime } else { btime };
+                let calculated_depth = config.search_depth;
 
 
                 let mut local_map = local_map.clone();
