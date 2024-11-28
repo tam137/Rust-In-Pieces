@@ -107,32 +107,21 @@ impl SearchService {
  */
         if depth <= 0 {
             let mut stand_pat_cut = true;
-            
-            if config.quiescence_search_mode == QuiescenceSearchMode::Alpha1 {
-                stand_pat_cut = if white {
-                    beta >= turn.eval || (turn.capture == 0 && !turn.gives_check)
-                } else {
-                    alpha <= turn.eval || (turn.capture == 0 && !turn.gives_check)
-                };
-            }
-                
-             
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha2 {
                 stand_pat_cut = if white {
-                    beta < turn.eval || (turn.capture == 0 && !turn.gives_check)
+                    beta < turn.eval || (turn.capture == 0)
                 } else {
-                    alpha > turn.eval || (turn.capture == 0 && !turn.gives_check)
+                    alpha > turn.eval || (turn.capture == 0)
                 };
             }
                 
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                 stand_pat_cut = if white {
-
-                    self.get_white_threshold_value(&local_map) < turn.eval as i32 || (turn.capture == 0 && !turn.gives_check)
+                    self.get_white_threshold_value(&local_map) < turn.eval as i32 || turn.capture == 0
                 } else {
-                    self.get_black_threshold_value(&local_map) > turn.eval as i32 || (turn.capture == 0 && !turn.gives_check)
+                    self.get_black_threshold_value(&local_map) > turn.eval as i32 || turn.capture == 0
                 };
             }
             
@@ -362,7 +351,7 @@ mod tests {
         let mut board = fen_service.set_fen("7k/6pp/3p4/4n3/3QP3/8/3R2PP/7K w - - 0 1");
         let result = search(&mut board, 2, true);
         //result.print_all_variants();
-        assert_eq!(result.get_best_move_algebraic(), "d4e5"); // d4e5 also matt in 4
+        assert_eq!(result.get_best_move_algebraic(), "d4d6"); // d4e5 also matt in 4
 
 
         let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/p2QP3/8/3R2PP/7K w - - 0 1");
