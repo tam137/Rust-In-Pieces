@@ -14,12 +14,12 @@ impl Book {
 
         let e2e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
         let d2d4 = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1";
-        let b1c3 = "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 0 1";
+        let g1f3 = "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 0 1";
         let c2c4 = "rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq c3 0 1";
         
         book_map.insert(e2e4, vec!["e7e5", "e7e6", "d7d6", "g8f6", "b8c6", "d7d5"]);
         book_map.insert(d2d4, vec!["e7e6", "e7e5", "d7d6", "g8f6"]);
-        book_map.insert(b1c3, vec!["e7e6", "d7d5", "d7d6", "g8f6", "b1c3", "c7c5"]);
+        book_map.insert(g1f3, vec!["e7e6", "d7d5", "d7d6", "g8f6", "c7c5"]);
         book_map.insert(c2c4, vec!["e7e6", "d7d5", "d7d6", "g8f6", "b8c6"]);
 
 
