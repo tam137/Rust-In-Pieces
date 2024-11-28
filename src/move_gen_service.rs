@@ -80,7 +80,7 @@ impl MoveGenService {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
                 self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
-                    only_captures, &zobrist_table_read);
+                    &zobrist_table_read);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
@@ -150,13 +150,11 @@ impl MoveGenService {
 
         let move_info = board.do_move(turn);
         let mut valid = true;
-    
-        // Check if the move leads to check
+
         if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
             valid = false;
         }
-    
-        // If valid, add the move to the list
+
         if valid {
             turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
             valid_moves.push(turn.clone());
@@ -166,7 +164,7 @@ impl MoveGenService {
     }
     
     fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) {
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) {
 
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
@@ -240,8 +238,7 @@ impl MoveGenService {
     -> i16 {        
         stats.add_eval_nodes(1);
 
-        if config.use_zobrist {
-             
+        if config.use_zobrist {             
             match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
                 Some(eval) => {
                     stats.add_zobrist_hit(1);
@@ -253,6 +250,21 @@ impl MoveGenService {
             }
         } else {
             service.eval.calc_eval(board, config, &service.move_gen)
+        }
+    }
+
+    fn check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) -> bool {
+        if config.use_zobrist {             
+            match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
+                Some(_) => {
+                    true
+                },
+                None => {
+                    false
+                }
+            }
+        } else {
+            false
         }
     }
 
