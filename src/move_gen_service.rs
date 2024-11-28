@@ -61,7 +61,7 @@ impl MoveGenService {
                 continue;
             }
 
-            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, false);
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0);
 
             // Check for castling
             if !only_captures && (board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2)) {
@@ -80,7 +80,7 @@ impl MoveGenService {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
                 let (hash, eval) = self.validate_and_add_move(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
-                    only_captures, &zobrist_table_read);
+                    &zobrist_table_read);
                 hash_buffer.insert(hash, eval);
             }
         }
@@ -90,7 +90,7 @@ impl MoveGenService {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
                 let (hash, eval) = self.validate_and_add_move(board, stats, &mut turn, service, config, &mut valid_moves, white_turn,
-                    only_captures, &zobrist_table_read);
+                    &zobrist_table_read);
                 hash_buffer.insert(hash, eval);
             }
         }
@@ -131,7 +131,7 @@ impl MoveGenService {
             for &offset in &offsets {
                 if board.field[(board.field_for_en_passante + offset) as usize] == if white_turn { 10 } else { 20 } {
                     en_passante_turns.push(
-                        Turn::new(board.field_for_en_passante + offset, board.field_for_en_passante, target_piece, 0, 0, false)
+                        Turn::new(board.field_for_en_passante + offset, board.field_for_en_passante, target_piece, 0, 0)
                     );
                 }
             }
@@ -140,7 +140,7 @@ impl MoveGenService {
     }
     
     fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, only_captures: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
         -> (u64, i16) {
 
         let move_info = board.do_move(turn);
@@ -154,17 +154,7 @@ impl MoveGenService {
         // If valid, add the move to the list
         if valid {
             turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
-    
-            // check if the move gives opponent check
-            if self.get_check_idx_list(&board.field, !white_turn).len() > 0 {
-                turn.gives_check = true;
-            }
-
-            if only_captures && (turn.capture > 0 || turn.gives_check) {
-                valid_moves.push(turn.clone());
-            } else if !only_captures {
-                valid_moves.push(turn.clone());
-            }            
+            valid_moves.push(turn.clone());
         }
         board.undo_move(turn, move_info);
         (move_info.hash, turn.eval)
@@ -176,7 +166,7 @@ impl MoveGenService {
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, only_captures, zobrist_table_read);
+            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, zobrist_table_read);
         }
     }    
 
@@ -226,7 +216,6 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 14,
                 eval: 0,
-                gives_check: false,
             })
         } else if !white_turn && idx0 / 10 == 8 && board.field[idx0 as usize] == 20 {
             Some(Turn {
@@ -235,7 +224,6 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 24,
                 eval: 0,
-                gives_check: false,
             })
         } else {
             None
@@ -809,6 +797,8 @@ mod tests {
         let fen_service = Service::new().fen;
         let truncate = Config::new().truncate_bad_moves;
 
+        /*
+        
         // for white
         let mut board = fen_service.set_fen("rnbqkbnr/ppp2ppp/8/4p2N/4P3/8/PPP2PPP/R1BQKBNR w KQkq - 0 1");
         let turns = generate_valid_moves_list(&mut board);
@@ -835,6 +825,7 @@ mod tests {
         let turns = generate_valid_moves_list(&mut board);
         let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
         assert_eq!(6, check_turns.len());
+         */
     }
 
 

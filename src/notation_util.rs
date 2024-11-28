@@ -48,7 +48,7 @@ impl NotationUtil {
                 _ => 24, // default to queen
             };
         }
-        Turn::new(from, to, 0, promotion, 0, false)
+        Turn::new(from, to, 0, promotion, 0)
     }
 
     /// Converts a space-separated list of notation moves (like "e2e4 e7e5") to a list of `Turn` objects.
@@ -106,8 +106,7 @@ mod tests {
         assert_eq!(34, turn.from);
         assert_eq!(54, turn.to);
         assert_eq!(0, turn.capture);
-        assert_eq!(false, turn.is_promotion());
-        assert_eq!(false, turn.gives_check);        
+        assert_eq!(false, turn.is_promotion());    
     }
 
     #[test]
