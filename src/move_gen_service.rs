@@ -442,6 +442,8 @@ impl MoveGenService {
     }
 
 
+    /// Checks if the [white] target index is under attack.
+    /// Return a list of Fields, that attacks the [white] target index
     pub fn get_attack_idx_list(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
 
         let mut check_idx_list = Vec::new();
@@ -504,6 +506,24 @@ impl MoveGenService {
         check_idx_list
     }
 
+    /// Checks if the [white] target index is under attack.
+    /// Return a list of Fields, that attacks the [white] target index
+    /// // includes also fields that attack from behind of a attacker
+    pub fn get_attack_idx_list_with_shadow(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
+        let mut my_field: [i32; 120] = field.try_into().expect("RIP Invalid field size");
+        let mut all_attackers = Vec::default();
+    
+        loop {
+            let attackers = self.get_attack_idx_list(&my_field, white, target_idx);
+            if attackers.len() == 0 { break; }
+            for attacker in attackers {
+                my_field[attacker as usize] = 0;
+                all_attackers.push(attacker);
+            }
+        }
+        all_attackers
+    }
+
     /// Helper function to calculate the positions of the white and black kings.
     fn calc_king_positions(&self, field: &[i32]) -> (i32, i32) {
         let mut white_king_pos = -1;
@@ -522,6 +542,7 @@ impl MoveGenService {
 
 
     /// Checks if the king is under attack.
+    /// Return a list of Fields, that give [white] check
     pub fn get_check_idx_list(&self, field: &[i32], white: bool) -> Vec<i32> {
         let king_pos = if white { self.calc_king_positions(field).0 } else { self.calc_king_positions(field).1 };
         self.get_attack_idx_list(field, white, king_pos)
@@ -601,6 +622,34 @@ mod tests {
         assert!(check_idx_list.contains(&63), "Check index list should contain 63");
         assert!(check_idx_list.contains(&65), "Check index list should contain 65");
         assert_eq!(check_idx_list.len(), 2);
+    }
+
+    #[test]
+    fn get_attack_idx_list_test() {
+        let fen_service = Service::new().fen;
+        let move_gen_service = Service::new().move_gen;
+
+        let board = fen_service.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
+        let attacks =  move_gen_service.get_attack_idx_list(&board.field, board.white_to_move, 44).len() as i32;
+        assert_eq!(2 , attacks);
+
+        let board = fen_service.set_fen("r1bqnr2/pp1nbpk1/2p1p3/3p2pp/2PP1P1N/2NBP1B1/PPQ3PP/2R1K2R w K - 0 14");
+        let attacks =  move_gen_service.get_attack_idx_list(&board.field, board.white_to_move, 68).len() as i32;
+        assert_eq!(1 , attacks);
+    }
+
+    #[test]
+    fn get_attack_idx_list_with_shadow_test() {
+        let fen_service = Service::new().fen;
+        let move_gen_service = Service::new().move_gen;
+
+        let board = fen_service.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
+        let attacks =  move_gen_service.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 44).len() as i32;
+        assert_eq!(4 , attacks);
+
+        let board = fen_service.set_fen("r1bqnr2/pp1nbpk1/2p1p3/3p2pp/2PP1P1N/2NBP1B1/PPQ3PP/2R1K2R w K - 0 14");
+        let attacks =  move_gen_service.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 68).len() as i32;
+        assert_eq!(3 , attacks);
     }
 
     #[test]
@@ -787,50 +836,10 @@ mod tests {
 
         let board = test_fen("8/8/8/8/3k2p1/8/r2PKN1r/r7 w - - 0 1", 0);
         assert!(board.game_status == GameStatus::Draw);
-
-
-
     }
 
     #[test]
-    fn gives_check_test() {
-        let fen_service = Service::new().fen;
-        let truncate = Config::new().truncate_bad_moves;
-
-        /*
-        
-        // for white
-        let mut board = fen_service.set_fen("rnbqkbnr/ppp2ppp/8/4p2N/4P3/8/PPP2PPP/R1BQKBNR w KQkq - 0 1");
-        let turns = generate_valid_moves_list(&mut board);
-        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
-        assert_eq!(5, check_turns.len());
-
-        let mut board = fen_service.set_fen("8/8/8/3k4/8/3K4/3RPR2/3B4 w - - 0 1");
-        let turns = generate_valid_moves_list(&mut board);
-        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
-        assert_eq!(6, check_turns.len());
-
-        // for black
-        let mut board = fen_service.set_fen("rnb1kb1r/p1q2ppp/1p2p3/3pP1n1/3P4/P7/1PP2PPP/RNBQKBNR b KQkq - 0 1");
-        let turns = generate_valid_moves_list(&mut board);
-        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
-        if truncate <= 30 {
-            assert_eq!(4, check_turns.len());
-        } else {
-            assert_eq!(4, check_turns.len());
-        }
-        
-
-        let mut board = fen_service.set_fen("3rr3/8/5b2/8/2pk4/8/3K4/8 b - - 0 1");
-        let turns = generate_valid_moves_list(&mut board);
-        let check_turns: Vec<Turn> = turns.iter().filter(|t| t.gives_check == true).cloned().collect();
-        assert_eq!(6, check_turns.len());
-         */
-    }
-
-
-    #[test]
-    fn gives_check_and_promote_test() {
+    fn get_check_idx_list() {
         test_fen("8/1P4k1/1K5p/4p2P/4r3/8/8/6q1 w - - 0 59", 5);
 
         // TODO for black please
@@ -896,7 +905,6 @@ mod tests {
         assert!(eval > 0);
 
     }
-
 
     #[test]
     fn check_moves_when_in_check() {
