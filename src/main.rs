@@ -489,7 +489,7 @@ fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &mut DataMap) {
     time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 44));
     time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 33));
 
-    println!("\nexpected <1µs");
+    println!("\nexpected ~100ns");
     let _my_field: [i32; 120] = time_it!(board.field.try_into().expect("RIP Invalid field size"));
     
     println!("\nexpected <350ms");
