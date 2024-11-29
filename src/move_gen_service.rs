@@ -156,6 +156,7 @@ impl MoveGenService {
         }
 
         if valid {
+            turn.hash = move_info.hash;
             turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
             valid_moves.push(turn.clone());
         }
@@ -219,6 +220,7 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 14,
                 eval: 0,
+                hash: 0,
             })
         } else if !white_turn && idx0 / 10 == 8 && board.field[idx0 as usize] == 20 {
             Some(Turn {
@@ -227,6 +229,7 @@ impl MoveGenService {
                 capture: 0,
                 promotion: 24,
                 eval: 0,
+                hash: 0,
             })
         } else {
             None

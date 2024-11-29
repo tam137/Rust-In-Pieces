@@ -201,6 +201,7 @@ pub struct Turn {
     pub capture: i32,
     pub promotion: i32,
     pub eval: i16,
+    pub hash: u64,
 }
 
 impl PartialEq for Turn {
@@ -228,6 +229,7 @@ impl Turn {
             capture,
             promotion,
             eval,
+            hash: 0,
         }
     }
 
@@ -238,6 +240,7 @@ impl Turn {
             capture: 0,
             promotion: 0,
             eval: 0,
+            hash: 0,
         }
     }
 
@@ -420,21 +423,24 @@ impl Board {
         self.white_to_move = !self.white_to_move;
 
         // Calculate the board hash and update the move repetition map
-        let board_hash = self.hash();
-        self.cached_hash = board_hash;
+        if turn.hash == 0 {
+            self.cached_hash = self.hash();
+        } else {
+            self.cached_hash = turn.hash;
+        }
         self.move_repetition_map
-            .entry(board_hash)
+            .entry(self.cached_hash)
             .and_modify(|count| *count += 1)
             .or_insert(1);
 
         // Check for 3-move repetition
-        if let Some(&count) = self.move_repetition_map.get(&board_hash) {
+        if let Some(&count) = self.move_repetition_map.get(&self.cached_hash) {
             if count > 3 { panic!("RIP move_repetition_map vale {}", count) }
             if count == 3 {
                 self.game_status = GameStatus::Draw;
             }
         }
-        MoveInformation::new(old_castle_information, board_hash, old_field_for_en_passante)
+        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante)
     }
 
 
