@@ -13,10 +13,18 @@ pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
 
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
+pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
+pub const RIP_COULDN_LOCK_STOP_FLAG: &str = "RIP Could not lock stop flag";
+
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
+pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
+pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
+
 pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
+
+pub const RIP_STD_IN_THREAD_PANICKED: &str = "RIP std in thread panicked";
+pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
 
 #[derive(Clone)]
 pub enum ValueType {
@@ -25,6 +33,7 @@ pub enum ValueType {
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<RwLock<ZobristTable>>),
     SenderU64I16(Sender<(u64, i16)>),
+    SenderString(Sender<String>),
     Instant(Instant),
 }
 
@@ -37,6 +46,8 @@ pub enum DataMapKey {
     Logger,
     ZobristTable,
     HashSender,
+    StdInSender,
+    GameCommandSender,
     CalcTime,
 }
 
@@ -76,8 +87,8 @@ pub trait KeyToType<T> {
 impl KeyToType<i32> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a i32> {
         match (self, value) {
-            (DataMapKey::WhiteThreshold, ValueType::Integer(i))
-            | (DataMapKey::BlackThreshold, ValueType::Integer(i)) => Some(i),
+            (DataMapKey::WhiteThreshold, ValueType::Integer(i)) |
+            (DataMapKey::BlackThreshold, ValueType::Integer(i)) => Some(i),
             _ => None,
         }
     }
@@ -89,8 +100,8 @@ impl KeyToType<i32> for DataMapKey {
 impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<bool>>> {
         match (self, value) {
-            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a))
-            | (DataMapKey::DebugFlag, ValueType::ArcMutexBool(a)) => Some(a),
+            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a)) |
+            (DataMapKey::DebugFlag, ValueType::ArcMutexBool(a)) => Some(a),
             _ => None,
         }
     }
@@ -135,6 +146,19 @@ impl KeyToType<Sender<(u64, i16)>> for DataMapKey {
     }
 }
 
+impl KeyToType<Sender<String>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Sender<String>> {
+        match (self, value) {
+            (DataMapKey::StdInSender, ValueType::SenderString(a)) |
+            (DataMapKey::GameCommandSender, ValueType::SenderString(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Sender<String>) -> ValueType {
+        ValueType::SenderString(value)
+    }
+}
+
 impl KeyToType<Instant> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Instant> {
         match (self, value) {
@@ -158,7 +182,6 @@ pub enum GameStatus {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum QuiescenceSearchMode {
-    Alpha1,
     Alpha2,
     Alpha3,
 }
@@ -233,7 +256,7 @@ impl Turn {
         }
     }
 
-    pub fn new_to_from(from: i32, to: i32) -> Self {
+    pub fn _new_to_from(from: i32, to: i32) -> Self {
         Turn {
             from,
             to,
@@ -540,7 +563,7 @@ impl Board {
     }
 
     /// gives an indicator wich depth to the search can be applied. 100 is maximum
-    pub fn calculate_complexity(&self) -> i32 {
+    pub fn _calculate_complexity(&self) -> i32 {
         let mut complexity = 0;
         
         for &field in self.field.iter() {
@@ -680,7 +703,7 @@ pub struct Variant {
 
 impl SearchResult {
 
-    pub fn new() -> Self {
+    pub fn _new() -> Self {
         SearchResult{
             variants: Vec::default(),
             is_white_move: true,        
@@ -707,7 +730,7 @@ impl SearchResult {
         }
     }
 
-    pub fn print_debug(&self) {
+    pub fn _print_debug(&self) {
         if let Some(variant) = self.variants.get(0) {
             print!("{:?}", variant);
         } else {
@@ -715,7 +738,7 @@ impl SearchResult {
         }
     }
 
-    pub fn print_best_variant(&self) {
+    pub fn _print_best_variant(&self) {
         if let Some(variant) = self.variants.get(0) {
             print!("{} ", self.get_eval());
             let move_row = variant.move_row.clone();            
@@ -727,7 +750,7 @@ impl SearchResult {
         }
     }
 
-    pub fn print_all_variants(&self) {
+    pub fn _print_all_variants(&self) {
         self.variants.iter().for_each(|variant| {
             print!("{:>6} ", variant.eval);
             let move_row = variant.move_row.clone();            
@@ -1087,18 +1110,18 @@ mod tests {
         let fen_service = Service::new().fen;
 
         let board = fen_service.set_init_board();
-        assert_eq!(100, board.calculate_complexity());
+        assert_eq!(100, board._calculate_complexity());
 
         // midgame. Queen + 3 light pieces each + 2 rook
         let board = fen_service.set_fen("r2q1rk1/ppp2ppp/2n5/3p1b2/3Pn3/2PB1N2/P1Q2PPP/R1B2RK1 w - - 4 12");
-        assert_eq!(88, board.calculate_complexity());
+        assert_eq!(88, board._calculate_complexity());
 
         // late midgame. Queen + 1 light pieces each + 1 rook
         let board = fen_service.set_fen("3q1rk1/Q1p2pp1/3n2p1/3p4/3P1B2/2P5/P4PPP/5RK1 b - - 0 20");
-        assert_eq!(56, board.calculate_complexity());
+        assert_eq!(56, board._calculate_complexity());
 
         // rook endgame + 1 light peace each
         let board = fen_service.set_fen("r5k1/2B2pp1/6p1/3p4/3P4/2n5/P4PPP/R5K1 w - - 2 25");
-        assert_eq!(30, board.calculate_complexity());
+        assert_eq!(30, board._calculate_complexity());
     }
 }

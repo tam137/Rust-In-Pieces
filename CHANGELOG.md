@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V00j] - 2024-12-XX
+
+### Added
+
+- bigger improvments in movegenerator (about 50% faster)
+
+### Fixed
+
+- fixed error when mo move string was send in uci position command (fix cute chess)
+- fixed errors in book moves
+
 ## [V00i] - 2024-11-22
 
 ### Added

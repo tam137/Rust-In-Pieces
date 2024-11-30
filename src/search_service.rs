@@ -326,7 +326,7 @@ mod tests {
         
         let mut board = fen_service.set_fen("2r2rk1/1b2bppp/pqn1pn2/8/1PBB4/P3PN2/5PPP/RN1Q1RK1 b - - 2 14");
         let result = search(&mut board, 2, false);
-        result.print_all_variants();
+        result._print_all_variants();
         assert!(result.get_eval() < -100);
         assert_eq!(result.get_best_move_algebraic(), "c6d4");
 
@@ -369,7 +369,7 @@ mod tests {
 
         let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
         let result = search(&mut board, 2, false);
-        result.print_all_variants();
+        result._print_all_variants();
         //assert!(result.get_eval() < -100);
         //assert_eq!(result.get_best_move_algebraic(), "d5e4");
     }

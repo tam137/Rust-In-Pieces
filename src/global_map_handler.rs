@@ -31,10 +31,20 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     global_map.clone()
 }
 
-/// add the hash sender. Not added in tests
+/// add the hash sender. Not added in tests TODO
 pub fn add_hash_sender(global_map: &ThreadSafeDataMap, sender: Sender<(u64, i16)>) {
     let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     global_map_value.insert(DataMapKey::HashSender, sender.clone());
+}
+
+pub fn add_std_in_sender(global_map: &ThreadSafeDataMap, sender: Sender<String>) {
+    let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    global_map_value.insert(DataMapKey::StdInSender, sender.clone());
+}
+
+pub fn add_game_command_sender(global_map: &ThreadSafeDataMap, sender: Sender<String>) {
+    let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    global_map_value.insert(DataMapKey::GameCommandSender, sender.clone());
 }
 
 pub fn get_zobrist_table(global_map: &ThreadSafeDataMap) -> Arc<RwLock<ZobristTable>> {
@@ -65,13 +75,6 @@ pub fn get_stop_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
         .clone()
 }
 
-pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Sender<(u64, i16)> {
-    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Sender<(u64, i16)>>(DataMapKey::HashSender)
-        .expect("RIP Can not find hash sender")
-        .clone()
-}
-
 pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
     let global_map_value = global_map.read().expect("RIP Could not lock global map");
     if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
@@ -81,6 +84,29 @@ pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
         panic!("RIP Cant read stop flag");
     }
 }
+
+pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Sender<(u64, i16)> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Sender<(u64, i16)>>(DataMapKey::HashSender)
+        .expect("RIP Can not find hash sender")
+        .clone()
+}
+
+pub fn get_std_in_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Sender<String>>(DataMapKey::StdInSender)
+        .expect("RIP Can not find std in sender")
+        .clone()
+}
+
+pub fn get_game_command_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Sender<String>>(DataMapKey::GameCommandSender)
+        .expect("RIP Can not find game command sender")
+        .clone()
+}
+
+
 
 
 
