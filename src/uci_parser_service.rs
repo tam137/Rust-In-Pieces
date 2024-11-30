@@ -44,6 +44,7 @@ impl UciParserService {
 
 
     /// Parst den "position" Befehl und gibt ein Tuple (FEN, Moves) zurück
+    /// Return a fen init position for uci 'startup' command
     pub fn parse_position(&self, uci_token: &str) -> (String, String) {
         let tokens: Vec<&str> = uci_token.trim().split_whitespace().collect();
         let fen;
