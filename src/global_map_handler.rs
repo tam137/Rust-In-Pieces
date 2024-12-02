@@ -7,7 +7,7 @@ use crate:: model::{DataMap, DataMapKey, LoggerFnType};
 use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 
 
-/// global map builder: Its not checked here BUT ONLY CALL IT ONCE!
+/// global map builder: Its not checked here BUT ONLY CALL CONSTRUCTOR ONCE!
 /// Everything in here and the map itself is an Arc<Mutex>>
 pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
 
@@ -31,7 +31,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     global_map.clone()
 }
 
-/// add the hash sender. Not added in tests TODO
+
 pub fn add_hash_sender(global_map: &ThreadSafeDataMap, sender: Sender<(u64, i16)>) {
     let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     global_map_value.insert(DataMapKey::HashSender, sender.clone());
@@ -47,17 +47,15 @@ pub fn add_game_command_sender(global_map: &ThreadSafeDataMap, sender: Sender<St
     global_map_value.insert(DataMapKey::GameCommandSender, sender.clone());
 }
 
+pub fn add_log_buffer_sender(global_map: &ThreadSafeDataMap, sender: Sender<String>) {
+    let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    global_map_value.insert(DataMapKey::LogBufferSender, sender.clone());
+}
+
 pub fn get_zobrist_table(global_map: &ThreadSafeDataMap) -> Arc<RwLock<ZobristTable>> {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
         .get_data::<Arc<RwLock<ZobristTable>>>(DataMapKey::ZobristTable)
         .expect("RIP Can not find ZobristTable")
-        .clone()
-}
-
-pub fn get_logger(global_map: &ThreadSafeDataMap) -> LoggerFnType {
-    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<LoggerFnType>(DataMapKey::Logger)
-        .expect("RIP Can not find logger")
         .clone()
 }
 
@@ -106,7 +104,12 @@ pub fn get_game_command_sender(global_map: &ThreadSafeDataMap) -> Sender<String>
         .clone()
 }
 
-
+pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Sender<String>>(DataMapKey::LogBufferSender)
+        .expect("RIP Can not find log msg sender")
+        .clone()
+}
 
 
 

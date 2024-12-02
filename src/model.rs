@@ -20,6 +20,7 @@ pub const RIP_COULDN_LOCK_STOP_FLAG: &str = "RIP Could not lock stop flag";
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
 pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
+pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
 
 pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
 
@@ -47,6 +48,7 @@ pub enum DataMapKey {
     ZobristTable,
     HashSender,
     StdInSender,
+    LogBufferSender,
     GameCommandSender,
     CalcTime,
 }
@@ -150,7 +152,8 @@ impl KeyToType<Sender<String>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Sender<String>> {
         match (self, value) {
             (DataMapKey::StdInSender, ValueType::SenderString(a)) |
-            (DataMapKey::GameCommandSender, ValueType::SenderString(a)) => Some(a),
+            (DataMapKey::GameCommandSender, ValueType::SenderString(a)) |
+            (DataMapKey::LogBufferSender, ValueType::SenderString(a)) => Some(a),
             _ => None,
         }
     }

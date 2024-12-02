@@ -14,8 +14,9 @@ use crate::service::Service;
 use crate::Book;
 
 use crate::model::RIP_COULDN_LOCK_STOP_FLAG;
-use crate::RIP_MISSED_DM_KEY;
-use crate::RIP_COULDN_LOCK_ZOBRIST;
+use crate::model::RIP_MISSED_DM_KEY;
+use crate::model::RIP_COULDN_LOCK_ZOBRIST;
+use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
 pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command: Receiver<String>) {
@@ -28,6 +29,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
     let stop_flag = global_map_handler::get_stop_flag(&global_map);
     let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
     let book = Book::new();
+    let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
@@ -71,6 +73,10 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let mut local_map = local_map.clone();
                     local_map.insert(DataMapKey::CalcTime, Instant::now());
                     for depth in (2..100).step_by(1) {
+                        global_map_handler::get_log_buffer_sender(&global_map)
+                            .send(format!("Start Level {}", depth))
+                            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+
                         let is_white = game.board.white_to_move;
                         let _r = &service.search.get_moves(&mut game.board, depth, is_white, &mut stats,
                             &config, &service, &global_map, &mut local_map);
@@ -82,7 +88,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);
-                    let logger = global_map_handler::get_logger(&global_map);
+                    
         
                     let (wtime, btime): (i32, i32) = uci_parser.parse_go(command.as_str());
         
@@ -107,7 +113,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                             local_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
                             local_map.insert(DataMapKey::BlackThreshold, search_result.get_eval() as i32);
-                            logger(format!("quiescence_search_threshold: {:?}", local_map.get_data::<i32>(DataMapKey::WhiteThreshold)));
+                            logger.send(format!("quiescence_search_threshold: {:?}", local_map.get_data::<i32>(DataMapKey::WhiteThreshold)))
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }
                         
                         let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
@@ -121,7 +128,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         {
                             let mut zobrist_table = zobrist_table_mutex.write().expect(RIP_COULDN_LOCK_ZOBRIST);
                             let cleaned = zobrist_table.clean_up_hash_if_needed(&config);                    
-                            if cleaned > 0 { logger(format!("cleaned {} entries from cache", cleaned)); }
+                            if cleaned > 0 { logger.send(format!("cleaned {} entries from cache", cleaned))
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE); }
                         }
         
                         let move_row = search_result.get_best_move_row();
@@ -136,18 +144,19 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         stats.created_nodes / (calc_time_ms + 1) as usize,
                         move_row)
                         ) {
-                            logger("Std Channel closed exiting".to_string());
+                            logger.send("Std Channel closed exiting".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             break;
                         }
                         
                         stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
         
                         if config.in_debug {
-                            logger(format!("{:?}", stats));
+                            logger.send(format!("{:?}", stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }                
                     } else { // do book move
                         if config.in_debug {    
-                            logger(format!("found Book move: {} for position {}", book_move, game_fen));
+                            logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }
                         game.do_move(book_move);
                         stdout.write(&format!("bestmove {}", book_move));
