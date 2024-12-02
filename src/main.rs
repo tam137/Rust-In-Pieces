@@ -36,6 +36,7 @@ use crate::game_handler::game_loop;
 use crate::threads::std_reader;
 use crate::threads::uci_command_processor;
 use crate::threads::hash_writer;
+use crate::threads::logger_buffer_thread;
 
 
 
@@ -57,11 +58,13 @@ fn main() {
     let (tx_hashes, rx_hashes) = mpsc::channel();
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();
-    
+    let (tx_log_buffer, rx_log_buffer) = mpsc::channel(); 
+
     
     global_map_handler::add_hash_sender(&global_map, tx_hashes);
     global_map_handler::add_std_in_sender(&global_map, tx_std_in);
     global_map_handler::add_game_command_sender(&global_map, tx_game_command);
+    global_map_handler::add_log_buffer_sender(&global_map, tx_log_buffer);
 
     // Set up hash writer thread
     let global_map_hash_writer = global_map.clone();
@@ -91,6 +94,13 @@ fn main() {
         game_loop(global_map_game_loop, &Config::new(), rx_game_command);
     });
 
+    // Set up logger threads
+    let global_map_log_buffer = global_map.clone();
+    let _logger_buffer = thread::spawn(move || {
+        logger_buffer_thread(global_map_log_buffer, &Config::new(), rx_log_buffer);
+    });
+
     std_in_thread.join().expect(RIP_STD_IN_THREAD_PANICKED);
 
 }
+
