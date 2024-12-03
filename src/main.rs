@@ -19,14 +19,6 @@ use std::thread;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use model::DataMapKey;
-use model::QuiescenceSearchMode;
-use model::UciGame;
-use model::ThreadSafeDataMap;
-use model::RIP_COULDN_LOCK_ZOBRIST;
-use model::RIP_MISSED_DM_KEY;
-use model::RIP_STD_IN_THREAD_PANICKED;
-
 use crate::book::Book;
 use crate::config::Config;
 use crate::model::Stats;
@@ -38,6 +30,12 @@ use crate::threads::uci_command_processor;
 use crate::threads::hash_writer;
 use crate::threads::logger_buffer_thread;
 
+use model::DataMapKey;
+use model::QuiescenceSearchMode;
+use model::UciGame;
+use model::ThreadSafeDataMap;
+
+use model::RIP_STD_IN_THREAD_PANICKED;
 
 
 fn main() {
@@ -104,3 +102,95 @@ fn main() {
 
 }
 
+
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    use crate::global_map_handler;
+    use crate::config::Config;
+    use crate::game_handler::game_loop;
+    use crate::threads::uci_command_processor;
+    use crate::threads::hash_writer;
+    use crate::threads::logger_buffer_thread;
+
+    
+    struct TestEnvironment {
+        tx_std_in: mpsc::Sender<String>,
+        _uci_command_processor: thread::JoinHandle<()>,
+    }
+    
+    fn set_up() -> TestEnvironment {
+    
+        let global_map = global_map_handler::create_new_global_map();
+    
+        let (tx_hashes, rx_hashes) = mpsc::channel();
+        let (tx_std_in, rx_std_in) = mpsc::channel();
+        let (tx_game_command, rx_game_command) = mpsc::channel();
+        let (tx_log_buffer, rx_log_buffer) = mpsc::channel();
+    
+        global_map_handler::add_hash_sender(&global_map, tx_hashes);
+        global_map_handler::add_std_in_sender(&global_map, tx_std_in.clone());
+        global_map_handler::add_game_command_sender(&global_map, tx_game_command.clone());
+        global_map_handler::add_log_buffer_sender(&global_map, tx_log_buffer);
+    
+        // Set up hash writer thread
+        let global_map_hash_writer = global_map.clone();
+        let _hash_writer = thread::spawn(move || {
+            hash_writer(global_map_hash_writer, &Config::new()._for_integration_tests(), rx_hashes);
+        });
+    
+        // Set up UCI command thread
+        let global_map_command_processor = global_map.clone();
+        let _uci_command_processor = thread::spawn(move || {
+            uci_command_processor(global_map_command_processor, &Config::new()._for_integration_tests(), rx_std_in);
+        });
+    
+        // Set up game loop thread
+        let global_map_game_loop = global_map.clone();
+        let _game_handler = thread::spawn(move || {
+            game_loop(global_map_game_loop, &Config::new()._for_integration_tests(), rx_game_command);
+        });
+    
+        // Set up logger thread
+        let global_map_log_buffer = global_map.clone();
+        let _logger_buffer = thread::spawn(move || {
+            logger_buffer_thread(global_map_log_buffer, &Config::new()._for_integration_tests(), rx_log_buffer);
+        });
+    
+        TestEnvironment {
+            tx_std_in,
+            _uci_command_processor,
+        }
+    }
+
+    fn send_uci(env: &TestEnvironment, cmd: &str, sleep_millis: i32) {
+        let rip_err = "RIP Test execution error";
+        env.tx_std_in.send(cmd.to_string()).expect(rip_err);
+        thread::sleep(Duration::from_millis(sleep_millis as u64));
+    }
+    
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+    
+        #[test]
+        fn setup_test_env() {
+            let rip_err = "RIP Test execution error";    
+            let env = set_up();
+    
+            send_uci(&env, "debug on", 100);
+            send_uci(&env, "go infinite", 1200);
+            send_uci(&env, "quit", 0);
+    
+            env._uci_command_processor.join().expect(rip_err);
+        }
+    }
+    
+
+
+}
