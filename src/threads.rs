@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::collections::HashMap;
 use std::thread;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
 use std::time::Duration;
@@ -72,55 +72,11 @@ pub fn std_reader(global_map: ThreadSafeDataMap, _config: &Config) {
 }
 
 
-pub fn logger_buffer_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_buffer: Receiver<String>) {
-    let (tx_log_msg, rx_log_msg) = mpsc::channel();
-
-    let _log_writer = thread::spawn(move || {
-        logger_thread(global_map, &Config::new(), rx_log_msg);
-    });
-
-    loop {
-        match rx_log_buffer.recv() {
-            Ok(log_msg) => {
-                let timestamp = Local::now().format("%H:%M:%S%.3f");
-                let log_entry = format!("{} {}\n", timestamp, log_msg);
-                tx_log_msg.send(log_entry).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-            }
-            Err(_) => {
-                panic!("RIP Error reading from channel");
-            }
-        }
-    }
-}
-
-
-fn logger_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_msg: Receiver<String>) {
-
-    loop {
-
-        let logger_function = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<LoggerFnType>(DataMapKey::Logger)
-        .expect("RIP Can not find logger")
-        .clone();
-
-        match rx_log_msg.recv() {
-            Ok(log_msg) => {
-                logger_function(log_msg);
-            }
-            Err(_) => {
-                panic!("RIP Error reading from channel");
-            }
-        }
-    }
-}
-
-
 pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_std_in: Receiver<String>) {
 
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
 
-    let logger = global_map_handler::get_log_buffer_sender(&global_map);
     let stdout = Service::new().stdout;
     let uci_parser = Service::new().uci_parser;
     let debug_flag = global_map_handler::get_debug_flag(&global_map);
@@ -129,12 +85,11 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
     let benchmark_value = time_check::calculate_benchmark(&global_map, &mut local_map);
 
     loop {
-        
+
         match rx_std_in.recv() {
             Ok(uci_token) => {
-                if config.print_commands {
-                    logger.send(format!("RIP received '{}'", uci_token)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                }
+
+                let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
                 if uci_token.trim() == "uci" {
                     stdout.write(&format!("id name SupraH {}", config.version));
@@ -174,35 +129,52 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("debug") {
+
                     let logger_function: Arc<dyn Fn(String) + Send + Sync> = if uci_token.starts_with("debug on") {
-                        let file = Arc::new(Mutex::new(
-                            OpenOptions::new()
-                                .write(true)
-                                .append(true)
-                                .create(true)
-                                .open(format!("rust-in-piece-{}.log", config.version))
-                                .expect("Failed to open log file"),
-                        ));
-                        let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
-                        *debug_flag_value = true;
-                        Arc::from(Box::new(move |msg: String| {
-                            let mut file = file.lock().unwrap();
-                            if let Err(e) = file.write_all(msg.as_bytes()) {
-                                eprintln!("RIP Error writing to file {}", e);
-                            }
-                        }) as Box<dyn Fn(String) + Send + Sync>)
+
+                        {                            
+                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
+                            *debug_flag_value = true;
+                        }
+
+                        if config.log_to_console {
+                            Arc::from(Box::new(move |msg: String| {
+                                print!(">{}", msg);
+                            }) as Box<dyn Fn(String) + Send + Sync>)
+                        }
+                        else {
+                            let file = Arc::new(Mutex::new(
+                                OpenOptions::new()
+                                    .write(true)
+                                    .append(true)
+                                    .create(true)
+                                    .open(format!("rust-in-piece-{}.log", config.version))
+                                    .expect("RIP Failed to open log file"),
+                            ));
+
+                            Arc::from(Box::new(move |msg: String| {
+                                let mut file = file.lock().unwrap();
+                                if let Err(e) = file.write_all(msg.as_bytes()) {
+                                    eprintln!("RIP Error writing to file {}", e);
+                                }
+                            }) as Box<dyn Fn(String) + Send + Sync>)
+                        }
                         
                     } else if uci_token.starts_with("debug off") {
-                        let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
-                        *debug_flag_value = false;
+                        {
+                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
+                            *debug_flag_value = false;
+                        }
                         Arc::from(Box::new(|_msg: String| {
                             // No logging
                         }) as Box<dyn Fn(String) + Send + Sync>)
                     } else {
                         panic!("RIP Could not parse uci debug cmd");
                     };
-                    let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
-                    global_map_value.insert(DataMapKey::Logger, logger_function.clone());                            
+                    {
+                        let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+                        global_map_value.insert(DataMapKey::Logger, logger_function.clone());  
+                    }
                     logger.send(format!("Engine startet: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     logger.send(format!("Benchmark Value: {}", benchmark_value)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 }
@@ -233,5 +205,46 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
         if let Err(_e) = io::stdout().flush() {
             panic!("RIP failed to flush stdout");
         };
+    }
+}
+
+
+pub fn logger_buffer_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_buffer: Receiver<String>) {
+    let (tx_log_msg, rx_log_msg) = mpsc::channel();
+
+    let _log_writer = thread::spawn(move || {
+        logger_thread(global_map, &Config::new(), rx_log_msg);
+    });
+
+    loop {
+        match rx_log_buffer.recv() {
+            Ok(log_msg) => {
+                let timestamp = Local::now().format("%H:%M:%S%.3f");
+                let log_entry = format!("{} {}\n", timestamp, log_msg);
+                tx_log_msg.send(log_entry).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+            }
+            Err(_) => {
+                panic!("RIP Error reading from channel");
+            }
+        }
+    }
+}
+
+
+fn logger_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_msg: Receiver<String>) {
+    loop {
+        let logger_function = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<LoggerFnType>(DataMapKey::Logger)
+        .expect("RIP Can not find logger")
+        .clone();
+
+        match rx_log_msg.recv() {
+            Ok(log_msg) => {
+                logger_function(log_msg);
+            }
+            Err(_) => {
+                panic!("RIP Error reading from channel");
+            }
+        }
     }
 }

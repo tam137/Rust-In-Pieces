@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 
 use crate::{zobrist::ZobristTable, ThreadSafeDataMap};
-use crate:: model::{DataMap, DataMapKey, LoggerFnType};
+use crate:: model::{DataMap, DataMapKey};
 
 use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 
