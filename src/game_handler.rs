@@ -80,6 +80,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         let is_white = game.board.white_to_move;
                         let _r = &service.search.get_moves(&mut game.board, depth, is_white, &mut stats,
                             &config, &service, &global_map, &mut local_map);
+
+                        if global_map_handler::is_stop_flag(&global_map) { break; }
                     }
                 }
 

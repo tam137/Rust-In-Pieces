@@ -36,6 +36,7 @@ pub enum ValueType {
     SenderU64I16(Sender<(u64, i16)>),
     SenderString(Sender<String>),
     Instant(Instant),
+    SearchResultVec(Arc<Mutex<Vec<SearchResult>>>)
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -51,6 +52,7 @@ pub enum DataMapKey {
     LogBufferSender,
     GameCommandSender,
     CalcTime,
+    SearchResults,
 }
 
 #[derive(Clone)]
@@ -173,6 +175,19 @@ impl KeyToType<Instant> for DataMapKey {
         ValueType::Instant(value)
     }
 }
+
+impl KeyToType<Arc<Mutex<Vec<SearchResult>>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<Vec<SearchResult>>>> {
+        match (self, value) {
+            (DataMapKey::SearchResults, ValueType::SearchResultVec(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Arc<Mutex<Vec<SearchResult>>>) -> ValueType {
+        ValueType::SearchResultVec(value)
+    }
+}
+
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -691,13 +706,13 @@ impl Stats {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SearchResult {
     pub variants: Vec<Variant>,
     pub is_white_move: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variant {
     pub eval: i16,
     pub best_move: Option<Turn>,

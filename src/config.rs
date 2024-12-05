@@ -102,11 +102,11 @@ impl Config {
         config
     }
 
-        /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
-        pub fn _for_integration_tests(&self) -> Self {
-            let mut config = Config::new();
-            config.print_commands = true;
-            config.log_to_console = true;
-            config
-        }
+    /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
+    pub fn _for_integration_tests(&self) -> Self {
+        let mut config = Config::new();
+        config.print_commands = true;
+        config.log_to_console = true;
+        config
+    }
 }
