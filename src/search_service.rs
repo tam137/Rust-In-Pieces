@@ -89,6 +89,7 @@ impl SearchService {
                 }
             }
         }
+        global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }
 

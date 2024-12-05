@@ -114,6 +114,7 @@ mod tests {
     use crate::global_map_handler;
     use crate::config::Config;
     use crate::game_handler::game_loop;
+    use crate::model::ThreadSafeDataMap;
     use crate::threads::uci_command_processor;
     use crate::threads::hash_writer;
     use crate::threads::logger_buffer_thread;
@@ -122,6 +123,7 @@ mod tests {
     struct TestEnvironment {
         tx_std_in: mpsc::Sender<String>,
         _uci_command_processor: thread::JoinHandle<()>,
+        global_map: ThreadSafeDataMap,
     }
     
     fn set_up() -> TestEnvironment {
@@ -165,6 +167,7 @@ mod tests {
         TestEnvironment {
             tx_std_in,
             _uci_command_processor,
+            global_map
         }
     }
 
@@ -179,13 +182,19 @@ mod tests {
         use super::*;
     
         #[test]
-        fn setup_test_env() {
+        fn setup_test_env_test() {
             let rip_err = "RIP Test execution error";    
             let env = set_up();
     
             send_uci(&env, "debug on", 100);
             send_uci(&env, "go infinite", 1200);
-            send_uci(&env, "quit", 0);
+            send_uci(&env, "quit", 20);
+
+            let sr = global_map_handler::_get_search_results(&env.global_map);
+            assert!(sr.len() > 2);
+            global_map_handler::_clear_search_result(&env.global_map);
+            let sr = global_map_handler::_get_search_results(&env.global_map);
+            assert_eq!(0, sr.len());
     
             env._uci_command_processor.join().expect(rip_err);
         }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 
 use crate::{zobrist::ZobristTable, ThreadSafeDataMap};
-use crate:: model::{DataMap, DataMapKey};
+use crate:: model::{DataMap, DataMapKey, SearchResult};
 
 use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 
@@ -20,13 +20,15 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     let debug_flag = Arc::new(Mutex::new(false));
     let stop_flag = Arc::new(Mutex::new(false));
     let zobrist_table = Arc::new(RwLock::new(ZobristTable::new()));
+    let search_result_vector = Arc::new(Mutex::new(Vec::default()));
 
     {
         let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
-        global_map_value.insert(DataMapKey::StopFlag, stop_flag.clone());
-        global_map_value.insert(DataMapKey::DebugFlag, debug_flag.clone());
-        global_map_value.insert(DataMapKey::Logger, logger.clone());
-        global_map_value.insert(DataMapKey::ZobristTable, zobrist_table.clone());
+        global_map_value.insert(DataMapKey::StopFlag, stop_flag);
+        global_map_value.insert(DataMapKey::DebugFlag, debug_flag);
+        global_map_value.insert(DataMapKey::Logger, logger);
+        global_map_value.insert(DataMapKey::ZobristTable, zobrist_table);
+        global_map_value.insert(DataMapKey::SearchResults, search_result_vector);
     }
     global_map.clone()
 }
@@ -71,6 +73,29 @@ pub fn get_stop_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
         .get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
         .expect("RIP Can not find stop flag")
         .clone()
+}
+
+pub fn _get_search_results(global_map: &ThreadSafeDataMap) -> Vec<SearchResult> {
+    global_map.read().expect("RIP Ccould not lock global map")
+        .get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
+        .expect("RIP can not find search results")
+        .lock()
+        .expect("RIP can not lock search results")
+        .clone()
+}
+
+pub fn push_search_result(global_map: &ThreadSafeDataMap, search_result: SearchResult) {
+    global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
+        .expect("RIP Can not find search results")
+        .lock()
+        .expect("RIP Can not lock Search Results")
+        .push(search_result);
+}
+
+pub fn _clear_search_result(global_map: &ThreadSafeDataMap) {
+    let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    global_map_value.insert(DataMapKey::SearchResults, Arc::new(Mutex::new(Vec::default())));
 }
 
 pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
