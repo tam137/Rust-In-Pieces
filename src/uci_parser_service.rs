@@ -43,15 +43,14 @@ impl UciParserService {
     }
 
 
-    /// Parst den "position" Befehl und gibt ein Tuple (FEN, Moves) zurück
-    /// Return a fen init position for uci 'startup' command
+    /// Parse the "position" command and returns a tuple (FEN, Moves)
     pub fn parse_position(&self, uci_token: &str) -> (String, String) {
         let tokens: Vec<&str> = uci_token.trim().split_whitespace().collect();
         let fen;
         let mut moves = String::new();
 
         if tokens.len() < 2 {
-            panic!("Ungültiger position-Befehl");
+            panic!("RIP Could not parse uci position command");
         }
 
         match tokens[1] {
@@ -64,7 +63,7 @@ impl UciParserService {
             "fen" => {
                 let fen_tokens = &tokens[2..];
                 if fen_tokens.is_empty() {
-                    panic!("FEN-String fehlt");
+                    panic!("RIP FEN part is missing in uci");
                 }
                 if let Some(i) = fen_tokens.iter().position(|&x| x == "moves") {
                     fen = fen_tokens[..i].join(" ");
@@ -74,7 +73,7 @@ impl UciParserService {
                 }
             },
             _ => {
-                panic!("Ungültiger position-Befehl");
+                panic!("RIP Could not parse uci position command");
             }
         }
         (fen, moves)
@@ -90,7 +89,6 @@ impl UciParserService {
             stats.created_nodes / (stats.calc_time_ms + 1) as usize,
             search_result.get_best_move_row())
     }
-
 }
 
 

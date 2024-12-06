@@ -66,7 +66,7 @@ impl SearchService {
                             stats.add_log("stdout channel closed during search".to_string());
                             break;
                         }
-                    }                    
+                    }
                 }
             } else {
                 if min_max_eval < best_eval {
@@ -89,6 +89,7 @@ impl SearchService {
                 }
             }
         }
+        search_result.stats = stats.clone();
         global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }
