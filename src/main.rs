@@ -183,11 +183,11 @@ mod tests {
     
         #[test]
         fn setup_test_env_test() {
-            let rip_err = "RIP Test execution error";    
+            let rip_err = "RIP Test execution error";
             let env = set_up();
     
-            send_uci(&env, "debug on", 100);
-            send_uci(&env, "go infinite", 1200);
+            send_uci(&env, "debug on", 10);
+            send_uci(&env, "go infinite", 500);
             send_uci(&env, "quit", 20);
 
             let sr = global_map_handler::_get_search_results(&env.global_map);
@@ -199,7 +199,19 @@ mod tests {
             env._uci_command_processor.join().expect(rip_err);
         }
     }
+
+
     
+    #[test]
+    fn go_multithreading_test() {
+        let rip_err = "RIP Test execution error";
+        let env = set_up();
 
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "position startpos", 10);
+        send_uci(&env, "go wtime 500 btime 500", 500);
+        send_uci(&env, "quit", 20);
 
+        env._uci_command_processor.join().expect(rip_err);
+    }
 }

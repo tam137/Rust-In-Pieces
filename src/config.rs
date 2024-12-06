@@ -4,6 +4,7 @@ use crate::model::QuiescenceSearchMode;
 pub struct Config {
     pub version: String,
     pub use_zobrist: bool,
+    pub use_book: bool,
     pub max_zobrist_hash_entries: u32,
     pub search_depth: i32,
     pub truncate_bad_moves: usize,
@@ -13,6 +14,7 @@ pub struct Config {
     pub quiescence_search_mode: QuiescenceSearchMode,
     pub print_info_string: bool,
     pub write_hash_buffer_size: usize,
+    pub search_threads: i32,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -50,6 +52,7 @@ impl Config {
         Config {
             version: "V00j-candidate".to_string(),
             use_zobrist: true,
+            use_book: true,
             max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             truncate_bad_moves: 30,
@@ -59,6 +62,7 @@ impl Config {
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string: true,
             write_hash_buffer_size: 100,
+            search_threads: 4,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
@@ -107,6 +111,8 @@ impl Config {
         let mut config = Config::new();
         config.print_commands = true;
         config.log_to_console = true;
+        config.use_book = false;
+        config.search_threads = 4;
         config
     }
 }

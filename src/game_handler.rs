@@ -1,6 +1,6 @@
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::global_map_handler;
 use crate::DataMap;
@@ -12,6 +12,9 @@ use crate::QuiescenceSearchMode;
 use crate::model::ThreadSafeDataMap;
 use crate::service::Service;
 use crate::Book;
+use crate::thread;
+
+use crate::model::SearchResult;
 
 use crate::model::RIP_COULDN_LOCK_STOP_FLAG;
 use crate::model::RIP_MISSED_DM_KEY;
@@ -24,7 +27,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
     let service = &Service::new();
     let uci_parser = &service.uci_parser;
     let stdout = &service.stdout;
-    let mut stats= Stats::new();
+    //let mut stats= Stats::new();
     let mut game = UciGame::new(service.fen.set_init_board());
     let stop_flag = global_map_handler::get_stop_flag(&global_map);
     let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
@@ -46,7 +49,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
             Ok(command) => {
 
                 if command.trim() == "ucinewgame" {
-                    stats = Stats::new();
                     game = UciGame::new(service.fen.set_init_board());
                     let mut stop_flag_value = stop_flag.lock().expect(RIP_COULDN_LOCK_STOP_FLAG);
                     *stop_flag_value = false;
@@ -78,6 +80,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
 
                         let is_white = game.board.white_to_move;
+                        let mut stats = Stats::default();
                         let _r = &service.search.get_moves(&mut game.board, depth, is_white, &mut stats,
                             &config, &service, &global_map, &mut local_map);
 
@@ -94,7 +97,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
         
                     let (wtime, btime): (i32, i32) = uci_parser.parse_go(command.as_str());
         
-                    if book_move.is_empty() {
+                    if book_move.is_empty() || !config.use_book {
         
                         let _my_time_ms = if white { wtime } else { btime };
                         let calculated_depth = config.search_depth;
@@ -103,9 +106,43 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
         
-                        let search_result = service.search.get_moves(&mut game.board, calculated_depth, white, &mut stats,
-                            config, service, &global_map, &mut local_map);
-        
+                        let results = Arc::new(Mutex::new(Vec::new()));
+
+                        let mut handles = vec![];
+                    
+                        for thread_number in 0..config.search_threads {
+                            let results: Arc<Mutex<Vec<SearchResult>>> = Arc::clone(&results);
+                            let service = Service::new();
+                            let mut game = game.clone();
+                            let config = config.clone();
+                            let global_map = global_map.clone();
+                            let mut local_map = local_map.clone();
+                            let current_depth = 2 + thread_number;
+                    
+                            // run the search threads
+                            let handle = thread::spawn(move || {
+                                let mut stats = Stats::new();
+                                let white = game.board.white_to_move;
+                    
+                                let search_result = service.search.get_moves(&mut game.board, current_depth, white,
+                                    &mut stats, &config, &service, &global_map, &mut local_map);
+                    
+                                let mut results = results.lock().expect("Could not lock results mutex");
+                                results.push(search_result);
+                            });
+                            handles.push(handle);
+                        }
+                    
+                        for handle in handles {
+                            handle.join().expect("Thread panicked");
+                        }
+                        
+                        let mut results = results.lock()
+                            .expect("RIP Couldn lock search result")
+                            .clone();
+
+                        results.sort_by(|a, b| b.get_depth().cmp(&a.get_depth())); // 0 is highest depth
+                        let mut search_result = results.get(0).expect("RIP Found no Search Result").clone();
         
                         if global_map_handler::is_stop_flag(&global_map) { continue; }
                         if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
@@ -124,8 +161,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .elapsed()
                             .as_millis();
         
-                        stats.calc_time_ms = calc_time_ms as usize;
-                        stats.calculate();
+                        search_result.stats.calc_time_ms = calc_time_ms as usize;
+                        search_result.stats.calculate();
         
                         {
                             let mut zobrist_table = zobrist_table_mutex.write().expect(RIP_COULDN_LOCK_ZOBRIST);
@@ -139,12 +176,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
             
                         if let Err(_e) = stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
-                        search_result.get_depth(),
-                        cp,
-                        calc_time_ms,
-                        stats.created_nodes,
-                        stats.created_nodes / (calc_time_ms + 1) as usize,
-                        move_row)
+                            search_result.get_depth(),
+                            cp,
+                            calc_time_ms,
+                            search_result.stats.created_nodes,
+                            search_result.stats.created_nodes / (calc_time_ms + 1) as usize,
+                            move_row)
                         ) {
                             logger.send("Std Channel closed exiting".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             break;
@@ -153,7 +190,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
         
                         if config.in_debug {
-                            logger.send(format!("{:?}", stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            logger.send(format!("{:?}", search_result.stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }                
                     } else { // do book move
                         if config.in_debug {    
@@ -163,8 +200,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         game.do_move(book_move);
                         stdout.write(&format!("bestmove {}", book_move));
                     }
-        
-                    stats.reset_stats();
                 }
             }
 

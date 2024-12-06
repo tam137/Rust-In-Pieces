@@ -204,6 +204,7 @@ pub enum QuiescenceSearchMode {
     Alpha3,
 }
 
+#[derive(Clone)]
 pub struct UciGame {
     pub board: Board,
     pub made_moves_str: String,
@@ -624,7 +625,7 @@ impl PartialEq for Board {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Stats {
     pub best_turn_nr: i8,
     pub turn_number_gt_threshold: i32,
@@ -710,6 +711,7 @@ impl Stats {
 pub struct SearchResult {
     pub variants: Vec<Variant>,
     pub is_white_move: bool,
+    pub stats: Stats,
 }
 
 #[derive(Debug, Clone)]
@@ -724,7 +726,8 @@ impl SearchResult {
     pub fn _new() -> Self {
         SearchResult{
             variants: Vec::default(),
-            is_white_move: true,        
+            is_white_move: true,     
+            stats: Stats::default(),   
         }
     }
 
