@@ -5,7 +5,7 @@ pub struct Config {
     pub version: String,
     pub use_zobrist: bool,
     pub use_book: bool,
-    pub max_zobrist_hash_entries: u32,
+    pub max_zobrist_hash_entries: usize,
     pub search_depth: i32,
     pub truncate_bad_moves: usize,
     pub in_debug: bool,
@@ -113,6 +113,7 @@ impl Config {
         config.log_to_console = true;
         config.use_book = false;
         config.search_threads = 4;
+        config.max_zobrist_hash_entries = 25_000;
         config
     }
 }

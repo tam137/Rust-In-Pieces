@@ -40,14 +40,19 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, rx_hashes: Re
         let (hash, eval) = received;
         hash_buffer.insert(hash, eval);
 
-        if hash_buffer.len() > config.write_hash_buffer_size {
+        if hash_buffer.len() >= config.write_hash_buffer_size {
             let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
             let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_ZOBRIST);
 
             for (hash, eval) in hash_buffer.drain() {
                 zobrist_table.set_new_hash(&hash, eval);
             }
-            hash_buffer.clear();
+            let size = zobrist_table.clean_up_hash_if_needed(config);
+            if size > 0 {
+                global_map_handler::get_log_buffer_sender(&global_map)
+                    .send(format!("Cleared hash table: {} entries", size))
+                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+            }
         }
     }
 }
