@@ -80,6 +80,8 @@ impl UciParserService {
     }
 
     pub fn get_info_str(&self, search_result: &SearchResult, stats: &Stats) -> String {
+        let mut stats = stats.clone();
+        let stats = stats.calculate();        
         let cp = if search_result.is_white_move { search_result.get_eval() } else { search_result.get_eval() *(-1) };
         format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
             search_result.get_depth(),

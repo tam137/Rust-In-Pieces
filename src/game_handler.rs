@@ -188,6 +188,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             thread::sleep(Duration::from_millis(10));
                         }
                     
+                        // wait until all threads received the stop cmd
                         for handle in handles {
                             handle.join().expect("Thread panicked");
                         }
@@ -197,7 +198,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .clone();
 
                         results.sort_by(|a, b| b.get_depth().cmp(&a.get_depth())); // 0 is highest depth
-                        let mut search_result = results.get(0).expect("RIP Found no Search Result").clone();
+
+
+                        // use the before last calculated result because the last one is not finished
+                        // TODO check if unfinished result is better, then use it
+                        let search_result = results.get(1).or_else(|| results.get(0))
+                            .expect("RIP Found no search result");
 
                         if let Err(_e) = service.stdout.write_get_result(
                             &service.uci_parser.get_info_str(&search_result, &search_result.stats)) {
@@ -221,9 +227,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .expect(RIP_MISSED_DM_KEY)
                             .elapsed()
                             .as_millis();
-        
-                        search_result.stats.calc_time_ms = calc_time_ms as usize;
-                        search_result.stats.calculate();        
+              
                         let move_row = search_result.get_best_move_row();        
                         let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
             

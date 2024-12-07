@@ -209,7 +209,7 @@ mod tests {
 
         send_uci(&env, "debug on", 10);
         send_uci(&env, "position startpos", 10);
-        send_uci(&env, "go wtime 60_000 btime 60_000", 10_000);
+        send_uci(&env, "go wtime 60_000 btime 60_000", 400);
         send_uci(&env, "quit", 20);
 
         env._uci_command_processor.join().expect(rip_err);

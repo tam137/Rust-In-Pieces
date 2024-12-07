@@ -114,7 +114,7 @@ impl Config {
         config.print_commands = true;
         config.log_to_console = true;
         config.use_book = false;
-        config.search_threads = 5;
+        config.search_threads = 4;
         config.max_zobrist_hash_entries = 1_000_000;
         config
     }
