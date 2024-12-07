@@ -205,16 +205,15 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         let search_result = results.get(1).or_else(|| results.get(0))
                             .expect("RIP Found no search result");
 
-                        if let Err(_e) = service.stdout.write_get_result(
+                        // send best move uci informations and update internal board
+                        if let Err(_e) = stdout.write_get_result(
                             &service.uci_parser.get_info_str(&search_result, &search_result.stats)) {
                                 logger.send("stdout channel closed during search".to_string())
                                     .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            }
-        
-                        if global_map_handler::is_stop_flag(&global_map) { continue; }
+                        }
                         if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
-                        
-                        game.do_move(&search_result.get_best_move_algebraic());
+                        stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
+                        game.do_move(&search_result.get_best_move_algebraic());                        
         
                         if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                             local_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
@@ -222,32 +221,11 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             logger.send(format!("quiescence_search_threshold: {:?}", local_map.get_data::<i32>(DataMapKey::WhiteThreshold)))
                                 .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }
-                        
-                        let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
-                            .expect(RIP_MISSED_DM_KEY)
-                            .elapsed()
-                            .as_millis();
-              
-                        let move_row = search_result.get_best_move_row();        
-                        let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
-            
-                        if let Err(_e) = stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
-                            search_result.get_depth(),
-                            cp,
-                            calc_time_ms,
-                            search_result.stats.created_nodes,
-                            search_result.stats.created_nodes / (calc_time_ms + 1) as usize,
-                            move_row)
-                        ) {
-                            logger.send("Std Channel closed exiting".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            break;
-                        }
-                        
-                        stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
         
                         if config.in_debug {
                             logger.send(format!("{:?}", search_result.stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        }                
+                        }
+
                     } else { // do book move
                         if config.in_debug {    
                             logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
