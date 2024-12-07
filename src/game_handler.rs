@@ -2,7 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 
-use crate::{global_map_handler, threads};
+use crate::global_map_handler;
 use crate::DataMap;
 use crate::DataMapKey;
 use crate::Config;
@@ -17,7 +17,6 @@ use crate::thread;
 use crate::model::SearchResult;
 
 use crate::model::RIP_COULDN_LOCK_STOP_FLAG;
-use crate::model::RIP_MISSED_DM_KEY;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
@@ -27,7 +26,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
     let uci_parser = &service.uci_parser;
     let stdout = &service.stdout;
     let mut game = UciGame::new(service.fen.set_init_board());
-    let stop_flag = global_map_handler::get_stop_flag(&global_map);
     let book = Book::new();
     let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
@@ -47,8 +45,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                 if command.trim() == "ucinewgame" {
                     game = UciGame::new(service.fen.set_init_board());
-                    let mut stop_flag_value = stop_flag.lock().expect(RIP_COULDN_LOCK_STOP_FLAG);
-                    *stop_flag_value = false;
+                    global_map_handler::set_stop_flag(&global_map, false);
                     continue;
                 }
 
@@ -86,17 +83,27 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                 }
 
                 else if command.starts_with("go") {
+
+                    global_map_handler::set_stop_flag(&global_map, false);
                     
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_random_book_move(&game_fen);
-                    
+                    let book_move = book.get_random_book_move(&game_fen);                    
         
                     let (wtime, btime): (i32, i32) = uci_parser.parse_go(command.as_str());
+                    let my_time_ms = if white { wtime } else { btime };
+
+                    let global_map_handler_time_observer_thread = global_map.clone();
+
+                    let _time_observer_thread = thread::spawn(move || {
+                        let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
+                        let my_thinking_time = my_time_ms / 20;
+                        logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                        thread::sleep(Duration::from_millis((my_thinking_time) as u64));
+                        global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
+                    });
         
                     if book_move.is_empty() || !config.use_book {
-        
-                        let _my_time_ms = if white { wtime } else { btime };
         
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
@@ -111,7 +118,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         loop {
                             let active_count = {
                                 let active_threads_guard = active_threads.lock()
-                                    .expect("Could not lock active_threads mutex");
+                                    .expect("RIP Could not lock active_threads mutex");
                                 *active_threads_guard
                             };
                     
@@ -129,14 +136,14 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 let handle = thread::spawn(move || {
                                     {
                                         let mut active_threads_guard = active_threads.lock()
-                                            .expect("Could not lock active_threads mutex");
+                                            .expect("RIP Could not lock active_threads mutex");
                                         *active_threads_guard += 1;
                                     }
                     
                                     loop {
                                         let current_depth = {
                                             let mut depths_guard = depths.lock()
-                                                .expect("Could not lock depths mutex");
+                                                .expect("RIP Could not lock depths mutex");
                                             if let Some(depth) = depths_guard.pop() {
                                                 depth
                                             } else {
@@ -160,13 +167,13 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         );
                     
                                         let mut results_guard = results.lock()
-                                            .expect("Could not lock results mutex");
+                                            .expect("RIP Could not lock results mutex");
                                         results_guard.push(search_result);
                                     }
                     
                                     {
                                         let mut active_threads_guard = active_threads.lock()
-                                            .expect("Could not lock active_threads mutex");
+                                            .expect("RIP Could not lock active_threads mutex");
                                         *active_threads_guard -= 1;
                                     }
                                 });
@@ -176,11 +183,11 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     
                             // TODO termination condition revise it
                             if {
-                                let depths_guard = depths.lock().expect("Could not lock depths mutex");
+                                let depths_guard = depths.lock().expect("RIP Could not lock depths mutex");
                                 depths_guard.is_empty()
                             } && {
                                 let active_threads_guard = active_threads.lock()
-                                    .expect("Could not lock active_threads mutex");
+                                    .expect("RIP Could not lock active_threads mutex");
                                 *active_threads_guard == 0
                             } {
                                 break;
@@ -190,7 +197,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     
                         // wait until all threads received the stop cmd
                         for handle in handles {
-                            handle.join().expect("Thread panicked");
+                            handle.join().expect("RIP Thread panicked");
                         }
                         
                         let mut results = results.lock()

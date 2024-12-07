@@ -56,8 +56,8 @@ impl Config {
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
             search_depth: 4,
-            max_depth: 20,
-            truncate_bad_moves: 30,
+            max_depth: 99,
+            truncate_bad_moves: 99,
             in_debug: true,
             print_commands: false,
             log_to_console: false,
