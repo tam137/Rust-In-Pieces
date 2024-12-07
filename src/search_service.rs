@@ -210,10 +210,10 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
-                    if config.use_zobrist && depth >= 1 {
-                        let hash_sender = global_map_handler::get_hash_sender(global_map);
-                        hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
-                    }
+                    //if config.use_zobrist && depth >= 1 {
+                    //    let hash_sender = global_map_handler::get_hash_sender(global_map);
+                    //    hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+                    //}
                 }
             } else {
                 if eval > min_max_eval {
@@ -227,10 +227,10 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
-                    if config.use_zobrist && depth >= 1 {
-                        let hash_sender = global_map_handler::get_hash_sender(global_map);
-                        hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
-                    }
+                    //if config.use_zobrist && depth >= 1 {
+                    //    let hash_sender = global_map_handler::get_hash_sender(global_map);
+                    //    hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+                    //}
                 }
             }
             if beta <= alpha {
