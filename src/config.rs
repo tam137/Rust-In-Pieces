@@ -7,6 +7,7 @@ pub struct Config {
     pub use_book: bool,
     pub max_zobrist_hash_entries: usize,
     pub search_depth: i32,
+    pub max_depth: i32,
     pub truncate_bad_moves: usize,
     pub in_debug: bool,
     pub print_commands: bool,
@@ -53,15 +54,16 @@ impl Config {
             version: "V00j-candidate".to_string(),
             use_zobrist: true,
             use_book: true,
-            max_zobrist_hash_entries: 1_000_000, // 1.000.000 = 75MB
+            max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
             search_depth: 4,
+            max_depth: 20,
             truncate_bad_moves: 30,
             in_debug: true,
             print_commands: false,
             log_to_console: false,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string: true,
-            write_hash_buffer_size: 100,
+            write_hash_buffer_size: 10_000,
             search_threads: 4,
 
             undeveloped_knight_malus: 36,
@@ -112,8 +114,8 @@ impl Config {
         config.print_commands = true;
         config.log_to_console = true;
         config.use_book = false;
-        config.search_threads = 4;
-        config.max_zobrist_hash_entries = 25_000;
+        config.search_threads = 5;
+        config.max_zobrist_hash_entries = 1_000_000;
         config
     }
 }

@@ -1,8 +1,8 @@
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 
-use crate::global_map_handler;
+use crate::{global_map_handler, threads};
 use crate::DataMap;
 use crate::DataMapKey;
 use crate::Config;
@@ -18,7 +18,6 @@ use crate::model::SearchResult;
 
 use crate::model::RIP_COULDN_LOCK_STOP_FLAG;
 use crate::model::RIP_MISSED_DM_KEY;
-use crate::model::RIP_COULDN_LOCK_ZOBRIST;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
@@ -29,7 +28,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
     let stdout = &service.stdout;
     let mut game = UciGame::new(service.fen.set_init_board());
     let stop_flag = global_map_handler::get_stop_flag(&global_map);
-    let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
     let book = Book::new();
     let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
@@ -102,34 +100,92 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
         
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
-        
-                        let results = Arc::new(Mutex::new(Vec::new()));
 
+                        let results: Arc<Mutex<Vec<SearchResult>>> = Arc::new(Mutex::new(Vec::default()));
+                        let max_depth = config.max_depth;
+                        let depths = Arc::new(Mutex::new((2..=max_depth).rev().collect::<Vec<_>>()));
+                        let active_threads = Arc::new(Mutex::new(0));
+                    
                         let mut handles = vec![];
                     
-                        for thread_number in 0..config.search_threads {
-                            let results: Arc<Mutex<Vec<SearchResult>>> = Arc::clone(&results);
-                            let service = Service::new();
-                            let mut game = game.clone();
-                            let config = config.clone();
-                            let global_map = global_map.clone();
-                            let mut local_map = local_map.clone();
-                            let current_depth = 2 + thread_number;
-                            
-                            // run the search threads
-                            let handle = thread::spawn(move || {
-                                let mut stats = Stats::new();
-                                let white = game.board.white_to_move;
-                                
-                                let search_result = service.search.get_moves(&mut game.board, current_depth, white,
-                                    &mut stats, &config, &service, &global_map, &mut local_map);
+                        loop {
+                            let active_count = {
+                                let active_threads_guard = active_threads.lock()
+                                    .expect("Could not lock active_threads mutex");
+                                *active_threads_guard
+                            };
                     
-                                let mut results = results.lock()
-                                    .expect("Could not lock results mutex");
-                                
-                                results.push(search_result);
-                            });
-                            handles.push(handle);
+                            // start thread if config.max_threads is not reached
+                            if active_count < config.search_threads {
+                                let results = Arc::clone(&results);
+                                let depths = Arc::clone(&depths);
+                                let active_threads = Arc::clone(&active_threads);
+                                let service = Service::new();
+                                let mut game = game.clone();
+                                let config = config.clone();
+                                let global_map = global_map.clone();
+                                let mut local_map = local_map.clone();
+                    
+                                let handle = thread::spawn(move || {
+                                    {
+                                        let mut active_threads_guard = active_threads.lock()
+                                            .expect("Could not lock active_threads mutex");
+                                        *active_threads_guard += 1;
+                                    }
+                    
+                                    loop {
+                                        let current_depth = {
+                                            let mut depths_guard = depths.lock()
+                                                .expect("Could not lock depths mutex");
+                                            if let Some(depth) = depths_guard.pop() {
+                                                depth
+                                            } else {
+                                                break; // reached config.max_depth
+                                            }
+                                        };
+                    
+                                        let mut stats = Stats::new();
+                                        let white = game.board.white_to_move;
+                    
+                                        // do calculation
+                                        let search_result = service.search.get_moves(
+                                            &mut game.board,
+                                            current_depth,
+                                            white,
+                                            &mut stats,
+                                            &config,
+                                            &service,
+                                            &global_map,
+                                            &mut local_map,
+                                        );
+                    
+                                        let mut results_guard = results.lock()
+                                            .expect("Could not lock results mutex");
+                                        results_guard.push(search_result);
+                                    }
+                    
+                                    {
+                                        let mut active_threads_guard = active_threads.lock()
+                                            .expect("Could not lock active_threads mutex");
+                                        *active_threads_guard -= 1;
+                                    }
+                                });
+                    
+                                handles.push(handle);
+                            }
+                    
+                            // TODO termination condition revise it
+                            if {
+                                let depths_guard = depths.lock().expect("Could not lock depths mutex");
+                                depths_guard.is_empty()
+                            } && {
+                                let active_threads_guard = active_threads.lock()
+                                    .expect("Could not lock active_threads mutex");
+                                *active_threads_guard == 0
+                            } {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(10));
                         }
                     
                         for handle in handles {
@@ -142,6 +198,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                         results.sort_by(|a, b| b.get_depth().cmp(&a.get_depth())); // 0 is highest depth
                         let mut search_result = results.get(0).expect("RIP Found no Search Result").clone();
+
+                        if let Err(_e) = service.stdout.write_get_result(
+                            &service.uci_parser.get_info_str(&search_result, &search_result.stats)) {
+                                logger.send("stdout channel closed during search".to_string())
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            }
         
                         if global_map_handler::is_stop_flag(&global_map) { continue; }
                         if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
