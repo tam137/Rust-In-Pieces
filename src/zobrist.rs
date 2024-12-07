@@ -48,12 +48,13 @@ static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
     hash_map: std::collections::HashMap<u64, i16>,
-    entries: u32,
 }
 
 impl ZobristTable {
     pub(crate) fn new() -> Self {
-        Self { hash_map: std::collections::HashMap::with_capacity(1000), entries: 0 }
+        Self {
+            hash_map: std::collections::HashMap::with_capacity(1000),
+        }
     }
 
     pub fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
@@ -61,7 +62,6 @@ impl ZobristTable {
     }
 
     pub fn set_new_hash(&mut self, hash: &u64, eval: i16) {
-        self.entries += 1;
         self.hash_map.insert(*hash, eval);
     }
 
@@ -69,12 +69,15 @@ impl ZobristTable {
         self.hash_map.clear();
     }
 
-    pub fn clean_up_hash_if_needed(&mut self, config: &Config) -> u32 {
-        if config.max_zobrist_hash_entries < self.entries {
-            self.hash_map.clear();
-            let ret = self.entries;
-            self.entries = 0;
-            ret
+    pub fn size(&mut self) -> usize {
+        self.hash_map.len()
+    }
+
+    pub fn clean_up_hash_if_needed(&mut self, config: &Config) -> usize {
+        if config.max_zobrist_hash_entries <= self.hash_map.len() {
+            let size = self.hash_map.len();
+            self.reset_hash();
+            size
         } else {
             0
         }

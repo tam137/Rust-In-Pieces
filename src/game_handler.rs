@@ -27,7 +27,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
     let service = &Service::new();
     let uci_parser = &service.uci_parser;
     let stdout = &service.stdout;
-    //let mut stats= Stats::new();
     let mut game = UciGame::new(service.fen.set_init_board());
     let stop_flag = global_map_handler::get_stop_flag(&global_map);
     let zobrist_table_mutex = global_map_handler::get_zobrist_table(&global_map);
@@ -100,8 +99,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     if book_move.is_empty() || !config.use_book {
         
                         let _my_time_ms = if white { wtime } else { btime };
-                        let calculated_depth = config.search_depth;
-        
         
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
@@ -118,16 +115,18 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             let global_map = global_map.clone();
                             let mut local_map = local_map.clone();
                             let current_depth = 2 + thread_number;
-                    
+                            
                             // run the search threads
                             let handle = thread::spawn(move || {
                                 let mut stats = Stats::new();
                                 let white = game.board.white_to_move;
-                    
+                                
                                 let search_result = service.search.get_moves(&mut game.board, current_depth, white,
                                     &mut stats, &config, &service, &global_map, &mut local_map);
                     
-                                let mut results = results.lock().expect("Could not lock results mutex");
+                                let mut results = results.lock()
+                                    .expect("Could not lock results mutex");
+                                
                                 results.push(search_result);
                             });
                             handles.push(handle);
@@ -162,17 +161,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .as_millis();
         
                         search_result.stats.calc_time_ms = calc_time_ms as usize;
-                        search_result.stats.calculate();
-        
-                        {
-                            let mut zobrist_table = zobrist_table_mutex.write().expect(RIP_COULDN_LOCK_ZOBRIST);
-                            let cleaned = zobrist_table.clean_up_hash_if_needed(&config);                    
-                            if cleaned > 0 { logger.send(format!("cleaned {} entries from cache", cleaned))
-                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE); }
-                        }
-        
-                        let move_row = search_result.get_best_move_row();
-        
+                        search_result.stats.calculate();        
+                        let move_row = search_result.get_best_move_row();        
                         let cp = if white { search_result.get_eval() } else { search_result.get_eval() *(-1) };
             
                         if let Err(_e) = stdout.write_get_result(&format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
@@ -212,7 +202,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 }
 
 
-fn calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, global_map: &ThreadSafeDataMap) -> i32 {
+fn _calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, global_map: &ThreadSafeDataMap) -> i32 {
     let time_in_sec = (time / 1000) + 1;
     let value = time_in_sec * benchmark / (complexity + 1);
     let logger;
