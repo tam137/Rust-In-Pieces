@@ -38,16 +38,14 @@ impl SearchService {
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, global_map, local_map);
 
-            let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
-                .expect(RIP_MISSED_DM_KEY)
-                .elapsed()
-                .as_millis();
+            
 
             if global_map_handler::is_stop_flag(global_map) {
+                let calc_time_ms = self.get_calc_time(&local_map);
                 search_result.stats = stats.clone();
                 search_result.stats.best_turn_nr = turn_counter;
                 search_result.stats.calc_time_ms = calc_time_ms as usize;
-                search_result.stats.calculate();
+                search_result.completed = false;
                 break;
             }
 
@@ -63,6 +61,7 @@ impl SearchService {
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
                     stats.best_turn_nr = turn_counter;
+                    let calc_time_ms = self.get_calc_time(&local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
                     if config.print_info_string {
@@ -81,7 +80,8 @@ impl SearchService {
                     search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
-                    stats.best_turn_nr = turn_counter;
+                    search_result.stats.best_turn_nr = turn_counter;
+                    let calc_time_ms = self.get_calc_time(&local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
                     if config.print_info_string {
@@ -92,7 +92,12 @@ impl SearchService {
                     } 
                 }
             }
-        }
+        }        
+        
+        let calc_time_ms = self.get_calc_time(&local_map);        
+        search_result.stats = stats.clone();
+        search_result.stats.calc_time_ms = calc_time_ms as usize;
+        //search_result.stats.calculate();
         global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }
@@ -251,6 +256,13 @@ impl SearchService {
         else {
             panic!("RIP Cant read white threshold");
         }
+    }
+
+    fn get_calc_time(&self, local_map: &DataMap) -> u128 {
+        local_map.get_data::<Instant>(DataMapKey::CalcTime)
+            .expect(RIP_MISSED_DM_KEY)
+            .elapsed()
+            .as_millis()
     }
     
 

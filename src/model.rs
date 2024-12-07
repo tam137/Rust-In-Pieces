@@ -663,11 +663,12 @@ impl Stats {
         self.logging.push(msg.to_string());
     }
 
-    pub fn calculate(&mut self) {
+    pub fn calculate(&mut self) -> &mut Self {
         self.cuts = 100 - (self.calculated_nodes as i32 * 100 / self.created_nodes as i32);
         self.capture_share = self.created_capture_node as i32 * 100 / self.created_nodes as i32;
         self.nodes_per_ms = self.created_nodes as i32 / (self.calc_time_ms as i32 + 1);
         self.zobrist_hit = self.zobrist_hit * 100 / self.eval_nodes;
+        self
     }
 
     pub fn add_created_nodes(&mut self, value: usize) {
@@ -712,6 +713,7 @@ pub struct SearchResult {
     pub variants: Vec<Variant>,
     pub is_white_move: bool,
     pub stats: Stats,
+    pub completed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -728,6 +730,7 @@ impl SearchResult {
             variants: Vec::default(),
             is_white_move: true,     
             stats: Stats::default(),   
+            completed: true,
         }
     }
 
