@@ -38,14 +38,18 @@ impl SearchService {
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, global_map, local_map);
 
-            if global_map_handler::is_stop_flag(global_map) {
-                break;
-            }
-
             let calc_time_ms: u128 = local_map.get_data::<Instant>(DataMapKey::CalcTime)
                 .expect(RIP_MISSED_DM_KEY)
                 .elapsed()
                 .as_millis();
+
+            if global_map_handler::is_stop_flag(global_map) {
+                search_result.stats = stats.clone();
+                search_result.stats.best_turn_nr = turn_counter;
+                search_result.stats.calc_time_ms = calc_time_ms as usize;
+                search_result.stats.calculate();
+                break;
+            }
 
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
@@ -89,7 +93,6 @@ impl SearchService {
                 }
             }
         }
-        search_result.stats = stats.clone();
         global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }
