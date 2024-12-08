@@ -19,7 +19,7 @@ use crate::DataMapKey;
 use crate::global_map_handler;
 use crate::model::LoggerFnType;
 
-use crate::model::RIP_COULDN_LOCK_ZOBRIST;
+use crate::model::RIP_COULDN_LOCK_MUTEX;
 use crate::model::RIP_COULDN_SEND_TO_STD_IN_QUEUE;
 use crate::model::RIP_COULDN_SEND_TO_GAME_CMD_QUEUE;
 use crate::model::RIP_ERR_READING_STD_IN;
@@ -42,7 +42,7 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, rx_hashes: Re
 
         if hash_buffer.len() >= config.write_hash_buffer_size {
             let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-            let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_ZOBRIST);
+            let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_MUTEX);
 
             for (hash, eval) in hash_buffer.drain() {
                 zobrist_table.set_new_hash(&hash, eval);

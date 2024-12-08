@@ -25,6 +25,7 @@ impl SearchService {
         let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
 
         let mut search_result: SearchResult = SearchResult::default();
+        search_result.calculated_depth = depth;
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
@@ -36,8 +37,6 @@ impl SearchService {
             let mi = board.do_move(&turn);   
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, global_map, local_map);
-
-            
 
             if global_map_handler::is_stop_flag(global_map) {
                 let calc_time_ms = self.get_calc_time(&local_map);
