@@ -6,7 +6,6 @@ use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode,
 use crate::service::Service;
 use crate::global_map_handler;
 
-use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
 use crate::model::RIP_MISSED_DM_KEY;
 
 

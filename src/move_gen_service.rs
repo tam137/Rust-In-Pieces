@@ -4,9 +4,12 @@ use std::collections::HashMap;
 
 use crate::global_map_handler;
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn, RIP_COULDN_LOCK_ZOBRIST, RIP_COULDN_SEND_TO_HASH_QUEUE};
+use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
+
+use crate::model::RIP_COULDN_LOCK_ZOBRIST;
+use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
 
 
 const KNIGHT_OFFSETS: [i32; 8] = [-12, -21, -8, -19, 12, 21, 8, 19];
@@ -256,7 +259,7 @@ impl MoveGenService {
         }
     }
 
-    fn check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) -> bool {
+    fn _check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) -> bool {
         if config.use_zobrist {             
             match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
                 Some(_) => {
@@ -993,7 +996,7 @@ mod tests {
         let mut board = test_fen(fen, allowed_moves);
         let board_copy = board.clone();
         let move_list = generate_valid_moves_list(&mut board);
-        let move_turn = NotationUtil::get_turn_from_list(&move_list, notation);
+        let move_turn = NotationUtil::_get_turn_from_list(&move_list, notation);
         let move_info = board.do_move(&move_turn);
         let opponent_moves = generate_valid_moves_list(&mut board);
         board.undo_move(&move_turn, move_info);

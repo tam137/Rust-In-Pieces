@@ -16,7 +16,6 @@ use crate::thread;
 
 use crate::model::SearchResult;
 
-use crate::model::RIP_COULDN_LOCK_STOP_FLAG;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 

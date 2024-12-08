@@ -52,7 +52,7 @@ impl NotationUtil {
     }
 
     /// Converts a space-separated list of notation moves (like "e2e4 e7e5") to a list of `Turn` objects.
-    pub fn get_turn_list_from_notation(notation_move_list: &str) -> Vec<Turn> {
+    pub fn _get_turn_list_from_notation(notation_move_list: &str) -> Vec<Turn> {
         let mut turn_list = Vec::new();
         let algebraic_move_list: Vec<&str> = notation_move_list.split_whitespace().collect();
 
@@ -65,7 +65,7 @@ impl NotationUtil {
     }
 
     /// Finds a specific move in the move list based on the notation.
-    pub fn get_turn_from_list(move_list: &Vec<Turn>, notation: &str) -> Turn {
+    pub fn _get_turn_from_list(move_list: &Vec<Turn>, notation: &str) -> Turn {
         let mut target_turn = NotationUtil::get_turn_from_notation(notation);
 
         // Handle promotion
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn get_turn_list_from_notation_test() {
         // Get a list of turns from the notation string
-        let turn_list = NotationUtil::get_turn_list_from_notation("e2e4 d7d5 e4d5");
+        let turn_list = NotationUtil::_get_turn_list_from_notation("e2e4 d7d5 e4d5");
 
         // Check if the list has the correct number of turns
         assert_eq!(turn_list.len(), 3);

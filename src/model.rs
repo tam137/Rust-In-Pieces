@@ -15,7 +15,6 @@ pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w 
 
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
 pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
-pub const RIP_COULDN_LOCK_STOP_FLAG: &str = "RIP Could not lock stop flag";
 
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
@@ -298,7 +297,7 @@ impl Turn {
         let row_to = (10 - (self.to / 10) + 48) as u8;
         let mut promotional_lit = "";
         if self.promotion != 0 {
-            promotional_lit = if self.promotion % 10 == 4 { "q" } else { "k" };
+            promotional_lit = if self.promotion % 10 == 4 { "q" } else { "n" };
         }
         format!(
             "{}{}{}{}{}",
@@ -695,7 +694,7 @@ impl Stats {
         self.turn_number_gt_threshold += value;
     }
 
-    pub fn reset_stats(&mut self) {
+    pub fn _reset_stats(&mut self) {
         self.best_turn_nr = 0;
         self.turn_number_gt_threshold = 0;
         self.created_nodes = 0;
