@@ -8,7 +8,7 @@ use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
 
-use crate::model::RIP_COULDN_LOCK_ZOBRIST;
+use crate::model::RIP_COULDN_LOCK_MUTEX;
 use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
 
 
@@ -57,7 +57,7 @@ impl MoveGenService {
         let king_value = if white_turn { 15 } else { 25 };
         
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
-        let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_ZOBRIST);
+        let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_MUTEX);
 
         let mut hash_buffer: HashMap<u64, i16> = HashMap::default();        
     

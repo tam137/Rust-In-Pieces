@@ -14,7 +14,7 @@ pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
-pub const RIP_COULDN_LOCK_ZOBRIST: &str = "RIP Could not lock zobrist mutex";
+pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 
 pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
@@ -713,6 +713,7 @@ pub struct SearchResult {
     pub is_white_move: bool,
     pub stats: Stats,
     pub completed: bool,
+    pub calculated_depth: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -730,6 +731,7 @@ impl SearchResult {
             is_white_move: true,     
             stats: Stats::default(),   
             completed: true,
+            calculated_depth: 0,
         }
     }
 

@@ -151,14 +151,14 @@ pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
 #[cfg(test)]
 mod tests {
 
-    use crate::{global_map_handler::*, model::RIP_COULDN_LOCK_ZOBRIST};
+    use crate::{global_map_handler::*, model::RIP_COULDN_LOCK_MUTEX};
 
     #[test]
     fn create_new_global_map_test() {
         let global_map = create_new_global_map();
     
         let debug_flag_mutex = get_debug_flag(&global_map);
-        let debug_flag = debug_flag_mutex.lock().expect(RIP_COULDN_LOCK_ZOBRIST);
+        let debug_flag = debug_flag_mutex.lock().expect(RIP_COULDN_LOCK_MUTEX);
     
         assert!(*debug_flag == false);
     }

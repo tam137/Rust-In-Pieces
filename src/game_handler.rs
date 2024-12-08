@@ -17,6 +17,7 @@ use crate::thread;
 use crate::model::SearchResult;
 
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
+use crate::model::RIP_COULDN_LOCK_MUTEX;
 
 
 pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command: Receiver<String>) {
@@ -85,6 +86,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                     global_map_handler::set_stop_flag(&global_map, false);
                     
+                    // try to find book move
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);                    
@@ -108,8 +110,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
 
                         let results: Arc<Mutex<Vec<SearchResult>>> = Arc::new(Mutex::new(Vec::default()));
-                        let max_depth = config.max_depth;
-                        let depths = Arc::new(Mutex::new((2..=max_depth).rev().collect::<Vec<_>>()));
+                        let depths = Arc::new(Mutex::new((2..=config.max_depth).rev().collect::<Vec<_>>()));
                         let active_threads = Arc::new(Mutex::new(0));
                     
                         let mut handles = vec![];
@@ -117,12 +118,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         loop {
                             let active_count = {
                                 let active_threads_guard = active_threads.lock()
-                                    .expect("RIP Could not lock active_threads mutex");
+                                    .expect(RIP_COULDN_LOCK_MUTEX);
                                 *active_threads_guard
                             };
                     
                             // start thread if config.max_threads is not reached
-                            if active_count < config.search_threads {
+                            if (active_count < config.search_threads) && !global_map_handler::is_stop_flag(&global_map) {
                                 let results = Arc::clone(&results);
                                 let depths = Arc::clone(&depths);
                                 let active_threads = Arc::clone(&active_threads);
@@ -135,62 +136,47 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 let handle = thread::spawn(move || {
                                     {
                                         let mut active_threads_guard = active_threads.lock()
-                                            .expect("RIP Could not lock active_threads mutex");
+                                            .expect(RIP_COULDN_LOCK_MUTEX);
                                         *active_threads_guard += 1;
                                     }
                     
-                                    loop {
-                                        let current_depth = {
-                                            let mut depths_guard = depths.lock()
-                                                .expect("RIP Could not lock depths mutex");
-                                            if let Some(depth) = depths_guard.pop() {
-                                                depth
-                                            } else {
-                                                break; // reached config.max_depth
-                                            }
-                                        };
-                    
-                                        let mut stats = Stats::new();
-                                        let white = game.board.white_to_move;
-                    
-                                        // do calculation
-                                        let search_result = service.search.get_moves(
-                                            &mut game.board,
-                                            current_depth,
-                                            white,
-                                            &mut stats,
-                                            &config,
-                                            &service,
-                                            &global_map,
-                                            &mut local_map,
-                                        );
-                    
-                                        let mut results_guard = results.lock()
-                                            .expect("RIP Could not lock results mutex");
-                                        results_guard.push(search_result);
-                                    }
+                                    let current_depth = {
+                                        let mut depths_guard = depths.lock()
+                                            .expect(RIP_COULDN_LOCK_MUTEX);
+                                        let depth = depths_guard.pop().expect("RIP reached maximum depth");
+                                        depth
+                                    };
+                
+                                    let mut stats = Stats::new();
+                                    let white = game.board.white_to_move;
+                
+                                    // do calculation
+                                    let search_result = service.search.get_moves(
+                                        &mut game.board,
+                                        current_depth,
+                                        white,
+                                        &mut stats,
+                                        &config,
+                                        &service,
+                                        &global_map,
+                                        &mut local_map,
+                                    );
+                
+                                    let mut results_guard = results.lock()
+                                        .expect(RIP_COULDN_LOCK_MUTEX);
+                                    results_guard.push(search_result);
                     
                                     {
                                         let mut active_threads_guard = active_threads.lock()
-                                            .expect("RIP Could not lock active_threads mutex");
+                                            .expect(RIP_COULDN_LOCK_MUTEX);
                                         *active_threads_guard -= 1;
                                     }
                                 });
                     
                                 handles.push(handle);
                             }
-                    
-                            // TODO termination condition revise it
-                            if {
-                                let depths_guard = depths.lock().expect("RIP Could not lock depths mutex");
-                                depths_guard.is_empty()
-                            } && {
-                                let active_threads_guard = active_threads.lock()
-                                    .expect("RIP Could not lock active_threads mutex");
-                                *active_threads_guard == 0
-                            } {
-                                break;
-                            }
+
+                            if global_map_handler::is_stop_flag(&global_map) { break; }
                             thread::sleep(Duration::from_millis(10));
                         }
                     
@@ -199,11 +185,16 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             handle.join().expect("RIP Thread panicked");
                         }
                         
-                        let mut results = results.lock()
+                        let results = results.lock()
                             .expect("RIP Couldn lock search result")
                             .clone();
 
-                        results.sort_by(|a, b| b.get_depth().cmp(&a.get_depth())); // 0 is highest depth
+                        let mut results = results
+                            .iter()
+                            .filter(|r| !r.get_best_move_row().is_empty())
+                            .collect::<Vec<_>>();
+
+                        results.sort_by(|a, b| b.calculated_depth.cmp(&a.calculated_depth)); // 0 is highest depth
 
 
                         // use the before last calculated result because the last one is not finished
