@@ -13,7 +13,7 @@ pub struct Config {
     pub _print_commands: bool,
     pub log_to_console: bool,
     pub quiescence_search_mode: QuiescenceSearchMode,
-    pub print_info_string: bool,
+    pub print_info_string_during_search: bool,
     pub write_hash_buffer_size: usize,
     pub search_threads: i32,
 
@@ -51,7 +51,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00j-candidate-4".to_string(),
+            version: "V00j-candidate-5".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -62,7 +62,7 @@ impl Config {
             _print_commands: false,
             log_to_console: false,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
-            print_info_string: true,
+            print_info_string_during_search: false,
             write_hash_buffer_size: 10_000,
             search_threads: 4,
 
@@ -102,7 +102,7 @@ impl Config {
     /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
     pub fn for_tests(&self) -> Self {
         let mut config = Config::new();
-        config.print_info_string = false;
+        config.print_info_string_during_search = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
         config
@@ -113,6 +113,7 @@ impl Config {
         let mut config = Config::new();
         config._print_commands = true;
         config.log_to_console = true;
+        config.print_info_string_during_search = false;
         config.use_book = false;
         config.search_threads = 4;
         config.max_zobrist_hash_entries = 1_000_000;

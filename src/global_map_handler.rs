@@ -150,11 +150,15 @@ pub fn get_game_command_sender(global_map: &ThreadSafeDataMap) -> Sender<String>
 }
 
 pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
-    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+    global_map.read().expect("RIP COULD NOT LOCK GLOBAL MAP")
         .get_data::<Sender<String>>(DataMapKey::LogBufferSender)
-        .expect("RIP Can not find log msg sender")
-        .clone()
+        .map(|tx| tx.clone())
+        .unwrap_or_else(|| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            tx
+        })
 }
+
 
 
 

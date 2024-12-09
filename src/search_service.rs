@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 use crate::global_map_handler;
 
@@ -20,10 +20,10 @@ impl SearchService {
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
         service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
 
+        let logger = global_map_handler::get_log_buffer_sender(global_map);
+
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
-
         let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
-
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
 
@@ -34,7 +34,7 @@ impl SearchService {
 
         for turn in &turns {
             turn_counter += 1;
-            let mi = board.do_move(&turn);   
+            let mi = board.do_move(&turn);
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
                 alpha, beta, stats, config, service, global_map, local_map);
 
@@ -61,9 +61,10 @@ impl SearchService {
                     let calc_time_ms = self.get_calc_time(&local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
-                    if config.print_info_string {
+                    if config.print_info_string_during_search {
                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
-                            stats.add_log("stdout channel closed during search".to_string());
+                            logger.send("stdout channel closed during search".to_string())
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             break;
                         }
                     }
@@ -81,9 +82,10 @@ impl SearchService {
                     let calc_time_ms = self.get_calc_time(&local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
-                    if config.print_info_string {
+                    if config.print_info_string_during_search {
                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
-                            stats.add_log("stdout channel closed during search".to_string());
+                            logger.send("stdout channel closed during search".to_string())
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             break;
                         }
                     } 
@@ -91,10 +93,10 @@ impl SearchService {
             }
         }        
         
-        let calc_time_ms = self.get_calc_time(&local_map);        
+        let calc_time_ms = self.get_calc_time(&local_map);
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
-        if global_map_handler::is_debug_flag(global_map) {
+        if global_map_handler::is_stop_flag(global_map) {
             search_result.completed = false;
         } else {
             search_result.completed = true;
