@@ -235,6 +235,24 @@ impl UciGame {
 }
 
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum TimeMode {
+    Movetime,
+    Other,
+    None,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TimeInfo {
+    pub wtime: i32,
+    pub btime: i32,
+    pub winc: i32,
+    pub binc: i32,
+    pub moves_to_go: i32,
+    pub time_mode: TimeMode,
+}
+
+
 #[derive(Debug, Clone)]
 pub struct Turn {
     pub from: i32,

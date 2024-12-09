@@ -43,7 +43,6 @@ impl SearchService {
                 search_result.stats = stats.clone();
                 search_result.stats.best_turn_nr = turn_counter;
                 search_result.stats.calc_time_ms = calc_time_ms as usize;
-                search_result.completed = false;
                 break;
             }
 
@@ -95,7 +94,11 @@ impl SearchService {
         let calc_time_ms = self.get_calc_time(&local_map);        
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
-        //search_result.stats.calculate();
+        if global_map_handler::is_debug_flag(global_map) {
+            search_result.completed = false;
+        } else {
+            search_result.completed = true;
+        }
         global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }

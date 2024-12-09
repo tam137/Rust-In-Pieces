@@ -91,8 +91,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);                    
         
-                    let (wtime, btime): (i32, i32) = uci_parser.parse_go(command.as_str());
-                    let my_time_ms = if white { wtime } else { btime };
+                    let time_info = uci_parser.parse_go(command.as_str());
+                    let my_time_ms = if white { time_info.wtime } else { time_info.btime };
 
                     let global_map_handler_time_observer_thread = global_map.clone();
 
@@ -199,8 +199,22 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                         // use the before last calculated result because the last one is not finished
                         // TODO check if unfinished result is better, then use it
-                        let search_result = results.get(1).or_else(|| results.get(0))
-                            .expect("RIP Found no search result");
+                        if global_map_handler::is_debug_flag(&global_map) {
+                            let _ = results.iter().map(|r| {
+                                logger.send(r.get_best_move_row())
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            });
+                        }
+
+                        let search_result = results
+                            .iter()
+                            .find(|r| r.completed)
+                            .unwrap_or_else(|| {
+                                logger.send(format!("Found no completed search result"))
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                panic!("RIP Found no completed search result");
+                        });
+
 
                         // send best move uci informations and update internal board
                         if let Err(_e) = stdout.write_get_result(

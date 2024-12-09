@@ -68,6 +68,16 @@ pub fn get_debug_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
         .clone()
 }
 
+/// When debug flag is true, also a logger function should be applied
+pub fn is_debug_flag(global_map: &ThreadSafeDataMap) -> bool {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Arc<Mutex<bool>>>(DataMapKey::DebugFlag)
+        .expect("RIP Can not find debug flag")
+        .lock()
+        .expect("RIP Can not lock debug flag")
+        .clone()
+}
+
 pub fn get_stop_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
         .get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
