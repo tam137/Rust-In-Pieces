@@ -1,7 +1,9 @@
-use crate::model::INIT_BOARD_FEN;
+use crate::model::TimeInfo;
 use crate::model::SearchResult;
 use crate::model::Stats;
+use crate::model::TimeMode;
 
+use crate::model::INIT_BOARD_FEN;
 
 pub struct UciParserService;
 
@@ -12,34 +14,73 @@ impl UciParserService {
     }
 
     /// Got a "go" command and return wtime and btime in ms. (-1, -1) if no time information given.
-    pub fn parse_go(&self, command: &str) -> (i32, i32) {
+    pub fn parse_go(&self, command: &str) -> TimeInfo {
 
-        let mut wtime = -1;
-        let mut btime = -1;
-
-        if !command.contains("wtime") || !command.contains("btime") {
-            return (wtime, btime);
+        if (!command.contains("wtime") || !command.contains("btime")) && !command.contains("movetime") {
+            return TimeInfo {
+                wtime: 0,
+                btime: 0,
+                winc: 0,
+                binc: 0,
+                moves_to_go: 0,
+                time_mode: TimeMode::None,
+            }
         }
 
         let command_parts: Vec<&str> = command.split_whitespace().collect();
+        let mut time_mode = TimeMode::Other;
+        let mut wtime = 0;
+        let mut btime = 0;
+        let mut winc = 0;
+        let mut binc = 0;
+        let mut movestogo = 0;
 
         let mut iter = command_parts.iter();
         while let Some(part) = iter.next() {
             match *part {
                 "wtime" => {
                     if let Some(value) = iter.next() {
-                        wtime = value.parse().unwrap_or(-1);
+                        wtime = value.parse().unwrap_or(0);
                     }
                 },
                 "btime" => {
                     if let Some(value) = iter.next() {
-                        btime = value.parse().unwrap_or(-1);
+                        btime = value.parse().unwrap_or(0);
                     }
                 },
+                "winc" => {
+                    if let Some(value) = iter.next() {
+                        winc = value.parse().unwrap_or(0);
+                    }
+                },
+                "binc" => {
+                    if let Some(value) = iter.next() {
+                        binc = value.parse().unwrap_or(0);
+                    }
+                },
+                "movetime" => {
+                    if let Some(value) = iter.next() {
+                        wtime = value.parse().unwrap_or(0);
+                        btime = value.parse().unwrap_or(0);
+                        time_mode = TimeMode::Movetime;
+                    }
+                }
+                "movestogo" => {
+                    if let Some(value) = iter.next() {
+                        movestogo = value.parse().unwrap_or(0);
+                    }
+                }
                 _ => {}
             }
-       }
-        (wtime, btime)
+        }
+        TimeInfo {
+            wtime,
+            btime,
+            winc,
+            binc,
+            moves_to_go: 0,
+            time_mode,
+        }        
     }
 
 
@@ -102,21 +143,44 @@ mod tests {
     fn parse_go_valid_times_test() {
         let parser = UciParserService {};
         let command = "go wtime 31520 btime 1410";
-        let (wtime, btime) = parser.parse_go(command);
-        assert_eq!(31520, wtime);
-        assert_eq!(1410, btime);
+        let time_info = parser.parse_go(command);
+        assert_eq!(31520, time_info.wtime);
+        assert_eq!(1410, time_info.btime);
+        assert_eq!(TimeMode::Other, time_info.time_mode);
+
+        let parser = UciParserService {};
+        let command = "go wtime 31520 btime 1410 winc 100 binc 100";
+        let time_info = parser.parse_go(command);
+        assert_eq!(31520, time_info.wtime);
+        assert_eq!(1410, time_info.btime);
+        assert_eq!(100, time_info.winc);
+        assert_eq!(100, time_info.binc);
+        assert_eq!(TimeMode::Other, time_info.time_mode);
 
         let parser = UciParserService {};
         let command = "go";
-        let (wtime, btime) = parser.parse_go(command);
-        assert_eq!(-1, wtime);
-        assert_eq!(-1, btime);
+        let time_info = parser.parse_go(command);
+        assert_eq!(0, time_info.wtime);
+        assert_eq!(0, time_info.btime);
+        assert_eq!(0, time_info.winc);
+        assert_eq!(0, time_info.binc);
+        assert_eq!(TimeMode::None, time_info.time_mode);
 
         let parser = UciParserService {};
         let command = "go wtime 31520 btime 1410 something extra";
-        let (wtime, btime) = parser.parse_go(command);
-        assert_eq!(31520, wtime);
-        assert_eq!(1410, btime);
+        let time_info = parser.parse_go(command);
+        assert_eq!(31520, time_info.wtime);
+        assert_eq!(1410, time_info.btime);
+        assert_eq!(TimeMode::Other, time_info.time_mode);
+
+        let parser = UciParserService {};
+        let command = "go movetime 30000";
+        let time_info = parser.parse_go(command);
+        assert_eq!(30000, time_info.wtime);
+        assert_eq!(30000, time_info.btime);
+        assert_eq!(0, time_info.winc);
+        assert_eq!(0, time_info.binc);
+        assert_eq!(TimeMode::Movetime, time_info.time_mode);
     }
 
     #[test]
