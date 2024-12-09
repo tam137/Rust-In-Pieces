@@ -9,7 +9,7 @@ use crate::Config;
 use crate::UciGame;
 use crate::Stats;
 use crate::QuiescenceSearchMode;
-use crate::model::ThreadSafeDataMap;
+use crate::model::{ThreadSafeDataMap, TimeInfo, TimeMode};
 use crate::service::Service;
 use crate::Book;
 use crate::thread;
@@ -89,18 +89,17 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     // try to find book move
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_random_book_move(&game_fen);                    
-        
+                    let book_move = book.get_random_book_move(&game_fen);
                     let time_info = uci_parser.parse_go(command.as_str());
-                    let my_time_ms = if white { time_info.wtime } else { time_info.btime };
 
                     let global_map_handler_time_observer_thread = global_map.clone();
 
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
-                        let my_thinking_time = my_time_ms / 20;
+                        let my_thinking_time = calculate_thinking_time(&time_info, white);
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        thread::sleep(Duration::from_millis((my_thinking_time) as u64));
+                        thread::sleep(Duration::from_millis(my_thinking_time));
+                        logger.send(format!("Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
                     });
         
@@ -134,6 +133,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 let mut local_map = local_map.clone();
                     
                                 let handle = thread::spawn(move || {
+
+                                    let logger = global_map_handler::get_log_buffer_sender(&global_map);
+
                                     {
                                         let mut active_threads_guard = active_threads.lock()
                                             .expect(RIP_COULDN_LOCK_MUTEX);
@@ -161,6 +163,13 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         &global_map,
                                         &mut local_map,
                                     );
+
+                                    if search_result.completed {
+                                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, &stats)) {
+                                            logger.send("stdout channel closed during search".to_string())
+                                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                        }
+                                    }
                 
                                     let mut results_guard = results.lock()
                                         .expect(RIP_COULDN_LOCK_MUTEX);
@@ -184,6 +193,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         for handle in handles {
                             handle.join().expect("RIP Thread panicked");
                         }
+                        logger.send(format!("Stopped Search Threads")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         
                         let results = results.lock()
                             .expect("RIP Couldn lock search result")
@@ -254,6 +264,17 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
         }
     }
 
+}
+
+
+/// calculates the time {white} is thinking until the stop flag is set
+fn calculate_thinking_time(time_info: &TimeInfo, white: bool) -> u64 {
+    let thinking_time = match time_info.time_mode {
+        TimeMode::None => 2000,
+        TimeMode::Other => if white { time_info.wtime / 20 } else { time_info.btime },
+        TimeMode::Movetime => if white { time_info.wtime - 1000 } else { time_info.btime - 1000 },
+    };
+    if thinking_time < 1000 { 1000 } else { thinking_time as u64}
 }
 
 
