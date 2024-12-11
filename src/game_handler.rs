@@ -96,7 +96,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
-                        let my_thinking_time = calculate_thinking_time(&time_info, white);
+                        let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count);
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         thread::sleep(Duration::from_millis(my_thinking_time));
                         logger.send(format!("Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
@@ -268,50 +268,75 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
 
 /// calculates the time {white} is thinking until the stop flag is set
-fn calculate_thinking_time(time_info: &TimeInfo, white: bool) -> u64 {
+fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -> u64 {
     let thinking_time = match time_info.time_mode {
         TimeMode::None => 2000,
-        TimeMode::Other => if white { time_info.wtime / 20 } else { time_info.btime },
-        TimeMode::Movetime => if white { time_info.wtime - 1000 } else { time_info.btime - 1000 },
+        
+        TimeMode::Movetime => if white { time_info.wtime - 500 } else { time_info.btime - 500 },
+        
+        TimeMode::MoveToGo => {
+            let my_time = if white { time_info.wtime } else { time_info.btime };
+            let my_thinking_time = (my_time / (time_info.moves_to_go + 1)) + (if white { time_info.winc } else { time_info.binc });
+            
+            if my_thinking_time > my_time { // when increment is bigger then current time left
+                my_time - 1000
+            } else {
+                my_thinking_time
+            }
+        }
+        TimeMode::HourGlas => {
+            let my_time = if white { time_info.wtime } else { time_info.btime };
+            
+            let my_thinking_time = if move_count < 40 {
+                (my_time as f64 * (0.02 + (move_count as f64 / 1000 as f64) as f64)) as i32
+            } else {
+                my_time / 20
+            } + if white { time_info.winc } else { time_info.binc };
+
+            if my_thinking_time > my_time { // when increment is bigger then current time left
+                my_time - 1000
+            } else {
+                my_thinking_time
+            }
+            
+        }
     };
-    if thinking_time < 1000 { 1000 } else { thinking_time as u64}
+    if thinking_time < 100 { 100 } else { thinking_time as u64}
 }
 
 
-fn _calculate_depth(config: &Config, complexity: i32, benchmark: i32, time: i32, global_map: &ThreadSafeDataMap) -> i32 {
-    let time_in_sec = (time / 1000) + 1;
-    let value = time_in_sec * benchmark / (complexity + 1);
-    let logger;
-    {
-        let global_map_value = global_map.read().expect("RIP Could not write data map");
-        logger = global_map_value.get_data::<Arc<dyn Fn(String) + Send + Sync>>(DataMapKey::Logger)
-            .expect("RIP Could not get logger from data map").clone();
+
+#[cfg(test)]
+mod tests {
+    use crate::model::{TimeInfo, TimeMode};
+    use super::calculate_thinking_time;
+
+    #[test]
+    fn calculate_thinking_time_test() {
+        let time_info = TimeInfo{
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo
+        };
+        let thinking_time = calculate_thinking_time(&time_info, true, 0);
+        assert_eq!(2000, thinking_time);
+
+        let time_info = TimeInfo{
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo
+        };
+        let thinking_time = calculate_thinking_time(&time_info, false, 0);
+        assert_eq!(1000, thinking_time);
+
+        let time_info = TimeInfo{
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas
+        };
+        let thinking_time = calculate_thinking_time(&time_info, true, 10);
+        assert_eq!(600, thinking_time);
+
+        let time_info = TimeInfo{
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas
+        };
+        let thinking_time = calculate_thinking_time(&time_info, false, 20);
+        assert_eq!(400, thinking_time);
+
     }
 
-    if value > 500 {
-        if config.in_debug {
-            logger(format!("time threshold: {} -> depth: {}", value, 10));
-        }        
-        return 10;
-    } else if value > 200 {
-        if config.in_debug {
-            logger(format!("time threshold: {} -> depth: {}", value, 8));
-        }        
-        return 8;
-    } else if value > 120 {
-        if config.in_debug {
-            logger(format!("time threshold: {} -> depth: {}", value, 6));
-        }        
-        return 6;
-    } else if value >= 30 {
-        if config.in_debug {
-            logger(format!("time threshold: {} -> depth: {}", value, 4));
-        }
-        return 4;
-    } else {
-        if config.in_debug {
-            logger(format!("time threshold: {} -> depth: {}", value, 2));
-        }
-        return 2;
-    }
 }

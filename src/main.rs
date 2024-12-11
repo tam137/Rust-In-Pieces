@@ -177,29 +177,25 @@ mod tests {
         thread::sleep(Duration::from_millis(sleep_millis as u64));
     }
     
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-    
-        #[test]
-        fn setup_test_env_test() {
-            let rip_err = "RIP Test execution error";
-            let env = set_up();
-    
-            send_uci(&env, "debug on", 10);
-            send_uci(&env, "go infinite", 500);
-            send_uci(&env, "quit", 20);
 
-            let sr = global_map_handler::_get_search_results(&env.global_map);
-            assert!(sr.len() > 2);
-            global_map_handler::_clear_search_result(&env.global_map);
-            let sr = global_map_handler::_get_search_results(&env.global_map);
-            assert_eq!(0, sr.len());
-    
-            env._uci_command_processor.join().expect(rip_err);
-        }
+
+    #[test]
+    fn setup_test_env_test() {
+        let rip_err = "RIP Test execution error";
+        let env = set_up();
+
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "go infinite", 500);
+        send_uci(&env, "quit", 20);
+
+        let sr = global_map_handler::_get_search_results(&env.global_map);
+        assert!(sr.len() > 2);
+        global_map_handler::_clear_search_result(&env.global_map);
+        let sr = global_map_handler::_get_search_results(&env.global_map);
+        assert_eq!(0, sr.len());
+
+        env._uci_command_processor.join().expect(rip_err);
     }
-
 
     
     #[test]
