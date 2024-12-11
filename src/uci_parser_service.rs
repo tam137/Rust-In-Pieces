@@ -28,12 +28,12 @@ impl UciParserService {
         }
 
         let command_parts: Vec<&str> = command.split_whitespace().collect();
-        let mut time_mode = TimeMode::Other;
+        let mut time_mode = TimeMode::None;
         let mut wtime = 0;
         let mut btime = 0;
         let mut winc = 0;
         let mut binc = 0;
-        let mut movestogo = 0;
+        let mut moves_to_go = 0;
 
         let mut iter = command_parts.iter();
         while let Some(part) = iter.next() {
@@ -41,11 +41,13 @@ impl UciParserService {
                 "wtime" => {
                     if let Some(value) = iter.next() {
                         wtime = value.parse().unwrap_or(0);
+                        time_mode = TimeMode::HourGlas;
                     }
                 },
                 "btime" => {
                     if let Some(value) = iter.next() {
                         btime = value.parse().unwrap_or(0);
+                        time_mode = TimeMode::HourGlas;
                     }
                 },
                 "winc" => {
@@ -67,18 +69,23 @@ impl UciParserService {
                 }
                 "movestogo" => {
                     if let Some(value) = iter.next() {
-                        movestogo = value.parse().unwrap_or(0);
+                        moves_to_go = value.parse().unwrap_or(0);
                     }
                 }
                 _ => {}
             }
         }
+
+        if command.contains("movestogo") {
+            time_mode = TimeMode::MoveToGo;
+        }
+
         TimeInfo {
             wtime,
             btime,
             winc,
             binc,
-            moves_to_go: 0,
+            moves_to_go,
             time_mode,
         }        
     }
@@ -146,7 +153,7 @@ mod tests {
         let time_info = parser.parse_go(command);
         assert_eq!(31520, time_info.wtime);
         assert_eq!(1410, time_info.btime);
-        assert_eq!(TimeMode::Other, time_info.time_mode);
+        assert_eq!(TimeMode::HourGlas, time_info.time_mode);
 
         let parser = UciParserService {};
         let command = "go wtime 31520 btime 1410 winc 100 binc 100";
@@ -155,7 +162,7 @@ mod tests {
         assert_eq!(1410, time_info.btime);
         assert_eq!(100, time_info.winc);
         assert_eq!(100, time_info.binc);
-        assert_eq!(TimeMode::Other, time_info.time_mode);
+        assert_eq!(TimeMode::HourGlas, time_info.time_mode);
 
         let parser = UciParserService {};
         let command = "go";
@@ -171,7 +178,7 @@ mod tests {
         let time_info = parser.parse_go(command);
         assert_eq!(31520, time_info.wtime);
         assert_eq!(1410, time_info.btime);
-        assert_eq!(TimeMode::Other, time_info.time_mode);
+        assert_eq!(TimeMode::HourGlas, time_info.time_mode);
 
         let parser = UciParserService {};
         let command = "go movetime 30000";
@@ -181,6 +188,26 @@ mod tests {
         assert_eq!(0, time_info.winc);
         assert_eq!(0, time_info.binc);
         assert_eq!(TimeMode::Movetime, time_info.time_mode);
+
+        let parser = UciParserService {};
+        let command = "go wtime 15200 btime 14100 movestogo 30";
+        let time_info = parser.parse_go(command);
+        assert_eq!(15200, time_info.wtime);
+        assert_eq!(14100, time_info.btime);
+        assert_eq!(0, time_info.winc);
+        assert_eq!(0, time_info.binc);
+        assert_eq!(30, time_info.moves_to_go);
+        assert_eq!(TimeMode::MoveToGo, time_info.time_mode);
+
+        let parser = UciParserService {};
+        let command = "go movestogo 30 wtime 15200 btime 14100 ";
+        let time_info = parser.parse_go(command);
+        assert_eq!(15200, time_info.wtime);
+        assert_eq!(14100, time_info.btime);
+        assert_eq!(0, time_info.winc);
+        assert_eq!(0, time_info.binc);
+        assert_eq!(30, time_info.moves_to_go);
+        assert_eq!(TimeMode::MoveToGo, time_info.time_mode);
     }
 
     #[test]

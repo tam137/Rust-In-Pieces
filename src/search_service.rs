@@ -104,6 +104,7 @@ impl SearchService {
         global_map_handler::push_search_result(global_map, search_result.clone());
         search_result
     }
+    
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)

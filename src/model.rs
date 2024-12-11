@@ -238,7 +238,8 @@ impl UciGame {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TimeMode {
     Movetime,
-    Other,
+    MoveToGo,
+    HourGlas,
     None,
 }
 
