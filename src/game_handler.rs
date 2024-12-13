@@ -1,6 +1,7 @@
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::global_map_handler;
 use crate::DataMap;
@@ -84,6 +85,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                 else if command.starts_with("go") {
 
+                    logger.send("incomming go cmd".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+
                     global_map_handler::set_stop_flag(&global_map, false);
                     
                     // try to find book move
@@ -92,13 +95,25 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let book_move = book.get_random_book_move(&game_fen);
                     let time_info = uci_parser.parse_go(command.as_str());
 
+                    let stop_new_search_threads = Arc::new(AtomicBool::new(false));
+                    let stop_new_search_threads_2 = stop_new_search_threads.clone();
+
                     let global_map_handler_time_observer_thread = global_map.clone();
 
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
                         let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count);
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        thread::sleep(Duration::from_millis(my_thinking_time));
+
+                        if time_info.time_mode == TimeMode::Movetime {
+                            thread::sleep(Duration::from_millis(my_thinking_time));
+                        } else {
+                            thread::sleep(Duration::from_millis(my_thinking_time / 2));
+                            stop_new_search_threads.store(true, Ordering::SeqCst);
+                            logger.send(format!("Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            thread::sleep(Duration::from_millis(my_thinking_time / 2));
+                        }
+                        
                         logger.send(format!("Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
                     });
@@ -148,6 +163,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         let depth = depths_guard.pop().expect("RIP reached maximum depth");
                                         depth
                                     };
+
+                                    logger.send(format!("Start new search thread on level {}", current_depth))
+                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 
                                     let mut stats = Stats::new();
                                     let white = game.board.white_to_move;
@@ -184,8 +202,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     
                                 handles.push(handle);
                             }
-
+                            
                             if global_map_handler::is_stop_flag(&global_map) { break; }
+                            if stop_new_search_threads_2.load(Ordering::SeqCst) {
+                                global_map_handler::set_stop_flag(&global_map, true);
+                                break;
+                            }
                             thread::sleep(Duration::from_millis(10));
                         }
                     
