@@ -51,10 +51,10 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00j-candidate-5".to_string(),
+            version: "V00j-candidate-7".to_string(),
             use_zobrist: true,
             use_book: true,
-            max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
+            max_zobrist_hash_entries: 50_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             max_depth: 99,
             truncate_bad_moves: 99,
