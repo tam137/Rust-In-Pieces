@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
+use std::collections::HashMap;
 
 use crate::{zobrist::ZobristTable, ThreadSafeDataMap};
-use crate:: model::{DataMap, DataMapKey, SearchResult};
+use crate:: model::{DataMap, DataMapKey, SearchResult, Turn};
 
 use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 
@@ -159,6 +160,21 @@ pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
         })
 }
 
+pub fn get_pv_node(global_map: &ThreadSafeDataMap, hash: u64) -> Result<Turn, String> {
+    global_map
+        .read()
+        .map_err(|_| "RIP COULD NOT LOCK GLOBAL MAP".to_string())?
+        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::Pv_Nodes)
+        .ok_or_else(|| "RIP Can not find pv nodes map".to_string())?
+        .lock()
+        .map_err(|_| "RIP Mutex poisoned".to_string())
+        .and_then(|map| {
+            map
+                .get(&hash)
+                .cloned()
+                .ok_or_else(|| "No matching key found in pv nodes map".to_string())
+        })
+}
 
 
 

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
-use std::sync::Mutex;
+use std::sync::{Arc, RwLock, Mutex};
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
@@ -35,7 +34,8 @@ pub enum ValueType {
     SenderU64I16(Sender<(u64, i16)>),
     SenderString(Sender<String>),
     Instant(Instant),
-    SearchResultVec(Arc<Mutex<Vec<SearchResult>>>)
+    SearchResultVec(Arc<Mutex<Vec<SearchResult>>>),
+    TurnMap(Arc<Mutex<HashMap<u64, Turn>>>)
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -52,6 +52,7 @@ pub enum DataMapKey {
     GameCommandSender,
     CalcTime,
     SearchResults,
+    Pv_Nodes,
 }
 
 #[derive(Clone)]
@@ -184,6 +185,18 @@ impl KeyToType<Arc<Mutex<Vec<SearchResult>>>> for DataMapKey {
     }
     fn create_value(&self, value: Arc<Mutex<Vec<SearchResult>>>) -> ValueType {
         ValueType::SearchResultVec(value)
+    }
+}
+
+impl KeyToType<Arc<Mutex<HashMap<u64, Turn>>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<HashMap<u64, Turn>>>> {
+        match (self, value) {
+            (DataMapKey::Pv_Nodes, ValueType::TurnMap(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Arc<Mutex<HashMap<u64, Turn>>>) -> ValueType {
+        ValueType::TurnMap(value)
     }
 }
 
