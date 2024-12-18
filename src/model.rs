@@ -52,7 +52,7 @@ pub enum DataMapKey {
     GameCommandSender,
     CalcTime,
     SearchResults,
-    Pv_Nodes,
+    PvNodes,
 }
 
 #[derive(Clone)]
@@ -191,7 +191,7 @@ impl KeyToType<Arc<Mutex<Vec<SearchResult>>>> for DataMapKey {
 impl KeyToType<Arc<Mutex<HashMap<u64, Turn>>>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<HashMap<u64, Turn>>>> {
         match (self, value) {
-            (DataMapKey::Pv_Nodes, ValueType::TurnMap(a)) => Some(a),
+            (DataMapKey::PvNodes, ValueType::TurnMap(a)) => Some(a),
             _ => None,
         }
     }
@@ -414,6 +414,7 @@ impl Board {
     }
 
 
+    /// It only panics if the from field is != 0
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
 
         // validation
@@ -508,7 +509,7 @@ impl Board {
 
         // Check for 3-move repetition
         if let Some(&count) = self.move_repetition_map.get(&self.cached_hash) {
-            if count > 3 { panic!("RIP move_repetition_map vale {}", count) }
+            if count > 3 { panic!("RIP move_repetition_map value {}", count) }
             if count == 3 {
                 self.game_status = GameStatus::Draw;
             }
