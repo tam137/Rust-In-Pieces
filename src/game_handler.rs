@@ -100,6 +100,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                     let global_map_handler_time_observer_thread = global_map.clone();
 
+
+                    // the timer thread sets stoip flags
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
                         let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count);
@@ -118,6 +120,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
                     });
         
+                    
                     if book_move.is_empty() || !config.use_book {
         
                         let mut local_map = local_map.clone();
@@ -129,6 +132,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     
                         let mut handles = vec![];
                     
+                        //running Lazy SMP Threads
                         loop {
                             let active_count = {
                                 let active_threads_guard = active_threads.lock()
@@ -187,6 +191,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                             logger.send("stdout channel closed during search".to_string())
                                                 .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                         }
+                                        global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
                                     }
                 
                                     let mut results_guard = results.lock()
