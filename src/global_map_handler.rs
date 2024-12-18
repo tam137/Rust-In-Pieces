@@ -4,11 +4,12 @@ use std::collections::HashMap;
 
 use crate::zobrist;
 use crate::{zobrist::ZobristTable, ThreadSafeDataMap};
-use crate:: model::{DataMap, DataMapKey, SearchResult, Turn, Board};
+use crate:: model::{Board, DataMap, DataMapKey, SearchResult, Turn};
 
 use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 use crate::model::RIP_COULDN_LOCK_MUTEX;
 use crate::model::RIP_MISSED_DM_KEY;
+use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
 /// global map builder: Its not checked here BUT ONLY CALL CONSTRUCTOR ONCE!
@@ -156,16 +157,21 @@ pub fn get_game_command_sender(global_map: &ThreadSafeDataMap) -> Sender<String>
 }
 
 pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
-    global_map.read().expect("RIP COULD NOT LOCK GLOBAL MAP")
-        .get_data::<Sender<String>>(DataMapKey::LogBufferSender)
-        .map(|tx| tx.clone())
+    global_map
+        .read()
+        .ok()
+        .and_then(|map| map.get_data::<Sender<String>>(DataMapKey::LogBufferSender).cloned())
         .unwrap_or_else(|| {
             let (tx, _rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // Dummy-Receiver
+                for _ in _rx {}
+            });
             tx
         })
 }
 
-pub fn get_pv_node(global_map: &ThreadSafeDataMap, hash: u64) -> Result<Turn, String> {
+pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Result<Turn, String> {
     global_map
         .read()
         .map_err(|_| RIP_COULDN_LOCK_GLOBAL_MAP)?
@@ -181,9 +187,50 @@ pub fn get_pv_node(global_map: &ThreadSafeDataMap, hash: u64) -> Result<Turn, St
         })
 }
 
-/// Generates a pv_nodes Map<u64, Turn> and Stores it to the global_map
+pub fn get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let arc_mutex = global_map_value
+        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
+        .expect(RIP_MISSED_DM_KEY);
+    
+    let hash_map = arc_mutex
+        .lock()
+        .expect(RIP_COULDN_LOCK_MUTEX);
+
+    hash_map.len()
+}
+
+pub fn clear_pv_nodes(global_map: &ThreadSafeDataMap) {
+    let global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let arc_mutex = global_map_value
+        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
+        .expect(RIP_MISSED_DM_KEY);
+    
+    let mut hash_map = arc_mutex
+        .lock()
+        .expect(RIP_COULDN_LOCK_MUTEX);
+
+    hash_map.clear();
+}
+
+
+
+/// Generates a pv_nodes Map<u64, Turn> and stores it to the global_map
 /// The board is mutable but not changed by the end of calculation
+/// PV Nodes are only set if move row is longer then previous stored pv
 pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board: &mut Board) {
+
+    let logger = get_log_buffer_sender(global_map);
+
+    let pv_node_len = get_pv_nodes_len(global_map);
+    let move_row_len = move_row.len();
+
+    if pv_node_len >= move_row_len {
+        logger.send(format!("Stored Pv Nodes Len ({}) > new move row ({})", pv_node_len, move_row_len))
+            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+        return;
+    }
+
     let mut new_pv_node_map = HashMap::new();
     let old_board = board.clone();
     
@@ -195,6 +242,7 @@ pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board:
     let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     let new_pv_node_map_arc = Arc::new(Mutex::new(new_pv_node_map));
     global_map_value.insert(DataMapKey::PvNodes, new_pv_node_map_arc);
+    logger.send(format!("Stored new pv len ({})", move_row_len)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
     *board = old_board;
 }
 
@@ -203,7 +251,7 @@ pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board:
 #[cfg(test)]
 mod tests {
 
-    use crate::{global_map_handler::*, model::RIP_COULDN_LOCK_MUTEX, service::Service};
+    use crate::{global_map_handler::{self, *}, model::RIP_COULDN_LOCK_MUTEX, service::Service};
 
     #[test]
     fn create_new_global_map_test() {
@@ -236,16 +284,41 @@ mod tests {
 
         set_pv_nodes(&global_map, &move_row, &mut board);
 
-        assert_eq!(85, get_pv_node(&global_map, hash).unwrap().from);
-        assert_eq!(65, get_pv_node(&global_map, hash).unwrap().to);
+        assert_eq!(85, get_pv_node_for_hash(&global_map, hash).unwrap().from);
+        assert_eq!(65, get_pv_node_for_hash(&global_map, hash).unwrap().to);
 
-        assert_eq!(35, get_pv_node(&global_map, hash_2).unwrap().from);
-        assert_eq!(55, get_pv_node(&global_map, hash_2).unwrap().to);
+        assert_eq!(35, get_pv_node_for_hash(&global_map, hash_2).unwrap().from);
+        assert_eq!(55, get_pv_node_for_hash(&global_map, hash_2).unwrap().to);
 
         let unused_hash = 123 as u64;
 
-        let error_type = get_pv_node(&global_map, unused_hash);
+        let error_type = get_pv_node_for_hash(&global_map, unused_hash);
         assert!(matches!(error_type, Err(ref e) if e.is_ascii()));
+
+        assert_eq!(2, get_pv_nodes_len(&global_map));
+
+        global_map_handler::clear_pv_nodes(&global_map);
+        assert_eq!(0, get_pv_nodes_len(&global_map));
+
+        let mut move_row = Vec::default();
+        let turn = Turn::_new_to_from(85, 65);
+        move_row.push(turn);
+        set_pv_nodes(&global_map, &move_row, &mut board);
+        assert_eq!(1, get_pv_nodes_len(&global_map));
+
+        let mut move_row = Vec::default();
+        let turn = Turn::_new_to_from(85, 65);
+        let turn_2 = Turn::_new_to_from(35, 55);
+        move_row.push(turn);
+        move_row.push(turn_2);
+        set_pv_nodes(&global_map, &move_row, &mut board);
+        assert_eq!(2, get_pv_nodes_len(&global_map));
+
+        let mut move_row = Vec::default();
+        let turn = Turn::_new_to_from(85, 65);
+        move_row.push(turn);
+        set_pv_nodes(&global_map, &move_row, &mut board);
+        assert_eq!(2, get_pv_nodes_len(&global_map));
 
     }
 }
