@@ -221,6 +221,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             handle.join().expect("RIP Thread panicked");
                         }
                         logger.send(format!("Stopped Search Threads")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                        global_map_handler::clear_pv_nodes(&global_map);
                         
                         let results = results.lock()
                             .expect("RIP Couldn lock search result")
