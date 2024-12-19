@@ -210,4 +210,18 @@ mod tests {
         send_uci(&env, "quit", 0);
         env._uci_command_processor.join().expect(rip_err);
     }
+
+    #[test]
+    fn go_infinite_test() {
+        let rip_err = "RIP Test execution error";
+        let env = set_up();
+
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "go infinite", 500);
+        send_uci(&env, "stop", 100);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+    }
+
+
 }
