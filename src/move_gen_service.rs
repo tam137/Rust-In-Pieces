@@ -2,9 +2,9 @@
 use std::sync::RwLockReadGuard;
 use std::collections::HashMap;
 
-use crate::global_map_handler;
+use crate::{global_map_handler, zobrist};
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
+use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
 
@@ -52,9 +52,24 @@ impl MoveGenService {
 
     fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
         only_captures: bool, global_map: &ThreadSafeDataMap) -> Vec<Turn> {
+
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
+
+        // get pv node
+        let mut pv_node = None;
+        if !only_captures && config.use_pv_nodes {
+            if board.cached_hash == 0 {
+                board.cached_hash = zobrist::gen(board);
+            }
+            if let Some(pv_node_result) = global_map_handler::get_pv_node_for_hash(global_map, board.cached_hash) {
+                pv_node = Some(pv_node_result);
+                let logger = global_map_handler::get_log_buffer_sender(global_map);
+                logger.send(format!("Found Pv Node {:?}", pv_node)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+            }
+            
+        }
         
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
         let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_MUTEX);
@@ -103,11 +118,31 @@ impl MoveGenService {
             }
         }
     
-        if white_turn {
-            valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
+        if let Some(pv_node) = pv_node {
+            // sort with pv node
+            valid_moves.sort_unstable_by(|a, b| {
+                if a == &pv_node {
+                    return std::cmp::Ordering::Less;
+                }
+                if b == &pv_node {
+                    return std::cmp::Ordering::Greater;
+                }
+        
+                if white_turn {
+                    b.eval.cmp(&a.eval)
+                } else {
+                    a.eval.cmp(&b.eval)
+                }
+            });
         } else {
-            valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
+            // Fallback sort without pv node
+            if white_turn {
+                valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
+            } else {
+                valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
+            }
         }
+        
     
         // check Gamestatus
         if valid_moves.is_empty() && !only_captures {
@@ -951,6 +986,27 @@ mod tests {
         let turns = generate_valid_moves_list(board);
         assert_eq!(3, turns.len());
     }
+
+    #[test]
+    fn move_ordering_with_pv_nodes_test() {
+        let service = Service::new();
+        let config = Config::new().for_tests();
+        let global_map = global_map_handler::create_new_global_map();
+
+        let board = &mut service.fen.set_init_board();
+
+        let mut move_row = Vec::default();
+        move_row.push(Turn::_new_to_from(81, 61));
+        move_row.push(Turn::_new_to_from(38, 58));
+        global_map_handler::set_pv_nodes(&global_map, &move_row, board);
+
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map);
+        let first_turn = turns.get(0).unwrap();
+        
+        assert_eq!(81, first_turn.from);
+        assert_eq!(61, first_turn.to);
+    }
+
 
     fn check_turn_order_of(notation: &str, turns: Vec<Turn>, expected_below: i32) -> () {
         let mut counter = 0;

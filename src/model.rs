@@ -283,7 +283,6 @@ impl PartialEq for Turn {
             && self.to == other.to
             && self.capture == other.capture
             && self.promotion == other.promotion
-            && self.eval == other.eval
     }
 }
 
@@ -415,6 +414,7 @@ impl Board {
 
 
     /// It only panics if the from field is != 0
+    /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
 
         // validation

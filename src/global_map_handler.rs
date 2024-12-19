@@ -171,20 +171,15 @@ pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
         })
 }
 
-pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Result<Turn, String> {
-    global_map
-        .read()
-        .map_err(|_| RIP_COULDN_LOCK_GLOBAL_MAP)?
+pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Option<Turn> {
+    let global_map_read = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    
+    let arc_mutex = global_map_read
         .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
-        .ok_or_else(|| RIP_MISSED_DM_KEY)?
-        .lock()
-        .map_err(|_| RIP_COULDN_LOCK_MUTEX.to_string())
-        .and_then(|map| {
-            map
-                .get(&hash)
-                .cloned()
-                .ok_or_else(|| "No matching key found in pv nodes map".to_string())
-        })
+        .expect(RIP_MISSED_DM_KEY);
+
+    let hash_map = arc_mutex.lock().expect(RIP_COULDN_LOCK_MUTEX);
+    hash_map.get(&hash).cloned()
 }
 
 pub fn get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
@@ -292,8 +287,8 @@ mod tests {
 
         let unused_hash = 123 as u64;
 
-        let error_type = get_pv_node_for_hash(&global_map, unused_hash);
-        assert!(matches!(error_type, Err(ref e) if e.is_ascii()));
+        let none_value = get_pv_node_for_hash(&global_map, unused_hash);
+        assert_eq!(none_value, None);
 
         assert_eq!(2, get_pv_nodes_len(&global_map));
 
