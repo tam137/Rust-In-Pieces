@@ -16,13 +16,14 @@ impl UciParserService {
     /// Got a "go" command and return wtime and btime in ms. (-1, -1) if no time information given.
     pub fn parse_go(&self, command: &str) -> TimeInfo {
 
-        if (!command.contains("wtime") || !command.contains("btime")) && !command.contains("movetime") {
+        if (!command.contains("wtime") || !command.contains("btime")) && !command.contains("movetime") && !command.contains("depth") {
             return TimeInfo {
                 wtime: 0,
                 btime: 0,
                 winc: 0,
                 binc: 0,
                 moves_to_go: 0,
+                depth: 0,
                 time_mode: TimeMode::None,
             }
         }
@@ -34,6 +35,7 @@ impl UciParserService {
         let mut winc = 0;
         let mut binc = 0;
         let mut moves_to_go = 0;
+        let mut depth = 0;
 
         let mut iter = command_parts.iter();
         while let Some(part) = iter.next() {
@@ -72,6 +74,12 @@ impl UciParserService {
                         moves_to_go = value.parse().unwrap_or(0);
                     }
                 }
+                "depth" => {
+                    if let Some(value) = iter.next() {
+                        depth = value.parse().unwrap_or(0);
+                        time_mode = TimeMode::Depth;
+                    }
+                }
                 _ => {}
             }
         }
@@ -86,6 +94,7 @@ impl UciParserService {
             winc,
             binc,
             moves_to_go,
+            depth,
             time_mode,
         }        
     }
@@ -197,6 +206,7 @@ mod tests {
         assert_eq!(0, time_info.winc);
         assert_eq!(0, time_info.binc);
         assert_eq!(30, time_info.moves_to_go);
+        assert_eq!(0, time_info.depth);
         assert_eq!(TimeMode::MoveToGo, time_info.time_mode);
 
         let parser = UciParserService {};
@@ -207,7 +217,19 @@ mod tests {
         assert_eq!(0, time_info.winc);
         assert_eq!(0, time_info.binc);
         assert_eq!(30, time_info.moves_to_go);
+        assert_eq!(0, time_info.depth);
         assert_eq!(TimeMode::MoveToGo, time_info.time_mode);
+
+        let parser = UciParserService {};
+        let command = "go depth 6";
+        let time_info = parser.parse_go(command);
+        assert_eq!(0, time_info.wtime);
+        assert_eq!(0, time_info.btime);
+        assert_eq!(0, time_info.winc);
+        assert_eq!(0, time_info.binc);
+        assert_eq!(0, time_info.moves_to_go);
+        assert_eq!(6, time_info.depth);
+        assert_eq!(TimeMode::Depth, time_info.time_mode);
     }
 
     #[test]

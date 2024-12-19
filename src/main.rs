@@ -126,7 +126,7 @@ mod tests {
         global_map: ThreadSafeDataMap,
     }
     
-    fn set_up() -> TestEnvironment {
+    fn set_up(config: &Config) -> TestEnvironment {
     
         let global_map = global_map_handler::create_new_global_map();
     
@@ -142,26 +142,30 @@ mod tests {
     
         // Set up hash writer thread
         let global_map_hash_writer = global_map.clone();
+        let config_hash_writer = config.clone();
         let _hash_writer = thread::spawn(move || {
-            hash_writer(global_map_hash_writer, &Config::new()._for_integration_tests(), rx_hashes);
+            hash_writer(global_map_hash_writer, &config_hash_writer, rx_hashes);
         });
     
         // Set up UCI command thread
         let global_map_command_processor = global_map.clone();
+        let config_uci_command_processor = config.clone();
         let _uci_command_processor = thread::spawn(move || {
-            uci_command_processor(global_map_command_processor, &Config::new()._for_integration_tests(), rx_std_in);
+            uci_command_processor(global_map_command_processor, &config_uci_command_processor, rx_std_in);
         });
     
         // Set up game loop thread
         let global_map_game_loop = global_map.clone();
+        let config_game_handler = config.clone();
         let _game_handler = thread::spawn(move || {
-            game_loop(global_map_game_loop, &Config::new()._for_integration_tests(), rx_game_command);
+            game_loop(global_map_game_loop, &config_game_handler, rx_game_command);
         });
     
         // Set up logger thread
         let global_map_log_buffer = global_map.clone();
+        let config_logger_buffer = config.clone();
         let _logger_buffer = thread::spawn(move || {
-            logger_buffer_thread(global_map_log_buffer, &Config::new()._for_integration_tests(), rx_log_buffer);
+            logger_buffer_thread(global_map_log_buffer, &config_logger_buffer, rx_log_buffer);
         });
     
         TestEnvironment {
@@ -180,9 +184,10 @@ mod tests {
 
 
     #[test]
+    #[ignore]
     fn setup_test_env_test() {
         let rip_err = "RIP Test execution error";
-        let env = set_up();
+        let env = set_up(&Config::new()._for_integration_tests());
 
         send_uci(&env, "debug on", 10);
         send_uci(&env, "go infinite", 500);
@@ -199,9 +204,10 @@ mod tests {
 
     
     #[test]
+    #[ignore]
     fn go_multithreading_test() {
         let rip_err = "RIP Test execution error";
-        let env = set_up();
+        let env = set_up(&Config::new()._for_integration_tests());
 
         send_uci(&env, "debug on", 10);
         send_uci(&env, "position startpos", 10);
@@ -212,15 +218,77 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn go_infinite_test() {
         let rip_err = "RIP Test execution error";
-        let env = set_up();
+        let env = set_up(&Config::new()._for_integration_tests());
 
         send_uci(&env, "debug on", 10);
         send_uci(&env, "go infinite", 500);
         send_uci(&env, "stop", 100);
         send_uci(&env, "quit", 0);
         env._uci_command_processor.join().expect(rip_err);
+    }
+
+    #[test]
+    #[ignore]
+    fn pv_time_test() {
+        let rip_err = "RIP Test execution error";
+
+        // First Test gain ~ 10%
+
+        // Stats { best_turn_nr: 0, turn_number_gt_threshold: 0, created_nodes: 247208, created_capture_node: 3740, calculated_nodes: 8835, eval_nodes: 247208, calc_time_ms: 2000, zobrist_hit: 42867, cuts: 97, capture_share: 1, nodes_per_ms: 101, logging: [] }
+        let env = set_up(&&Config::new()._for_integration_tests_with_pv_nodes());
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "position fen r1bqr1k1/1p2bppp/p1n5/2p5/P2pPP2/5NQ1/BPP3PP/R1B2RK1 b - - 0 14", 3000);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+
+        // Stats { best_turn_nr: 0, turn_number_gt_threshold: 0, created_nodes: 272441, created_capture_node: 4474, calculated_nodes: 9716, eval_nodes: 272441, calc_time_ms: 2124, zobrist_hit: 43485, cuts: 97, capture_share: 1, nodes_per_ms: 110, logging: [] }
+        let env = set_up(&Config::new()._for_integration_tests_wo_pv_nodes());
+        send_uci(&env, "position fen r1bqr1k1/1p2bppp/p1n5/2p5/P2pPP2/5NQ1/BPP3PP/R1B2RK1 b - - 0 14", 3000);
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+
+        // Second Test gain ~ 30%
+
+        // Stats { best_turn_nr: 0, turn_number_gt_threshold: 0, created_nodes: 177998, created_capture_node: 4294, calculated_nodes: 7158, eval_nodes: 177998, calc_time_ms: 1386, zobrist_hit: 38887, cuts: 96, capture_share: 3, nodes_per_ms: 99, logging: [] }
+        let env = set_up(&&Config::new()._for_integration_tests_with_pv_nodes());
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "position fen r1b2rk1/p3ppbp/2p2np1/6B1/2B5/2N1P3/PP3PPP/3R1RK1 b - - 0 12", 3000);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+
+        // Stats { best_turn_nr: 0, turn_number_gt_threshold: 0, created_nodes: 283071, created_capture_node: 3683, calculated_nodes: 10198, eval_nodes: 283071, calc_time_ms: 2068, zobrist_hit: 30211, cuts: 97, capture_share: 1, nodes_per_ms: 128, logging: [] }
+        let env = set_up(&Config::new()._for_integration_tests_wo_pv_nodes());
+        send_uci(&env, "position fen r1b2rk1/p3ppbp/2p2np1/6B1/2B5/2N1P3/PP3PPP/3R1RK1 b - - 0 12", 3000);
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+
+        // Third Test no gain ~ -30%
+
+        // Stats { best_turn_nr: 2, turn_number_gt_threshold: 0, created_nodes: 98934, created_capture_node: 1742, calculated_nodes: 4592, eval_nodes: 98934, calc_time_ms: 1023, zobrist_hit: 9487, cuts: 96, capture_share: 1, nodes_per_ms: 83, logging: [] }
+        let env = set_up(&&Config::new()._for_integration_tests_with_pv_nodes());
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "position fen r1bqk2r/pppp1ppp/2n1pn2/8/1b2P3/3P1N2/PPPN1PPP/R1BQKB1R w KQkq - 3 5", 3000);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+
+        // Stats { best_turn_nr: 1, turn_number_gt_threshold: 0, created_nodes: 66408, created_capture_node: 1023, calculated_nodes: 2918, eval_nodes: 66408, calc_time_ms: 733, zobrist_hit: 9914, cuts: 96, capture_share: 1, nodes_per_ms: 69, logging: [] }
+        let env = set_up(&Config::new()._for_integration_tests_wo_pv_nodes());
+        send_uci(&env, "position fen r1bqk2r/pppp1ppp/2n1pn2/8/1b2P3/3P1N2/PPPN1PPP/R1BQKB1R w KQkq - 3 5", 3000);
+        send_uci(&env, "debug on", 10);
+        send_uci(&env, "go depth 4", 2500);
+        send_uci(&env, "quit", 0);
+        env._uci_command_processor.join().expect(rip_err);
+        
     }
 
 

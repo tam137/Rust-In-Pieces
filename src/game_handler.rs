@@ -81,7 +81,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                         service.stdout.write(&service.uci_parser.get_info_str(search_result, &stats));
                         
-                        global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                        if config.use_pv_nodes {
+                            global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                        }
                         if global_map_handler::is_stop_flag(&global_map) { break; }
                     }
                 }
@@ -97,6 +99,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);
                     let time_info = uci_parser.parse_go(command.as_str());
+                    let time_info_search_thread = time_info.clone(); 
 
                     let stop_new_search_threads = Arc::new(AtomicBool::new(false));
                     let stop_new_search_threads_2 = stop_new_search_threads.clone();
@@ -107,6 +110,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     // the timer thread sets stoip flags
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
+
+                        if time_info.time_mode == TimeMode::None || time_info.time_mode == TimeMode::Depth {
+                            logger.send(format!("TimeMode is {:?}", time_info.time_mode)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            return;
+                        }
+
                         let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count);
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
 
@@ -194,17 +203,23 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                             logger.send("stdout channel closed during search".to_string())
                                                 .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                         }
-                                        global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                                        if config.use_pv_nodes {
+                                            global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                                        }
                                     }
                 
                                     let mut results_guard = results.lock()
                                         .expect(RIP_COULDN_LOCK_MUTEX);
-                                    results_guard.push(search_result);
+                                    results_guard.push(search_result.clone());
                     
                                     {
                                         let mut active_threads_guard = active_threads.lock()
                                             .expect(RIP_COULDN_LOCK_MUTEX);
                                         *active_threads_guard -= 1;
+                                    }
+
+                                    if search_result.completed && search_result.calculated_depth >= time_info_search_thread.depth {
+                                        global_map_handler::set_stop_flag(&global_map, true);
                                     }
                                 });
                     
@@ -315,6 +330,7 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -
                 my_thinking_time
             }
         }
+        
         TimeMode::HourGlas => {
             let my_time = if white { time_info.wtime } else { time_info.btime };
             
@@ -331,6 +347,10 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -
             }
             
         }
+        
+        TimeMode::Depth => {
+            0
+        }
     };
     if thinking_time < 100 { 100 } else { thinking_time as u64}
 }
@@ -345,25 +365,25 @@ mod tests {
     #[test]
     fn calculate_thinking_time_test() {
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 0);
         assert_eq!(2000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 0);
         assert_eq!(1000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 10);
         assert_eq!(600, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 20);
         assert_eq!(400, thinking_time);
