@@ -107,7 +107,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let global_map_handler_time_observer_thread = global_map.clone();
 
 
-                    // the timer thread sets stoip flags
+                    // the timer thread sets stop flags
                     let _time_observer_thread = thread::spawn(move || {
                         let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
 
@@ -141,6 +141,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         let results: Arc<Mutex<Vec<SearchResult>>> = Arc::new(Mutex::new(Vec::default()));
                         let depths = Arc::new(Mutex::new((2..=config.max_depth).rev().collect::<Vec<_>>()));
                         let active_threads = Arc::new(Mutex::new(0));
+                        let calculate_pv = Arc::new(AtomicBool::new(false));
                     
                         let mut handles = vec![];
                     
@@ -162,6 +163,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 let config = config.clone();
                                 let global_map = global_map.clone();
                                 let mut local_map = local_map.clone();
+                                let calculate_pv = calculate_pv.clone();
+                                let time_info_search_thread = time_info_search_thread.clone();
                     
                                 let handle = thread::spawn(move || {
 
@@ -172,16 +175,25 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                             .expect(RIP_COULDN_LOCK_MUTEX);
                                         *active_threads_guard += 1;
                                     }
-                    
-                                    let current_depth = {
+
+                                    // depth depends of if we perform a PV search, or a SMP search
+                                    let current_depth = if config.use_pv_nodes && calculate_pv.load(Ordering::SeqCst) == false {
+                                        local_map.insert(DataMapKey::PvFlag, true);
+                                        calculate_pv.store(true, Ordering::SeqCst);
+                                        let depth = (global_map_handler::get_pv_nodes_len(&global_map) + 1) as i32;
+                                        logger.send(format!("Start new PV search on level {}", depth))
+                                            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                        if depth >= 2 { depth } else { 2 }
+                                    } else {
+                                        local_map.insert(DataMapKey::PvFlag, false);
                                         let mut depths_guard = depths.lock()
                                             .expect(RIP_COULDN_LOCK_MUTEX);
                                         let depth = depths_guard.pop().expect("RIP reached maximum depth");
+                                        logger.send(format!("Start new SMP search on level {}", depth))
+                                            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                         depth
                                     };
 
-                                    logger.send(format!("Start new search thread on level {}", current_depth))
-                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 
                                     let mut stats = Stats::new();
                                     let white = game.board.white_to_move;
@@ -203,8 +215,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                             logger.send("stdout channel closed during search".to_string())
                                                 .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                         }
+
                                         if config.use_pv_nodes {
                                             global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                                            if search_result.is_pv_search_result {
+                                                calculate_pv.store(false, Ordering::SeqCst);
+                                            }
                                         }
                                     }
                 
@@ -218,7 +234,10 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         *active_threads_guard -= 1;
                                     }
 
-                                    if search_result.completed && search_result.calculated_depth >= time_info_search_thread.depth {
+                                    // stop search if in go depth command modus
+                                    if search_result.completed &&
+                                        time_info_search_thread.time_mode == TimeMode::Depth &&
+                                        search_result.calculated_depth >= time_info_search_thread.depth {
                                         global_map_handler::set_stop_flag(&global_map, true);
                                     }
                                 });
