@@ -67,7 +67,7 @@ pub fn std_reader(global_map: ThreadSafeDataMap, _config: &Config) {
                 if uci_token.trim().starts_with("quit") {
                     break;
                 }
-                sender.send(uci_token).expect(RIP_COULDN_SEND_TO_STD_IN_QUEUE);
+                sender.send(String::from(uci_token.trim())).expect(RIP_COULDN_SEND_TO_STD_IN_QUEUE);
             }
             Err(_) => {
                 panic!("{}", RIP_ERR_READING_STD_IN);

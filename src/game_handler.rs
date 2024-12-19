@@ -76,9 +76,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                         let is_white = game.board.white_to_move;
                         let mut stats = Stats::default();
-                        let _r = &service.search.get_moves(&mut game.board, depth, is_white, &mut stats,
+                        let search_result = &service.search.get_moves(&mut game.board, depth, is_white, &mut stats,
                             &config, &service, &global_map, &mut local_map);
 
+                        service.stdout.write(&service.uci_parser.get_info_str(search_result, &stats));
+                        
+                        global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
                         if global_map_handler::is_stop_flag(&global_map) { break; }
                     }
                 }
