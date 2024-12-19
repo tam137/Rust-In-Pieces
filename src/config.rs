@@ -52,7 +52,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00j-candidate-8".to_string(),
+            version: "V00j-candidate-9".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 50_000_000, // 1.000.000 = 75MB
@@ -65,7 +65,7 @@ impl Config {
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string_during_search: false,
             write_hash_buffer_size: 10_000,
-            search_threads: 4,
+            search_threads: 3,
             use_pv_nodes: true,
 
             undeveloped_knight_malus: 36,

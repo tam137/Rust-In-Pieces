@@ -65,8 +65,8 @@ impl MoveGenService {
             }
             if let Some(pv_node_result) = global_map_handler::get_pv_node_for_hash(global_map, board.cached_hash) {
                 pv_node = Some(pv_node_result);
-                let logger = global_map_handler::get_log_buffer_sender(global_map);
-                logger.send(format!("Found Pv Node {:?}", pv_node)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                //let logger = global_map_handler::get_log_buffer_sender(global_map);
+                //logger.send(format!("Found Pv Node {:?}", pv_node)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             }
             
         }

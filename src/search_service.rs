@@ -26,6 +26,7 @@ impl SearchService {
         let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
+        search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;

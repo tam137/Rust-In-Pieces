@@ -28,6 +28,7 @@ pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
 #[derive(Clone)]
 pub enum ValueType {
     Integer(i32),
+    Bool(bool),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<RwLock<ZobristTable>>),
@@ -42,6 +43,7 @@ pub enum ValueType {
 pub enum DataMapKey {
     WhiteThreshold,
     BlackThreshold,
+    PvFlag,
     StopFlag,
     DebugFlag,
     Logger,
@@ -98,6 +100,18 @@ impl KeyToType<i32> for DataMapKey {
     }
     fn create_value(&self, value: i32) -> ValueType {
         ValueType::Integer(value)
+    }
+}
+
+impl KeyToType<bool> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
+        match (self, value) {
+            (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: bool) -> ValueType {
+        ValueType::Bool(value)
     }
 }
 
@@ -749,6 +763,7 @@ pub struct SearchResult {
     pub stats: Stats,
     pub completed: bool,
     pub calculated_depth: i32,
+    pub is_pv_search_result: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -767,6 +782,7 @@ impl SearchResult {
             stats: Stats::default(),   
             completed: true,
             calculated_depth: 0,
+            is_pv_search_result: false,
         }
     }
 
