@@ -102,6 +102,7 @@ impl Config {
     }
 
     /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
+    /// Also Zobrist hash is disabled
     pub fn for_tests(&self) -> Self {
         let mut config = Config::new();
         config.print_info_string_during_search = false;
@@ -110,7 +111,11 @@ impl Config {
         config
     }
 
-    /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
+    /// This config is used for tests, it will log to console
+    /// It uses the alpha2 cutting algo in quiescence search and
+    /// will not print uci info string
+    /// The zobrist hash is smaller with 1 Mio entries
+    /// Book is disabled
     pub fn _for_integration_tests(&self) -> Self {
         let mut config = Config::new();
         config._print_commands = true;
@@ -119,6 +124,22 @@ impl Config {
         config.use_book = false;
         config.search_threads = 4;
         config.max_zobrist_hash_entries = 1_000_000;
+        config
+    }
+
+    // like integration test but wo pv nodes and 1 thread
+    pub fn _for_integration_tests_with_pv_nodes(&self) -> Self {
+        let mut config = Config::_for_integration_tests(&self);
+        config.use_pv_nodes = true;
+        config.search_threads = 1;
+        config
+    }
+
+    // like integration test with 1 thread
+    pub fn _for_integration_tests_wo_pv_nodes(&self) -> Self {
+        let mut config = Config::_for_integration_tests(&self);
+        config.use_pv_nodes = false;
+        config.search_threads = 1;
         config
     }
 }

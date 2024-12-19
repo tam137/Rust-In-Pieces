@@ -253,6 +253,7 @@ pub enum TimeMode {
     Movetime,
     MoveToGo,
     HourGlas,
+    Depth,
     None,
 }
 
@@ -263,7 +264,8 @@ pub struct TimeInfo {
     pub winc: i32,
     pub binc: i32,
     pub moves_to_go: i32,
-    pub time_mode: TimeMode,
+    pub depth: i32,
+    pub time_mode: TimeMode,    
 }
 
 

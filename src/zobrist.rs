@@ -69,7 +69,7 @@ impl ZobristTable {
         self.hash_map.clear();
     }
 
-    pub fn size(&mut self) -> usize {
+    pub fn _size(&mut self) -> usize {
         self.hash_map.len()
     }
 
