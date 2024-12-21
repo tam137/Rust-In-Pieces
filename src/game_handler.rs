@@ -124,12 +124,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         } else {
                             thread::sleep(Duration::from_millis(my_thinking_time / 2));
                             stop_new_search_threads.store(true, Ordering::SeqCst);
-                            logger.send(format!("Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            logger.send(format!("Half time up. Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             thread::sleep(Duration::from_millis(my_thinking_time / 2));
                         }
                         
-                        logger.send(format!("Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
+                        logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     });
         
                     
@@ -234,11 +234,18 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         *active_threads_guard -= 1;
                                     }
 
+                                    // Stop Search if game ends just by checking evaluation gt 32K
+                                    if search_result.get_eval().abs() > 32000 {
+                                        global_map_handler::set_stop_flag(&global_map, true);
+                                        logger.send("found mat. set stop flag".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                    } 
+
                                     // stop search if in go depth command modus
                                     if search_result.completed &&
                                         time_info_search_thread.time_mode == TimeMode::Depth &&
                                         search_result.calculated_depth >= time_info_search_thread.depth {
                                         global_map_handler::set_stop_flag(&global_map, true);
+                                        logger.send("reached max depth. set stop flag".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                     }
                                 });
                     
