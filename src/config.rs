@@ -54,7 +54,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00j".to_string(),
+            version: "V0.1.0".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -69,8 +69,8 @@ impl Config {
             write_hash_buffer_size: 10_000,
             search_threads: 2,
             use_pv_nodes: true,
-            min_thinking_time: 5,
-            game_loop: 5,
+            min_thinking_time: 2,
+            game_loop: 3,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,

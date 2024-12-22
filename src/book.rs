@@ -50,6 +50,18 @@ impl Book {
         book_map.insert(d2d4_d7d5, vec!["c2c4", "c2c4", "c2c3", "e2e3", "c1f4", "g1f3", "b1c3"]);
         book_map.insert(d2d4_e7e6, vec!["c2c4", "c2c3", "e2e3", "c1f4", "g1f3", "b1c3", "e2e4"]);
         book_map.insert(d2d4_g8f6, vec!["c2c4", "c2c4", "c1f4", "c1g5", "g1f3", "e2e3"]);
+
+
+        let g1f3_e7e6_ = "rnbqkbnr/pppp1ppp/4p3/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2";
+        let g1f3_d7d5_ = "rnbqkbnr/ppp1pppp/8/3p4/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2";
+        let g1f3_d7d6_ = "rnbqkbnr/ppp1pppp/3p4/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2";
+        let g1f3_g8f6_ = "rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2";
+        let g1f3_c7c5_ = "rnbqkbnr/pp1ppppp/8/2p5/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2";
+        book_map.insert(g1f3_e7e6_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "b1c3", "c2c3", "b2b3"]);
+        book_map.insert(g1f3_d7d5_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "c2c3", "g2g3"]);
+        book_map.insert(g1f3_d7d6_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "b1c3", "c2c3", "g2g3"]);
+        book_map.insert(g1f3_g8f6_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "b1c3", "c2c3", "g2g3"]);
+        book_map.insert(g1f3_c7c5_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "c2c3", "g2g3"]);
         
 
         Book { book_map }

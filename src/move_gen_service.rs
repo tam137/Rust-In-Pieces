@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::{global_map_handler, zobrist};
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
 
