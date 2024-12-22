@@ -200,7 +200,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     let current_depth = if config.use_pv_nodes && calculate_pv.load(Ordering::SeqCst) == false {
                                         local_map.insert(DataMapKey::PvFlag, true);
                                         calculate_pv.store(true, Ordering::SeqCst);
-                                        let mut depth = (global_map_handler::get_pv_nodes_len(&global_map) + 1) as i32;
+                                        let mut depth = (global_map_handler::get_pv_nodes_calculated_depth(&global_map) + 1) as i32;
                                         depth = if depth >= 2 { depth } else { 2 };
                                         logger.send(format!("Start new PV search on level {}", depth))
                                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
@@ -280,7 +280,6 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             if global_map_handler::is_stop_flag(&global_map) { break; }
 
                             if stop_new_search_threads_2.load(Ordering::SeqCst) {
-                                thread::sleep(Duration::from_millis(10));
                                 let depth_when_stopped = depth_when_set_stop_new_search_threads_2.load(Ordering::SeqCst);
                                 if (depth_when_stopped < global_map_handler::get_max_completed_result_depth(&global_map) as i32) ||
                                     active_threads_2.load(Ordering::SeqCst) == 0 {
@@ -288,7 +287,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     global_map_handler::set_stop_flag(&global_map, true);
                                 }
                             }
-                            thread::sleep(Duration::from_millis(10));
+                            thread::sleep(Duration::from_millis(config.game_loop));
                         }
                     
                         // wait until all threads received the stop cmd
@@ -445,13 +444,13 @@ mod tests {
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 10, &config);
-        assert_eq!(700, thinking_time);
+        assert_eq!(600, thinking_time);
 
         let time_info = TimeInfo{
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 20, &config);
-        assert_eq!(450, thinking_time);
+        assert_eq!(400, thinking_time);
 
     }
 

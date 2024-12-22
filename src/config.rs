@@ -18,6 +18,7 @@ pub struct Config {
     pub search_threads: i32,
     pub use_pv_nodes: bool,
     pub min_thinking_time: u64,
+    pub game_loop: u64,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -53,10 +54,10 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V00j-candidate-12".to_string(),
+            version: "V00j".to_string(),
             use_zobrist: true,
             use_book: true,
-            max_zobrist_hash_entries: 50_000_000, // 1.000.000 = 75MB
+            max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             max_depth: 99,
             truncate_bad_moves: 99,
@@ -66,9 +67,10 @@ impl Config {
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string_during_search: false,
             write_hash_buffer_size: 10_000,
-            search_threads: 4,
-            use_pv_nodes: false,
+            search_threads: 2,
+            use_pv_nodes: true,
             min_thinking_time: 5,
+            game_loop: 5,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
