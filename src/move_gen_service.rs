@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use crate::{global_map_handler, zobrist};
 use crate::config::Config;
-use crate::model::{Board, GameStatus, Stats, ThreadSafeDataMap, Turn};
+use crate::model::{Board, DataMapKey, GameStatus, Stats, ThreadSafeDataMap, Turn};
 use crate::service::Service;
 use crate::zobrist::ZobristTable;
+use crate::DataMap;
 
 use crate::model::RIP_COULDN_LOCK_MUTEX;
 use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
@@ -29,29 +30,31 @@ impl MoveGenService {
 
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
-        global_map: &ThreadSafeDataMap) -> Vec<Turn> {
+        global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
 
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, true, global_map);
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service,
+            config, true, global_map, local_map);
+
         stats.add_created_capture_nodes(capture_moves.len());
         capture_moves
     }
 
     /// Generates a list of valid moves for a given board state.
-    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service, config: &Config, global_map: &ThreadSafeDataMap)
-        -> Vec<Turn> {
+    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
+        global_map: &ThreadSafeDataMap, local_map: &DataMap)-> Vec<Turn> {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, false, global_map)
+        self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, false, global_map, local_map)
     }
 
     fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
-        only_captures: bool, global_map: &ThreadSafeDataMap) -> Vec<Turn> {
+        only_captures: bool, global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
 
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
@@ -118,28 +121,30 @@ impl MoveGenService {
             }
         }
     
-        if let Some(pv_node) = pv_node {
-            // sort with pv node
-            valid_moves.sort_unstable_by(|a, b| {
-                if a == &pv_node {
-                    return std::cmp::Ordering::Less;
-                }
-                if b == &pv_node {
-                    return std::cmp::Ordering::Greater;
-                }
-        
-                if white_turn {
-                    b.eval.cmp(&a.eval)
-                } else {
-                    a.eval.cmp(&b.eval)
-                }
-            });
-        } else {
-            // Fallback sort without pv node
-            if white_turn {
-                valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
+        if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
+            if let Some(pv_node) = pv_node {
+                // sort with pv node
+                valid_moves.sort_unstable_by(|a, b| {
+                    if a == &pv_node {
+                        return std::cmp::Ordering::Less;
+                    }
+                    if b == &pv_node {
+                        return std::cmp::Ordering::Greater;
+                    }
+            
+                    if white_turn {
+                        b.eval.cmp(&a.eval)
+                    } else {
+                        a.eval.cmp(&b.eval)
+                    }
+                });
             } else {
-                valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
+                // Fallback sort without pv node
+                if white_turn {
+                    valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
+                } else {
+                    valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
+                }
             }
         }
         
@@ -629,17 +634,19 @@ mod tests {
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
+        let local_map = DataMap::new();
         let config = Config::new().for_tests();
 
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map)
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &local_map)
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
+        let local_map = DataMap::new();
         let config = Config::new().for_tests();
 
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &service, &global_map)
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &service, &global_map, &local_map)
     }
 
     #[test]
@@ -988,6 +995,7 @@ mod tests {
         let service = Service::new();
         let config = Config::new().for_tests();
         let global_map = global_map_handler::create_new_global_map();
+        let local_map = DataMap::new();
 
         let board = &mut service.fen.set_init_board();
 
@@ -996,7 +1004,7 @@ mod tests {
         move_row.push(Turn::_new_to_from(38, 58));
         global_map_handler::set_pv_nodes(&global_map, &move_row, board);
 
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &local_map);
         let first_turn = turns.get(0).unwrap();
         
         assert_eq!(81, first_turn.from);

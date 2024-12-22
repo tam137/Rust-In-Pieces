@@ -130,7 +130,7 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("test") {
-                    time_check::run_time_check(&global_map, &mut local_map);
+                    time_check::run_time_check(&global_map, &local_map);
                 }
 
                 else if uci_token.trim().starts_with("debug") {

@@ -190,6 +190,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     // depth depends of if we perform a PV search, or a SMP search
                                     let current_depth = if config.use_pv_nodes && calculate_pv.load(Ordering::SeqCst) == false {
                                         local_map.insert(DataMapKey::PvFlag, true);
+                                        local_map.insert(DataMapKey::MoveOrderingFlag, true);
                                         calculate_pv.store(true, Ordering::SeqCst);
                                         let mut depth = (global_map_handler::get_pv_nodes_calculated_depth(&global_map) + 1) as i32;
                                         depth = if depth >= 2 { depth } else { 2 };
@@ -199,6 +200,11 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     }
                                     else { // for SMP threads
                                         local_map.insert(DataMapKey::PvFlag, false);
+                                        if config.use_pv_nodes {
+                                            local_map.insert(DataMapKey::MoveOrderingFlag, false);
+                                        } else {
+                                            local_map.insert(DataMapKey::MoveOrderingFlag, true);
+                                        }
                                         let mut depths_guard = depths.lock()
                                             .expect(RIP_COULDN_LOCK_MUTEX);
                                         let depth = depths_guard.pop().expect("RIP reached maximum depth");
