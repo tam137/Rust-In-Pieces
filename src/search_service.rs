@@ -18,12 +18,12 @@ impl SearchService {
     }
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
-        service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
+        service: &Service, global_map: &ThreadSafeDataMap, local_map: &DataMap) -> SearchResult {
 
         let logger = global_map_handler::get_log_buffer_sender(global_map);
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
         search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
@@ -118,7 +118,7 @@ impl SearchService {
     
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
-        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
+        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &DataMap)
         -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -159,7 +159,7 @@ impl SearchService {
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map).is_empty() {
+                if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -169,10 +169,10 @@ impl SearchService {
                 }
                 return (None, turn.eval, Default::default());
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, service, global_map);
+                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, service, global_map, local_map);
                 if turns.is_empty() {
                     // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map).is_empty() {
+                    if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map).is_empty() {
                         return match board.game_status {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -184,7 +184,7 @@ impl SearchService {
                 }
             }
         } else {
-            turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map);
+            turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };

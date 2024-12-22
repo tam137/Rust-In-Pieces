@@ -43,22 +43,38 @@ pub enum ValueType {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum DataMapKey {
+    // the thrashold to determine stand pat (local map)
     WhiteThreshold,
     BlackThreshold,
+    // measuring thread calculation time (local map)
+    CalcTime,
+    // order moves or skip in SMP threads (local map)
+    MoveOrderingFlag,
+
+    // is pv search thread
     PvFlag,
+    // all search threads stop immediately
     StopFlag,
+    // set when 'debug on' cmd was received
     DebugFlag,
+    // the logging funktion
     Logger,
+    // the zobrist hash map
     ZobristTable,
+    // list of search results from all threads
+    SearchResults,
+    // the current pv nodes
+    PvNodes,
+    // the current pv nodes len
+    PvNodesLen,
+    // some senders
     HashSender,
     StdInSender,
     LogBufferSender,
     GameCommandSender,
-    CalcTime,
-    SearchResults,
-    PvNodes,
-    PvNodesLen,
 }
+    
+
 
 #[derive(Clone)]
 pub struct DataMap {
@@ -110,6 +126,7 @@ impl KeyToType<bool> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
         match (self, value) {
             (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
+            (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) => Some(i),
             _ => None,
         }
     }
