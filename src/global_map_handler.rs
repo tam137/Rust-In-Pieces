@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::HashMap;
@@ -27,6 +28,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     let zobrist_table = Arc::new(RwLock::new(ZobristTable::new()));
     let search_result_vector = Arc::new(Mutex::new(Vec::default()));
     let pv_nodes_map = Arc::new(Mutex::new(HashMap::new()));
+    let pv_nodes_len = Arc::new(AtomicI32::new(0));
 
     {
         let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
@@ -36,6 +38,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
         global_map_value.insert(DataMapKey::ZobristTable, zobrist_table);
         global_map_value.insert(DataMapKey::SearchResults, search_result_vector);
         global_map_value.insert(DataMapKey::PvNodes, pv_nodes_map);
+        global_map_value.insert(DataMapKey::PvNodesLen, pv_nodes_len);
     }
     global_map.clone()
 }
@@ -101,8 +104,29 @@ pub fn _get_search_results(global_map: &ThreadSafeDataMap) -> Vec<SearchResult> 
         .clone()
 }
 
+pub fn get_max_completed_result_depth(global_map: &ThreadSafeDataMap) -> i32 {
+    let mut results = global_map.read().expect("RIP Could not lock global map")
+        .get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
+        .expect("RIP can not find search results")
+        .lock()
+        .expect("RIP can not lock search results")
+        .clone();
+
+    results = results.iter().filter(|sr| sr.completed)
+        .cloned()
+        .collect();
+
+    results.sort_unstable_by(|a, b| b.calculated_depth.cmp(&a.calculated_depth));
+    if let Some(sr) = results.get(0) {
+        sr.get_depth()
+    }
+    else {
+        0
+    }
+}
+
 pub fn push_search_result(global_map: &ThreadSafeDataMap, search_result: SearchResult) {
-    global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
         .get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
         .expect("RIP Can not find search results")
         .lock()
@@ -110,9 +134,13 @@ pub fn push_search_result(global_map: &ThreadSafeDataMap, search_result: SearchR
         .push(search_result);
 }
 
-pub fn _clear_search_result(global_map: &ThreadSafeDataMap) {
-    let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
-    global_map_value.insert(DataMapKey::SearchResults, Arc::new(Mutex::new(Vec::default())));
+pub fn clear_search_result(global_map: &ThreadSafeDataMap) {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let search_results = global_map_value.get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
+        .expect(RIP_MISSED_DM_KEY);
+    let mut search_result_guard = search_results.lock().expect(RIP_COULDN_LOCK_MUTEX);
+    search_result_guard.clear();
+    
 }
 
 pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
@@ -126,7 +154,7 @@ pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
 }
 
 pub fn set_stop_flag(global_map: &ThreadSafeDataMap, value: bool) {
-    let global_map_value = global_map.write().expect("RIP Could not lock global map");
+    let global_map_value = global_map.read().expect("RIP Could not lock global map");
     if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
         let mut stop_flag = flag.lock().expect("RIP Can not read stop_flag");
         *stop_flag = value;
@@ -184,35 +212,36 @@ pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Option
 
 pub fn get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
     let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
-    let arc_mutex = global_map_value
-        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
+    let pv_len = global_map_value
+        .get_data::<Arc<AtomicI32>>(DataMapKey::PvNodesLen)
         .expect(RIP_MISSED_DM_KEY);
     
-    let hash_map = arc_mutex
-        .lock()
-        .expect(RIP_COULDN_LOCK_MUTEX);
-
-    hash_map.len()
+    pv_len.load(std::sync::atomic::Ordering::SeqCst) as usize    
 }
 
+// Cleares two keys: DataMapKey::PvNodes and DataMapKey::PvNodesLen
 pub fn clear_pv_nodes(global_map: &ThreadSafeDataMap) {
-    let global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     let arc_mutex = global_map_value
         .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
         .expect(RIP_MISSED_DM_KEY);
-    
+
     let mut hash_map = arc_mutex
         .lock()
         .expect(RIP_COULDN_LOCK_MUTEX);
 
     hash_map.clear();
+
+    let pv_len = global_map_value
+        .get_data::<Arc<AtomicI32>>(DataMapKey::PvNodesLen)
+        .expect(RIP_MISSED_DM_KEY);
+    pv_len.store(0, std::sync::atomic::Ordering::SeqCst);
 }
-
-
 
 /// Generates a pv_nodes Map<u64, Turn> and stores it to the global_map
 /// The board is mutable but not changed by the end of calculation
 /// PV Nodes are only set if move row is longer then previous stored pv
+/// PV nodes len is not stored here. Call set_pv_nodes_len()
 pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board: &mut Board) {
 
     let logger = get_log_buffer_sender(global_map);
@@ -221,7 +250,7 @@ pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board:
     let move_row_len = move_row.len();
 
     if pv_node_len >= move_row_len {
-        logger.send(format!("Stored Pv Nodes Len ({}) > new move row ({})", pv_node_len, move_row_len))
+        logger.send(format!("Stored Pv nodes len ({}) >= new move row ({}), no save", pv_node_len, move_row_len))
             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
         return;
     }
@@ -237,8 +266,28 @@ pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board:
     let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     let new_pv_node_map_arc = Arc::new(Mutex::new(new_pv_node_map));
     global_map_value.insert(DataMapKey::PvNodes, new_pv_node_map_arc);
-    logger.send(format!("Stored new pv len ({})", move_row_len)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+
+    logger.send(format!("Save new pv len ({})", move_row_len)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
     *board = old_board;
+}
+
+/// Sets the calculated depth of stored PV nodes in DataMapKey::PvNodesLen
+pub fn set_pv_nodes_len(global_map: &ThreadSafeDataMap, pv_calculated_depth: i32) {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let pv_nodes_len = global_map_value.get_data::<Arc<AtomicI32>>(DataMapKey::PvNodesLen)
+        .expect(RIP_MISSED_DM_KEY);
+    pv_nodes_len.store(pv_calculated_depth, Ordering::SeqCst);
+}
+
+pub fn _is_calculated_at_least_one_finished_search_result(global_map: &ThreadSafeDataMap) -> bool {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let search_results = global_map_value
+        .get_data::<Arc<Mutex<Vec<SearchResult>>>>(DataMapKey::SearchResults)
+        .expect(RIP_MISSED_DM_KEY)
+        .lock()
+        .expect(RIP_COULDN_LOCK_MUTEX);
+
+    search_results.iter().any(|sr| sr.completed)
 }
 
 

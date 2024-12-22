@@ -1,6 +1,5 @@
 use crate::model::{Board, INIT_BOARD_FEN};
 use crate::notation_util::NotationUtil;
-use crate::zobrist::ZobristTable;
 
 
 pub struct FenService;
@@ -12,13 +11,8 @@ impl FenService {
         self.clear_field(&mut field);
 
         let mut index = 21;
-        let mut white_to_move = true;
-        let mut white_possible_to_castle_long = false;
-        let mut white_possible_to_castle_short = false;
-        let mut black_possible_to_castle_long = false;
-        let mut black_possible_to_castle_short = false;
         let mut line_for_en_passante = -1;
-        let mut move_number = 1;
+        
 
         let parts: Vec<&str> = fen.split_whitespace().collect();
         let board_part = parts[0];
@@ -57,13 +51,13 @@ impl FenService {
         }
 
         // Process whose turn it is
-        white_to_move = turn_part == "w";
+        let white_to_move = turn_part == "w";
 
         // Process castling possibilities
-        white_possible_to_castle_short = castling_part.contains('K');
-        white_possible_to_castle_long = castling_part.contains('Q');
-        black_possible_to_castle_short = castling_part.contains('k');
-        black_possible_to_castle_long = castling_part.contains('q');
+        let white_possible_to_castle_short = castling_part.contains('K');
+        let white_possible_to_castle_long = castling_part.contains('Q');
+        let black_possible_to_castle_short = castling_part.contains('k');
+        let black_possible_to_castle_long = castling_part.contains('q');
 
         // Process en passant possibility
         if en_passant_part != "-" {
@@ -71,7 +65,7 @@ impl FenService {
         }
 
         // Process move number
-        move_number = move_number_part.parse::<i32>().unwrap_or(1);
+        let move_number = move_number_part.parse::<i32>().unwrap_or(1);
 
         Board::new(
             field,
