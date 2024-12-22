@@ -210,7 +210,8 @@ pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Option
     hash_map.get(&hash).cloned()
 }
 
-pub fn get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
+/// returns the calculated depth from the PV Thread stored in DataMapKey::PvNodesLen
+pub fn get_pv_nodes_calculated_depth(global_map: &ThreadSafeDataMap) -> usize {
     let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     let pv_len = global_map_value
         .get_data::<Arc<AtomicI32>>(DataMapKey::PvNodesLen)
@@ -219,7 +220,18 @@ pub fn get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
     pv_len.load(std::sync::atomic::Ordering::SeqCst) as usize    
 }
 
-// Cleares two keys: DataMapKey::PvNodes and DataMapKey::PvNodesLen
+/// returns the len of the stored pv node move row
+pub fn _get_pv_nodes_len(global_map: &ThreadSafeDataMap) -> usize {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let pv_moves_row = global_map_value
+        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
+        .expect(RIP_MISSED_DM_KEY);
+    
+    let pv_moves_len = pv_moves_row.lock().expect(RIP_COULDN_LOCK_MUTEX).len();
+    pv_moves_len
+}
+
+/// Cleares two keys: DataMapKey::PvNodes and DataMapKey::PvNodesLen
 pub fn clear_pv_nodes(global_map: &ThreadSafeDataMap) {
     let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     let arc_mutex = global_map_value
@@ -246,7 +258,7 @@ pub fn set_pv_nodes(global_map: &ThreadSafeDataMap, move_row: &Vec<Turn>, board:
 
     let logger = get_log_buffer_sender(global_map);
 
-    let pv_node_len = get_pv_nodes_len(global_map);
+    let pv_node_len = get_pv_nodes_calculated_depth(global_map);
     let move_row_len = move_row.len();
 
     if pv_node_len >= move_row_len {
@@ -339,16 +351,16 @@ mod tests {
         let none_value = get_pv_node_for_hash(&global_map, unused_hash);
         assert_eq!(none_value, None);
 
-        assert_eq!(2, get_pv_nodes_len(&global_map));
+        assert_eq!(2, _get_pv_nodes_len(&global_map));
 
         global_map_handler::clear_pv_nodes(&global_map);
-        assert_eq!(0, get_pv_nodes_len(&global_map));
+        assert_eq!(0, _get_pv_nodes_len(&global_map));
 
         let mut move_row = Vec::default();
         let turn = Turn::_new_to_from(85, 65);
         move_row.push(turn);
         set_pv_nodes(&global_map, &move_row, &mut board);
-        assert_eq!(1, get_pv_nodes_len(&global_map));
+        assert_eq!(1, _get_pv_nodes_len(&global_map));
 
         let mut move_row = Vec::default();
         let turn = Turn::_new_to_from(85, 65);
@@ -356,13 +368,13 @@ mod tests {
         move_row.push(turn);
         move_row.push(turn_2);
         set_pv_nodes(&global_map, &move_row, &mut board);
-        assert_eq!(2, get_pv_nodes_len(&global_map));
+        assert_eq!(2, _get_pv_nodes_len(&global_map));
 
         let mut move_row = Vec::default();
         let turn = Turn::_new_to_from(85, 65);
         move_row.push(turn);
         set_pv_nodes(&global_map, &move_row, &mut board);
-        assert_eq!(2, get_pv_nodes_len(&global_map));
+        assert_eq!(1, _get_pv_nodes_len(&global_map));
 
     }
 }
