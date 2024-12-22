@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::model::{Board, Stats};
-use crate::move_gen_service::{self, MoveGenService};
+use crate::model::Board;
+use crate::move_gen_service::MoveGenService;
 
 
 pub struct EvalService;
@@ -220,18 +220,18 @@ impl EvalService {
     }
 
 
-    fn white_rook(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_rook(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], _game_phase: i16) -> i16 {
         let eval = config.piece_eval_rook;
         eval
     }
 
-    fn black_rook(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_rook(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], _game_phase: i16) -> i16 {
         let eval = -config.piece_eval_rook;
         eval
     }
 
 
-    fn white_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_knight(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -280,7 +280,7 @@ impl EvalService {
     }
     
 
-    fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_knight(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -328,7 +328,7 @@ impl EvalService {
     }   
 
 
-    fn white_bishop(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn white_bishop(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -343,7 +343,7 @@ impl EvalService {
         eval + config.piece_eval_bishop
     }
 
-    fn black_bishop(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn black_bishop(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -359,7 +359,7 @@ impl EvalService {
     }
 
 
-    fn white_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn white_queen(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -373,7 +373,7 @@ impl EvalService {
         eval + config.piece_eval_queen
     }
 
-    fn black_queen(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn black_queen(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -476,7 +476,7 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::service::{self, Service};
+    use crate::service::Service;
 
     #[test]
     fn get_eval_even_test() {

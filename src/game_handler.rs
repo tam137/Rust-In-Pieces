@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::{config, global_map_handler};
+use crate::global_map_handler;
 use crate::DataMap;
 use crate::DataMapKey;
 use crate::Config;

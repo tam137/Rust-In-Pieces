@@ -5,16 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [V00j] - 2024-12-XX
+## [V0.1.0] - 2024-12-22
 
 ### Added
 
-- bigger improvments in movegenerator (about 50% faster)
+- technical: refactor code to use threadsave datastructure where needed
+- implement multithreading (Lazy SMP)
+- implement new thinking time logic
+- improve move ordering by PV nodes
+- implement asynchronous logger
+- implement asynchronous zobrist writer
+- implement uci time commands movetime, movestogo and depth
+- added some book moves
+- bigger improvements in movegenerator (speed)
+- solve all compiler warnings
 
 ### Fixed
 
-- fixed error when mo move string was send in uci position command (fix cute chess)
+- fixed error when move string was send in uci position command (fix cute chess)
 - fixed errors in book moves
+- fixed bug when promote to kNight
 
 ## [V00i] - 2024-11-22
 

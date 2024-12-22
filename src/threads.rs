@@ -97,7 +97,7 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
                 if uci_token.trim() == "uci" {
-                    stdout.write(&format!("id name SupraH {}", config.version));
+                    stdout.write(&format!("id name Rust-In-Pieces {}", config.version));
                     stdout.write("id author Jan Lange");
                     stdout.write("uciok");
                 }
