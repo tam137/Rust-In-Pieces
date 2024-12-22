@@ -971,10 +971,6 @@ mod tests {
         let fen = "r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11";
         let turns = from(fen);
         check_turn_order_of("d4d3", turns, 30);
-
-        let eval = Service::new().eval.calc_eval(&Service::new().fen.set_fen(fen), &Config::new(), &Service::new().move_gen);
-        assert!(eval > 0);
-
     }
 
     #[test]

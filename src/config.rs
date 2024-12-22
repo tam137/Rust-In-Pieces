@@ -20,6 +20,8 @@ pub struct Config {
     pub min_thinking_time: u64,
     pub game_loop: u64,
 
+    pub your_turn_bonus: i16,
+
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
     pub undeveloped_king_malus: i16,
@@ -54,7 +56,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.0".to_string(),
+            version: "V0.1.1-candidate-1".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -71,6 +73,8 @@ impl Config {
             use_pv_nodes: true,
             min_thinking_time: 2,
             game_loop: 3,
+
+            your_turn_bonus: 20,
 
             undeveloped_knight_malus: 36,
             undeveloped_bishop_malus: 25,
@@ -103,6 +107,12 @@ impl Config {
             king_in_double_check_malus: 300,
             king_centered: 120,
         }
+    }
+
+    pub fn _for_evel_equal_tests() -> Self {
+        let mut config = Config::new();
+        config.your_turn_bonus = 0;
+        config
     }
 
     /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string

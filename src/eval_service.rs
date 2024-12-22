@@ -14,7 +14,7 @@ impl EvalService {
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
         let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
-        // oder service.eval.get_game_phase(board) as i16
+
         let field = &board.field;
         for idx in 21..99 {
             let piece = field[idx];
@@ -35,87 +35,9 @@ impl EvalService {
             };
             eval = eval + eval_for_piece;
         }
+        eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
         eval
     }
-
-    /*
-    pub(crate) fn calc_eval_piece_map(&self, board: &Board, config: &Config) -> HashMap<usize, i16> {
-        let mut eval: i16 = 0;
-        let mut eval_map: HashMap<usize, i16> = HashMap::default();
-        let game_phase = self.get_game_phase(board) as i16;
-        let field = &board.field;
-
-        for idx in 21..99 {
-            let piece = field[idx];
-            let eval_for_piece: i16 = match piece {
-                10 => {
-                    let piece_eval = self.white_pawn(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                11 => {
-                    let piece_eval = self.white_rook(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                12 => {
-                    let piece_eval = self.white_knight(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                13 => {
-                    let piece_eval = self.white_bishop(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                14 => {
-                    let piece_eval = self.white_queen(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                15 => {
-                    let piece_eval = self.white_king(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                20 => {
-                    let piece_eval = self.black_pawn(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                21 => {
-                    let piece_eval = self.black_rook(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                22 => {
-                    let piece_eval = self.black_knight(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                23 => {
-                    let piece_eval = self.black_bishop(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                24 => {
-                    let piece_eval = self.black_queen(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                25 => {
-                    let piece_eval = self.black_king(idx, board, config, field, game_phase);
-                    eval_map.insert(idx, piece_eval);
-                    piece_eval
-                },
-                _ => 0,
-            };
-            eval = eval + eval_for_piece;
-        }
-        eval_map.insert(0, eval);
-        eval_map
-    }
-    */
 
     fn white_pawn(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
@@ -563,7 +485,7 @@ mod tests {
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
 
-        let config = &Config::new();
+        let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
         let eval = eval_service.calc_eval(board, config, &movegen);
         assert_eq!(0, eval);
@@ -575,7 +497,7 @@ mod tests {
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
 
-        let config = &Config::new();
+        let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
         let eval = eval_service.calc_eval(board, config, &movegen);
         println!("Eval: {}", eval);
