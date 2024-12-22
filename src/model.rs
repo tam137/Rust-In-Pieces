@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock, Mutex};
 use std::sync::mpsc::Sender;
 use std::time::Instant;
@@ -28,6 +29,7 @@ pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
 #[derive(Clone)]
 pub enum ValueType {
     Integer(i32),
+    AtomicInteger(Arc<AtomicI32>),
     Bool(bool),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
@@ -55,6 +57,7 @@ pub enum DataMapKey {
     CalcTime,
     SearchResults,
     PvNodes,
+    PvNodesLen,
 }
 
 #[derive(Clone)]
@@ -211,6 +214,18 @@ impl KeyToType<Arc<Mutex<HashMap<u64, Turn>>>> for DataMapKey {
     }
     fn create_value(&self, value: Arc<Mutex<HashMap<u64, Turn>>>) -> ValueType {
         ValueType::TurnMap(value)
+    }
+}
+
+impl KeyToType<Arc<AtomicI32>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<AtomicI32>> {
+        match (self, value) {
+            (DataMapKey::PvNodesLen, ValueType::AtomicInteger(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Arc<AtomicI32>) -> ValueType {
+        ValueType::AtomicInteger(value)
     }
 }
 

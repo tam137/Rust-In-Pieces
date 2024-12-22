@@ -1,9 +1,9 @@
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::global_map_handler;
+use crate::{config, global_map_handler};
 use crate::DataMap;
 use crate::DataMapKey;
 use crate::Config;
@@ -47,6 +47,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                 if command.trim() == "ucinewgame" {
                     game = UciGame::new(service.fen.set_init_board());
                     global_map_handler::set_stop_flag(&global_map, false);
+                    logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     continue;
                 }
 
@@ -83,6 +84,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         
                         if config.use_pv_nodes {
                             global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                            global_map_handler::set_pv_nodes_len(&global_map, search_result.calculated_depth);
                         }
                         if global_map_handler::is_stop_flag(&global_map) { break; }
                     }
@@ -105,85 +107,104 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                     let stop_new_search_threads_2 = stop_new_search_threads.clone();
 
                     let global_map_handler_time_observer_thread = global_map.clone();
-
-
-                    // the timer thread sets stop flags
-                    let _time_observer_thread = thread::spawn(move || {
-                        let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
-
-                        if time_info.time_mode == TimeMode::None || time_info.time_mode == TimeMode::Depth {
-                            logger.send(format!("TimeMode is {:?}", time_info.time_mode)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            return;
-                        }
-
-                        let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count);
-                        logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-
-                        if time_info.time_mode == TimeMode::Movetime {
-                            thread::sleep(Duration::from_millis(my_thinking_time));
-                        } else {
-                            thread::sleep(Duration::from_millis(my_thinking_time / 2));
-                            stop_new_search_threads.store(true, Ordering::SeqCst);
-                            logger.send(format!("Half time up. Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            thread::sleep(Duration::from_millis(my_thinking_time / 2));
-                        }
-                        
-                        global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
-                        logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                    });
+                    let config_time_thread = config.clone();
+                    let depth_when_set_stop_new_search_threads = Arc::new(AtomicI32::new(0));
+                    let depth_when_set_stop_new_search_threads_2 = depth_when_set_stop_new_search_threads.clone();
         
                     
                     if book_move.is_empty() || !config.use_book {
+
+                        // the timer thread sets stop flags
+                        let _time_observer_thread = thread::spawn(move || {
+                            let logger = global_map_handler::get_log_buffer_sender(&global_map_handler_time_observer_thread);
+
+                            if time_info.time_mode == TimeMode::None || time_info.time_mode == TimeMode::Depth {
+                                logger.send(format!("TimeMode is {:?}", time_info.time_mode)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                return;
+                            }
+
+                            let my_thinking_time = calculate_thinking_time(&time_info, white, game.board.move_count, &config_time_thread);
+                            logger.send(format!("My thinking time is: {}", my_thinking_time)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+
+                            if time_info.time_mode == TimeMode::Movetime {
+                                thread::sleep(Duration::from_millis(my_thinking_time));
+                                global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
+                                logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            } else {
+                                thread::sleep(Duration::from_millis(my_thinking_time / 2));
+                                stop_new_search_threads.store(true, Ordering::SeqCst);
+                                depth_when_set_stop_new_search_threads
+                                    .store(global_map_handler::get_max_completed_result_depth(&global_map_handler_time_observer_thread), Ordering::SeqCst);
+                                logger.send(format!("Half time up. Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                // thread::sleep(Duration::from_millis(my_thinking_time / 2));
+                            }
+                            
+                            /*
+                            loop { // to be sure to have a finished result
+                                if global_map_handler::is_calculated_at_least_one_finished_search_result(&global_map_handler_time_observer_thread) {
+                                    global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
+                                    logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                    break;
+                                } else {
+                                    logger.send("Time up but wait for at least one finished search".to_string())
+                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                    thread::sleep(Duration::from_millis(10));
+                                }
+                            }
+                            */
+                        });
         
+
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
 
                         let results: Arc<Mutex<Vec<SearchResult>>> = Arc::new(Mutex::new(Vec::default()));
-                        let depths = Arc::new(Mutex::new((2..=config.max_depth).rev().collect::<Vec<_>>()));
-                        let active_threads = Arc::new(Mutex::new(0));
+                        let depths = Arc::new(Mutex::new((3..=config.max_depth).rev().collect::<Vec<_>>()));
+                        let active_threads = Arc::new(AtomicI32::new(0));
                         let calculate_pv = Arc::new(AtomicBool::new(false));
                     
                         let mut handles = vec![];
                     
                         //running Lazy SMP Threads
                         loop {
-                            let active_count = {
-                                let active_threads_guard = active_threads.lock()
-                                    .expect(RIP_COULDN_LOCK_MUTEX);
-                                *active_threads_guard
-                            };
+
+                            let active_threads = active_threads.clone();
+                            let active_threads_2 = active_threads.clone();
                     
                             // start thread if config.max_threads is not reached
-                            if (active_count < config.search_threads) && !global_map_handler::is_stop_flag(&global_map) {
+                            if (active_threads.load(Ordering::SeqCst) < config.search_threads) &&
+                                !global_map_handler::is_stop_flag(&global_map) &&
+                                !stop_new_search_threads_2.load(Ordering::SeqCst)
+                                {
+
                                 let results = Arc::clone(&results);
                                 let depths = Arc::clone(&depths);
-                                let active_threads = Arc::clone(&active_threads);
+                                
+                                let global_map = Arc::clone(&global_map);
+                                let calculate_pv = calculate_pv.clone();
                                 let service = Service::new();
                                 let mut game = game.clone();
-                                let config = config.clone();
-                                let global_map = global_map.clone();
-                                let mut local_map = local_map.clone();
-                                let calculate_pv = calculate_pv.clone();
+                                let config = config.clone();                                
+                                let mut local_map = local_map.clone();                                
                                 let time_info_search_thread = time_info_search_thread.clone();
                     
                                 let handle = thread::spawn(move || {
 
                                     let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
-                                    {
-                                        let mut active_threads_guard = active_threads.lock()
-                                            .expect(RIP_COULDN_LOCK_MUTEX);
-                                        *active_threads_guard += 1;
-                                    }
+                                    // handle active Thread counter
+                                    let current_active_threads = active_threads.load(Ordering::SeqCst);
+                                    active_threads.store(current_active_threads + 1, Ordering::SeqCst);
 
                                     // depth depends of if we perform a PV search, or a SMP search
                                     let current_depth = if config.use_pv_nodes && calculate_pv.load(Ordering::SeqCst) == false {
                                         local_map.insert(DataMapKey::PvFlag, true);
                                         calculate_pv.store(true, Ordering::SeqCst);
-                                        let depth = (global_map_handler::get_pv_nodes_len(&global_map) + 1) as i32;
+                                        let mut depth = (global_map_handler::get_pv_nodes_len(&global_map) + 1) as i32;
+                                        depth = if depth >= 2 { depth } else { 2 };
                                         logger.send(format!("Start new PV search on level {}", depth))
                                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                                        if depth >= 2 { depth } else { 2 }
+                                        depth
                                     } else {
                                         local_map.insert(DataMapKey::PvFlag, false);
                                         let mut depths_guard = depths.lock()
@@ -210,6 +231,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         &mut local_map,
                                     );
 
+                                    logger.send(format!("Finished depth {} move {} completed: {}",
+                                        search_result.get_depth(),
+                                        search_result.get_best_move_algebraic(),
+                                        search_result.completed))
+                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+
                                     if search_result.completed {
                                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, &stats)) {
                                             logger.send("stdout channel closed during search".to_string())
@@ -218,6 +245,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                                         if config.use_pv_nodes {
                                             global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
+                                            global_map_handler::set_pv_nodes_len(&global_map, search_result.calculated_depth);
                                             if search_result.is_pv_search_result {
                                                 calculate_pv.store(false, Ordering::SeqCst);
                                             }
@@ -227,12 +255,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     let mut results_guard = results.lock()
                                         .expect(RIP_COULDN_LOCK_MUTEX);
                                     results_guard.push(search_result.clone());
-                    
-                                    {
-                                        let mut active_threads_guard = active_threads.lock()
-                                            .expect(RIP_COULDN_LOCK_MUTEX);
-                                        *active_threads_guard -= 1;
-                                    }
+
+                                    let current_active_threads = active_threads.load(Ordering::SeqCst);
+                                    active_threads.store(current_active_threads - 1, Ordering::SeqCst);
 
                                     // Stop Search if game ends just by checking evaluation gt 32K
                                     if search_result.get_eval().abs() > 32000 {
@@ -253,9 +278,15 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             }
                             
                             if global_map_handler::is_stop_flag(&global_map) { break; }
+
                             if stop_new_search_threads_2.load(Ordering::SeqCst) {
-                                global_map_handler::set_stop_flag(&global_map, true);
-                                break;
+                                thread::sleep(Duration::from_millis(10));
+                                let depth_when_stopped = depth_when_set_stop_new_search_threads_2.load(Ordering::SeqCst);
+                                if (depth_when_stopped < global_map_handler::get_max_completed_result_depth(&global_map) as i32) ||
+                                    active_threads_2.load(Ordering::SeqCst) == 0 {
+
+                                    global_map_handler::set_stop_flag(&global_map, true);
+                                }
                             }
                             thread::sleep(Duration::from_millis(10));
                         }
@@ -263,9 +294,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                         // wait until all threads received the stop cmd
                         for handle in handles {
                             handle.join().expect("RIP Thread panicked");
+
                         }
                         logger.send(format!("Stopped Search Threads")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        global_map_handler::clear_pv_nodes(&global_map);
                         
                         let results = results.lock()
                             .expect("RIP Couldn lock search result")
@@ -276,11 +307,11 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             .filter(|r| !r.get_best_move_row().is_empty())
                             .collect::<Vec<_>>();
 
-                        results.sort_by(|a, b| b.calculated_depth.cmp(&a.calculated_depth)); // 0 is highest depth
+                        // idx 0 is highest calculated depth
+                        results.sort_by(|a, b| b.calculated_depth.cmp(&a.calculated_depth)); 
 
 
-                        // use the before last calculated result because the last one is not finished
-                        // TODO check if unfinished result is better, then use it
+                        // use the before last calculated result because the last one might not be finished
                         if global_map_handler::is_debug_flag(&global_map) {
                             let _ = results.iter().map(|r| {
                                 logger.send(r.get_best_move_row())
@@ -297,16 +328,18 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 panic!("RIP Found no completed search result");
                         });
 
+                        let uci_string = service.uci_parser.get_info_str(&search_result, &search_result.stats);
 
                         // send best move uci informations and update internal board
-                        if let Err(_e) = stdout.write_get_result(
-                            &service.uci_parser.get_info_str(&search_result, &search_result.stats)) {
+                        if let Err(_e) = stdout.write_get_result(&uci_string) {
                                 logger.send("stdout channel closed during search".to_string())
                                     .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }
                         if search_result.get_best_move_row().is_empty() { panic!("RIP Found no move"); }
                         stdout.write(&format!("bestmove {}", search_result.get_best_move_algebraic()));
-                        game.do_move(&search_result.get_best_move_algebraic());                        
+                        game.do_move(&search_result.get_best_move_algebraic());
+                        logger.send(format!("final move: {}", uci_string))
+                            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
         
                         if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                             local_map.insert(DataMapKey::WhiteThreshold, search_result.get_eval() as i32);
@@ -315,15 +348,16 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         }
         
-                        if config.in_debug {
-                            logger.send(format!("{:?}", search_result.stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        }
+                        logger.send(format!("{:?}", search_result.stats)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                        
+                        // Clear global map search results for new search
+                        global_map_handler::clear_search_result(&global_map);
+                        global_map_handler::clear_pv_nodes(&global_map);
+                        
 
                     } else { // do book move
-                        if config.in_debug {    
-                            logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
-                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        }
+                        logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
+                            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         game.do_move(book_move);
                         stdout.write(&format!("bestmove {}", book_move));
                     }
@@ -340,7 +374,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
 
 /// calculates the time {white} is thinking until the stop flag is set
-fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -> u64 {
+fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, config: &Config) -> u64 {
     let thinking_time = match time_info.time_mode {
         TimeMode::None => 2000,
         
@@ -378,7 +412,8 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -
             0
         }
     };
-    if thinking_time < 100 { 100 } else { thinking_time as u64}
+
+    if (thinking_time as u64) < config.min_thinking_time { config.min_thinking_time } else { thinking_time as u64}
 }
 
 
@@ -387,32 +422,36 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32) -
 mod tests {
     use crate::model::{TimeInfo, TimeMode};
     use super::calculate_thinking_time;
+    use crate::Config;
 
     #[test]
     fn calculate_thinking_time_test() {
+
+        let config = Config::new();
+
         let time_info = TimeInfo{
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
         };
-        let thinking_time = calculate_thinking_time(&time_info, true, 0);
+        let thinking_time = calculate_thinking_time(&time_info, true, 0, &config);
         assert_eq!(2000, thinking_time);
 
         let time_info = TimeInfo{
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
         };
-        let thinking_time = calculate_thinking_time(&time_info, false, 0);
+        let thinking_time = calculate_thinking_time(&time_info, false, 0, &config);
         assert_eq!(1000, thinking_time);
 
         let time_info = TimeInfo{
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
-        let thinking_time = calculate_thinking_time(&time_info, true, 10);
-        assert_eq!(600, thinking_time);
+        let thinking_time = calculate_thinking_time(&time_info, true, 10, &config);
+        assert_eq!(700, thinking_time);
 
         let time_info = TimeInfo{
             wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
         };
-        let thinking_time = calculate_thinking_time(&time_info, false, 20);
-        assert_eq!(400, thinking_time);
+        let thinking_time = calculate_thinking_time(&time_info, false, 20, &config);
+        assert_eq!(450, thinking_time);
 
     }
 

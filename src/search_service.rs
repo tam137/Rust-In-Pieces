@@ -103,6 +103,8 @@ impl SearchService {
             search_result.completed = true;
         }
         global_map_handler::push_search_result(global_map, search_result.clone());
+        logger.send(format!("pushed search result calculated depth {}", search_result.calculated_depth))
+            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
         search_result
     }
     

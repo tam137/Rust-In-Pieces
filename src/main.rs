@@ -195,7 +195,7 @@ mod tests {
 
         let sr = global_map_handler::_get_search_results(&env.global_map);
         assert!(sr.len() > 2);
-        global_map_handler::_clear_search_result(&env.global_map);
+        global_map_handler::clear_search_result(&env.global_map);
         let sr = global_map_handler::_get_search_results(&env.global_map);
         assert_eq!(0, sr.len());
 
