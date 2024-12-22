@@ -130,28 +130,19 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 thread::sleep(Duration::from_millis(my_thinking_time));
                                 global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
                                 logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            } else {
+                            } 
+                            else { // in tournament time mode we stop starting threads after thinking time is up
                                 thread::sleep(Duration::from_millis(my_thinking_time / 2));
                                 stop_new_search_threads.store(true, Ordering::SeqCst);
+                                
                                 depth_when_set_stop_new_search_threads
-                                    .store(global_map_handler::get_max_completed_result_depth(&global_map_handler_time_observer_thread), Ordering::SeqCst);
-                                logger.send(format!("Half time up. Set stop new search depth flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                                // thread::sleep(Duration::from_millis(my_thinking_time / 2));
+                                    .store(global_map_handler::get_max_completed_result_depth(&global_map_handler_time_observer_thread),
+                                    Ordering::SeqCst);
+                                
+                                logger.send(format!("Half time up. Set stop new search depth flag true"))
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                
                             }
-                            
-                            /*
-                            loop { // to be sure to have a finished result
-                                if global_map_handler::is_calculated_at_least_one_finished_search_result(&global_map_handler_time_observer_thread) {
-                                    global_map_handler::set_stop_flag(&global_map_handler_time_observer_thread, true);
-                                    logger.send(format!("Time up. Set stop flag true")).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                                    break;
-                                } else {
-                                    logger.send("Time up but wait for at least one finished search".to_string())
-                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                                    thread::sleep(Duration::from_millis(10));
-                                }
-                            }
-                            */
                         });
         
 
@@ -205,7 +196,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         logger.send(format!("Start new PV search on level {}", depth))
                                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                         depth
-                                    } else {
+                                    }
+                                    else { // for SMP threads
                                         local_map.insert(DataMapKey::PvFlag, false);
                                         let mut depths_guard = depths.lock()
                                             .expect(RIP_COULDN_LOCK_MUTEX);

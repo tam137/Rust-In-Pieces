@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_HASH_QUEUE, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 use crate::global_map_handler;
 
@@ -48,6 +48,14 @@ impl SearchService {
             }
 
             let min_max_eval = min_max_result.1;
+
+            // save min max eval in zobrist table for better move sorting, if depth = 2
+            if depth == 2 && config.use_zobrist {
+                let hash_sender = global_map_handler::get_hash_sender(global_map);
+                hash_sender.send((board.cached_hash, min_max_eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+            }
+
+
             board.undo_move(&turn, mi);
             if white {
                 if min_max_eval > best_eval {

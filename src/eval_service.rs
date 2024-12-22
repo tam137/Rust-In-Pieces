@@ -401,7 +401,6 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::model::Board;
     use crate::service::Service;
 
     #[test]
