@@ -383,12 +383,15 @@ impl EvalService {
 
     /// return Value of 255 means early game and values towards 0 means endgamephase
     /// a middle value like 128 respects early and late game evaluation in the same weight
+    /// All with 6 or less pieces is considered pure endgame
     fn get_game_phase(&self, board: &Board) -> u32 {
         let field = board.field;
         let mut phase = 0;
         for idx in 21..99 {
             if field[idx] > 0 { phase = phase + 8; } else { continue };
         }
+        let phase = phase - 48;
+        let phase = if phase < 0 { 0 } else { (phase as f64 * 1.23) as u32 };
         phase
     }
 
@@ -398,6 +401,7 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
+    use crate::model::Board;
     use crate::service::Service;
 
     #[test]
@@ -469,14 +473,36 @@ mod tests {
         println!("{}", eval2);
         println!("{}", eval3);
         println!("{}", eval4);
-
-        
-
     }
 
     #[test]
     fn unequal_position_test() {
         eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
+    }
+
+
+    #[test]
+    fn game_phase_test() {
+        let fen = Service::new().fen;
+        let eval = Service::new().eval;
+
+        // init board
+        let board = fen.set_init_board();
+        assert!(eval.get_game_phase(&board) > 254);
+        assert!(eval.get_game_phase(&board) < 256);
+
+        // 7 pieces board
+        let board = fen.set_fen("8/8/2kq4/3ppp2/8/8/5N2/4K3 w - - 0 1");
+        assert!(eval.get_game_phase(&board) > 8);
+        assert!(eval.get_game_phase(&board) < 14);
+
+        // 6 pieces board
+        let board = fen.set_fen("8/8/2kq4/4pp2/8/8/5N2/4K3 w - - 0 1");
+        assert_eq!(0, eval.get_game_phase(&board));
+
+        // 3 pieces board
+        let board = fen.set_fen("8/8/2k5/8/8/8/5N2/4K3 w - - 0 1");
+        assert_eq!(0, eval.get_game_phase(&board));
     }
 
 
