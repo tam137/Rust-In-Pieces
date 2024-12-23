@@ -50,6 +50,7 @@ impl SearchService {
             let min_max_eval = min_max_result.1;
 
             // save min max eval in zobrist table for better move sorting, if depth = 2
+            // TODO missing test
             if depth == 2 && config.use_zobrist {
                 let hash_sender = global_map_handler::get_hash_sender(global_map);
                 hash_sender.send((board.cached_hash, min_max_eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);

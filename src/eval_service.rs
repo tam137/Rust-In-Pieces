@@ -153,7 +153,7 @@ impl EvalService {
     }
 
 
-    fn white_knight(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_knight(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -196,13 +196,18 @@ impl EvalService {
         if idx == 92 || idx == 97 {
             o_eval -= config.undeveloped_knight_malus;
         }
+
+        if f[idx-10] == 20 {
+            e_eval += config.knight_blockes_pawn;
+            o_eval += config.knight_blockes_pawn / 2;
+        }
     
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_knight
     }
     
 
-    fn black_knight(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_knight(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -243,6 +248,11 @@ impl EvalService {
     
         if idx == 22 || idx == 27 {
             o_eval += config.undeveloped_knight_malus;
+        }
+
+        if f[idx+10] == 10 {
+            e_eval -= config.knight_blockes_pawn;
+            o_eval -= config.knight_blockes_pawn / 2;
         }
     
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -418,6 +428,7 @@ mod tests {
         equal_eval("rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
         equal_eval("rnbqkbnr/p6p/1p4p1/2pPPp2/2PppP2/1P4P1/P6P/RNBQKBNR w KQkq - 0 1");        
         equal_eval("1k6/3p4/4P3/8/8/4p3/3P4/1K6 w - - 0 1");
+        equal_eval("rnbqkb1r/ppppp1pp/6n1/6P1/6p1/6N1/PPPPP1PP/RNBQKB1R w KQkq - 0 1");
     }
 
     #[test]
@@ -479,6 +490,17 @@ mod tests {
         eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
     }
 
+    #[test]
+    fn knight_position_test() {
+        fib("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1", "rnbqkbnr/pppppppp/8/8/8/7N/PPPPPPPP/RNBQKB1R b KQkq - 1 1");
+        fib("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "r1bqkbnr/pppppppp/n7/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/pppppppp/8/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppppp1p/8/6p1/5NP1/8/PPPPPP1P/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/pppp1ppp/4p3/8/5N2/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppp1ppp/4p3/8/4N3/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/ppppp1pp/8/5p2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/5p2/8/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/ppppp1pp/8/8/6p1/6N1/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/8/6p1/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        
+    }
+
 
     #[test]
     fn game_phase_test() {
@@ -502,6 +524,24 @@ mod tests {
         // 3 pieces board
         let board = fen.set_fen("8/8/2k5/8/8/8/5N2/4K3 w - - 0 1");
         assert_eq!(0, eval.get_game_phase(&board));
+    }
+
+    /// first is better
+    fn fib(fen1: &str, fen2: &str) {
+        let fen = Service::new().fen;
+        let eval = Service::new().eval;
+        let movegen = Service::new().move_gen;
+        let config = Config::_for_evel_equal_tests();
+
+        let board1 = fen.set_fen(fen1);
+        let board2 = fen.set_fen(fen2);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen);
+
+        if !(eval1 > eval2) {
+            println!("-->> eval is not gt: {}", eval1 - eval2);
+            assert!(false);
+        }
     }
 
 

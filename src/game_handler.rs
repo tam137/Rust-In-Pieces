@@ -201,7 +201,11 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                     else { // for SMP threads
                                         local_map.insert(DataMapKey::PvFlag, false);
                                         if config.use_pv_nodes {
-                                            local_map.insert(DataMapKey::MoveOrderingFlag, false);
+                                            if config.smp_thread_eval_noise > 0 {
+                                                local_map.insert(DataMapKey::MoveOrderingFlag, false);
+                                            } else {
+                                                local_map.insert(DataMapKey::MoveOrderingFlag, true);
+                                            }
                                         } else {
                                             local_map.insert(DataMapKey::MoveOrderingFlag, true);
                                         }
@@ -277,6 +281,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             
                             if global_map_handler::is_stop_flag(&global_map) { break; }
 
+                            // check if stop_new_search_threads flag is set and if so start no new threads
+                            // TODO stop search immidiatly if easy hitmove found
                             if stop_new_search_threads_2.load(Ordering::SeqCst) {
                                 let depth_when_stopped = depth_when_set_stop_new_search_threads_2.load(Ordering::SeqCst);
                                 if (depth_when_stopped < global_map_handler::get_max_completed_result_depth(&global_map) as i32) ||

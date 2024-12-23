@@ -19,6 +19,7 @@ pub struct Config {
     pub use_pv_nodes: bool,
     pub min_thinking_time: u64,
     pub game_loop: u64,
+    pub smp_thread_eval_noise: i16,
 
     pub your_turn_bonus: i16,
 
@@ -45,7 +46,10 @@ pub struct Config {
     pub pawn_attacks_opponent_fig: i16,
     pub knight_on_rim_malus: i16,
     pub knight_centered: i16,
+    pub knight_blockes_pawn: i16,
+
     pub queen_in_attack: i16,
+
     pub king_shield: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
@@ -56,7 +60,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.1-candidate-1".to_string(),
+            version: "V0.1.1-candidate-3".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -73,12 +77,13 @@ impl Config {
             use_pv_nodes: true,
             min_thinking_time: 2,
             game_loop: 3,
+            smp_thread_eval_noise: 2,
 
             your_turn_bonus: 20,
 
-            undeveloped_knight_malus: 36,
-            undeveloped_bishop_malus: 25,
-            undeveloped_king_malus: 45,
+            undeveloped_knight_malus: 42,
+            undeveloped_bishop_malus: 30,
+            undeveloped_king_malus: 55,
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
@@ -87,25 +92,26 @@ impl Config {
             piece_eval_queen: 950,
             piece_eval_king: 15000,
 
-            pawn_structure: 8,
-            pawn_supports_knight_outpost: 15,
-            pawn_centered: 14,
-            pawn_undeveloped_malus: 10,
-            pawn_attacks_opponent_fig: 25,
-            pawn_on_last_rank_bonus: 200,
-            pawn_on_before_last_rank_bonus: 125,
-            pawn_on_before_before_last_rank_bonus: 60,
-            pawn_defends_bishop: 30,
+            pawn_structure: 11,
+            pawn_supports_knight_outpost: 20,
+            pawn_centered: 18,
+            pawn_undeveloped_malus: 14,
+            pawn_attacks_opponent_fig: 35,
+            pawn_on_last_rank_bonus: 180,
+            pawn_on_before_last_rank_bonus: 110,
+            pawn_on_before_before_last_rank_bonus: 40,
+            pawn_defends_bishop: 20,
 
-            knight_on_rim_malus: 8,
-            knight_centered: 25,
+            knight_on_rim_malus: 14,
+            knight_centered: 30,
+            knight_blockes_pawn: 32,
 
-            queen_in_attack: 65,
+            queen_in_attack: 180,
 
-            king_shield: 30,
+            king_shield: 40,
             king_in_check_malus: 140,
-            king_in_double_check_malus: 300,
-            king_centered: 120,
+            king_in_double_check_malus: 350,
+            king_centered: 100,
         }
     }
 
