@@ -1,6 +1,7 @@
 
 use std::sync::RwLockReadGuard;
 use std::collections::HashMap;
+use rand::Rng;
 
 use crate::{global_map_handler, zobrist};
 use crate::config::Config;
@@ -121,6 +122,7 @@ impl MoveGenService {
             }
         }
     
+        // Move sorting for PV threads (default) or normal threads if PV config is off
         if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
             if let Some(pv_node) = pv_node {
                 // sort with pv node
@@ -145,6 +147,19 @@ impl MoveGenService {
                 } else {
                     valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
                 }
+            }
+        }
+        else { // SMP threads (only if PV config is on (default))
+            let mut rng = rand::thread_rng();
+            let mut noisy_values: Vec<(i32, i32)> = valid_moves
+                .iter()
+                .map(|mv| (mv.eval as i32, rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32))
+                .collect();
+            
+            if white_turn {
+                noisy_values.sort_unstable_by(|a, b| (b.0 + b.1).cmp(&(a.0 + a.1)));
+            } else {
+                noisy_values.sort_unstable_by(|a, b| (a.0 + a.1).cmp(&(b.0 + b.1)));
             }
         }
         
