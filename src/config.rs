@@ -60,7 +60,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.1-candidate-3".to_string(),
+            version: "V0.1.1".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -77,7 +77,7 @@ impl Config {
             use_pv_nodes: true,
             min_thinking_time: 2,
             game_loop: 3,
-            smp_thread_eval_noise: 2,
+            smp_thread_eval_noise: 0,
 
             your_turn_bonus: 20,
 
@@ -92,21 +92,21 @@ impl Config {
             piece_eval_queen: 950,
             piece_eval_king: 15000,
 
-            pawn_structure: 11,
-            pawn_supports_knight_outpost: 20,
-            pawn_centered: 18,
-            pawn_undeveloped_malus: 14,
+            pawn_structure: 5,
+            pawn_supports_knight_outpost: 10,
+            pawn_centered: 12,
+            pawn_undeveloped_malus: 12,
             pawn_attacks_opponent_fig: 35,
             pawn_on_last_rank_bonus: 180,
             pawn_on_before_last_rank_bonus: 110,
             pawn_on_before_before_last_rank_bonus: 40,
             pawn_defends_bishop: 20,
 
-            knight_on_rim_malus: 14,
-            knight_centered: 30,
+            knight_on_rim_malus: 12,
+            knight_centered: 32,
             knight_blockes_pawn: 32,
 
-            queen_in_attack: 180,
+            queen_in_attack: 50,
 
             king_shield: 40,
             king_in_check_malus: 140,

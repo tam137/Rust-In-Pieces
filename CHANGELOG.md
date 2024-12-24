@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.1.1] - 2024-12-24
+
+### Added
+
+- improve overall eval
+- eval: knight blocks opponent pawn
+- eval: tempo bonus
+- store min_max result when depth is only 2
+
+### Fixed
+
+
 ## [V0.1.0] - 2024-12-22
 
 ### Added

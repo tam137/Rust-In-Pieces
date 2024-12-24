@@ -88,6 +88,49 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &DataMap) {
 
     println!("\nexpected ~715");
     println!("Benchmark Value: {}", calculate_benchmark(global_map, &local_map));
+
+    // count nodes to benchmark alpha beta cutting:
+    let mut nodes = 0;
+    let mut stats = Stats::new();
+    let fen = "rnbq1rk1/ppp1bppp/4pn2/3p2B1/2PP4/2N2N2/PP2PPPP/R2QKB1R w KQ - 6 6";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "rn1q1rk1/ppp2pp1/3Pbb1p/4p3/3P4/1QN1PN2/PP3PPP/R3KB1R b KQ - 0 10";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "rn1qr1k1/pp3pp1/3pbb1p/4p3/1QBP4/2N1PN2/PP3PPP/R3K2R b KQ - 3 12";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "r1bq1k1r/pp3p1p/2pp2p1/2b5/2B1P3/P1P3Q1/1P1B1PPP/RN1R2K1 b - - 2 14";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "r1bqk2r/1p1p2pp/pb3p2/2p1n3/4P3/NBP5/PP3PPP/R1BQR1K1 w kq - 0 12";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "r1bq1rk1/2p1bppp/p1n5/1p1np3/8/1BP2N2/PP1P1PPP/RNBQR1K1 w - - 0 10";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    let mut stats = Stats::new();
+    let fen = "8/7k/8/p4R2/5pP1/1P1Kp3/3b3P/4r3 b - - 0 47";
+    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &local_map);
+    nodes = nodes + stats.calculated_nodes;
+
+    println!("\nexpected: {}", 281);
+    println!("knodes: {}", nodes / 1000);
+    
+
+
 }
 
 
