@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::model::{Board, INIT_BOARD_FEN};
 use crate::notation_util::NotationUtil;
 
@@ -67,6 +69,22 @@ impl FenService {
         // Process move number
         let move_number = move_number_part.parse::<i32>().unwrap_or(1);
 
+        let white_king = RefCell::new(false);
+        let black_king = RefCell::new(false);
+        
+        field.iter().for_each(|&f| {
+            if f == 15 {
+                *white_king.borrow_mut() = true;
+            }
+            if f == 25 {
+                *black_king.borrow_mut() = true;
+            }
+        });
+        
+        // Um die Werte zu verwenden:
+        let white_king = white_king.into_inner();
+        let black_king = black_king.into_inner();
+
         Board::new(
             field,
             white_possible_to_castle_long,
@@ -76,6 +94,8 @@ impl FenService {
             line_for_en_passante,
             white_to_move,
             move_number,
+            white_king,
+            black_king,
         )
     }
 

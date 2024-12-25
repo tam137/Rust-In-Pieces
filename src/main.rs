@@ -32,7 +32,6 @@ use crate::threads::uci_command_processor;
 use crate::threads::hash_writer;
 use crate::threads::logger_buffer_thread;
 
-
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
 use model::UciGame;

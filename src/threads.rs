@@ -41,7 +41,6 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: A
                 chash_map.insert(hash, eval);
             }
 
-            // Bereinigung der globalen Hashmap
             let clean_up_size = if config.max_zobrist_hash_entries <= chash_map.len() {
                 let size = chash_map.len();
                 chash_map.clear();
