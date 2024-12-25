@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
 use std::time::Duration;
 
-
 use chrono::Local;
+use crossbeam_queue::SegQueue;
 
 use crate::Instant;
 use crate::DataMap;
@@ -19,7 +19,6 @@ use crate::DataMapKey;
 use crate::global_map_handler;
 use crate::model::LoggerFnType;
 
-use crate::model::RIP_COULDN_LOCK_MUTEX;
 use crate::model::RIP_COULDN_SEND_TO_STD_IN_QUEUE;
 use crate::model::RIP_COULDN_SEND_TO_GAME_CMD_QUEUE;
 use crate::model::RIP_ERR_READING_STD_IN;
@@ -27,19 +26,16 @@ use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
-pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, rx_hashes: Receiver<(u64, i16)>)  {
+pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: Arc<SegQueue<(u64, i16)>>) {
     let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
+
     loop {
-        let received = match rx_hashes.recv() {
-            Ok(msg) => msg,
-            Err(_) => {
-                panic!("RIP Error reading from channel");
-            }
-        };
+        // Versuche, alle verfügbaren Einträge aus der Warteschlange zu lesen
+        while let Some((hash, eval)) = hash_queue.pop() {
+            hash_buffer.insert(hash, eval);
+        }
 
-        let (hash, eval) = received;
-        hash_buffer.insert(hash, eval);
-
+        // Wenn der Puffer voll ist, schreibe ihn in die globale Hashmap
         if hash_buffer.len() >= config.write_hash_buffer_size {
             let chash_map = &mut global_map_handler::get_zobrist_table(&global_map).hash_map.clone();
 
@@ -47,6 +43,7 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, rx_hashes: Re
                 chash_map.insert(hash, eval);
             }
 
+            // Bereinigung der globalen Hashmap
             let clean_up_size = if config.max_zobrist_hash_entries <= chash_map.len() {
                 let size = chash_map.len();
                 chash_map.clear();

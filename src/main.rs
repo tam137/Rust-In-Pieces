@@ -14,10 +14,12 @@ mod global_map_handler;
 mod threads;
 mod game_handler;
 mod time_check;
+use std::sync::Arc;
 
 use std::thread;
 use std::sync::mpsc;
 use std::time::Instant;
+use crossbeam_queue::SegQueue;
 
 use crate::book::Book;
 use crate::config::Config;
@@ -29,6 +31,7 @@ use crate::threads::std_reader;
 use crate::threads::uci_command_processor;
 use crate::threads::hash_writer;
 use crate::threads::logger_buffer_thread;
+
 
 use model::DataMapKey;
 use model::QuiescenceSearchMode;
@@ -53,13 +56,17 @@ fn main() {
         
     }
 
-    let (tx_hashes, rx_hashes) = mpsc::channel();
+
+    let hash_queue = Arc::new(SegQueue::new());
+    let producer_queue = Arc::clone(&hash_queue);
+    let consumer_queue = Arc::clone(&hash_queue);
+
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();
     let (tx_log_buffer, rx_log_buffer) = mpsc::channel(); 
 
     
-    global_map_handler::add_hash_sender(&global_map, tx_hashes);
+    global_map_handler::add_hash_sender(&global_map, producer_queue);
     global_map_handler::add_std_in_sender(&global_map, tx_std_in);
     global_map_handler::add_game_command_sender(&global_map, tx_game_command);
     global_map_handler::add_log_buffer_sender(&global_map, tx_log_buffer);
@@ -68,7 +75,7 @@ fn main() {
     let global_map_hash_writer = global_map.clone();
     let config = config.clone();
     let _hash_writer = thread::spawn(move || {
-        hash_writer(global_map_hash_writer, &config, rx_hashes);
+        hash_writer(global_map_hash_writer, &config, consumer_queue);
     });
 
     // Set up std reader thread
@@ -110,6 +117,8 @@ mod tests {
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
+    use std::sync::Arc;
+    use crossbeam_queue::SegQueue;
 
     use crate::global_map_handler;
     use crate::config::Config;
@@ -117,6 +126,7 @@ mod tests {
     use crate::model::ThreadSafeDataMap;
     use crate::threads::uci_command_processor;
     use crate::threads::hash_writer;
+    
     use crate::threads::logger_buffer_thread;
 
     
@@ -129,13 +139,18 @@ mod tests {
     fn set_up(config: &Config) -> TestEnvironment {
     
         let global_map = global_map_handler::create_new_global_map();
-    
-        let (tx_hashes, rx_hashes) = mpsc::channel();
+
+        
+        let hash_queue = Arc::new(SegQueue::new());
+        let producer_queue = Arc::clone(&hash_queue);
+        let consumer_queue = Arc::clone(&hash_queue);
+
+
         let (tx_std_in, rx_std_in) = mpsc::channel();
         let (tx_game_command, rx_game_command) = mpsc::channel();
         let (tx_log_buffer, rx_log_buffer) = mpsc::channel();
     
-        global_map_handler::add_hash_sender(&global_map, tx_hashes);
+        global_map_handler::add_hash_sender(&global_map, producer_queue);
         global_map_handler::add_std_in_sender(&global_map, tx_std_in.clone());
         global_map_handler::add_game_command_sender(&global_map, tx_game_command.clone());
         global_map_handler::add_log_buffer_sender(&global_map, tx_log_buffer);
@@ -144,7 +159,7 @@ mod tests {
         let global_map_hash_writer = global_map.clone();
         let config_hash_writer = config.clone();
         let _hash_writer = thread::spawn(move || {
-            hash_writer(global_map_hash_writer, &config_hash_writer, rx_hashes);
+            hash_writer(global_map_hash_writer, &config_hash_writer, Arc::clone(&consumer_queue));
         });
     
         // Set up UCI command thread

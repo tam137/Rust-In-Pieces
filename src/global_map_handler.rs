@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::HashMap;
 
+use crate::SegQueue;
+
 use crate::zobrist;
 use crate::{zobrist::ZobristTable, ThreadSafeDataMap};
 use crate:: model::{Board, DataMap, DataMapKey, SearchResult, Turn};
@@ -44,9 +46,9 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
 }
 
 
-pub fn add_hash_sender(global_map: &ThreadSafeDataMap, sender: Sender<(u64, i16)>) {
+pub fn add_hash_sender(global_map: &ThreadSafeDataMap, producer_queue: Arc<SegQueue<(u64, i16)>>) {
     let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
-    global_map_value.insert(DataMapKey::HashSender, sender.clone());
+    global_map_value.insert(DataMapKey::HashSender, producer_queue);
 }
 
 pub fn add_std_in_sender(global_map: &ThreadSafeDataMap, sender: Sender<String>) {
@@ -163,11 +165,10 @@ pub fn set_stop_flag(global_map: &ThreadSafeDataMap, value: bool) {
     }
 }
 
-pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Sender<(u64, i16)> {
+pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Arc<SegQueue<(u64, i16)>> {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Sender<(u64, i16)>>(DataMapKey::HashSender)
-        .expect("RIP Can not find hash sender")
-        .clone()
+        .get_data::<Arc<SegQueue<(u64, i16)>>>(DataMapKey::HashSender)
+        .expect("RIP Can not find hash sender").clone()
 }
 
 pub fn get_std_in_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {

@@ -10,10 +10,6 @@ use crate::service::Service;
 use crate::zobrist::ZobristTable;
 use crate::DataMap;
 
-use crate::model::RIP_COULDN_LOCK_MUTEX;
-use crate::model::RIP_COULDN_SEND_TO_HASH_QUEUE;
-
-
 const KNIGHT_OFFSETS: [i32; 8] = [-12, -21, -8, -19, 12, 21, 8, 19];
 const BISHOP_OFFSETS: [i32; 4] = [-11, -9, 9, 11];
 const ROOK_OFFSETS: [i32; 4] = [-10, -1, 1, 10];
@@ -176,7 +172,7 @@ impl MoveGenService {
         if config.use_zobrist {
             let hash_sender = global_map_handler::get_hash_sender(global_map);
             for hash in hash_buffer {
-                hash_sender.send(hash).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
+                hash_sender.push(hash);
             }
         }
 
