@@ -33,7 +33,7 @@ pub enum ValueType {
     Bool(bool),
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
-    ArcRwZobrist(Arc<RwLock<ZobristTable>>),
+    ArcRwZobrist(Arc<ZobristTable>),
     SenderU64I16(Sender<(u64, i16)>),
     SenderString(Sender<String>),
     Instant(Instant),
@@ -160,14 +160,14 @@ impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
     }
 }
 
-impl KeyToType<Arc<RwLock<ZobristTable>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<RwLock<ZobristTable>>> {
+impl KeyToType<Arc<ZobristTable>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<ZobristTable>> {
         match (self, value) {
             (DataMapKey::ZobristTable, ValueType::ArcRwZobrist(a)) => Some(a),
             _ => None,
         }
     }
-    fn create_value(&self, value: Arc<RwLock<ZobristTable>>) -> ValueType {
+    fn create_value(&self, value: Arc<ZobristTable>) -> ValueType {
         ValueType::ArcRwZobrist(value)
     }
 }

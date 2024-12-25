@@ -25,7 +25,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
 
     let debug_flag = Arc::new(Mutex::new(false));
     let stop_flag = Arc::new(Mutex::new(false));
-    let zobrist_table = Arc::new(RwLock::new(ZobristTable::new()));
+    let zobrist_table = Arc::new(ZobristTable::new());
     let search_result_vector = Arc::new(Mutex::new(Vec::default()));
     let pv_nodes_map = Arc::new(Mutex::new(HashMap::new()));
     let pv_nodes_len = Arc::new(AtomicI32::new(0));
@@ -64,9 +64,9 @@ pub fn add_log_buffer_sender(global_map: &ThreadSafeDataMap, sender: Sender<Stri
     global_map_value.insert(DataMapKey::LogBufferSender, sender.clone());
 }
 
-pub fn get_zobrist_table(global_map: &ThreadSafeDataMap) -> Arc<RwLock<ZobristTable>> {
+pub fn get_zobrist_table(global_map: &ThreadSafeDataMap) -> Arc<ZobristTable> {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Arc<RwLock<ZobristTable>>>(DataMapKey::ZobristTable)
+        .get_data::<Arc<ZobristTable>>(DataMapKey::ZobristTable)
         .expect("RIP Can not find ZobristTable")
         .clone()
 }

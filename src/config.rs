@@ -60,7 +60,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.1".to_string(),
+            version: "V0.1.2-candidate".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -72,7 +72,7 @@ impl Config {
             log_to_console: false,
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string_during_search: false,
-            write_hash_buffer_size: 10_000,
+            write_hash_buffer_size: 10,
             search_threads: 2,
             use_pv_nodes: true,
             min_thinking_time: 2,
@@ -143,7 +143,8 @@ impl Config {
         config.print_info_string_during_search = false;
         config.use_book = false;
         config.search_threads = 4;
-        config.max_zobrist_hash_entries = 1_000_000;
+        config.write_hash_buffer_size = 1_000;
+        config.max_zobrist_hash_entries = 10_000_000;
         config
     }
 

@@ -76,7 +76,7 @@ impl MoveGenService {
         }
         
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
-        let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_MUTEX);
+        //let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_MUTEX);
 
         let mut hash_buffer: HashMap<u64, i16> = HashMap::default();        
     
@@ -203,7 +203,7 @@ impl MoveGenService {
     }
     
     fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable)
         -> (u64, i16) {
 
         let move_info = board.do_move(turn);
@@ -223,7 +223,7 @@ impl MoveGenService {
     }
     
     fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) {
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable) {
 
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
@@ -295,7 +295,7 @@ impl MoveGenService {
     }
 
     fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
-        zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
+        zobrist_table_read: &ZobristTable)
     -> i16 {        
         stats.add_eval_nodes(1);
 
@@ -303,7 +303,7 @@ impl MoveGenService {
             match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
                 Some(eval) => {
                     stats.add_zobrist_hit(1);
-                    *eval
+                    eval
                 },
                 None => {
                     service.eval.calc_eval(board, config, &service.move_gen)
