@@ -3,7 +3,6 @@ use chashmap::CHashMap;
 use once_cell::sync::Lazy;
 
 use crate::model::Board;
-use crate::config::Config;
 
 const NUM_PIECES: usize = 12;
 const BOARD_SIZE: usize = 120;
@@ -62,26 +61,8 @@ impl ZobristTable {
         self.hash_map.get(hash).map(|value| *value)
     }
 
-    pub fn set_new_hash(&mut self, hash: &u64, eval: i16) {
-        self.hash_map.insert(*hash, eval);
-    }
-
-    pub fn reset_hash(&mut self) {
-        self.hash_map.clear();
-    }
-
     pub fn _size(&mut self) -> usize {
         self.hash_map.len()
-    }
-
-    pub fn clean_up_hash_if_needed(&mut self, config: &Config) -> usize {
-        if config.max_zobrist_hash_entries <= self.hash_map.len() {
-            let size = self.hash_map.len();
-            self.reset_hash();
-            size
-        } else {
-            0
-        }
     }
 }
 

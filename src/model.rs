@@ -7,6 +7,7 @@ use std::time::Instant;
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
+use crossbeam_queue::SegQueue;
 
 pub type ThreadSafeDataMap = Arc<RwLock<DataMap>>;
 pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
@@ -16,7 +17,6 @@ pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w 
 pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
 pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 
-pub const RIP_COULDN_SEND_TO_HASH_QUEUE: &str = "RIP Could not Send hashes in hash queue";
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
 pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
@@ -34,7 +34,7 @@ pub enum ValueType {
     ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<ZobristTable>),
-    SenderU64I16(Sender<(u64, i16)>),
+    SenderU64I16(Arc<SegQueue<(u64, i16)>>),
     SenderString(Sender<String>),
     Instant(Instant),
     SearchResultVec(Arc<Mutex<Vec<SearchResult>>>),
@@ -172,14 +172,14 @@ impl KeyToType<Arc<ZobristTable>> for DataMapKey {
     }
 }
 
-impl KeyToType<Sender<(u64, i16)>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Sender<(u64, i16)>> {
+impl KeyToType<Arc<SegQueue<(u64, i16)>>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<SegQueue<(u64, i16)>>> {
         match (self, value) {
             (DataMapKey::HashSender, ValueType::SenderU64I16(a)) => Some(a),
             _ => None,
         }
     }
-    fn create_value(&self, value: Sender<(u64, i16)>) -> ValueType {
+    fn create_value(&self, value: Arc<SegQueue<(u64, i16)>>) -> ValueType {
         ValueType::SenderU64I16(value)
     }
 }
