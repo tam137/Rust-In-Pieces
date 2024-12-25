@@ -20,11 +20,9 @@ pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
 pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
-
 pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
-
-pub const RIP_STD_IN_THREAD_PANICKED: &str = "RIP std in thread panicked";
 pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
+pub const RIP_STD_IN_THREAD_PANICKED: &str = "RIP std in thread panicked";
 
 #[derive(Clone)]
 pub enum ValueType {
@@ -50,6 +48,8 @@ pub enum DataMapKey {
     CalcTime,
     // order moves or skip in SMP threads (local map)
     MoveOrderingFlag,
+    // skip validation when set false (local map)
+    ForceSkipValidationFlag,
 
     // is pv search thread
     PvFlag,
@@ -127,6 +127,7 @@ impl KeyToType<bool> for DataMapKey {
         match (self, value) {
             (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
             (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) => Some(i),
+            (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) => Some(i),
             _ => None,
         }
     }
@@ -431,6 +432,8 @@ pub struct Board {
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
     pub cached_hash: u64,
+    pub _white_king_on_board: bool,
+    pub _black_king_on_board: bool,
 }
 
 impl Board {
@@ -444,6 +447,8 @@ impl Board {
         field_for_en_passante: i32,
         white_to_move: bool,
         move_count: i32,
+        _white_king_on_board: bool,
+        _black_king_on_board: bool,
     ) -> Self {
         Board {
             field,
@@ -457,6 +462,8 @@ impl Board {
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
             cached_hash: 0,
+            _white_king_on_board: true,
+            _black_king_on_board: true,
         }
     }
 
@@ -472,6 +479,19 @@ impl Board {
         
         let old_castle_information = self.get_castle_information();
         let old_field_for_en_passante = self.field_for_en_passante;
+
+        // handle king counter
+        match self.field[turn.to as usize] {
+            15 => {
+                self._white_king_on_board = false;
+                self.game_status = GameStatus::BlackWin;
+            }
+            25 => {
+                self._black_king_on_board = false;
+                self.game_status = GameStatus::WhiteWin;
+            }
+            _ => {}
+        }
 
         // Handling en passante information
         self.field_for_en_passante = -1;
@@ -568,14 +588,22 @@ impl Board {
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
 
-        self.cached_hash = 0;
+        self.cached_hash = 0; // TODO set cache information?!
 
         // validation
         if self.field[turn.to as usize] == 0 {
             panic!("RIP undo_move(): Field on turn.to is 0\n{:?}", turn);
         }
 
+        // handle king counter
+        match turn.capture {
+            15 => self._white_king_on_board = true,
+            25 => self._black_king_on_board = true,
+            _ => {}
+        }
+
         self.game_status = GameStatus::Normal;
+        assert!(self._white_king_on_board && self._black_king_on_board, "RIP at least one King missing on the board");
 
         let castle_information = move_information.castle_information;
         let mut is_en_passante_move = false;

@@ -18,7 +18,7 @@ impl SearchService {
     }
 
     pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
-        service: &Service, global_map: &ThreadSafeDataMap, local_map: &DataMap) -> SearchResult {
+        service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
 
         let logger = global_map_handler::get_log_buffer_sender(global_map);
 
@@ -119,7 +119,7 @@ impl SearchService {
     
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
-        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &DataMap)
+        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
         -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -133,6 +133,7 @@ impl SearchService {
  */
         if depth <= 0 {
             let mut stand_pat_cut = true;
+            local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha2 {
                 stand_pat_cut = if white {
@@ -185,13 +186,14 @@ impl SearchService {
                 }
             }
         } else {
+            local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
             turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
         let mut best_move: Option<Turn> = None;
 
-        if turns.len() == 0 {
+        if turns.len() == 0 || board.game_status != GameStatus::Normal {
             return match board.game_status {
                 GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                 GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),

@@ -98,12 +98,12 @@ impl MoveGenService {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
                 self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
-                    &zobrist_table_read);
+                    &zobrist_table_read, local_map);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
                 let (hash, eval) = self.validate_and_add_move(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
-                    &zobrist_table_read);
+                    &zobrist_table_read, local_map);
                 hash_buffer.insert(hash, eval);
             }
         }
@@ -113,7 +113,7 @@ impl MoveGenService {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
                 let (hash, eval) = self.validate_and_add_move(board, stats, &mut turn, service, config, &mut valid_moves, white_turn,
-                    &zobrist_table_read);
+                    &zobrist_table_read, local_map);
                 hash_buffer.insert(hash, eval);
             }
         }
@@ -199,32 +199,35 @@ impl MoveGenService {
     }
     
     fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable)
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap)
         -> (u64, i16) {
 
         let move_info = board.do_move(turn);
         let mut valid = true;
 
-        if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
-            valid = false;
+        // can skip validation here
+        if !*local_map.get_data::<bool>(DataMapKey::ForceSkipValidationFlag).unwrap_or(&false) {
+            if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
+                valid = false;
+            }
         }
 
         if valid {
-            turn.hash = move_info.hash;
+            turn.hash = board.cached_hash;
             turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
             valid_moves.push(turn.clone());
         }
         board.undo_move(turn, move_info);
-        (move_info.hash, turn.eval)
+        (turn.hash, turn.eval)
     }
     
     fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable) {
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap) {
 
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, zobrist_table_read);
+            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, zobrist_table_read, local_map);
         }
     }    
 
@@ -517,6 +520,12 @@ impl MoveGenService {
 
 
     pub fn get_attack_idx_list(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
+
+        // king is missing
+        if target_idx == -1 {
+            return Vec::new(); // TODO use Some
+        }
+
         let mut check_idx_list = Vec::new();
 
         // Opponent's piece values
@@ -1020,6 +1029,49 @@ mod tests {
         
         assert_eq!(81, first_turn.from);
         assert_eq!(61, first_turn.to);
+    }
+
+    #[test]
+    fn skip_validation_and_check_game_end_test() {
+        let service = Service::new();
+        let config = Config::new().for_tests();
+        let global_map = global_map_handler::create_new_global_map();
+        let mut local_map = DataMap::new();
+
+        // missing king
+        let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
+
+        // find moves if fen has missing king
+        local_map.insert(DataMapKey::ForceSkipValidationFlag, true);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &mut local_map);
+        assert_eq!(38, turns.len());
+
+        // avoid finding moves if uses do_move() funktion
+        let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/1bB5/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 1");
+        let turn = Turn::new(62, 95, 15, 0, 0);
+        let mi = board.do_move(&turn); // hit white king
+        assert_eq!(false, board._white_king_on_board);
+        assert_eq!(true, board._black_king_on_board);
+        assert_eq!(GameStatus::BlackWin, board.game_status);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &mut local_map);
+        assert_eq!(0, turns.len());
+        board.undo_move(&turn, mi);
+        assert_eq!(true, board._white_king_on_board);
+        assert_eq!(true, board._black_king_on_board);
+        assert_eq!(GameStatus::Normal, board.game_status);
+
+        let board = &mut service.fen.set_fen("r2qk1nr/pPp2ppp/8/4p3/Qbb5/2PP1N2/PP3PPP/RNB1K2R w KQkq - 0 1");
+        let turn = Turn::new(61, 25, 25, 0, 0);
+        let mi = board.do_move(&turn); // hit black king
+        assert_eq!(true, board._white_king_on_board);
+        assert_eq!(false, board._black_king_on_board);
+        assert_eq!(GameStatus::WhiteWin, board.game_status);
+        assert_eq!(0, turns.len());
+        board.undo_move(&turn, mi);
+        assert_eq!(true, board._white_king_on_board);
+        assert_eq!(true, board._black_king_on_board);
+        assert_eq!(GameStatus::Normal, board.game_status);
+        
     }
 
 
