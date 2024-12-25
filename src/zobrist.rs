@@ -1,4 +1,5 @@
 use rand::{Rng, rngs::StdRng, SeedableRng};
+use chashmap::CHashMap;
 use once_cell::sync::Lazy;
 
 use crate::model::Board;
@@ -47,18 +48,18 @@ static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
 
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
-    hash_map: std::collections::HashMap<u64, i16>,
+    pub hash_map: CHashMap<u64, i16>,
 }
 
 impl ZobristTable {
     pub(crate) fn new() -> Self {
         Self {
-            hash_map: std::collections::HashMap::with_capacity(1000),
+            hash_map: CHashMap::with_capacity(1000),
         }
     }
 
-    pub fn get_eval_for_hash(&self, hash: &u64) -> Option<&i16> {
-        self.hash_map.get(hash)
+    pub fn get_eval_for_hash(&self, hash: &u64) -> Option<i16> {
+        self.hash_map.get(hash).map(|value| *value)
     }
 
     pub fn set_new_hash(&mut self, hash: &u64, eval: i16) {

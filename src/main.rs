@@ -198,13 +198,11 @@ mod tests {
         global_map_handler::clear_search_result(&env.global_map);
         let sr = global_map_handler::_get_search_results(&env.global_map);
         assert_eq!(0, sr.len());
-
         env._uci_command_processor.join().expect(rip_err);
     }
 
     
     #[test]
-    #[ignore]
     fn go_multithreading_test() {
         let rip_err = "RIP Test execution error";
         let env = set_up(&Config::new()._for_integration_tests());
@@ -214,7 +212,7 @@ mod tests {
         send_uci(&env, "go wtime 5000 btime 5000", 500);
         send_uci(&env, "stop", 100);
         send_uci(&env, "quit", 0);
-        env._uci_command_processor.join().expect(rip_err);
+        env._uci_command_processor.join().expect(rip_err);        
     }
 
     #[test]

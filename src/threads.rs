@@ -41,16 +41,23 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, rx_hashes: Re
         hash_buffer.insert(hash, eval);
 
         if hash_buffer.len() >= config.write_hash_buffer_size {
-            let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-            let mut zobrist_table = zobrist_table.write().expect(RIP_COULDN_LOCK_MUTEX);
+            let chash_map = &mut global_map_handler::get_zobrist_table(&global_map).hash_map.clone();
 
             for (hash, eval) in hash_buffer.drain() {
-                zobrist_table.set_new_hash(&hash, eval);
+                chash_map.insert(hash, eval);
             }
-            let size = zobrist_table.clean_up_hash_if_needed(config);
-            if size > 0 {
+
+            let clean_up_size = if config.max_zobrist_hash_entries <= chash_map.len() {
+                let size = chash_map.len();
+                chash_map.clear();
+                size
+            } else {
+                0
+            };
+
+            if clean_up_size > 0 {
                 global_map_handler::get_log_buffer_sender(&global_map)
-                    .send(format!("Cleared hash table: {} entries", size))
+                    .send(format!("Cleared hash table: {} entries", clean_up_size))
                     .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             }
         }

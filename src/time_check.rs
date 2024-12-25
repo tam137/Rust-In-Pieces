@@ -126,7 +126,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, local_map: &DataMap) {
     service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &local_map);
     nodes = nodes + stats.calculated_nodes;
 
-    println!("\nexpected: {}", 281);
+    println!("\nexpected: {}", 256);
     println!("knodes: {}", nodes / 1000);
     
 
