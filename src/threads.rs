@@ -30,12 +30,10 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: A
     let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
 
     loop {
-        // Versuche, alle verfügbaren Einträge aus der Warteschlange zu lesen
         while let Some((hash, eval)) = hash_queue.pop() {
             hash_buffer.insert(hash, eval);
         }
 
-        // Wenn der Puffer voll ist, schreibe ihn in die globale Hashmap
         if hash_buffer.len() >= config.write_hash_buffer_size {
             let chash_map = &mut global_map_handler::get_zobrist_table(&global_map).hash_map.clone();
 
@@ -58,6 +56,7 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: A
                     .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             }
         }
+        thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -134,7 +133,7 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("test") {
-                    time_check::run_time_check(&global_map, &local_map);
+                    time_check::run_time_check(&global_map, &mut local_map);
                 }
 
                 else if uci_token.trim().starts_with("debug") {
