@@ -60,9 +60,9 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.2-candidate".to_string(),
+            version: "V0.1.2-candidate-4".to_string(),
             use_zobrist: true,
-            use_book: false,
+            use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
             search_depth: 4,
             max_depth: 99,
