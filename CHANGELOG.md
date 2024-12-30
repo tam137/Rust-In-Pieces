@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.1.2] - 2024-12-30
+
+### Added
+
+- use block free transposition table (chashmap), reduce cash writing buffer
+- use crossbeam-queue
+
+### Fixed
+
+### Elos
+
+   Name                     Pkt  Games   Elo
+1. mewel 0.3.3             50.5     73  1575
+2. Rust-In-Pieces V0.1.2  381.5    703  1513
+3. Rust-In-Pieces V0.1.1  344.5    706  1488
+4. Rust-In-Pieces V0.1.0  165.5    402  1458
+
+
 ## [V0.1.1] - 2024-12-24
 
 ### Added
