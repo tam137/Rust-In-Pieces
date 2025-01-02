@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.1.3] - 2025-01-02
+
+### Added
+
+- implement skip strong validation methods (but disabled)
+
+### Fixed
+
+### Elos
+
+| Name                                | Pkt   | Games | Elo  |
+|-------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.1.2               | 423.0 | 703   | 1534 |
+| Rust-In-Pieces V0.1.3               | 314.0 | 533   | 1520 |
+| Rust-In-Pieces V0.1.1               | 166.0 | 370   | 1466 |
+| Rust-In-Pieces V0.1.0               |  84.5 | 204   | 1452 |
+| Rust-In-Pieces V0.1.3-candidate     | 165.5 | 496   | 1423 |
+
+
+
+
 ## [V0.1.2] - 2024-12-30
 
 ### Added
@@ -16,11 +37,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Elos
 
-   Name                     Pkt  Games   Elo
-1. mewel 0.3.3             50.5     73  1575
-2. Rust-In-Pieces V0.1.2  381.5    703  1513
-3. Rust-In-Pieces V0.1.1  344.5    706  1488
-4. Rust-In-Pieces V0.1.0  165.5    402  1458
+| Name                     | Pkt   | Games | Elo  |
+|--------------------------|-------|-------|------|
+| mewel 0.3.3              |  50.5 |    73 | 1575 |
+| Rust-In-Pieces V0.1.2    | 381.5 |   703 | 1513 |
+| Rust-In-Pieces V0.1.1    | 344.5 |   706 | 1488 |
+| Rust-In-Pieces V0.1.0    | 165.5 |   402 | 1458 |
+
 
 
 ## [V0.1.1] - 2024-12-24
