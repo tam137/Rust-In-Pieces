@@ -29,7 +29,6 @@ pub enum ValueType {
     Integer(i32),
     AtomicInteger(Arc<AtomicI32>),
     Bool(bool),
-    ArcMutexBool(Arc<Mutex<bool>>),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<ZobristTable>),
     SenderU64I16(Arc<SegQueue<(u64, i16)>>),
@@ -125,27 +124,19 @@ impl KeyToType<i32> for DataMapKey {
 impl KeyToType<bool> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
         match (self, value) {
+            // The are keys for local map
             (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
             (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) => Some(i),
             (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) => Some(i),
+
+            // The are keys for global map, lock whole global_map when changing values
+            (DataMapKey::StopFlag, ValueType::Bool(a)) => Some(a),
+            (DataMapKey::DebugFlag, ValueType::Bool(a)) => Some(a),
             _ => None,
         }
     }
     fn create_value(&self, value: bool) -> ValueType {
         ValueType::Bool(value)
-    }
-}
-
-impl KeyToType<Arc<Mutex<bool>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<bool>>> {
-        match (self, value) {
-            (DataMapKey::StopFlag, ValueType::ArcMutexBool(a)) |
-            (DataMapKey::DebugFlag, ValueType::ArcMutexBool(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<Mutex<bool>>) -> ValueType {
-        ValueType::ArcMutexBool(value)
     }
 }
 

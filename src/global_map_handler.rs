@@ -25,8 +25,8 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
         // empty logging function but can be applied by uci "debug on"
     });
 
-    let debug_flag = Arc::new(Mutex::new(false));
-    let stop_flag = Arc::new(Mutex::new(false));
+    let debug_flag = false;
+    let stop_flag = false;
     let zobrist_table = Arc::new(ZobristTable::new());
     let search_result_vector = Arc::new(Mutex::new(Vec::default()));
     let pv_nodes_map = Arc::new(Mutex::new(HashMap::new()));
@@ -73,26 +73,17 @@ pub fn get_zobrist_table(global_map: &ThreadSafeDataMap) -> Arc<ZobristTable> {
         .clone()
 }
 
-pub fn get_debug_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
-    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Arc<Mutex<bool>>>(DataMapKey::DebugFlag)
-        .expect("RIP Can not find debug flag")
-        .clone()
-}
-
 /// When debug flag is true, also a logger function should be applied
 pub fn is_debug_flag(global_map: &ThreadSafeDataMap) -> bool {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Arc<Mutex<bool>>>(DataMapKey::DebugFlag)
+        .get_data::<bool>(DataMapKey::DebugFlag)
         .expect("RIP Can not find debug flag")
-        .lock()
-        .expect("RIP Can not lock debug flag")
         .clone()
 }
 
-pub fn get_stop_flag(global_map: &ThreadSafeDataMap) -> Arc<Mutex<bool>> {
+pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag)
+        .get_data::<bool>(DataMapKey::StopFlag)
         .expect("RIP Can not find stop flag")
         .clone()
 }
@@ -145,24 +136,14 @@ pub fn clear_search_result(global_map: &ThreadSafeDataMap) {
     
 }
 
-pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
-    let global_map_value = global_map.read().expect("RIP Could not lock global map");
-    if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
-        let stop_flag = flag.lock().expect("RIP Can not read stop_flag");
-        *stop_flag
-    } else {
-        panic!("RIP Cant read stop flag");
-    }
+pub fn set_stop_flag(global_map: &ThreadSafeDataMap, value: bool) {
+    let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+    global_map_value.insert(DataMapKey::StopFlag, value);
 }
 
-pub fn set_stop_flag(global_map: &ThreadSafeDataMap, value: bool) {
-    let global_map_value = global_map.read().expect("RIP Could not lock global map");
-    if let Some(flag) = global_map_value.get_data::<Arc<Mutex<bool>>>(DataMapKey::StopFlag) {
-        let mut stop_flag = flag.lock().expect("RIP Can not read stop_flag");
-        *stop_flag = value;
-    } else {
-        panic!("RIP Cant read stop flag");
-    }
+pub fn set_debug_flag(global_map: &ThreadSafeDataMap, value: bool) {
+    let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
+    global_map_value.insert(DataMapKey::DebugFlag, value);
 }
 
 pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Arc<SegQueue<(u64, i16)>> {
@@ -308,16 +289,13 @@ pub fn _is_calculated_at_least_one_finished_search_result(global_map: &ThreadSaf
 #[cfg(test)]
 mod tests {
 
-    use crate::{global_map_handler::{self, *}, model::RIP_COULDN_LOCK_MUTEX, service::Service};
+    use crate::{global_map_handler::{self, *}, service::Service};
 
     #[test]
     fn create_new_global_map_test() {
-        let global_map = create_new_global_map();
-    
-        let debug_flag_mutex = get_debug_flag(&global_map);
-        let debug_flag = debug_flag_mutex.lock().expect(RIP_COULDN_LOCK_MUTEX);
-    
-        assert!(*debug_flag == false);
+        let global_map = create_new_global_map();    
+        let debug_flag = is_debug_flag(&global_map);    
+        assert!(debug_flag == false);
     }
 
 

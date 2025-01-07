@@ -61,11 +61,11 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.3-one-thread".to_string(),
+            version: "V0.1.4-one-thread-candidate".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
-            search_depth: 4,
+            search_depth: 4, // only used as default for tests
             max_depth: 99,
             truncate_bad_moves: 99,
             in_debug: true,
@@ -145,7 +145,7 @@ impl Config {
         config.print_info_string_during_search = false;
         config.use_book = false;
         config.search_threads = 4;
-        config.write_hash_buffer_size = 1_000;
+        config.write_hash_buffer_size = config.write_hash_buffer_size;
         config.max_zobrist_hash_entries = 10_000_000;
         config
     }

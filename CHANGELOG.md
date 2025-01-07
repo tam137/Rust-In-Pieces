@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.1.4] - 2025-01-XX
+
+### Added
+
+- remove mutex lock when reading stop_flag and debug_flag to avoid dead locks
+
+### Fixed
+
+### Elos
+
+[Platz]	[Spiele]	[Punkte]	[EngineName]
+1	252	144.0	Rust-In-Pieces V0.1.3-one-thread
+2	252	117.0	Rust-In-Pieces V0.1.3
+3	252	117.0	Rust-In-Pieces V0.1.2
+
+
 ## [V0.1.3] - 2025-01-02
 
 ### Added
