@@ -81,11 +81,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             &config, &service, &global_map, &mut local_map);
 
                         service.stdout.write(&service.uci_parser.get_info_str(search_result, &stats));
-                        
-                        if config.use_pv_nodes {
-                            global_map_handler::set_pv_nodes(&global_map, &search_result.get_pv_move_row(), &mut game.board);
-                            global_map_handler::set_pv_nodes_len(&global_map, search_result.calculated_depth);
-                        }
+
                         if global_map_handler::is_stop_flag(&global_map) { break; }
                     }
                 }
