@@ -86,8 +86,8 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
 
     let stdout = Service::new().stdout;
     let uci_parser = Service::new().uci_parser;
-    let debug_flag = global_map_handler::get_debug_flag(&global_map);
-    let stop_flag = global_map_handler::get_stop_flag(&global_map);
+    //let debug_flag = global_map_handler::is_debug_flag(&global_map);
+    //let stop_flag = global_map_handler::is_stop_flag(&global_map);
     let tx_game_command = global_map_handler::get_game_command_sender(&global_map);
     let benchmark_value = time_check::calculate_benchmark(&global_map, &mut local_map);
 
@@ -139,10 +139,7 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
 
                     let logger_function: Arc<dyn Fn(String) + Send + Sync> = if uci_token.starts_with("debug on") {
 
-                        {                            
-                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
-                            *debug_flag_value = true;
-                        }
+                        global_map_handler::set_debug_flag(&global_map, true);
 
                         if config.log_to_console {
                             Arc::from(Box::new(move |msg: String| {
@@ -168,10 +165,7 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                         }
                         
                     } else if uci_token.starts_with("debug off") {
-                        {
-                            let mut debug_flag_value = debug_flag.lock().expect("RIP Can not lock debug_flag");
-                            *debug_flag_value = false;
-                        }
+                        global_map_handler::set_debug_flag(&global_map, false);
                         Arc::from(Box::new(|_msg: String| {
                             // No logging
                         }) as Box<dyn Fn(String) + Send + Sync>)
@@ -187,13 +181,11 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("stop") {
-                    let mut stop_flag_value = stop_flag.lock().expect("RIP Can not lock stop_flag");
-                    *stop_flag_value = true;
+                    global_map_handler::set_stop_flag(&global_map, true);
                 }
 
                 else if uci_token.trim().starts_with("quit") {
-                    let mut value = stop_flag.lock().expect("RIP Can not lock stop_flag");
-                    *value = true;
+                    global_map_handler::set_stop_flag(&global_map, true);
                     tx_game_command.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                     break;
                 }
