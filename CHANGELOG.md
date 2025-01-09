@@ -10,15 +10,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - remove mutex lock when reading stop_flag and debug_flag to avoid dead locks
+- fixed panic when sending 'stop' cmd in 'go infinite' mode intrudiced by pv node feature
 
 ### Fixed
 
 ### Elos
 
-[Platz]	[Spiele]	[Punkte]	[EngineName]
-1	252	144.0	Rust-In-Pieces V0.1.3-one-thread
-2	252	117.0	Rust-In-Pieces V0.1.3
-3	252	117.0	Rust-In-Pieces V0.1.2
+| Name                                                | Pkt   | Games | Elo  |
+|-----------------------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.1.2                               | 143.5 | 250   | 1523 |
+| Rust-In-Pieces V0.1.3-one-thread (neu)              | 126.0 | 227   | 1515 |
+| Rust-In-Pieces V0.1.3                               | 123.0 | 233   | 1504 |
+| Rust-In-Pieces V0.1.4-one-thread-candidate (new)    | 128.0 | 243   | 1504 |
+| Rust-In-Pieces V0.1.1                               | 102.5 | 222   | 1478 |
+| Rust-In-Pieces V0.1.4-three-threads-candidate (new) | 118.5 | 265   | 1472 |
+| Rust-In-Pieces V0.1.0                               |  89.5 | 222   | 1454 |
+
+| Name                                   | Pkt   | Games | Elo  |
+|----------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.1.3-one-thread (new) | 144.0 | 252   | 1549 |
+| Rust-In-Pieces V0.1.3                  | 117.0 | 252   | 1506 |
+| Rust-In-Pieces V0.1.2                  | 117.0 | 252   | 1506 |
+
 
 
 ## [V0.1.3] - 2025-01-02
