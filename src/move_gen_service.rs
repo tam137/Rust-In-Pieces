@@ -519,6 +519,7 @@ impl MoveGenService {
     }
 
 
+    // checks wich OPPONENT pieces attack the given target_idx
     pub fn get_attack_idx_list(&self, field: &[i32], white: bool, target_idx: i32) -> Vec<i32> {
 
         // king is missing
@@ -734,6 +735,10 @@ mod tests {
         let board = fen_service.set_fen("r1bqnr2/pp1nbpk1/2p1p3/3p2pp/2PP1P1N/2NBP1B1/PPQ3PP/2R1K2R w K - 0 14");
         let attacks =  move_gen_service.get_attack_idx_list(&board.field, board.white_to_move, 68).len() as i32;
         assert_eq!(1 , attacks);
+
+        let board = fen_service.set_fen("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1");
+        let attacks =  move_gen_service.get_attack_idx_list(&board.field, board.white_to_move, 24).len() as i32;
+        assert_eq!(0 , attacks);
     }
 
     #[test]
