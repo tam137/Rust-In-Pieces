@@ -5,33 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [V0.1.4] - 2025-01-XX
+## [V0.1.4] - 2025-01-11
 
 ### Added
 
 - remove mutex lock when reading stop_flag and debug_flag to avoid dead locks
-- fixed panic when sending 'stop' cmd in 'go infinite' mode intrudiced by pv node feature
 
 ### Fixed
+
+- fixed panic when sending 'stop' cmd in 'go infinite' mode introduced by pv node feature
 
 ### Elos
 
 | Name                                                | Pkt   | Games | Elo  |
 |-----------------------------------------------------|-------|-------|------|
-| Rust-In-Pieces V0.1.2                               | 143.5 | 250   | 1523 |
-| Rust-In-Pieces V0.1.3-one-thread (neu)              | 126.0 | 227   | 1515 |
-| Rust-In-Pieces V0.1.3                               | 123.0 | 233   | 1504 |
-| Rust-In-Pieces V0.1.4-one-thread-candidate (new)    | 128.0 | 243   | 1504 |
-| Rust-In-Pieces V0.1.1                               | 102.5 | 222   | 1478 |
-| Rust-In-Pieces V0.1.4-three-threads-candidate (new) | 118.5 | 265   | 1472 |
-| Rust-In-Pieces V0.1.0                               |  89.5 | 222   | 1454 |
+| Rust-In-Pieces V0.1.3-one-thread (new)              | 430.0 | 775   | 1530 |
+| Rust-In-Pieces V0.1.4 (new)*                        | 295.5 | 541   | 1520 |
+| Rust-In-Pieces V0.1.2                               | 373.5 | 738   | 1518 |
+| Rust-In-Pieces V0.1.3                               | 385.0 | 783   | 1516 |
+| Rust-In-Pieces V0.1.4-three-threads-candidate (new) | 118.5 | 265   | 1482 |
+| Rust-In-Pieces V0.1.1                               | 197.0 | 454   | 1481 |
+| Rust-In-Pieces V0.1.0                               |  89.5 | 222   | 1465 |
 
-| Name                                   | Pkt   | Games | Elo  |
-|----------------------------------------|-------|-------|------|
-| Rust-In-Pieces V0.1.3-one-thread (new) | 144.0 | 252   | 1549 |
-| Rust-In-Pieces V0.1.3                  | 117.0 | 252   | 1506 |
-| Rust-In-Pieces V0.1.2                  | 117.0 | 252   | 1506 |
-
+* all default engines are one-threaded from now
 
 
 ## [V0.1.3] - 2025-01-02

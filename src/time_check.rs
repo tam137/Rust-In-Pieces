@@ -94,52 +94,38 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     println!("\nexpected ~715");
     println!("Benchmark Value: {}", calculate_benchmark(global_map, &mut local_map));
 
-    // count nodes to benchmark alpha beta cutting:
-    let mut nodes = 0;
-    let mut stats = Stats::new();
-    let fen = "rnbq1rk1/ppp1bppp/4pn2/3p2B1/2PP4/2N2N2/PP2PPPP/R2QKB1R w KQ - 6 6";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
 
-    let mut stats = Stats::new();
-    let fen = "rn1q1rk1/ppp2pp1/3Pbb1p/4p3/3P4/1QN1PN2/PP3PPP/R3KB1R b KQ - 0 10";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
+    // quite d4 opening (positionel)
 
-    let mut stats = Stats::new();
-    let fen = "rn1qr1k1/pp3pp1/3pbb1p/4p3/1QBP4/2N1PN2/PP3PPP/R3K2R b KQ - 3 12";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
+    // e4 opening (some tactics)
 
-    let mut stats = Stats::new();
-    let fen = "r1bq1k1r/pp3p1p/2pp2p1/2b5/2B1P3/P1P3Q1/1P1B1PPP/RN1R2K1 b - - 2 14";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, false, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
+    // quite mitgame
 
-    let mut stats = Stats::new();
-    let fen = "r1bqk2r/1p1p2pp/pb3p2/2p1n3/4P3/NBP5/PP3PPP/R1BQR1K1 w kq - 0 12";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
+    // tactical mitgame
 
-    let mut stats = Stats::new();
-    let fen = "r1bq1rk1/2p1bppp/p1n5/1p1np3/8/1BP2N2/PP1P1PPP/RNBQR1K1 w - - 0 10";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
+    // engame with rooks
 
-    let mut stats = Stats::new();
-    let fen = "8/7k/8/p4R2/5pP1/1P1Kp3/3b3P/4r3 b - - 0 47";
-    service.search.get_moves(&mut service.fen.set_fen(fen), 4, true, &mut stats, config, service, global_map, &mut local_map);
-    nodes = nodes + stats.calculated_nodes;
-
-    println!("\nexpected: {}", 256);
-    println!("knodes: {}", nodes / 1000);
-    
-
+    //count_and_print_nodes(description, expected_count, fen_list, global_map, local_map);
 
 }
 
+pub fn _count_and_print_nodes(description: &str, expected_count: i32, fen_list: Vec<String>, global_map: &ThreadSafeDataMap, mut local_map: &mut DataMap) {
+    let mut stats = Stats::new();
+    let service = Service::new();
+    let config = Config::new().for_tests();
+    let mut node_count = 0;
 
-pub fn calculate_benchmark (global_map: &Arc<RwLock<DataMap>>, mut local_map: &mut DataMap) -> i32 {
+    for fen in fen_list {
+        service.search.get_moves(&mut service.fen.set_fen(&fen), 4, true, &mut stats, &config, &service, global_map, &mut local_map);
+        node_count = node_count + stats.calculated_nodes;
+        stats = Stats::new();
+    }
+
+    println!("{}\t{}\t{}", node_count, expected_count, description);
+}
+
+
+pub fn calculate_benchmark(global_map: &Arc<RwLock<DataMap>>, mut local_map: &mut DataMap) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::new().for_tests();
