@@ -291,28 +291,27 @@ impl EvalService {
     }
 
 
-    fn white_queen(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn white_queen(&self, _idx: usize, board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        o_eval -= config.queen_in_attack;
-
+        o_eval -= config.queen_in_attack + if !board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
     }
 
-    fn black_queen(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn black_queen(&self, _idx: usize, board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        o_eval += config.queen_in_attack;
+        o_eval += config.queen_in_attack + if board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen

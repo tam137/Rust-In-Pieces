@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## TODO
+
+Technical: remove Mutex from PV-Nodes in
+Movegen: add null move threads
+Movegen: improve Sorting of capture moves
+Eval: detect and evaluate pawn islands
+Eval: advance rook game
+
+
 ## [V0.2.0] - 2025-01-XXs
 
 ### Added

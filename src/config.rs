@@ -45,11 +45,13 @@ pub struct Config {
     pub pawn_centered: i16,
     pub pawn_undeveloped_malus: i16,
     pub pawn_attacks_opponent_fig: i16,
+    pub pawn_attacks_opponent_fig_with_tempo: i16,
     pub knight_on_rim_malus: i16,
     pub knight_centered: i16,
     pub knight_blockes_pawn: i16,
 
     pub queen_in_attack: i16,
+    pub queen_in_attack_with_tempo: i16,
 
     pub king_shield: i16,
     pub king_in_check_malus: i16,
@@ -99,6 +101,7 @@ impl Config {
             pawn_centered: 12,
             pawn_undeveloped_malus: 12,
             pawn_attacks_opponent_fig: 35,
+            pawn_attacks_opponent_fig_with_tempo: 200,
             pawn_on_last_rank_bonus: 180,
             pawn_on_before_last_rank_bonus: 110,
             pawn_on_before_before_last_rank_bonus: 40,
@@ -108,7 +111,8 @@ impl Config {
             knight_centered: 32,
             knight_blockes_pawn: 32,
 
-            queen_in_attack: 50,
+            queen_in_attack: 60,
+            queen_in_attack_with_tempo: 500,
 
             king_shield: 40,
             king_in_check_malus: 140,
@@ -123,13 +127,26 @@ impl Config {
         config
     }
 
-    /// This config is used for tests, it uses the alpha2 cutting algo in quiescence search and will not print uci info string
-    /// Also Zobrist hash is disabled
+    /// This config is used for tests, it uses the ALPHA2 cutting algo in quiescence search and will not print uci info string
+    /// It disable also all evaluation with TEMPO
+    /// Also ZOBRIST hash is disabled
+    pub fn for_timing_tests(&self) -> Self {
+        let mut config = Config::new();
+        config.print_info_string_during_search = false;
+        config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
+        config.use_zobrist = false;
+        config
+    }
+
+    /// This config is used for tests, it uses the ALPHA2 cutting algo in quiescence search and will not print uci info string
+    /// It disable also all evaluation with TEMPO
+    /// Also ZOBRIST hash is disabled
     pub fn for_tests(&self) -> Self {
         let mut config = Config::new();
         config.print_info_string_during_search = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
+        config.queen_in_attack_with_tempo = 0;
         config
     }
 
