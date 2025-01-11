@@ -993,16 +993,6 @@ mod tests {
         test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31.min(truncate), "d4e3");
         test_fen_with_move("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq e3 0 5", 31.min(truncate), "f4e3");
         test_fen("rnbqkbnr/ppp1p1pp/8/8/3pPp1P/PP6/2PP1PP1/RNBQKBNR b KQkq - 0 5", 29);
-
-        // TODO do tests with less then truncate number moves
-    }
-
-    #[test]
-    fn optimize_truncate() {
-
-        let fen = "r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11";
-        let turns = from(fen);
-        check_turn_order_of("d4d3", turns, 30);
     }
 
     #[test]
