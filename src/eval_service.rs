@@ -82,7 +82,7 @@ impl EvalService {
         }
 
         if board.field[idx-9] / 20 == 1 || board.field[idx-11] / 20 == 1 {
-            o_eval += config.pawn_attacks_opponent_fig;
+            o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move { config.pawn_attacks_opponent_fig_with_tempo } else { 0 };
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
@@ -133,7 +133,7 @@ impl EvalService {
         }
 
         if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
-            o_eval -= config.pawn_attacks_opponent_fig;
+            o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move { config.pawn_attacks_opponent_fig_with_tempo } else { 0 };
             e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
@@ -434,6 +434,7 @@ mod tests {
         equal_eval("rnbqkbnr/p6p/1p4p1/2pPPp2/2PppP2/1P4P1/P6P/RNBQKBNR w KQkq - 0 1");        
         equal_eval("1k6/3p4/4P3/8/8/4p3/3P4/1K6 w - - 0 1");
         equal_eval("rnbqkb1r/ppppp1pp/6n1/6P1/6p1/6N1/PPPPP1PP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("3k4/8/p1p5/1p2ppp1/1P2PPP1/P1P5/8/3K4 w - - 0 1");
     }
 
     #[test]
@@ -502,8 +503,18 @@ mod tests {
         fib("rnbqkbnr/pppppppp/8/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppppp1p/8/6p1/5NP1/8/PPPPPP1P/RNBQKB1R w KQkq - 0 1");
         fib("rnbqkbnr/pppp1ppp/4p3/8/5N2/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppp1ppp/4p3/8/4N3/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
         fib("rnbqkbnr/ppppp1pp/8/5p2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/5p2/8/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
-        fib("rnbqkbnr/ppppp1pp/8/8/6p1/6N1/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/8/6p1/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
-        
+        fib("rnbqkbnr/ppppp1pp/8/8/6p1/6N1/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/8/6p1/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");   
+    }
+
+    #[test]
+    fn advance_pawn_eval_test() {
+        fib("8/1k6/8/4P3/8/8/1K6/8 w - - 0 1", "8/1k6/8/8/4P3/8/1K6/8 w - - 0 1");
+        fib("8/1k6/4P3/8/8/8/1K6/8 w - - 0 1", "8/1k6/8/4P3/8/8/1K6/8 w - - 0 1");
+        fib("8/1k2P3/8/8/8/8/1K6/8 w - - 0 1", "8/1k6/4P3/8/8/8/1K6/8 w - - 0 1");
+
+        fib("8/1k6/8/4p3/8/8/1K6/8 w - - 0 1", "8/1k6/8/8/4p3/8/1K6/8 w - - 0 1");
+        fib("8/1k6/8/8/4p3/8/1K6/8 w - - 0 1", "8/1k6/8/8/8/4p3/1K6/8 w - - 0 1");
+        fib("8/1k6/8/8/8/4p3/1K6/8 w - - 0 1", "8/1k6/8/8/8/8/1K2p3/8 w - - 0 1");
     }
 
 

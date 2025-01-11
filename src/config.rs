@@ -39,17 +39,17 @@ pub struct Config {
     pub piece_eval_queen: i16,
     pub piece_eval_king: i16,
 
-    // additional values for new eval
     pub pawn_structure: i16,
     pub pawn_supports_knight_outpost: i16,
     pub pawn_centered: i16,
     pub pawn_undeveloped_malus: i16,
-    pub pawn_attacks_opponent_fig: i16,
-    pub pawn_attacks_opponent_fig_with_tempo: i16,
+
     pub knight_on_rim_malus: i16,
     pub knight_centered: i16,
     pub knight_blockes_pawn: i16,
 
+    pub pawn_attacks_opponent_fig: i16,
+    pub pawn_attacks_opponent_fig_with_tempo: i16,
     pub queen_in_attack: i16,
     pub queen_in_attack_with_tempo: i16,
 
@@ -100,8 +100,6 @@ impl Config {
             pawn_supports_knight_outpost: 10,
             pawn_centered: 12,
             pawn_undeveloped_malus: 12,
-            pawn_attacks_opponent_fig: 35,
-            pawn_attacks_opponent_fig_with_tempo: 200,
             pawn_on_last_rank_bonus: 180,
             pawn_on_before_last_rank_bonus: 110,
             pawn_on_before_before_last_rank_bonus: 40,
@@ -111,6 +109,8 @@ impl Config {
             knight_centered: 32,
             knight_blockes_pawn: 32,
 
+            pawn_attacks_opponent_fig: 35,
+            pawn_attacks_opponent_fig_with_tempo: 150,
             queen_in_attack: 60,
             queen_in_attack_with_tempo: 700,
 

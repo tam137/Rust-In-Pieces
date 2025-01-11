@@ -107,7 +107,8 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
         fen_list.push("r1bq1rk1/pppp1ppp/1b3n2/n3p1B1/2BPP3/2P2N2/PP3PPP/RN1Q1RK1 w - - 5 8");
         fen_list.push("r3qrk1/ppp3p1/2n1b2p/2bnpp2/8/PQPP1NBP/1P1N1PP1/2R1KB1R b K - 3 13");
         fen_list.push("r2qk2r/p1p2pp1/2n1bn1p/1pbpp3/4P2B/1PNP1N2/P1P1BPPP/R2Q1RK1 b kq - 0 9");
-        count_and_print_nodes("tactical midgame Queen and Rooks", 112, fen_list, &global_map_t1, &mut local_map_t1);
+        fen_list.push("r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11");
+        count_and_print_nodes("tactical midgame Queen and Rooks", 199, fen_list, &global_map_t1, &mut local_map_t1);
     });
 
 
@@ -120,7 +121,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbqkb1r/pp3ppp/2p2n2/3p4/3P1B2/2N2N2/PP2PPPP/R2QKB1R b KQkq - 1 6");
     fen_list.push("rn1q1rk1/pp2bppp/2p2n2/3p1b2/3P1B2/2N1PN1P/PP3PP1/R2QKB1R w KQ - 1 9");
     fen_list.push("r4rk1/pp1nbppp/1qp2n2/3p4/3P1B2/2NQPN1P/PP3PP1/R4RK1 w - - 3 12");
-    count_and_print_nodes("positional d4 opening", 98, fen_list, global_map, local_map);
+    count_and_print_nodes("positional d4 opening", 76, fen_list, global_map, local_map);
 
     // e4 opening (some tactics)
     let mut fen_list = Vec::default();
@@ -129,7 +130,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("r1bqkbnr/1pp2ppp/p1np4/1B2p3/3PP3/5N2/PPP2PPP/RNBQ1RK1 b kq - 1 5");
     fen_list.push("r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 3 5");
     fen_list.push("r1bqk2r/2pp1ppp/p1n5/1pb1p3/4P1n1/1BPP1N2/PP3PPP/RNBQK2R w KQkq - 1 8");
-    count_and_print_nodes("some tactical e4 opening", 31, fen_list, global_map, local_map);
+    count_and_print_nodes("some tactical e4 opening", 46, fen_list, global_map, local_map);
 
     // quite midgame
     let mut fen_list = Vec::default();
@@ -138,7 +139,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbq1rk1/p3bpp1/2p1pn1p/1p1p4/2PP1B2/2N1PNP1/PP3PBP/R2QK2R b KQ - 1 9");
     fen_list.push("r1b1rnk1/pp3pp1/2pq1n1p/3p4/3P4/2NBPN1P/PPQ2PP1/1R3RK1 b - - 1 14");
     fen_list.push("r1b3k1/pp3pp1/2p2n1p/3pq1n1/1P6/2NBP2P/P1Q2PP1/1R3RK1 w - - 0 18");
-    count_and_print_nodes("quite midgame Queen and Rooks", 53, fen_list, global_map, local_map);
+    count_and_print_nodes("quite midgame Queen and Rooks", 93, fen_list, global_map, local_map);
 
     // engame with rooks
     let mut fen_list = Vec::default();
@@ -147,7 +148,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("8/3k4/1r6/p1r5/1p3K2/1P4R1/P1P2R2/8 b - - 0 1");
     fen_list.push("8/3k4/1r6/p6q/1p3K2/1P1Q2R1/P7/8 b - - 0 1");
     fen_list.push("3r4/1n3K2/4RP2/6k1/8/4P3/8/8 b - - 0 1");
-    count_and_print_nodes("engame with rooks", 6, fen_list, global_map, local_map);
+    count_and_print_nodes("engame with rooks", 7, fen_list, global_map, local_map);
 
     tactical_modgame_test_thread.join().expect(RIP_STD_IN_THREAD_PANICKED);
     println!("done");
