@@ -298,7 +298,10 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        o_eval -= config.queen_in_attack + if !board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
+        let in_attack = _movegen.get_attack_idx_list(_f, true, _idx as i32);
+        if in_attack.len() > 0 {
+            o_eval -= (config.queen_in_attack * in_attack.len() as i16) + if !board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
+        }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_queen
@@ -311,7 +314,10 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        o_eval += config.queen_in_attack + if board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
+        let in_attack = _movegen.get_attack_idx_list(_f, false, _idx as i32);
+        if in_attack.len() > 0 {
+            o_eval += (config.queen_in_attack * in_attack.len() as i16) + if board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
+        }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_queen

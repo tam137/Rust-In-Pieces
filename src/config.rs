@@ -63,7 +63,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.1.4".to_string(),
+            version: "V0.2.0-candidate".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -112,7 +112,7 @@ impl Config {
             knight_blockes_pawn: 32,
 
             queen_in_attack: 60,
-            queen_in_attack_with_tempo: 500,
+            queen_in_attack_with_tempo: 700,
 
             king_shield: 40,
             king_in_check_malus: 140,
@@ -124,6 +124,8 @@ impl Config {
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
         config.your_turn_bonus = 0;
+        config.pawn_attacks_opponent_fig_with_tempo = 0;
+        config.queen_in_attack_with_tempo = 0;
         config
     }
 
