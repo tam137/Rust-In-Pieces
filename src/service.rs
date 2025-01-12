@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::eval_service::EvalService;
 use crate::fen_service::FenService;
 use crate::move_gen_service::MoveGenService;
@@ -20,7 +21,7 @@ impl Service {
             fen: FenService,
             move_gen: MoveGenService::new(),
             search: SearchService::new(),
-            eval: EvalService::new(),
+            eval: EvalService::new(&Config::new()),
             stdout: StdoutWrapper,
             uci_parser: UciParserService::new(),
         }

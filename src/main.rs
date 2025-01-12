@@ -37,7 +37,7 @@ use model::QuiescenceSearchMode;
 use model::UciGame;
 use model::ThreadSafeDataMap;
 
-use model::RIP_STD_IN_THREAD_PANICKED;
+use model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
@@ -104,7 +104,7 @@ fn main() {
         logger_buffer_thread(global_map_log_buffer, &Config::new(), rx_log_buffer);
     });
 
-    std_in_thread.join().expect(RIP_STD_IN_THREAD_PANICKED);
+    std_in_thread.join().expect(RIP_COULDN_JOIN_THREAD);
 
 }
 

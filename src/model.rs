@@ -22,7 +22,7 @@ pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
 pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
 pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
-pub const RIP_STD_IN_THREAD_PANICKED: &str = "RIP std in thread panicked";
+pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 
 #[derive(Clone)]
 pub enum ValueType {

@@ -52,6 +52,10 @@ pub struct Config {
     pub pawn_attacks_opponent_fig_with_tempo: i16,
     pub queen_in_attack: i16,
     pub queen_in_attack_with_tempo: i16,
+    pub knight_attacks_bishop: i16,
+    pub knight_attacks_rook: i16,
+    pub knight_attacks_bishop_tempo: i16,
+    pub knight_attacks_rook_tempo: i16,
 
     pub king_shield: i16,
     pub king_in_check_malus: i16,
@@ -113,6 +117,10 @@ impl Config {
             pawn_attacks_opponent_fig_with_tempo: 150,
             queen_in_attack: 60,
             queen_in_attack_with_tempo: 700,
+            knight_attacks_bishop: 5,
+            knight_attacks_rook: 15,
+            knight_attacks_bishop_tempo: 10,
+            knight_attacks_rook_tempo: 100,
 
             king_shield: 40,
             king_in_check_malus: 140,
@@ -121,11 +129,14 @@ impl Config {
         }
     }
 
+    /// Sets turn_bonus and all tempo attack boni at 0
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
         config.your_turn_bonus = 0;
         config.pawn_attacks_opponent_fig_with_tempo = 0;
         config.queen_in_attack_with_tempo = 0;
+        config.knight_attacks_rook_tempo = 0;
+        config.knight_attacks_bishop_tempo = 0;
         config
     }
 
@@ -143,7 +154,7 @@ impl Config {
     /// This config is used for tests, it uses the ALPHA2 cutting algo in quiescence search and will not print uci info string
     /// It disable also all evaluation with TEMPO
     /// Also ZOBRIST hash is disabled
-    pub fn for_tests(&self) -> Self {
+    pub fn for_tests() -> Self {
         let mut config = Config::new();
         config.print_info_string_during_search = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;

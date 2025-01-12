@@ -3,12 +3,38 @@ use crate::model::Board;
 use crate::move_gen_service::MoveGenService;
 
 
-pub struct EvalService;
+
+pub struct EvalService {
+    knight_moves: [i16; 8],
+    attack_bonus_white: [(i16, i16, i16); 2],
+    attack_bonus_black: [(i16, i16, i16); 2],
+}
 
 impl EvalService {
 
-    pub fn new() -> Self {
-        EvalService
+    pub fn new(config: &Config) -> Self {
+        Self {
+            knight_moves: [-21, -19, -12, -8, 21, 19, 12, 8],
+            attack_bonus_white: [
+                (21, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+                (23, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+            ],
+            attack_bonus_black: [
+                (11, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+                (13, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+            ],
+        }
+    }
+
+    pub fn _set_custom_config(&mut self, config: &Config) {
+        self.attack_bonus_white = [
+            (21, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+            (23, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+        ];
+        self.attack_bonus_black = [
+            (11, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+            (13, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+        ];
     }
 
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
@@ -153,7 +179,7 @@ impl EvalService {
     }
 
 
-    fn white_knight(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -162,29 +188,23 @@ impl EvalService {
         if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
             o_eval -= config.knight_on_rim_malus;
         }
-        /*
-        let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
-    
 
-        let attack_bonus = [
-            (21, config.knight_attacks_rook),            
-            (23, config.knight_attacks_bishop),
-            (24, config.knight_attacks_queen),
-        ];
-    
         // Evaluate knight attacks on other pieces
-        for &offset in &knight_moves {
-            if let Some(&piece) = f.get((idx as isize + offset) as usize) {
-                for &(target, bonus) in &attack_bonus {
-                    if piece == target {
-                        o_eval += bonus;
+        for &offset in &self.knight_moves {
+            let target_idx = idx as i32 + offset as i32;
+            assert!(target_idx >= 0 && (target_idx as usize) < f.len());
+            if let Some(&piece) = f.get(target_idx as usize) {
+                for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_white {
+                    if piece == target_piece.into() {
+                        o_eval += bonus_simple;
+                        if board.white_to_move {
+                            o_eval += bonus_tempo;
+                        }
                         break;
                     }
                 }
             }
         }
-        */
-
 
         if idx==43||idx==44||idx==45||idx==46||
             idx==53||idx==54||idx==55||idx==56||
@@ -207,7 +227,7 @@ impl EvalService {
     }
     
 
-    fn black_knight(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let on_rank = 8 - (idx / 10 - 2);
@@ -217,27 +237,23 @@ impl EvalService {
             o_eval += config.knight_on_rim_malus;
         }
     
-    /*
-        let knight_moves = [-21, -19, -12, -8, 21, 19, 12, 8];
-    
-        let attack_bonus = [
-            (11, config.knight_attacks_rook),            
-            (13, config.knight_attacks_bishop),
-            (14, config.knight_attacks_queen),
-        ];
-    
         // Evaluate knight attacks on other pieces
-        for &offset in &knight_moves {
-            if let Some(&piece) = f.get((idx as isize + offset) as usize) {
-                for &(target, malus) in &attack_bonus {
-                    if piece == target {
-                        o_eval -= malus;
+        for &offset in &self.knight_moves {
+            let target_idx = idx as i32 + offset as i32;
+            assert!(target_idx >= 0 && (target_idx as usize) < f.len());
+            if let Some(&piece) = f.get(target_idx as usize) {
+                for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_black {
+                    if piece == target_piece.into() {
+                        o_eval -= bonus_simple;
+                        if !board.white_to_move {
+                            o_eval -= bonus_tempo;
+                        }
                         break;
                     }
                 }
             }
         }
-         */
+        
 
         if  idx==53||idx==54||idx==55||idx==56||
             idx==63||idx==64||idx==65||idx==66||
@@ -512,9 +528,24 @@ mod tests {
         fib("8/1k6/4P3/8/8/8/1K6/8 w - - 0 1", "8/1k6/8/4P3/8/8/1K6/8 w - - 0 1");
         fib("8/1k2P3/8/8/8/8/1K6/8 w - - 0 1", "8/1k6/4P3/8/8/8/1K6/8 w - - 0 1");
 
-        fib("8/1k6/8/4p3/8/8/1K6/8 w - - 0 1", "8/1k6/8/8/4p3/8/1K6/8 w - - 0 1");
-        fib("8/1k6/8/8/4p3/8/1K6/8 w - - 0 1", "8/1k6/8/8/8/4p3/1K6/8 w - - 0 1");
-        fib("8/1k6/8/8/8/4p3/1K6/8 w - - 0 1", "8/1k6/8/8/8/8/1K2p3/8 w - - 0 1");
+        fib("8/1k6/8/4p3/8/8/1K6/8 b - - 0 1", "8/1k6/8/8/4p3/8/1K6/8 b - - 0 1");
+        fib("8/1k6/8/8/4p3/8/1K6/8 b - - 0 1", "8/1k6/8/8/8/4p3/1K6/8 b - - 0 1");
+        fib("8/1k6/8/8/8/4p3/1K6/8 b - - 0 1", "8/1k6/8/8/8/8/1K2p3/8 b - - 0 1");
+    }
+
+    #[test]
+    fn knight_attack_test() {
+        // white knight attacks
+        fib("8/1k6/4b3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4b3/8/5N2/1K6/8/8 b - - 0 1");
+        fib("8/1k6/4r3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4r3/8/5N2/1K6/8/8 b - - 0 1");
+        fib("8/1k6/4q3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4q3/8/5N2/1K6/8/8 b - - 0 1");
+        
+        // black knight attacks
+        fib("8/1k6/5n2/8/4B3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4B3/1K6/8/8 b - - 0 1");
+        fib("8/1k6/5n2/8/4R3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4R3/1K6/8/8 b - - 0 1");
+        fib("8/1k6/5n2/8/4Q3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4Q3/1K6/8/8 b - - 0 1");
+
+        //fib("", "");
     }
 
 
@@ -547,7 +578,7 @@ mod tests {
         let fen = Service::new().fen;
         let eval = Service::new().eval;
         let movegen = Service::new().move_gen;
-        let config = Config::_for_evel_equal_tests();
+        let config = Config::for_tests();
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
@@ -563,7 +594,8 @@ mod tests {
 
     fn equal_eval(fen: &str) {
         let fen_service = Service::new().fen;
-        let eval_service = Service::new().eval;
+        let mut eval_service = Service::new().eval;
+        eval_service._set_custom_config(&Config::_for_evel_equal_tests());
         let movegen = Service::new().move_gen;
 
         let config = &Config::_for_evel_equal_tests();
