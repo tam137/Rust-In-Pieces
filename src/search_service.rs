@@ -297,7 +297,7 @@ mod tests {
 
     pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
         let service = Service::new();
-        let config = Config::new().for_tests();
+        let config = Config::for_tests();
         let mut stats = Stats::new();
         let mut local_map = DataMap::new();
         local_map.insert(DataMapKey::CalcTime, Instant::now());

@@ -656,7 +656,7 @@ mod tests {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
-        let config = Config::new().for_tests();
+        let config = Config::for_tests();
 
         service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &local_map)
     }
@@ -665,7 +665,7 @@ mod tests {
         let service = Service::new();
         let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
-        let config = Config::new().for_tests();
+        let config = Config::for_tests();
 
         service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &service, &global_map, &local_map)
     }
@@ -1008,7 +1008,7 @@ mod tests {
     #[test]
     fn move_ordering_with_pv_nodes_test() {
         let service = Service::new();
-        let config = Config::new().for_tests();
+        let config = Config::for_tests();
         let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
 
@@ -1029,7 +1029,7 @@ mod tests {
     #[test]
     fn skip_validation_and_check_game_end_test() {
         let service = Service::new();
-        let config = Config::new().for_tests();
+        let config = Config::for_tests();
         let global_map = global_map_handler::create_new_global_map();
         let mut local_map = DataMap::new();
 
@@ -1070,7 +1070,7 @@ mod tests {
     }
 
 
-    fn check_turn_order_of(notation: &str, turns: Vec<Turn>, expected_below: i32) -> () {
+    fn _check_turn_order_of(notation: &str, turns: Vec<Turn>, expected_below: i32) -> () {
         let mut counter = 0;
         let target_turn = NotationUtil::get_turn_from_notation(notation);
         for t in &turns {
@@ -1086,7 +1086,7 @@ mod tests {
         panic!("RIP Did not found target move");
     }
 
-    fn from(fen: &str) -> Vec<Turn> {
+    fn _from(fen: &str) -> Vec<Turn> {
         let mut board = Service::new().fen.set_fen(fen);
         generate_valid_moves_list(&mut board)
     }
