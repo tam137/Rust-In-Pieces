@@ -9,21 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Technical: remove Mutex from PV-Nodes in
 Movegen: add null move threads
-Movegen: improve Sorting of capture moves
 Eval: detect and evaluate pawn islands
 Eval: advance rook game
+Eval: advance pawn games
 
 
-## [V0.2.0] - 2025-01-XXs
+## [V0.2.0] - 2025-01-14
 
 ### Added
+
+- improve knight and queen evaluation
 
 ### Fixed
 
 ### Elos
 
-| Name                                                | Pkt   | Games | Elo  |
-|-----------------------------------------------------|-------|-------|------|
+| Name                                   | Pkt   | Games | Elo  |
+|----------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.2.0-candidate (new)  | 352.0 | 550   | 1564 |
+| Rust-In-Pieces V0.1.4                  | 220.0 | 400   | 1520 |
+| Rust-In-Pieces V0.1.2                  | 78.5  | 150   | 1509 |
+| Rust-In-Pieces V0.1.1                  | 71.5  | 150   | 1491 |
+| Rust-In-Pieces V0.1.3-one-thread       | 190.0 | 400   | 1490 |
+| Rust-In-Pieces V0.1.3                  | 185.0 | 400   | 1485 |
+| Rust-In-Pieces V0.1.0                  | 157.5 | 400   | 1458 |
+| SupraH V00i-threaded-3-imp             | 45.5  | 150   | 1421 |
 
 
 ## [V0.1.4] - 2025-01-11
