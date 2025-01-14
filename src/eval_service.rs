@@ -112,6 +112,15 @@ impl EvalService {
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
+        let mut target_idx = idx;
+        while target_idx > 20 {
+            target_idx -= 10;
+            if f[target_idx] == 10 {
+                o_eval -= config.pawn_double_malus;
+                e_eval -= config.pawn_double_malus / 2;
+            }
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_pawn
     }
@@ -161,6 +170,15 @@ impl EvalService {
         if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
             o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move { config.pawn_attacks_opponent_fig_with_tempo } else { 0 };
             e_eval -= config.pawn_attacks_opponent_fig / 2;
+        }
+
+        let mut target_idx = idx;
+        while target_idx < 100 {
+            target_idx += 10;
+            if f[target_idx] == 20 {
+                o_eval += config.pawn_double_malus;
+                e_eval += config.pawn_double_malus / 2;
+            }
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -571,6 +589,15 @@ mod tests {
         // 3 pieces board
         let board = fen.set_fen("8/8/2k5/8/8/8/5N2/4K3 w - - 0 1");
         assert_eq!(0, eval.get_game_phase(&board));
+    }
+
+    #[test]
+    pub fn double_pawn_test() {
+        equal_eval("2k5/3p1p2/3p4/5p2/5P2/3P4/3P1P2/2K5 w - - 0 1");
+        eval_between("2k5/5p2/5p2/8/8/8/4PP2/2K5 w - - 0 1", 0, 20);
+        eval_between("2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1", -20, 0);
+        fib("2k5/4pp2/8/8/8/4P3/5P2/2K5 w - - 0 1", "2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1");
+        fib("2k5/5p2/4p3/8/8/8/4PP2/2K5 w - - 0 1", "2k5/5p2/4p3/8/5P2/8/5P2/2K5 w - - 0 1");
     }
 
     /// first is better

@@ -72,7 +72,6 @@ impl MoveGenService {
         }
         
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
-        //let zobrist_table_read = zobrist_table_read.read().expect(RIP_COULDN_LOCK_MUTEX);
 
         let mut hash_buffer: HashMap<u64, i16> = HashMap::default();        
     
