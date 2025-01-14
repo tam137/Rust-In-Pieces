@@ -110,7 +110,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
         fen_list.push("r3qrk1/ppp3p1/2n1b2p/2bnpp2/8/PQPP1NBP/1P1N1PP1/2R1KB1R b K - 3 13");
         fen_list.push("r2qk2r/p1p2pp1/2n1bn1p/1pbpp3/4P2B/1PNP1N2/P1P1BPPP/R2Q1RK1 b kq - 0 9");
         fen_list.push("r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11");
-        count_and_print_nodes("tactical midgame Queen and Rooks", 199, fen_list, &global_map_t1, &mut local_map_t1);
+        count_and_print_nodes("tactical midgame Queen and Rooks", 190, fen_list, &global_map_t1, &mut local_map_t1);
     });
 
     // avarage midgame
@@ -124,7 +124,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
         fen_list.push("2rq1rk1/pp2bppp/2n1pnb1/3p4/2PP4/1P3N1P/PB1NBPP1/2RQ1RK1 w - - 3 14");
         fen_list.push("r1bq1rk1/p1pn1pbp/1p2pnp1/8/2NP4/1P3NP1/PB2PPBP/R2Q1RK1 b - - 0 10");
         fen_list.push("r2q2k1/bpp1npp1/p2p1r1p/4p3/PP2P3/2PP1N2/4QPPP/R3RNK1 w - - 0 17");
-        count_and_print_nodes("avarage midgame", 128, fen_list, &global_map_t1, &mut local_map_t1);
+        count_and_print_nodes("avarage midgame", 127, fen_list, &global_map_t1, &mut local_map_t1);
     });
 
     // quite d4 opening (positional)
@@ -134,7 +134,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbqkb1r/pp3ppp/2p2n2/3p4/3P1B2/2N2N2/PP2PPPP/R2QKB1R b KQkq - 1 6");
     fen_list.push("rn1q1rk1/pp2bppp/2p2n2/3p1b2/3P1B2/2N1PN1P/PP3PP1/R2QKB1R w KQ - 1 9");
     fen_list.push("r4rk1/pp1nbppp/1qp2n2/3p4/3P1B2/2NQPN1P/PP3PP1/R4RK1 w - - 3 12");
-    count_and_print_nodes("positional d4 opening", 76, fen_list, global_map, local_map);
+    count_and_print_nodes("positional d4 opening", 74, fen_list, global_map, local_map);
 
     // e4 opening (some tactics)
     let mut fen_list = Vec::default();
@@ -152,7 +152,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbq1rk1/p3bpp1/2p1pn1p/1p1p4/2PP1B2/2N1PNP1/PP3PBP/R2QK2R b KQ - 1 9");
     fen_list.push("r1b1rnk1/pp3pp1/2pq1n1p/3p4/3P4/2NBPN1P/PPQ2PP1/1R3RK1 b - - 1 14");
     fen_list.push("r1b3k1/pp3pp1/2p2n1p/3pq1n1/1P6/2NBP2P/P1Q2PP1/1R3RK1 w - - 0 18");
-    count_and_print_nodes("quite midgame Queen and Rooks", 92, fen_list, global_map, local_map);
+    count_and_print_nodes("quite midgame Queen and Rooks", 96, fen_list, global_map, local_map);
 
     // engame with rooks
     let mut fen_list = Vec::default();

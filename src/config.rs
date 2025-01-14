@@ -43,6 +43,7 @@ pub struct Config {
     pub pawn_supports_knight_outpost: i16,
     pub pawn_centered: i16,
     pub pawn_undeveloped_malus: i16,
+    pub pawn_double_malus: i16,
 
     pub knight_on_rim_malus: i16,
     pub knight_centered: i16,
@@ -67,7 +68,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.0".to_string(),
+            version: "V0.2.1-candidate".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -108,6 +109,7 @@ impl Config {
             pawn_on_before_last_rank_bonus: 110,
             pawn_on_before_before_last_rank_bonus: 40,
             pawn_defends_bishop: 20,
+            pawn_double_malus: 16,
 
             knight_on_rim_malus: 12,
             knight_centered: 32,

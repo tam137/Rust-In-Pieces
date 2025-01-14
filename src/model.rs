@@ -705,6 +705,15 @@ impl Board {
     pub fn hash(&self) -> u64 {
         zobrist::gen(&self)
     }
+
+    pub fn _get_piece_idx(&self) -> Vec<usize> {
+        let mut piece_idx = Vec::with_capacity(32);
+
+        for idx in 20..99 {
+            if self.field[idx as usize] > 0 { piece_idx.push(idx as usize); }
+        }
+        piece_idx
+    }
 }
 
 // Implement `PartialEq` manually for the `Board` struct, for unittests
