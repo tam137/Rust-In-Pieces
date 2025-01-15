@@ -62,6 +62,21 @@ impl EvalService {
             eval = eval + eval_for_piece;
         }
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
+
+        if eval < 200 || eval > 200 {
+            let mut mult: f32 = 255 as f32 / game_phase as f32;
+            if mult > 1.1 { mult = 1.1; }
+            let eval_f32 = eval as f32 * mult;
+            if eval_f32 > i16::MAX.into() {
+                eval = i16::MAX;
+            }
+            else if -eval_f32 > i16::MAX.into() {
+                eval = -i16::MAX;
+            } else {
+                eval = eval_f32 as i16;
+            }
+        }
+
         eval
     }
 
