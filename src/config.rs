@@ -21,6 +21,7 @@ pub struct Config {
     pub game_loop: u64,
     pub smp_thread_eval_noise: i16,
     pub skip_strong_validation: bool,
+    pub max_eval_mult: f32,
 
     pub your_turn_bonus: i16,
 
@@ -68,7 +69,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.1-candidate-2".to_string(),
+            version: "V0.2.1-candidate-3".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -87,6 +88,7 @@ impl Config {
             game_loop: 3,
             smp_thread_eval_noise: 0,
             skip_strong_validation: false,
+            max_eval_mult: 1.2,
 
             your_turn_bonus: 20,
 
@@ -112,8 +114,8 @@ impl Config {
             pawn_double_malus: 16,
 
             knight_on_rim_malus: 12,
-            knight_centered: 32,
-            knight_blockes_pawn: 32,
+            knight_centered: 20,
+            knight_blockes_pawn: 24,
 
             pawn_attacks_opponent_fig: 35,
             pawn_attacks_opponent_fig_with_tempo: 150,
@@ -127,7 +129,7 @@ impl Config {
             king_shield: 40,
             king_in_check_malus: 140,
             king_in_double_check_malus: 350,
-            king_centered: 100,
+            king_centered: 85,
         }
     }
 

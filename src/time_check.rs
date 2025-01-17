@@ -59,10 +59,10 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     println!("\nexpected <10µs>");
     time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0));
 
-    println!("\nexpected <130µs");
+    println!("\nexpected ~130µs");
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map, &local_map));
 
-    println!("\nexpected <30µs");
+    println!("\nexpected ~85µs (Skip Validation)");
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, true);
     time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map, &local_map));
 
@@ -70,7 +70,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, false);
     time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, service, global_map, &local_map));
 
-    println!("\nexpected ~1µs");
+    println!("\nexpected ~2.5µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
 
     println!("\nexpected <1000ns");
@@ -110,7 +110,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
         fen_list.push("r3qrk1/ppp3p1/2n1b2p/2bnpp2/8/PQPP1NBP/1P1N1PP1/2R1KB1R b K - 3 13");
         fen_list.push("r2qk2r/p1p2pp1/2n1bn1p/1pbpp3/4P2B/1PNP1N2/P1P1BPPP/R2Q1RK1 b kq - 0 9");
         fen_list.push("r3k1nr/1pp3pp/2n2q2/5b2/pbPp4/PP3NP1/3NPPBP/R1BQ1RK1 b kq - 0 11");
-        count_and_print_nodes("tactical midgame Queen and Rooks", 190, fen_list, &global_map_t1, &mut local_map_t1);
+        count_and_print_nodes("tactical midgame Queen and Rooks", 184, fen_list, &global_map_t1, &mut local_map_t1);
     });
 
     // avarage midgame
@@ -134,7 +134,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbqkb1r/pp3ppp/2p2n2/3p4/3P1B2/2N2N2/PP2PPPP/R2QKB1R b KQkq - 1 6");
     fen_list.push("rn1q1rk1/pp2bppp/2p2n2/3p1b2/3P1B2/2N1PN1P/PP3PP1/R2QKB1R w KQ - 1 9");
     fen_list.push("r4rk1/pp1nbppp/1qp2n2/3p4/3P1B2/2NQPN1P/PP3PP1/R4RK1 w - - 3 12");
-    count_and_print_nodes("positional d4 opening", 74, fen_list, global_map, local_map);
+    count_and_print_nodes("positional d4 opening", 68, fen_list, global_map, local_map);
 
     // e4 opening (some tactics)
     let mut fen_list = Vec::default();
@@ -152,7 +152,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("rnbq1rk1/p3bpp1/2p1pn1p/1p1p4/2PP1B2/2N1PNP1/PP3PBP/R2QK2R b KQ - 1 9");
     fen_list.push("r1b1rnk1/pp3pp1/2pq1n1p/3p4/3P4/2NBPN1P/PPQ2PP1/1R3RK1 b - - 1 14");
     fen_list.push("r1b3k1/pp3pp1/2p2n1p/3pq1n1/1P6/2NBP2P/P1Q2PP1/1R3RK1 w - - 0 18");
-    count_and_print_nodes("quite midgame Queen and Rooks", 96, fen_list, global_map, local_map);
+    count_and_print_nodes("quite midgame Queen and Rooks", 84, fen_list, global_map, local_map);
 
     // engame with rooks
     let mut fen_list = Vec::default();
@@ -161,7 +161,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     fen_list.push("8/3k4/1r6/p1r5/1p3K2/1P4R1/P1P2R2/8 b - - 0 1");
     fen_list.push("8/3k4/1r6/p6q/1p3K2/1P1Q2R1/P7/8 b - - 0 1");
     fen_list.push("3r4/1n3K2/4RP2/6k1/8/4P3/8/8 b - - 0 1");
-    count_and_print_nodes("engame with rooks", 7, fen_list, global_map, local_map);
+    count_and_print_nodes("engame with rooks", 6, fen_list, global_map, local_map);
 
     tactical_modgame_test_thread.join().expect(RIP_COULDN_JOIN_THREAD);
     avarage_midgame_test_thread.join().expect(RIP_COULDN_JOIN_THREAD);
