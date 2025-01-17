@@ -65,7 +65,7 @@ impl EvalService {
 
         if eval < 200 || eval > 200 {
             let mut mult: f32 = 255 as f32 / game_phase as f32;
-            if mult > 1.1 { mult = 1.1; }
+            if mult > config.max_eval_mult { mult = config.max_eval_mult; }
             let eval_f32 = eval as f32 * mult;
             if eval_f32 > i16::MAX.into() {
                 eval = i16::MAX;
@@ -127,13 +127,9 @@ impl EvalService {
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
-        let mut target_idx = idx;
-        while target_idx > 20 {
-            target_idx -= 10;
-            if f[target_idx] == 10 {
-                o_eval -= config.pawn_double_malus;
-                e_eval -= config.pawn_double_malus / 2;
-            }
+        if f[idx-10] == 10 || f[idx-20] == 10 || f[idx-30] == 10 {
+            o_eval -= config.pawn_double_malus;
+            e_eval -= config.pawn_double_malus / 2;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -187,13 +183,9 @@ impl EvalService {
             e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
-        let mut target_idx = idx;
-        while target_idx < 100 {
-            target_idx += 10;
-            if f[target_idx] == 20 {
-                o_eval += config.pawn_double_malus;
-                e_eval += config.pawn_double_malus / 2;
-            }
+        if f[idx+10] == 20 || f[idx+20] == 20 || f[idx+30] == 20 {
+            o_eval += config.pawn_double_malus;
+            e_eval += config.pawn_double_malus / 2;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -489,20 +481,20 @@ mod tests {
     #[test]
     fn eval_fig_value_test() {
         // Figure values test for white
-        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 50, 150);
-        eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 350, 450);
-        eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 600, 800);
-        eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 850, 1050);
-        eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 1750, 1950);
-        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 2900, 3200);
+        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 80, 190);
+        eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 400, 550);
+        eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 700, 950);
+        eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 950, 1200);
+        eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 2100, 2400);
+        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 3500, 4000);
 
         // Figure values test for black
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1", -150, 50);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKB1R b KQkq - 0 1", -450, -350);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RN1QKB1R b KQkq - 0 1", -800, -600);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1050, -850);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -1950, -1750);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -3200, -2900);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1200, -1000);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -2300, -1900);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -4000, -3750);
     }
 
     #[test]
