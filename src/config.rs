@@ -61,6 +61,7 @@ pub struct Config {
     pub knight_attacks_rook_tempo: i16,
 
     pub king_shield: i16,
+    pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
     pub king_centered: i16
@@ -129,6 +130,7 @@ impl Config {
             knight_attacks_rook_tempo: 100,
 
             king_shield: 40,
+            king_trapp_at_baseline_malus: 75,
             king_in_check_malus: 140,
             king_in_double_check_malus: 350,
             king_centered: 85,
