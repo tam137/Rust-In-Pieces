@@ -3,7 +3,6 @@ use crate::model::Board;
 use crate::move_gen_service::MoveGenService;
 
 
-
 pub struct EvalService {
     knight_moves: [i16; 8],
     attack_bonus_white: [(i16, i16, i16); 2],
@@ -59,11 +58,14 @@ impl EvalService {
                 25 => self.black_king(idx, board, config, field, game_phase, movegen),
                 _ => 0,
             };
+            if config.print_eval_per_figure && piece > 0 {
+                println!("{},\t{},\t{}", idx, piece, eval_for_piece);
+            }
             eval = eval + eval_for_piece;
         }
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
 
-        if eval < 200 || eval > 200 {
+        if eval < -200 || eval > 200 { // TODO Test this
             let mut mult: f32 = 255 as f32 / game_phase as f32;
             if mult > config.max_eval_mult { mult = config.max_eval_mult; }
             let eval_f32 = eval as f32 * mult;
@@ -77,6 +79,9 @@ impl EvalService {
             }
         }
 
+        if config.print_eval_per_figure {
+            println!("{}", eval);
+        }
         eval
     }
 
@@ -122,7 +127,7 @@ impl EvalService {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
 
-        if board.field[idx-9] / 20 == 1 || board.field[idx-11] / 20 == 1 {
+        if (f[idx-9] >= 21 && f[idx-9] <= 25) || (f[idx-11] >= 21 && f[idx-11] <= 25) {
             o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move {
                 config.pawn_attacks_opponent_fig_with_tempo
             } else {
@@ -182,7 +187,7 @@ impl EvalService {
             o_eval = o_eval + config.pawn_undeveloped_malus;
         }
 
-        if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
+        if (f[idx+9] >= 11 && f[idx+9] <= 15) || (f[idx+11] >= 11 && f[idx+11] <= 15) {
             o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move {
                 config.pawn_attacks_opponent_fig_with_tempo
             } else {
@@ -309,7 +314,7 @@ impl EvalService {
     }   
 
 
-    fn white_bishop(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn white_bishop(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -320,10 +325,10 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        if idx % 10 == 8 && idx + 9 != 0 { // TODO make this static to avoid modul
+        if idx % 10 == 8 && f[idx+9] != 0 { // TODO make this static to avoid modul
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
-        if idx % 10 == 1 && idx + 11 != 0 {
+        if idx % 10 == 1 && f[idx+11] != 0 {
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
 
@@ -331,7 +336,7 @@ impl EvalService {
         eval + config.piece_eval_bishop
     }
 
-    fn black_bishop(&self, idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn black_bishop(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
@@ -342,10 +347,10 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        if idx % 10 == 8 && idx - 11 != 0 { // TODO make this static to avoid modul
+        if idx % 10 == 8 && f[idx-11] != 0 { // TODO make this static to avoid modul
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
-        if idx % 10 == 1 && idx - 9 != 0 {
+        if idx % 10 == 1 && f[idx-9] != 0 {
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
 
@@ -576,7 +581,10 @@ mod tests {
         fib("rnbqkbnr/pppppppp/8/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppppp1p/8/6p1/5NP1/8/PPPPPP1P/RNBQKB1R w KQkq - 0 1");
         fib("rnbqkbnr/pppp1ppp/4p3/8/5N2/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppp1ppp/4p3/8/4N3/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
         fib("rnbqkbnr/ppppp1pp/8/5p2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/5p2/8/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
-        fib("rnbqkbnr/ppppp1pp/8/8/6p1/6N1/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/8/6p1/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");   
+        fib("rnbqkbnr/ppppp1pp/8/8/6p1/6N1/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/8/6p1/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+         
+        // special position to find bug
+        fib("rnbqkbnr/1p3ppp/p7/2p5/1P1p4/N4N2/P2PPPPP/R1BQKB1R b KQkq - 1 7", "rnbqkbnr/1p3ppp/8/1pp5/PP1p4/5N2/3PPPPP/R1BQKB1R w KQkq - 0 8");
     }
 
     #[test]
@@ -644,6 +652,12 @@ mod tests {
         fib("2k5/5p2/4p3/8/8/8/4PP2/2K5 w - - 0 1", "2k5/5p2/4p3/8/5P2/8/5P2/2K5 w - - 0 1");
     }
 
+    #[test]
+    pub fn print_eval_for_fig_test() {
+        //print_eval_for_fig("rnbqkbnr/1p3ppp/p7/2p5/1P1p4/N4N2/P2PPPPP/R1BQKB1R b KQkq - 1 7");
+        //print_eval_for_fig("rnbqkbnr/1p3ppp/8/1pp5/PP1p4/5N2/3PPPPP/R1BQKB1R w KQkq - 0 8");
+    }
+
     /// first is better
     fn fib(fen1: &str, fen2: &str) {
         let fen = Service::new().fen;
@@ -687,6 +701,18 @@ mod tests {
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
+    }
+
+    fn _print_eval_for_fig(fen: &str) {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = Service::new().move_gen;
+
+        let board = &fen_service.set_fen(fen);
+        let mut config = Config::new();
+        config.print_eval_per_figure = true;
+        eval_service.calc_eval(board, &config, &movegen);
+        println!("------------");
     }
 
 
