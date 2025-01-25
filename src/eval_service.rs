@@ -320,7 +320,7 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        if idx % 10 == 8 && idx + 9 != 0 {
+        if idx % 10 == 8 && idx + 9 != 0 { // TODO make this static to avoid modul
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
         if idx % 10 == 1 && idx + 11 != 0 {
@@ -342,7 +342,7 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
-        if idx % 10 == 8 && idx - 11 != 0 {
+        if idx % 10 == 8 && idx - 11 != 0 { // TODO make this static to avoid modul
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
         if idx % 10 == 1 && idx - 9 != 0 {
@@ -414,6 +414,10 @@ impl EvalService {
         o_eval = o_eval + if f[idx-10]/10==1 { config.king_shield } else { 0 };
         o_eval = o_eval + if f[idx-11]/10==1 { config.king_shield } else { 0 };
 
+        if idx / 10 == 9 && idx - 9 != 0 && idx - 10 != 0 && idx - 11 != 0 {
+            e_eval = e_eval - config.king_trapp_at_baseline_malus;
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_king
     }
@@ -445,6 +449,10 @@ impl EvalService {
         o_eval = o_eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };
         o_eval = o_eval - if f[idx+10]/20==1 { config.king_shield } else { 0 };
         o_eval = o_eval - if f[idx+11]/20==1 { config.king_shield } else { 0 };
+
+        if idx / 10 == 2 && idx + 9 != 0 && idx + 10 != 0 && idx + 11 != 0 {
+            e_eval = e_eval + config.king_trapp_at_baseline_malus;
+        }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_king
@@ -498,6 +506,8 @@ mod tests {
         equal_eval("1k6/3p4/4P3/8/8/4p3/3P4/1K6 w - - 0 1");
         equal_eval("rnbqkb1r/ppppp1pp/6n1/6P1/6p1/6N1/PPPPP1PP/RNBQKB1R w KQkq - 0 1");
         equal_eval("3k4/8/p1p5/1p2ppp1/1P2PPP1/P1P5/8/3K4 w - - 0 1");
+        equal_eval("6k1/5ppp/8/8/8/8/5PPP/6K1 w - - 0 1");
+        equal_eval("7k/5ppp/8/8/8/8/5PPP/7K w - - 0 1");
     }
 
     #[test]
@@ -508,15 +518,15 @@ mod tests {
         eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 700, 950);
         eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 950, 1200);
         eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 2100, 2400);
-        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 3500, 4000);
+        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 3300, 3750);
 
         // Figure values test for black
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1", -150, 50);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKB1R b KQkq - 0 1", -450, -350);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RN1QKB1R b KQkq - 0 1", -800, -600);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1200, -1000);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1200, -900);
         eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -2300, -1900);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -4000, -3750);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -3750, -3300);
     }
 
     #[test]
@@ -597,9 +607,7 @@ mod tests {
     fn bishop_position_test() {
         // white bishop trapped at rim
         fib("r3k2r/pp1n2p1/2p3p1/5p2/3PnB2/2P3P1/PP2B1PP/R4RK1 b kq - 4 18", "r3k2r/pp1n2p1/2p3p1/5p2/3Pn2B/2P3P1/PP2B1PP/R4RK1 b kq - 4 18");
-
-
-        //fib("", "");
+        // TODO add tests for black
     }
 
 
