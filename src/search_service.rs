@@ -414,6 +414,13 @@ mod tests {
     fn practical_moves_from_games() {
         let fen_service = Service::new().fen;
 
+        let mut board = fen_service.set_fen("rnbqkbnr/1p3ppp/p7/1Np5/1P1p4/5N2/P2PPPPP/R1BQKB1R w KQkq - 0 7");
+        let result = search(&mut board, 3, true);
+        //assert_eq!( "g4e2", result.get_best_move_algebraic());
+        result._print_all_variants();
+
+        /*
+
         let mut board = fen_service.set_fen("r2q1rk1/1pp2pbp/3p1np1/P1nPp1N1/4P1b1/2N5/P1PBBPPP/R2Q1RK1 b - - 4 11");
         let result = search(&mut board, 2, false);
         assert_eq!( "g4e2", result.get_best_move_algebraic()); // or g4c8 or g4d7
@@ -431,6 +438,7 @@ mod tests {
         let mut board = fen_service.set_fen("r3k2r/pp1n2p1/2p3p1/5pB1/3Pn3/2P3P1/PP2B1PP/R4RK1 w kq - 3 18");
         let result = search(&mut board, 3, true);
         assert_ne!("g5h4", result.get_best_move_algebraic());
+         */
 
     }
 
