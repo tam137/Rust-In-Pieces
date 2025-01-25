@@ -123,7 +123,11 @@ impl EvalService {
         }
 
         if board.field[idx-9] / 20 == 1 || board.field[idx-11] / 20 == 1 {
-            o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move { config.pawn_attacks_opponent_fig_with_tempo } else { 0 };
+            o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move {
+                config.pawn_attacks_opponent_fig_with_tempo
+            } else {
+                0 
+            };
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
@@ -179,7 +183,11 @@ impl EvalService {
         }
 
         if board.field[idx+9] / 10 == 1 || board.field[idx+11] / 10 == 1 {
-            o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move { config.pawn_attacks_opponent_fig_with_tempo } else { 0 };
+            o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move {
+                config.pawn_attacks_opponent_fig_with_tempo
+            } else {
+                0
+            };
             e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
@@ -312,6 +320,13 @@ impl EvalService {
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
 
+        if idx % 10 == 8 && idx + 9 != 0 {
+            o_eval = o_eval - config.bishop_trapped_at_rim_malus;
+        }
+        if idx % 10 == 1 && idx + 11 != 0 {
+            o_eval = o_eval - config.bishop_trapped_at_rim_malus;
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_bishop
     }
@@ -326,6 +341,13 @@ impl EvalService {
 
         //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
         //o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
+
+        if idx % 10 == 8 && idx - 11 != 0 {
+            o_eval = o_eval + config.bishop_trapped_at_rim_malus;
+        }
+        if idx % 10 == 1 && idx - 9 != 0 {
+            o_eval = o_eval + config.bishop_trapped_at_rim_malus;
+        }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_bishop
@@ -569,6 +591,13 @@ mod tests {
         fib("8/1k6/5n2/8/4B3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4B3/1K6/8/8 b - - 0 1");
         fib("8/1k6/5n2/8/4R3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4R3/1K6/8/8 b - - 0 1");
         fib("8/1k6/5n2/8/4Q3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4Q3/1K6/8/8 b - - 0 1");
+    }
+
+    #[test]
+    fn bishop_position_test() {
+        // white bishop trapped at rim
+        fib("r3k2r/pp1n2p1/2p3p1/5p2/3PnB2/2P3P1/PP2B1PP/R4RK1 b kq - 4 18", "r3k2r/pp1n2p1/2p3p1/5p2/3Pn2B/2P3P1/PP2B1PP/R4RK1 b kq - 4 18");
+
 
         //fib("", "");
     }

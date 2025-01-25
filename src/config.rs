@@ -49,6 +49,7 @@ pub struct Config {
     pub knight_on_rim_malus: i16,
     pub knight_centered: i16,
     pub knight_blockes_pawn: i16,
+    pub bishop_trapped_at_rim_malus: i16,
 
     pub pawn_attacks_opponent_fig: i16,
     pub pawn_attacks_opponent_fig_with_tempo: i16,
@@ -116,6 +117,7 @@ impl Config {
             knight_on_rim_malus: 12,
             knight_centered: 20,
             knight_blockes_pawn: 24,
+            bishop_trapped_at_rim_malus: 50,
 
             pawn_attacks_opponent_fig: 35,
             pawn_attacks_opponent_fig_with_tempo: 150,
