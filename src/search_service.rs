@@ -428,6 +428,10 @@ mod tests {
         let result = search(&mut board, 2, true);
         assert_ne!("d5e5", result.get_best_move_algebraic());
 
+        let mut board = fen_service.set_fen("r3k2r/pp1n2p1/2p3p1/5pB1/3Pn3/2P3P1/PP2B1PP/R4RK1 w kq - 3 18");
+        let result = search(&mut board, 3, true);
+        assert_ne!("g5h4", result.get_best_move_algebraic());
+
     }
 
 }
