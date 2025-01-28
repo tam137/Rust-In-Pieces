@@ -72,7 +72,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.1-candidate-5".to_string(),
+            version: "V0.2.1-candidate-6".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -92,7 +92,7 @@ impl Config {
             game_loop: 3,
             smp_thread_eval_noise: 0,
             skip_strong_validation: false,
-            max_eval_mult: 1.1,
+            max_eval_mult: 2.0,
 
             your_turn_bonus: 20,
 

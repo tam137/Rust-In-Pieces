@@ -64,20 +64,7 @@ impl EvalService {
             eval = eval + eval_for_piece;
         }
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
-
-        if eval < -200 || eval > 200 { // TODO Test this
-            let mut mult: f32 = 255 as f32 / game_phase as f32;
-            if mult > config.max_eval_mult { mult = config.max_eval_mult; }
-            let eval_f32 = eval as f32 * mult;
-            if eval_f32 > i16::MAX.into() {
-                eval = i16::MAX;
-            }
-            else if -eval_f32 > i16::MAX.into() {
-                eval = -i16::MAX;
-            } else {
-                eval = eval_f32 as i16;
-            }
-        }
+        eval = self.adjust_eval(eval, game_phase, config);        
 
         if config.print_eval_per_figure {
             println!("{}", eval);
@@ -486,6 +473,27 @@ impl EvalService {
         phase
     }
 
+    /// adjust eval when exchange pieces with advantage
+    fn adjust_eval(&self, eval: i16, game_phase: i16, config: &Config) -> i16 {
+        if game_phase + 100 < 255 && (eval <= -200 || eval >= 200) {
+            let mut mult: f32 = 255 as f32 / (game_phase + 100) as f32;
+            assert!(mult >= 1.0);
+            if mult > config.max_eval_mult {
+                mult = config.max_eval_mult;
+            }
+            let eval_f32 = eval as f32 * mult;
+            if eval_f32 > i16::MAX.into() {
+                return i16::MAX;
+            }
+            else if -eval_f32 > i16::MAX.into() {
+                return -i16::MAX;
+            } else {
+                return eval_f32 as i16;
+            }
+        }
+        eval        
+    }
+
 }
 
 
@@ -656,6 +664,28 @@ mod tests {
     pub fn print_eval_for_fig_test() {
         //print_eval_for_fig("rnbqkbnr/1p3ppp/p7/2p5/1P1p4/N4N2/P2PPPPP/R1BQKB1R b KQkq - 1 7");
         //print_eval_for_fig("rnbqkbnr/1p3ppp/8/1pp5/PP1p4/5N2/3PPPPP/R1BQKB1R w KQkq - 0 8");
+    }
+
+    #[test]
+    pub fn adjust_eval_test() {
+        let eval_service = Service::new().eval;
+        let config = &Config::new();
+
+        println!("{}", eval_service.adjust_eval(0, 255, config));
+        println!("{}", eval_service.adjust_eval(0, 100, config));
+        println!("{}", eval_service.adjust_eval(200, 160, config));
+        println!("{}", eval_service.adjust_eval(200, 100, config));
+        println!("{}", eval_service.adjust_eval(200, 90, config));
+        println!("{}", eval_service.adjust_eval(200, 50, config));
+
+        /*
+        assert_eq!(0, eval_service.adjust_eval(0, 255, config));
+        assert_eq!(-199, eval_service.adjust_eval(-199, 150, config));
+        assert_eq!(199, eval_service.adjust_eval(199, 150, config));
+
+        assert_eq!(-200, eval_service.adjust_eval(-200, 150, config));
+        assert_eq!(200, eval_service.adjust_eval(200, 150, config));
+        */
     }
 
     /// first is better
