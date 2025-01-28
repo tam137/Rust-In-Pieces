@@ -83,7 +83,7 @@ impl MoveGenService {
                 continue;
             }
 
-            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0);
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, 0);
 
             // Check for castling
             if !only_captures && (board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2)) {
@@ -189,7 +189,12 @@ impl MoveGenService {
             for &offset in &offsets {
                 if board.field[(board.field_for_en_passante + offset) as usize] == if white_turn { 10 } else { 20 } {
                     en_passante_turns.push(
-                        Turn::new(board.field_for_en_passante + offset, board.field_for_en_passante, target_piece, 0, 0)
+                        Turn::new(board.field_for_en_passante + offset,
+                            board.field_for_en_passante,
+                            target_piece,
+                            0,
+                            0,
+                            0)
                     );
                 }
             }
@@ -275,6 +280,7 @@ impl MoveGenService {
                 to: idx1,
                 capture: 0,
                 promotion: 14,
+                gives_check: 0,
                 eval: 0,
                 hash: 0,
             })
@@ -284,6 +290,7 @@ impl MoveGenService {
                 to: idx1,
                 capture: 0,
                 promotion: 24,
+                gives_check: 0,
                 eval: 0,
                 hash: 0,
             })
@@ -1042,7 +1049,7 @@ mod tests {
 
         // avoid finding moves if uses do_move() funktion
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/1bB5/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 1");
-        let turn = Turn::new(62, 95, 15, 0, 0);
+        let turn = Turn::new(62, 95, 15, 0, 0, 0);
         let mi = board.do_move(&turn); // hit white king
         assert_eq!(false, board._white_king_on_board);
         assert_eq!(true, board._black_king_on_board);
@@ -1055,7 +1062,7 @@ mod tests {
         assert_eq!(GameStatus::Normal, board.game_status);
 
         let board = &mut service.fen.set_fen("r2qk1nr/pPp2ppp/8/4p3/Qbb5/2PP1N2/PP3PPP/RNB1K2R w KQkq - 0 1");
-        let turn = Turn::new(61, 25, 25, 0, 0);
+        let turn = Turn::new(61, 25, 25, 0, 0, 0);
         let mi = board.do_move(&turn); // hit black king
         assert_eq!(true, board._white_king_on_board);
         assert_eq!(false, board._black_king_on_board);
