@@ -48,7 +48,7 @@ impl NotationUtil {
                 _ => 24, // default to queen
             };
         }
-        Turn::new(from, to, 0, promotion, 0)
+        Turn::new(from, to, 0, promotion, 0, 0)
     }
 
     /// Converts a space-separated list of notation moves (like "e2e4 e7e5") to a list of `Turn` objects.
