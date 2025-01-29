@@ -24,7 +24,12 @@ pub struct Config {
     pub skip_strong_validation: bool,
     pub max_eval_mult: f32,
 
+    pub is_hashed_rank_bonus: i32,
+    pub give_check_rank_bonus: i32,
+    pub is_pv_node_rank_bonus: i32,
+
     pub your_turn_bonus: i16,
+    pub gives_check_bonus: i16,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -72,7 +77,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.1-candidate-6".to_string(),
+            version: "V0.2.2-candidate-1".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -94,7 +99,12 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
 
+            is_hashed_rank_bonus: 5,
+            give_check_rank_bonus: 20,
+            is_pv_node_rank_bonus: 30,
+
             your_turn_bonus: 20,
+            gives_check_bonus: 60,
 
             undeveloped_knight_malus: 42,
             undeveloped_bishop_malus: 30,
@@ -102,7 +112,7 @@ impl Config {
 
             piece_eval_pawn: 100,
             piece_eval_rook: 500,
-            piece_eval_knight: 300,
+            piece_eval_knight: 300, // TODO knights a stronger pairwise
             piece_eval_bishop: 300,
             piece_eval_queen: 950,
             piece_eval_king: 10000,

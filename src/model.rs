@@ -50,6 +50,10 @@ pub enum DataMapKey {
     // skip validation when set false (local map)
     ForceSkipValidationFlag,
 
+    // gives check flags for evaluation
+    WhiteGivesCheck,
+    BlackGivesCheck,
+
     // is pv search thread
     PvFlag,
     // all search threads stop immediately
@@ -128,6 +132,8 @@ impl KeyToType<bool> for DataMapKey {
             (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
             (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) => Some(i),
             (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) => Some(i),
+            (DataMapKey::WhiteGivesCheck, ValueType::Bool(i)) => Some(i),
+            (DataMapKey::BlackGivesCheck, ValueType::Bool(i)) => Some(i),
 
             // The are keys for global map, lock whole global_map when changing values
             (DataMapKey::StopFlag, ValueType::Bool(a)) => Some(a),
@@ -313,9 +319,11 @@ pub struct Turn {
     pub to: i32,
     pub capture: i32,
     pub promotion: i32,
-    pub gives_check: i32,
+    pub gives_check: bool,
     pub eval: i16,
     pub hash: u64,
+    pub has_hashed_eval: bool,
+    pub rank: i32,
 }
 
 impl PartialEq for Turn {
@@ -335,7 +343,7 @@ impl PartialEq<&Turn> for Turn {
 
 impl Turn {
     // Constructor with all fields
-    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, gives_check: i32, eval: i16) -> Self {
+    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, gives_check: bool, eval: i16) -> Self {
         Turn {
             from,
             to,
@@ -344,6 +352,8 @@ impl Turn {
             gives_check,
             eval,
             hash: 0,
+            has_hashed_eval: false,
+            rank: 0,
         }
     }
 
@@ -353,9 +363,11 @@ impl Turn {
             to,
             capture: 0,
             promotion: 0,
-            gives_check: 0,
+            gives_check: false,
             eval: 0,
             hash: 0,
+            has_hashed_eval: false,
+            rank: 0,
         }
     }
 

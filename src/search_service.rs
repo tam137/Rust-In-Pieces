@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::config::Config;
 use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
-use crate::service::Service;
+use crate::service::{self, Service};
 use crate::global_map_handler;
 
 use crate::model::RIP_MISSED_DM_KEY;
@@ -23,7 +23,7 @@ impl SearchService {
         let logger = global_map_handler::get_log_buffer_sender(global_map);
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
         search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
@@ -50,7 +50,7 @@ impl SearchService {
             let min_max_eval = min_max_result.1;
 
             // save min max eval in zobrist table for better move sorting, if depth = 2
-            // TODO missing test
+            // TODO missing test or remove
             if depth == 2 && config.use_zobrist {
                 let hash_sender = global_map_handler::get_hash_sender(global_map);
                 hash_sender.push((board.cached_hash, min_max_eval));
@@ -119,7 +119,8 @@ impl SearchService {
     
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
-        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
+        mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
+        global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
         -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -132,23 +133,33 @@ impl SearchService {
         }
  */
         if depth <= 0 {
+            let eval = if turn.has_hashed_eval {
+                turn.eval
+            } else {
+                stats.add_eval_nodes(1);
+                let eval = service.eval.calc_eval(board, config, &service.move_gen);
+                let hash_sender = global_map_handler::get_hash_sender(global_map); // todo extract from map
+                hash_sender.push((board.cached_hash, eval)); // TODO critical Test
+                eval
+            };
+
             let mut stand_pat_cut = true;
             local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha2 {
                 stand_pat_cut = if white {
-                    beta < turn.eval || (turn.capture == 0)
+                    beta < eval || (turn.capture == 0)
                 } else {
-                    alpha > turn.eval || (turn.capture == 0)
+                    alpha > eval || (turn.capture == 0)
                 };
             }
                 
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                 stand_pat_cut = if white {
-                    self.get_white_threshold_value(&local_map) < turn.eval as i32 || turn.capture == 0
+                    self.get_white_threshold_value(&local_map) < eval as i32 || turn.capture == 0
                 } else {
-                    self.get_black_threshold_value(&local_map) > turn.eval as i32 || turn.capture == 0
+                    self.get_black_threshold_value(&local_map) > eval as i32 || turn.capture == 0
                 };
             }
             
@@ -161,7 +172,7 @@ impl SearchService {
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map).is_empty() {
+                if service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -169,12 +180,12 @@ impl SearchService {
                         _ => panic!("RIP no defined game end"),
                     };
                 }
-                return (None, turn.eval, Default::default());
+                return (None, eval, Default::default());
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, service, global_map, local_map);
+                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, global_map, local_map);
                 if turns.is_empty() {
                     // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map).is_empty() {
+                    if service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map).is_empty() {
                         return match board.game_status {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -182,12 +193,12 @@ impl SearchService {
                             _ => panic!("RIP no defined game end"),
                         };
                     }
-                    return (None, turn.eval, Default::default());
+                    return (None, eval, Default::default());
                 }
             }
         } else {
             local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
-            turns = service.move_gen.generate_valid_moves_list(board, stats, service, config, global_map, local_map);
+            turns = service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
@@ -228,10 +239,6 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
-                    //if config.use_zobrist && depth >= 1 {
-                    //    let hash_sender = global_map_handler::get_hash_sender(global_map);
-                    //    hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
-                    //}
                 }
             } else {
                 if eval > min_max_eval {
@@ -245,10 +252,6 @@ impl SearchService {
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
                         service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
-                    //if config.use_zobrist && depth >= 1 {
-                    //    let hash_sender = global_map_handler::get_hash_sender(global_map);
-                    //    hash_sender.send((mi.hash, eval)).expect(RIP_COULDN_SEND_TO_HASH_QUEUE);
-                    //}
                 }
             }
             if beta <= alpha {
