@@ -59,16 +59,16 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     println!("\nexpected <10µs>");
     time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0));
 
-    println!("\nexpected ~130µs");
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map, &local_map));
+    println!("\nexpected ~60µs");
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, global_map, &local_map));
 
-    println!("\nexpected ~85µs (Skip Validation)");
+    println!("\nexpected ~45µs (Skip Validation)");
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, true);
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, service, config, global_map, &local_map));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, global_map, &local_map));
 
     println!("\nexpected <10µs");
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, false);
-    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, service, global_map, &local_map));
+    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, global_map, &local_map));
 
     println!("\nexpected ~2.5µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));

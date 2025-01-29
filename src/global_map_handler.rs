@@ -186,7 +186,7 @@ pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Option
     
     let arc_mutex = global_map_read
         .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
-        .expect(RIP_MISSED_DM_KEY);
+        .expect(RIP_MISSED_DM_KEY); // TODO remove mutex here
 
     let hash_map = arc_mutex.lock().expect(RIP_COULDN_LOCK_MUTEX);
     hash_map.get(&hash).cloned()

@@ -26,14 +26,14 @@ impl MoveGenService {
 
 
     /// Generates a list of valid capture moves for a given board state.
-    pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
+    pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, config: &Config,
         global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
 
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats, service,
+        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats,
             config, true, global_map, local_map);
 
         stats.add_created_capture_nodes(capture_moves.len());
@@ -41,16 +41,16 @@ impl MoveGenService {
     }
 
     /// Generates a list of valid moves for a given board state.
-    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
+    pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, config: &Config,
         global_map: &ThreadSafeDataMap, local_map: &DataMap)-> Vec<Turn> {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, service, config, false, global_map, local_map)
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, global_map, local_map)
     }
 
-    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, service: &Service, config: &Config,
+    fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, config: &Config,
         only_captures: bool, global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
 
         let mut valid_moves = Vec::with_capacity(64);
@@ -64,7 +64,7 @@ impl MoveGenService {
                 board.cached_hash = zobrist::gen(board);
             }
             if let Some(pv_node_result) = global_map_handler::get_pv_node_for_hash(global_map, board.cached_hash) {
-                pv_node = Some(pv_node_result);
+                pv_node = Some(pv_node_result); // TODO assign direct
                 //let logger = global_map_handler::get_log_buffer_sender(global_map);
                 //logger.send(format!("Found Pv Node {:?}", pv_node)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             }
@@ -72,8 +72,6 @@ impl MoveGenService {
         }
         
         let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
-
-        let mut hash_buffer: HashMap<u64, i16> = HashMap::default();        
     
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
@@ -83,7 +81,13 @@ impl MoveGenService {
                 continue;
             }
 
-            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, 0, 0);
+            let mut move_turn = Turn::new(idx0, idx1, board.field[idx1 as usize], 0, false, 0);
+
+            if let Some(pv) = &pv_node {
+                if *pv == move_turn {
+                    move_turn.rank = config.is_pv_node_rank_bonus;
+                }
+            }
 
             // Check for castling
             if !only_captures && (board.field[idx0 as usize] == king_value && (idx1 == idx0 + 2 || idx1 == idx0 - 2)) {
@@ -96,14 +100,12 @@ impl MoveGenService {
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
                 move_turn.promotion = promotion_move.promotion;
                 // Validate and add the promotion moves (e.g., Queen, Knight)
-                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
+                self.validate_and_add_promotion_moves(board, stats, &mut move_turn, config, &mut valid_moves, white_turn,
                     &zobrist_table_read, local_map);
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
-                let (hash, eval) = self.validate_and_add_move(board, stats, &mut move_turn, service, config, &mut valid_moves, white_turn,
-                    &zobrist_table_read, local_map);
-                hash_buffer.insert(hash, eval);
+                self.validate_and_add_move(board, stats, &mut move_turn, config, &mut valid_moves, white_turn, &zobrist_table_read, local_map);
             }
         }
     
@@ -111,51 +113,26 @@ impl MoveGenService {
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
-                let (hash, eval) = self.validate_and_add_move(board, stats, &mut turn, service, config, &mut valid_moves, white_turn,
-                    &zobrist_table_read, local_map);
-                hash_buffer.insert(hash, eval);
+                self.validate_and_add_move(board, stats, &mut turn, config, &mut valid_moves, white_turn, &zobrist_table_read, local_map);
             }
         }
+
+        // add some more rank information
+
+        
     
         // Move sorting for PV threads (default) or normal threads if PV config is off
         if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
-            if let Some(pv_node) = pv_node {
-                // sort with pv node
-                valid_moves.sort_unstable_by(|a, b| {
-                    if a == &pv_node {
-                        return std::cmp::Ordering::Less;
-                    }
-                    if b == &pv_node {
-                        return std::cmp::Ordering::Greater;
-                    }
-            
-                    if white_turn {
-                        b.eval.cmp(&a.eval)
-                    } else {
-                        a.eval.cmp(&b.eval)
-                    }
-                });
-            } else {
-                // Fallback sort without pv node
-                if white_turn {
-                    valid_moves.sort_unstable_by(|a, b| b.eval.cmp(&a.eval));
-                } else {
-                    valid_moves.sort_unstable_by(|a, b| a.eval.cmp(&b.eval));
-                }
-            }
+            valid_moves.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
         }
         else { // SMP threads (only if PV config is on (default))
             let mut rng = rand::thread_rng();
             let mut noisy_values: Vec<(i32, i32)> = valid_moves
                 .iter()
-                .map(|mv| (mv.eval as i32, rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32))
+                .map(|mv| (mv.rank as i32, rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32))
                 .collect();
             
-            if white_turn {
-                noisy_values.sort_unstable_by(|a, b| (b.0 + b.1).cmp(&(a.0 + a.1)));
-            } else {
-                noisy_values.sort_unstable_by(|a, b| (a.0 + a.1).cmp(&(b.0 + b.1)));
-            }
+            noisy_values.sort_unstable_by(|a, b| (b.0 + b.1).cmp(&(a.0 + a.1)));
         }
         
     
@@ -168,18 +145,12 @@ impl MoveGenService {
             }
         }
 
-        if config.use_zobrist {
-            let hash_sender = global_map_handler::get_hash_sender(global_map);
-            for hash in hash_buffer {
-                hash_sender.push(hash);
-            }
-        }
-
         stats.add_created_nodes(valid_moves.len());
         valid_moves.truncate(config.truncate_bad_moves);
         valid_moves
         
     }
+    
     
     fn get_en_passante_turns(&self, board: &Board, white_turn: bool) -> Vec<Turn> {
         let mut en_passante_turns = Vec::with_capacity(4);
@@ -193,7 +164,7 @@ impl MoveGenService {
                             board.field_for_en_passante,
                             target_piece,
                             0,
-                            0,
+                            false,
                             0)
                     );
                 }
@@ -202,11 +173,10 @@ impl MoveGenService {
         en_passante_turns
     }
     
-    fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap)
-        -> (u64, i16) {
+    fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, config: &Config,
+        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap) {
 
-        let move_info = board.do_move(turn);
+        let move_info = board.do_move(turn); // TODO store hash only in turn and calculate it once
         let mut valid = true;
 
         // can skip validation here
@@ -218,20 +188,29 @@ impl MoveGenService {
 
         if valid {
             turn.hash = board.cached_hash;
-            turn.eval = self.check_hash_or_calculate_eval(board, stats, config, service, zobrist_table_read);
+            if let Some(eval) = self.get_hash(board, config, zobrist_table_read) {
+                turn.eval = eval;
+                turn.has_hashed_eval = true;
+                turn.rank = turn.rank + config.is_hashed_rank_bonus;
+                stats.add_zobrist_hit(1);
+            }
+
+            if !self.get_check_idx_list(&board.field, !white_turn).is_empty() {
+                turn.gives_check = true;
+                turn.rank = turn.rank + config.give_check_rank_bonus;
+            }
             valid_moves.push(turn.clone());
         }
         board.undo_move(turn, move_info);
-        (turn.hash, turn.eval)
     }
     
-    fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, service: &Service, config: &Config,
+    fn validate_and_add_promotion_moves(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, config: &Config,
         valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap) {
 
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
-            self.validate_and_add_move(board, stats, turn, service, config, valid_moves, white_turn, zobrist_table_read, local_map);
+            self.validate_and_add_move(board, stats, turn, config, valid_moves, white_turn, zobrist_table_read, local_map);
         }
     }    
 
@@ -280,9 +259,11 @@ impl MoveGenService {
                 to: idx1,
                 capture: 0,
                 promotion: 14,
-                gives_check: 0,
+                gives_check: false,
                 eval: 0,
                 hash: 0,
+                has_hashed_eval: false,
+                rank: 0,
             })
         } else if !white_turn && idx0 / 10 == 8 && board.field[idx0 as usize] == 20 {
             Some(Turn {
@@ -290,34 +271,23 @@ impl MoveGenService {
                 to: idx1,
                 capture: 0,
                 promotion: 24,
-                gives_check: 0,
+                gives_check: false,
                 eval: 0,
                 hash: 0,
+                has_hashed_eval: false,
+                rank: 0,
             })
         } else {
             None
         }
     }
 
-    fn check_hash_or_calculate_eval(&self, board: &mut Board, stats: &mut Stats, config: &Config, service: &Service,
-        zobrist_table_read: &ZobristTable)
-    -> i16 {        
-        stats.add_eval_nodes(1);
-
-        if config.use_zobrist {             
-            match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
-                Some(eval) => {
-                    stats.add_zobrist_hit(1);
-                    eval
-                },
-                None => {
-                    service.eval.calc_eval(board, config, &service.move_gen)
-                }
+    fn get_hash(&self, board: &mut Board, config: &Config, zobrist_table_read: &ZobristTable) -> Option<i16> {
+            if !config.use_zobrist {
+                return None;
             }
-        } else {
-            service.eval.calc_eval(board, config, &service.move_gen)
+            return zobrist_table_read.get_eval_for_hash(&board.cached_hash);
         }
-    }
 
     fn _check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) -> bool {
         if config.use_zobrist {             
@@ -530,7 +500,7 @@ impl MoveGenService {
 
         // king is missing
         if target_idx == -1 {
-            return Vec::new(); // TODO use Some
+            return Vec::new(); // TODO use Some or save on stack
         }
 
         let mut check_idx_list = Vec::new();
@@ -647,6 +617,7 @@ impl MoveGenService {
     /// Checks if the king is under attack.
     /// Return a list of Fields, that give [white] check
     pub fn get_check_idx_list(&self, field: &[i32], white: bool) -> Vec<i32> {
+        // TODO store king pos on board
         let king_pos = if white { self.calc_king_positions(field).0 } else { self.calc_king_positions(field).1 };
         self.get_attack_idx_list(field, white, king_pos)
     }
@@ -664,7 +635,7 @@ mod tests {
         let local_map = DataMap::new();
         let config = Config::for_tests();
 
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &local_map)
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &local_map)
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
@@ -673,7 +644,7 @@ mod tests {
         let local_map = DataMap::new();
         let config = Config::for_tests();
 
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &service, &global_map, &local_map)
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &global_map, &local_map)
     }
 
     #[test]
@@ -1025,7 +996,7 @@ mod tests {
         move_row.push(Turn::_new_to_from(38, 58));
         global_map_handler::set_pv_nodes(&global_map, &move_row, board);
 
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &local_map);
         let first_turn = turns.get(0).unwrap();
         
         assert_eq!(81, first_turn.from);
@@ -1044,17 +1015,17 @@ mod tests {
 
         // find moves if fen has missing king
         local_map.insert(DataMapKey::ForceSkipValidationFlag, true);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &mut local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &mut local_map);
         assert_eq!(38, turns.len());
 
         // avoid finding moves if uses do_move() funktion
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/1bB5/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 1");
-        let turn = Turn::new(62, 95, 15, 0, 0, 0);
+        let turn = Turn::new(62, 95, 15, 0, false, 0);
         let mi = board.do_move(&turn); // hit white king
         assert_eq!(false, board._white_king_on_board);
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::BlackWin, board.game_status);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &service, &config, &global_map, &mut local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &mut local_map);
         assert_eq!(0, turns.len());
         board.undo_move(&turn, mi);
         assert_eq!(true, board._white_king_on_board);
@@ -1062,7 +1033,7 @@ mod tests {
         assert_eq!(GameStatus::Normal, board.game_status);
 
         let board = &mut service.fen.set_fen("r2qk1nr/pPp2ppp/8/4p3/Qbb5/2PP1N2/PP3PPP/RNB1K2R w KQkq - 0 1");
-        let turn = Turn::new(61, 25, 25, 0, 0, 0);
+        let turn = Turn::new(61, 25, 25, 0, false, 0);
         let mi = board.do_move(&turn); // hit black king
         assert_eq!(true, board._white_king_on_board);
         assert_eq!(false, board._black_king_on_board);
