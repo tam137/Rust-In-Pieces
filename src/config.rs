@@ -27,6 +27,8 @@ pub struct Config {
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
     pub is_pv_node_rank_bonus: i32,
+    pub give_promotion_rank_bonus_queen: i32,
+    pub give_promotion_rank_bonus_knight: i32,
 
     pub your_turn_bonus: i16,
     pub gives_check_bonus: i16,
@@ -99,9 +101,11 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
 
-            is_hashed_rank_bonus: 5,
-            give_check_rank_bonus: 20,
-            is_pv_node_rank_bonus: 30,
+            is_hashed_rank_bonus: 1,
+            give_check_rank_bonus: 5,
+            is_pv_node_rank_bonus: 15,
+            give_promotion_rank_bonus_queen: 15,
+            give_promotion_rank_bonus_knight: 6,
 
             your_turn_bonus: 20,
             gives_check_bonus: 60,

@@ -95,6 +95,27 @@ impl MoveGenService {
                     continue;
                 }
             }
+
+            move_turn.rank += match move_turn.capture {
+                10 | 20 => 2,
+                11 | 21 => 5,
+                12 | 22 => 3,
+                13 | 23 => 3,
+                14 | 24 => 9,
+                _ => 0,
+            };
+
+            if move_turn.capture != 0 {
+                move_turn.rank +=  match board.field[move_turn.from as usize] {
+                    11 | 21 => -1,
+                    14 | 24 => -3,
+                    _ => 0,
+                }
+            };
+
+            if move_turn.rank < 0 {
+                move_turn.rank = 0;
+            }
     
             // Check for promotion
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0, idx1) {
@@ -115,11 +136,7 @@ impl MoveGenService {
             for mut turn in en_passante_turns {
                 self.validate_and_add_move(board, stats, &mut turn, config, &mut valid_moves, white_turn, &zobrist_table_read, local_map);
             }
-        }
-
-        // add some more rank information
-
-        
+        }        
     
         // Move sorting for PV threads (default) or normal threads if PV config is off
         if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
@@ -133,8 +150,7 @@ impl MoveGenService {
                 .collect();
             
             noisy_values.sort_unstable_by(|a, b| (b.0 + b.1).cmp(&(a.0 + a.1)));
-        }
-        
+        }        
     
         // check Gamestatus
         if valid_moves.is_empty() && !only_captures {
@@ -210,6 +226,12 @@ impl MoveGenService {
         let promotion_types = if white_turn { [12, 14] } else { [22, 24] }; // Knight and Queen promotions for white and black
         for &promotion in &promotion_types {
             turn.promotion = promotion;
+            match promotion {
+                12 | 22 => turn.rank += config.give_promotion_rank_bonus_queen,
+                14 | 24 => turn.rank += config.give_promotion_rank_bonus_knight,
+                _ => panic!("Promotion value not expected"),
+            }
+            
             self.validate_and_add_move(board, stats, turn, config, valid_moves, white_turn, zobrist_table_read, local_map);
         }
     }    
@@ -289,7 +311,8 @@ impl MoveGenService {
             return zobrist_table_read.get_eval_for_hash(&board.cached_hash);
         }
 
-    fn _check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>) -> bool {
+    fn _check_if_hash_exists(&self, board: &mut Board, config: &Config, zobrist_table_read: &RwLockReadGuard<'_, ZobristTable>)
+    -> bool {
         if config.use_zobrist {             
             match zobrist_table_read.get_eval_for_hash(&board.cached_hash) {
                 Some(_) => {
@@ -874,13 +897,16 @@ mod tests {
     fn move_list_sort_test() {
         let fen_service = Service::new().fen;
 
-        let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 w Qq - 0 1");
+        let mut board = fen_service.set_fen("r1bqk2r/pppp1ppp/2n2n2/2b5/2BpP3/2P2N2/PP3PPP/RNBQK2R w KQkq - 0 6");
         let move_list = generate_valid_moves_list(&mut board);
-        assert!(move_list.first().unwrap().eval > move_list.last().unwrap().eval);
+        assert!(move_list.get(0).unwrap().from == 63 && move_list.get(0).unwrap().to == 36);
+        assert!(move_list.last().unwrap().rank == 0);
 
-        let mut board = fen_service.set_fen("rnb1kb2/pppppppp/4Nq1R/8/8/4nQ1r/PPPPPPPP/RNB1KB2 b Qq - 0 1");
+        let mut board = fen_service.set_fen("r1bqr1k1/ppp2pp1/2n2n1p/2bp4/2B1PB2/1NP4P/PP3PP1/RN1Q1RK1 b - - 1 10");
         let move_list = generate_valid_moves_list(&mut board);
-        assert!(move_list.first().unwrap().eval < move_list.last().unwrap().eval);
+        assert!(move_list.get(0).unwrap().from == 53 && move_list.get(0).unwrap().to == 86);
+        assert!(move_list.get(1).unwrap().from == 54 && move_list.get(1).unwrap().to == 63);
+        assert!(move_list.last().unwrap().rank == 0);
     }
 
     #[test]

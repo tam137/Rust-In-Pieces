@@ -790,7 +790,7 @@ impl Stats {
         self.cuts = 100 - (self.calculated_nodes as i32 * 100 / self.created_nodes as i32);
         self.capture_share = self.created_capture_node as i32 * 100 / self.created_nodes as i32;
         self.nodes_per_ms = self.created_nodes as i32 / (self.calc_time_ms as i32 + 1);
-        self.zobrist_hit = self.zobrist_hit * 100 / self.eval_nodes;
+        self.zobrist_hit = self.zobrist_hit * 100 / (self.eval_nodes + 1);
         self
     }
 
