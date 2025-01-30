@@ -5,14 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## TODO
 
-Technical: remove Mutex from PV-Nodes in
-Movegen: add null move threads
-Eval: detect and evaluate pawn islands
-Eval: advance rook game
-Eval: advance pawn games
+## [V0.2.1] - 2025-01-30
 
+### Added
+
+- improve knight and queen evaluation
+
+### Fixed
+
+### Elos
+
+| Name                               | Pkt   | Games | Elo  |
+|------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.2.1 (new)        | 472.5 | 917   | 1550 |
+| Rust-In-Pieces V0.2.0              | 464.5 | 917   | 1546 |
+| Rust-In-Pieces V0.1.4              | 438.0 | 916   | 1535 |
 
 ## [V0.2.0] - 2025-01-14
 
