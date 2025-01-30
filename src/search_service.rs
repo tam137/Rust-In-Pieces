@@ -138,8 +138,10 @@ impl SearchService {
             } else {
                 stats.add_eval_nodes(1);
                 let eval = service.eval.calc_eval(board, config, &service.move_gen);
-                let hash_sender = global_map_handler::get_hash_sender(global_map); // todo extract from map
-                hash_sender.push((board.cached_hash, eval)); // TODO critical Test
+                if config.use_zobrist {
+                    let hash_sender = global_map_handler::get_hash_sender(global_map); // todo extract from map
+                    hash_sender.push((board.cached_hash, eval)); // TODO critical Test board.cached_hash is correct here
+                }
                 eval
             };
 

@@ -16,7 +16,6 @@ use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
 /// global map builder: Its not checked here BUT ONLY CALL CONSTRUCTOR ONCE!
-/// Everything in here and the map itself is an Arc<Mutex>>
 pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
 
     let global_map = Arc::new(RwLock::new(DataMap::new()));
