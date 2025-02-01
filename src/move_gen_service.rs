@@ -1,12 +1,10 @@
 
 use std::sync::RwLockReadGuard;
-use std::collections::HashMap;
 use rand::Rng;
 
 use crate::{global_map_handler, zobrist};
 use crate::config::Config;
 use crate::model::{Board, DataMapKey, GameStatus, Stats, ThreadSafeDataMap, Turn};
-use crate::service::Service;
 use crate::zobrist::ZobristTable;
 use crate::DataMap;
 
@@ -126,7 +124,7 @@ impl MoveGenService {
             } else {
                 // Validate and add the regular move
                 // only if we are not in quiescence search
-                self.validate_and_add_move(board, stats, &mut move_turn, config, &mut valid_moves, white_turn, &zobrist_table_read, local_map);
+                self.validate_and_add_move(board, stats, &mut move_turn, config, &mut valid_moves, &zobrist_table_read, local_map);
             }
         }
     
@@ -134,7 +132,7 @@ impl MoveGenService {
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for mut turn in en_passante_turns {
-                self.validate_and_add_move(board, stats, &mut turn, config, &mut valid_moves, white_turn, &zobrist_table_read, local_map);
+                self.validate_and_add_move(board, stats, &mut turn, config, &mut valid_moves, &zobrist_table_read, local_map);
             }
         }        
     
@@ -154,7 +152,7 @@ impl MoveGenService {
     
         // check Gamestatus
         if valid_moves.is_empty() && !only_captures {
-            if self.get_check_idx_list(&board.field, board.white_to_move).len() > 0 {
+            if self.get_check_idx_list(&board, board.white_to_move).len() > 0 {
                 board.game_status = if board.white_to_move { GameStatus::BlackWin } else { GameStatus::WhiteWin }
             } else {
                 board.game_status = GameStatus::Draw;
@@ -190,14 +188,14 @@ impl MoveGenService {
     }
     
     fn validate_and_add_move(&self, board: &mut Board, stats: &mut Stats, turn: &mut Turn, config: &Config,
-        valid_moves: &mut Vec<Turn>, white_turn: bool, zobrist_table_read: &ZobristTable, local_map: &DataMap) {
+        valid_moves: &mut Vec<Turn>, zobrist_table_read: &ZobristTable, local_map: &DataMap) {
 
         let move_info = board.do_move(turn); // TODO store hash only in turn and calculate it once
         let mut valid = true;
 
         // can skip validation here
         if !*local_map.get_data::<bool>(DataMapKey::ForceSkipValidationFlag).unwrap_or(&false) {
-            if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
+            if self.gives_check(&board) {
                 valid = false;
             }
         }
@@ -211,7 +209,7 @@ impl MoveGenService {
                 stats.add_zobrist_hit(1);
             }
 
-            if !self.get_check_idx_list(&board.field, !white_turn).is_empty() {
+            if self.is_in_check(&board) {
                 turn.gives_check = true;
                 turn.rank = turn.rank + config.give_check_rank_bonus;
             }
@@ -232,7 +230,7 @@ impl MoveGenService {
                 _ => panic!("Promotion value not expected"),
             }
             
-            self.validate_and_add_move(board, stats, turn, config, valid_moves, white_turn, zobrist_table_read, local_map);
+            self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
         }
     }    
 
@@ -244,7 +242,7 @@ impl MoveGenService {
         };
 
         // Check if the king is currently in check
-        if !self.get_check_idx_list(&board.field, white_turn).is_empty() {
+        if !self.get_check_idx_list(&board, white_turn).is_empty() {
             return false;
         }
 
@@ -329,7 +327,7 @@ impl MoveGenService {
 
 
     pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32) -> Vec<i32> {
-        let check_idx_list = self.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = self.get_check_idx_list(&board, board.white_to_move);
         let field = board.field;
 
         let white = if idx == 0 {
@@ -620,36 +618,118 @@ impl MoveGenService {
         all_attackers
     }
 
-    /// Helper function to calculate the positions of the white and black kings.
-    fn calc_king_positions(&self, field: &[i32]) -> (i32, i32) {
-        let mut white_king_pos = -1;
-        let mut black_king_pos = -1;
-
-        for i in 21..99 {
-            if field[i] == 15 {
-                white_king_pos = i as i32;
-            }
-            if field[i] == 25 {
-                black_king_pos = i as i32;
-            }
-        }
-        (white_king_pos, black_king_pos)
-    }
-
-
     /// Checks if the king is under attack.
     /// Return a list of Fields, that give [white] check
-    pub fn get_check_idx_list(&self, field: &[i32], white: bool) -> Vec<i32> {
+    pub fn get_check_idx_list(&self, board: &Board, white: bool) -> Vec<i32> {
         // TODO store king pos on board
-        let king_pos = if white { self.calc_king_positions(field).0 } else { self.calc_king_positions(field).1 };
-        self.get_attack_idx_list(field, white, king_pos)
+        let king_pos = if white { board.get_king_positions().0 } else { board.get_king_positions().1 };
+        self.get_attack_idx_list(&board.field, white, king_pos)
     }
+
+    /// returns true if the side to move gives check, otherwise false
+    pub fn gives_check(&self, board: &Board) -> bool  {
+        self.__check_check(board, true)
+    }
+
+    /// returns true if the king of side to move is in check, otherwise false
+    pub fn is_in_check(&self, board: &Board) -> bool {
+        self.__check_check(board, false)
+    }
+
+    /// returns true if the king of side to move is in check, otherwise false
+    /// inverse flag inverses the side to gives check (use function gives_check() instead)
+    pub fn __check_check(&self, board: &Board, inverse: bool) -> bool {
+        let king_positions = board.get_king_positions();
+        
+        let white = if inverse {
+            !board.white_to_move
+        } else {
+            board.white_to_move
+        };
+
+        let target_idx = if white {
+            king_positions.0
+        } else {
+            king_positions.1
+        };
+
+        // Opponent's piece values
+        let opponent_pawn = if white { 20 } else { 10 };
+        let opponent_rook = if white { 21 } else { 11 };
+        let opponent_knight = if white { 22 } else { 12 };
+        let opponent_bishop = if white { 23 } else { 13 };
+        let opponent_queen = if white { 24 } else { 14 };
+
+        // Pawns attacking
+        if white {
+            let idx1 = (target_idx - 9) as usize;
+            let idx2 = (target_idx - 11) as usize;
+            if board.field[idx1] == opponent_pawn {
+                return true;
+            }
+            if board.field[idx2] == opponent_pawn {
+                return true;
+            }
+        } else {
+            let idx1 = (target_idx + 9) as usize;
+            let idx2 = (target_idx + 11) as usize;
+            if board.field[idx1] == opponent_pawn {
+                return true;
+            }
+            if board.field[idx2] == opponent_pawn {
+                return true;
+            }
+        }
+
+        // Knights attacking
+        for &offset in &KNIGHT_OFFSETS {
+            let idx = target_idx + offset;
+            if board.field[idx as usize] == opponent_knight {
+                return true;
+            }
+        }
+
+        // Bishops and Queen attacking (Diagonals)
+        for &offset in &BISHOP_OFFSETS {
+            let mut pos = target_idx + offset;
+            loop {
+                let piece = board.field[pos as usize];
+                if piece == 0 {
+                    pos += offset;
+                    continue;
+                } else if piece == opponent_bishop || piece == opponent_queen {
+                    return true;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Rooks and Queen attacking (Horizontals and Verticals)
+        for &offset in &ROOK_OFFSETS {
+            let mut pos = target_idx + offset;
+            loop {
+                let piece = board.field[pos as usize];
+                if piece == 0 {
+                    pos += offset;
+                    continue;
+                } else if piece == opponent_rook || piece == opponent_queen {
+                    return true;
+                } else {
+                    break;
+                }
+            }
+        }
+        false
+    }
+
 }
 
 
 #[cfg(test)]
 mod tests {
     use crate::notation_util::NotationUtil;
+    use crate::Service;
     use super::*;
 
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
@@ -677,29 +757,29 @@ mod tests {
 
         // Test 1: Initial Board Setup - No Check
         let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        assert!(move_gen_service.get_check_idx_list(&board.field, board.white_to_move).is_empty());
+        assert!(move_gen_service.get_check_idx_list(&board, board.white_to_move).is_empty());
 
         // Test 2: Scenario where check occurs
         board = fen_service.set_fen("r1bqk1nr/pppp2pp/4p3/8/1b3P2/3PPn2/PPP2pPP/RNBQKBNR w KQkq - 0 1");
-        let check_idx_list = move_gen_service.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = move_gen_service.get_check_idx_list(&board, board.white_to_move);
         assert!(check_idx_list.contains(&86), "Check index list should contain 86");
         assert!(check_idx_list.contains(&76), "Check index list should contain 76");
         assert!(check_idx_list.contains(&62), "Check index list should contain 62");
 
         // Test 3: Black turn - No check
         board = fen_service.set_fen("r1bqk1nr/pppp2pp/4p3/8/1b3P2/3PPn2/PPP2pPP/RNBQKBNR b KQkq - 0 1");
-        assert!(move_gen_service.get_check_idx_list(&board.field, board.white_to_move).is_empty());
+        assert!(move_gen_service.get_check_idx_list(&board, board.white_to_move).is_empty());
 
         // Test 4: Two checks, positions 36 and 37
         board = fen_service.set_fen("r1bqk1nr/pppp1PNp/4p3/1Q5B/1b3P2/3PPn2/PPP2p1P/RN2KB1R b KQkq - 0 1");
-        let check_idx_list = move_gen_service.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = move_gen_service.get_check_idx_list(&board, board.white_to_move);
         assert_eq!(check_idx_list.len(), 2);
         assert!(check_idx_list.contains(&36), "Check index list should contain 36");
         assert!(check_idx_list.contains(&37), "Check index list should contain 37");
 
         // Test 5: Four checks in various positions
         board = fen_service.set_fen("r1Rqk2r/pppP2Np/5n2/3p3B/1b2QP2/3PPn2/PPP2p1P/RN2KB2 b KQkq - 0 1");
-        let check_idx_list = move_gen_service.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = move_gen_service.get_check_idx_list(&board, board.white_to_move);
         assert_eq!(check_idx_list.len(), 4);
         assert!(check_idx_list.contains(&37), "Check index list should contain 37");
         assert!(check_idx_list.contains(&58), "Check index list should contain 58");
@@ -708,7 +788,7 @@ mod tests {
 
         // Test 6: Four checks in another scenario
         board = fen_service.set_fen("2B5/6N1/4k3/8/2K2NP1/1B2Q2B/4R3/8 b - - 0 1");
-        let check_idx_list = move_gen_service.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = move_gen_service.get_check_idx_list(&board, board.white_to_move);
         assert!(check_idx_list.contains(&23), "Check index list should contain 23");
         assert!(check_idx_list.contains(&37), "Check index list should contain 37");
         assert!(check_idx_list.contains(&66), "Check index list should contain 66");
@@ -717,7 +797,7 @@ mod tests {
 
         // Test 7: Last check scenario with two checks
         board = fen_service.set_fen("8/1k6/8/1q6/2b1r3/8/1rn1K3/8 w - - 0 1");
-        let check_idx_list = move_gen_service.get_check_idx_list(&board.field, board.white_to_move);
+        let check_idx_list = move_gen_service.get_check_idx_list(&board, board.white_to_move);
         assert!(check_idx_list.contains(&63), "Check index list should contain 63");
         assert!(check_idx_list.contains(&65), "Check index list should contain 65");
         assert_eq!(check_idx_list.len(), 2);
@@ -1070,6 +1150,33 @@ mod tests {
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::Normal, board.game_status);
         
+    }
+
+    #[test]
+    fn is_in_check_test() {
+        let fen= Service::new().fen;
+        let movegen = Service::new().move_gen;
+
+        let board = fen.set_fen("r1b1kbnr/1pp1qppp/p1n5/3Pp3/B7/5N2/PPPP1PPP/RNBQK2R w KQkq - 1 6");
+        assert!(!movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1b1kbnr/1pp2ppp/p1n5/3Pq3/B7/8/PPPP1PPP/RNBQK2R w KQkq - 0 7");
+        assert!(movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1b1k1nr/1pp2ppp/p1B5/3Pq3/1b6/8/PPPPQPPP/RNB1K2R b KQkq - 0 8");
+        assert!(movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1bk2nr/1pp3pp/2B1Np2/p2Pq3/8/b7/PPPPQPPP/R1B1K2R b KQ - 1 12");
+        assert!(movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1b4r/1pp1k1pp/2B1Np2/p2Pq3/8/b4nP1/PPPPQP2/R1B2RK1 w - - 1 17");
+        assert!(movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1b4r/1pp1k1pp/2B1Np2/p2P2q1/8/b4QP1/PPPP1P2/R1B2RK1 w - - 1 18");
+        assert!(!movegen.is_in_check(&board));
+
+        let board = fen.set_fen("r1b4r/1pp1k1pp/2B1Np2/p2P2q1/4Q3/b5P1/PPPP1P2/R1B2RK1 b - - 2 18");
+        assert!(!movegen.is_in_check(&board));
     }
 
 

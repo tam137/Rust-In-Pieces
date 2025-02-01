@@ -473,6 +473,22 @@ impl Board {
         }
     }
 
+    /// return the index of kings (white_king, black_king)
+    pub fn get_king_positions(&self) -> (i32, i32) { // TODO write Test
+        let mut white_king_pos = -1;
+        let mut black_king_pos = -1;
+
+        for i in 21..99 {
+            if self.field[i] == 15 {
+                white_king_pos = i as i32;
+            }
+            if self.field[i] == 25 {
+                black_king_pos = i as i32;
+            }
+        }
+        (white_king_pos, black_king_pos)
+    }
+
 
     /// It only panics if the from field is != 0
     /// calculate hash -> cached_hash

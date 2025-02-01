@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::config::Config;
 use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
-use crate::service::{self, Service};
+use crate::service::Service;
 use crate::global_map_handler;
 
 use crate::model::RIP_MISSED_DM_KEY;
