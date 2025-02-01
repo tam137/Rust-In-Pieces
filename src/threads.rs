@@ -10,8 +10,6 @@ use std::time::Duration;
 use chrono::Local;
 use crossbeam_queue::SegQueue;
 
-use crate::Instant;
-use crate::DataMap;
 use crate::{time_check, Config};
 use crate::Service;
 use crate::model::ThreadSafeDataMap;
@@ -81,8 +79,7 @@ pub fn std_reader(global_map: ThreadSafeDataMap, _config: &Config) {
 
 pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_std_in: Receiver<String>) {
 
-    let mut local_map = DataMap::new();
-    local_map.insert(DataMapKey::CalcTime, Instant::now());
+    let mut local_map = global_map_handler::_get_default_local_map();
 
     let stdout = Service::new().stdout;
     let uci_parser = Service::new().uci_parser;

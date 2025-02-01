@@ -48,13 +48,14 @@ fn main() {
 
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
+    local_map.insert(DataMapKey::WhiteGivesCheck, false);
+    local_map.insert(DataMapKey::BlackGivesCheck, false);
 
     if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
         local_map.insert(DataMapKey::WhiteThreshold, 0);
         local_map.insert(DataMapKey::BlackThreshold, 0);
         
     }
-
 
     let hash_queue = Arc::new(SegQueue::new());
     let producer_queue = Arc::clone(&hash_queue);
@@ -138,12 +139,10 @@ mod tests {
     fn set_up(config: &Config) -> TestEnvironment {
     
         let global_map = global_map_handler::create_new_global_map();
-
         
         let hash_queue = Arc::new(SegQueue::new());
         let producer_queue = Arc::clone(&hash_queue);
         let consumer_queue = Arc::clone(&hash_queue);
-
 
         let (tx_std_in, rx_std_in) = mpsc::channel();
         let (tx_game_command, rx_game_command) = mpsc::channel();

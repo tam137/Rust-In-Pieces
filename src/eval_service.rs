@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::model::Board;
+use crate::model::{Board, DataMap, DataMapKey, RIP_MISSED_DM_KEY};
 use crate::move_gen_service::MoveGenService;
 
 
@@ -36,7 +36,7 @@ impl EvalService {
         ];
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, local_map: &DataMap) -> i16 {
         let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
 
@@ -63,8 +63,19 @@ impl EvalService {
             }
             eval = eval + eval_for_piece;
         }
+
+        // TODO Tests
+        let gives_chess_eval = if *local_map.get_data(DataMapKey::WhiteGivesCheck).expect(RIP_MISSED_DM_KEY) {
+            config.gives_check_bonus
+        } else if *local_map.get_data(DataMapKey::BlackGivesCheck).expect(RIP_MISSED_DM_KEY) {
+            -config.gives_check_bonus
+        } else { 0 };
+
+        eval += self.calculate_weighted_eval(gives_chess_eval, 0, game_phase);
+
+
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
-        eval = self.adjust_eval(eval, game_phase, config);        
+        eval = self.adjust_eval(eval, game_phase, config);
 
         if config.print_eval_per_figure {
             println!("{}", eval);
@@ -500,6 +511,7 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
+    use crate::global_map_handler;
     use crate::service::Service;
 
     #[test]
@@ -558,18 +570,19 @@ mod tests {
         let eval_service = Service::new().eval;
         let movegen = &Service::new().move_gen;
         let config = &Config::new();
+        let local_map = &global_map_handler::_get_default_local_map();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval1 = eval_service.calc_eval(&board, config, movegen);
+        let eval1 = eval_service.calc_eval(&board, config, movegen, local_map);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
-        let eval2 = eval_service.calc_eval(&board, config, movegen);
+        let eval2 = eval_service.calc_eval(&board, config, movegen, local_map);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval3 = eval_service.calc_eval(&board, config, movegen);
+        let eval3 = eval_service.calc_eval(&board, config, movegen, local_map);
 
         let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
-        let eval4 = eval_service.calc_eval(&board, config, movegen);
+        let eval4 = eval_service.calc_eval(&board, config, movegen, local_map);
 
         println!("{}", eval1);
         println!("{}", eval2);
@@ -694,11 +707,12 @@ mod tests {
         let eval = Service::new().eval;
         let movegen = Service::new().move_gen;
         let config = Config::for_tests();
+        let local_map = &global_map_handler::_get_default_local_map();
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
-        let eval1 = eval.calc_eval(&board1, &config, &movegen);
-        let eval2 = eval.calc_eval(&board2, &config, &movegen);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen, local_map);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen, local_map);
 
         if !(eval1 > eval2) {
             println!("-->> eval is not gt: {}", eval1 - eval2);
@@ -712,10 +726,11 @@ mod tests {
         let mut eval_service = Service::new().eval;
         eval_service._set_custom_config(&Config::_for_evel_equal_tests());
         let movegen = Service::new().move_gen;
+        let local_map = &global_map_handler::_get_default_local_map();
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen);
+        let eval = eval_service.calc_eval(board, config, &movegen, local_map);
         assert_eq!(0, eval);
     }
 
@@ -724,10 +739,11 @@ mod tests {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
+        let local_map = &global_map_handler::_get_default_local_map();
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen);
+        let eval = eval_service.calc_eval(board, config, &movegen, local_map);
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
@@ -737,11 +753,12 @@ mod tests {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
+        let local_map = &global_map_handler::_get_default_local_map();
 
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();
         config.print_eval_per_figure = true;
-        eval_service.calc_eval(board, &config, &movegen);
+        eval_service.calc_eval(board, &config, &movegen, local_map);
         println!("------------");
     }
 

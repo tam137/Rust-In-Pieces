@@ -79,7 +79,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.2-candidate-3".to_string(),
+            version: "V0.2.2-candidate-4".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -108,7 +108,7 @@ impl Config {
             give_promotion_rank_bonus_knight: 6,
 
             your_turn_bonus: 20,
-            gives_check_bonus: 60,
+            gives_check_bonus: 30,
 
             undeveloped_knight_malus: 42,
             undeveloped_bishop_malus: 30,

@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::SegQueue;
 
@@ -281,6 +282,15 @@ pub fn _is_calculated_at_least_one_finished_search_result(global_map: &ThreadSaf
         .expect(RIP_COULDN_LOCK_MUTEX);
 
     search_results.iter().any(|sr| sr.completed)
+}
+
+/// contains WhiteGivesCheck BlackGivesCheck is false flag
+pub fn _get_default_local_map() -> DataMap {
+    let mut local_map = DataMap::new();
+    local_map.insert(DataMapKey::CalcTime, Instant::now());
+    local_map.insert(DataMapKey::WhiteGivesCheck, false);
+    local_map.insert(DataMapKey::BlackGivesCheck, false);
+    local_map
 }
 
 
