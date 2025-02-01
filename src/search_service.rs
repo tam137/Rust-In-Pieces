@@ -137,7 +137,17 @@ impl SearchService {
                 turn.eval
             } else {
                 stats.add_eval_nodes(1);
-                let eval = service.eval.calc_eval(board, config, &service.move_gen);
+                if board.white_to_move && turn.gives_check { // the turn is already applied to the board, so invert is_white
+                    local_map.insert(DataMapKey::BlackGivesCheck, true);
+                }
+                else if !board.white_to_move && turn.gives_check {
+                    local_map.insert(DataMapKey::WhiteGivesCheck, true);
+                } else {
+                    local_map.insert(DataMapKey::WhiteGivesCheck, false);
+                    local_map.insert(DataMapKey::BlackGivesCheck, false);
+                }
+                
+                let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
                 if config.use_zobrist {
                     let hash_sender = global_map_handler::get_hash_sender(global_map); // todo extract from map
                     hash_sender.push((board.cached_hash, eval)); // TODO critical Test board.cached_hash is correct here
@@ -294,18 +304,16 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
     use crate::{config::Config, Stats};
     use crate::service::Service;
-    use crate::model::{Board, SearchResult, DataMap, DataMapKey};
+    use crate::model::{Board, SearchResult};
     use crate::global_map_handler;
 
     pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
         let service = Service::new();
         let config = Config::for_tests();
         let mut stats = Stats::new();
-        let mut local_map = DataMap::new();
-        local_map.insert(DataMapKey::CalcTime, Instant::now());
+        let mut local_map = global_map_handler::_get_default_local_map();
 
         let global_map = global_map_handler::create_new_global_map();
 

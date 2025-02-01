@@ -144,6 +144,8 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
 
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
+                        local_map.insert(DataMapKey::WhiteGivesCheck, false);
+                        local_map.insert(DataMapKey::BlackGivesCheck, false);
 
                         let results: Arc<Mutex<Vec<SearchResult>>> = Arc::new(Mutex::new(Vec::default()));
                         let depths = Arc::new(Mutex::new((3..=config.max_depth).rev().collect::<Vec<_>>()));
