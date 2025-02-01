@@ -54,7 +54,7 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     time_it!(board.undo_move(turn, mi));
 
     println!("\nexpected ~1µs");
-    time_it!(service.move_gen.get_check_idx_list(&board.field, true));
+    time_it!(service.move_gen.get_check_idx_list(&board, true));
 
     println!("\nexpected <10µs>");
     time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0));

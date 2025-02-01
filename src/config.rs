@@ -79,7 +79,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "V0.2.2-candidate-1".to_string(),
+            version: "V0.2.2-candidate-3".to_string(),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -101,7 +101,7 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
 
-            is_hashed_rank_bonus: 1,
+            is_hashed_rank_bonus: 3,
             give_check_rank_bonus: 5,
             is_pv_node_rank_bonus: 15,
             give_promotion_rank_bonus_queen: 15,
