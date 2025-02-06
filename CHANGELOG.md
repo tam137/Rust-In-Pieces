@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.2.2] - 2025-02-06
+
+### Added
+
+- postpone evaluation and choose alternate moveordering
+- consider 'give check' in evaluation
+- fail fast check test in movegen
+
+### Fixed
+
+### Elos
+
+| Name                                | Pkt   | Games | Elo  |
+|-------------------------------------|-------|-------|------|
+| Rust-In-Pieces V0.2.2 (new)         | 462.5 | 828   | 1573 |
+| Rust-In-Pieces V0.2.1               | 427.5 | 828   | 1556 |
+| Rust-In-Pieces V0.2.0               | 411.0 | 828   | 1548 |
+| Rust-In-Pieces V0.1.4               | 355.0 | 828   | 1521 |
+
 
 ## [V0.2.1] - 2025-01-30
 
