@@ -177,6 +177,21 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                     logger.send(format!("Benchmark Value: {}", benchmark_value)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 }
 
+                else if uci_token.trim().starts_with("setoption") {
+                    let token_lower = uci_token.to_lowercase();
+                    if token_lower.contains("name threads") && token_lower.contains("value") {
+                        let parts: Vec<&str> = uci_token.split_whitespace().collect();
+                        if let Some(val_str) = parts.last() {
+                            if let Ok(threads) = val_str.parse::<i32>() {
+                                if threads > 0 {
+                                    global_map_handler::set_search_threads(&global_map, threads);
+                                    logger.send(format!("Set search threads to {}", threads)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 else if uci_token.trim().starts_with("stop") {
                     global_map_handler::set_stop_flag(&global_map, true);
                 }

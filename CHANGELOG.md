@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.2.7] - 2026-05-21
+
+### Added
+- Fix SMP move ordering and add UCI option Threads
+
+### Fixed
+
+
+
 ## [V0.2.6] - 2026-05-21
 
 ### Added

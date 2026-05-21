@@ -160,8 +160,9 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                             let active_threads = active_threads.clone();
                             let active_threads_2 = active_threads.clone();
                     
-                            // start thread if config.max_threads is not reached
-                            if (active_threads.load(Ordering::SeqCst) < config.search_threads) &&
+                            // start thread if max threads is not reached
+                            let max_threads = global_map_handler::get_search_threads(&global_map);
+                            if (active_threads.load(Ordering::SeqCst) < max_threads) &&
                                 !global_map_handler::is_stop_flag(&global_map) &&
                                 !stop_new_search_threads_2.load(Ordering::SeqCst)
                                 {

@@ -71,6 +71,8 @@ pub enum DataMapKey {
     PvNodes,
     // the current pv nodes len
     PvNodesLen,
+    // the dynamic search thread limit
+    SearchThreads,
     // some senders
     HashSender,
     StdInSender,
@@ -235,7 +237,8 @@ impl KeyToType<Arc<Mutex<HashMap<u64, Turn>>>> for DataMapKey {
 impl KeyToType<Arc<AtomicI32>> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<AtomicI32>> {
         match (self, value) {
-            (DataMapKey::PvNodesLen, ValueType::AtomicInteger(a)) => Some(a),
+            (DataMapKey::PvNodesLen, ValueType::AtomicInteger(a)) |
+            (DataMapKey::SearchThreads, ValueType::AtomicInteger(a)) => Some(a),
             _ => None,
         }
     }
