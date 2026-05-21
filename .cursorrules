@@ -1,5 +1,12 @@
 # AI Rules & Guidelines for Suprah
 
+## Superpowers & Implementation Workflow
+- **Development Directive:** You are now operating with Superpowers. Before any implementation, you must:
+  1. **Brainstorm Options:** Analyze different architectural and technical paths.
+  2. **Create a Detailed Plan:** Draft a structured plan with precise file paths.
+  3. **Use TDD (Test-Driven Development):** Write tests for every task.
+- **Strict Rule:** Never skip a phase.
+
 ## Strict English Policy
 - **Primary Directive:** English is the mandatory language for all technical artifacts.
 - **GUI Labels:** Use standard English terminology (e.g., "Settings" instead of "Einstellungen", "Submit" instead of "Absenden").
@@ -10,3 +17,15 @@
 - **Edition:** Rust Edition 2021.
 - **Formatting:** Adhere to standard Rust formatting conventions.
 - **Documentation:** Write all docstrings and code comments in clear, technical English.
+
+## Automated Release & Build Policy
+- **Build Directive:** Standard manual compilation commands like `cargo build` or `cargo build --release` are strictly forbidden for releasing the engine.
+- **Mandatory Script:** You MUST compile, version-bump, and deploy the engine solely using the automated pipeline script: `./build_and_release.sh`.
+- **Changelog Message:** You can pass an optional description of the functional changes as the first argument, e.g., `./build_and_release.sh "Added new search features"`. If no argument is provided, the script will automatically harvest recent git commit logs as changes.
+- **Pipeline Workflow:**
+  1. Executes all cargo unit tests first (`cargo test`).
+  2. Bumps the patch/minor version in `Cargo.toml` automatically (e.g., `0.2.3` -> `0.2.4`) only if all tests are green (exit 0).
+  3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
+  4. Compiles the optimized production release binary.
+  5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
+- **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::HashMap;
@@ -26,7 +26,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     });
 
     let debug_flag = false;
-    let stop_flag = false;
+    let stop_flag = Arc::new(AtomicBool::new(false));
     let zobrist_table = Arc::new(ZobristTable::new());
     let search_result_vector = Arc::new(Mutex::new(Vec::default()));
     let pv_nodes_map = Arc::new(Mutex::new(HashMap::new()));
@@ -83,9 +83,9 @@ pub fn is_debug_flag(global_map: &ThreadSafeDataMap) -> bool {
 
 pub fn is_stop_flag(global_map: &ThreadSafeDataMap) -> bool {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<bool>(DataMapKey::StopFlag)
+        .get_data::<Arc<AtomicBool>>(DataMapKey::StopFlag)
         .expect("RIP Can not find stop flag")
-        .clone()
+        .load(Ordering::Relaxed)
 }
 
 pub fn _get_search_results(global_map: &ThreadSafeDataMap) -> Vec<SearchResult> {
@@ -137,8 +137,24 @@ pub fn clear_search_result(global_map: &ThreadSafeDataMap) {
 }
 
 pub fn set_stop_flag(global_map: &ThreadSafeDataMap, value: bool) {
-    let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
-    global_map_value.insert(DataMapKey::StopFlag, value);
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Arc<AtomicBool>>(DataMapKey::StopFlag)
+        .expect("RIP Can not find stop flag")
+        .store(value, Ordering::Relaxed);
+}
+
+pub fn get_stop_flag_atomic(global_map: &ThreadSafeDataMap) -> Arc<std::sync::atomic::AtomicBool> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Arc<std::sync::atomic::AtomicBool>>(DataMapKey::StopFlag)
+        .expect("RIP Can not find stop flag")
+        .clone()
+}
+
+pub fn get_pv_nodes_mutex(global_map: &ThreadSafeDataMap) -> Arc<Mutex<HashMap<u64, Turn>>> {
+    global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
+        .get_data::<Arc<Mutex<HashMap<u64, Turn>>>>(DataMapKey::PvNodes)
+        .expect(RIP_MISSED_DM_KEY)
+        .clone()
 }
 
 pub fn set_debug_flag(global_map: &ThreadSafeDataMap, value: bool) {
@@ -149,7 +165,8 @@ pub fn set_debug_flag(global_map: &ThreadSafeDataMap, value: bool) {
 pub fn get_hash_sender(global_map: &ThreadSafeDataMap) -> Arc<SegQueue<(u64, i16)>> {
     global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
         .get_data::<Arc<SegQueue<(u64, i16)>>>(DataMapKey::HashSender)
-        .expect("RIP Can not find hash sender").clone()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(SegQueue::new()))
 }
 
 pub fn get_std_in_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
@@ -181,6 +198,7 @@ pub fn get_log_buffer_sender(global_map: &ThreadSafeDataMap) -> Sender<String> {
         })
 }
 
+#[allow(dead_code)]
 pub fn get_pv_node_for_hash(global_map: &ThreadSafeDataMap, hash: u64) -> Option<Turn> {
     let global_map_read = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
     

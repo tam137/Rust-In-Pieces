@@ -39,6 +39,18 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     let config = &Config::new().for_timing_tests();
     let mut stats = Stats::new();
 
+    let zobrist_table = crate::global_map_handler::get_zobrist_table(global_map);
+    let stop_flag = crate::global_map_handler::get_stop_flag_atomic(global_map);
+    let pv_nodes = crate::global_map_handler::get_pv_nodes_mutex(global_map);
+    let hash_sender = crate::global_map_handler::get_hash_sender(global_map);
+
+    let context = crate::model::SearchContext {
+        zobrist_table: &zobrist_table,
+        stop_flag: &stop_flag,
+        pv_nodes: &pv_nodes,
+        hash_sender: &hash_sender,
+    };
+
     println!("expected <10µs");
     let mut board = time_it!(service.fen.set_fen("r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8"));
 
@@ -60,15 +72,15 @@ pub fn run_time_check(global_map: &ThreadSafeDataMap, mut local_map: &mut DataMa
     time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0));
 
     println!("\nexpected ~60µs");
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, global_map, &local_map));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, &local_map));
 
     println!("\nexpected ~45µs (Skip Validation)");
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, true);
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, global_map, &local_map));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, &local_map));
 
     println!("\nexpected <10µs");
     local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, false);
-    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, global_map, &local_map));
+    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, &local_map));
 
     println!("\nexpected ~2.5µs");
     time_it!(service.eval.calc_eval(&board, &config, &service.move_gen, local_map));

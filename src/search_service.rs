@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, SearchContext, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 use crate::global_map_handler;
 
@@ -23,7 +23,20 @@ impl SearchService {
         let logger = global_map_handler::get_log_buffer_sender(global_map);
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map);
+
+        let zobrist_table = global_map_handler::get_zobrist_table(global_map);
+        let stop_flag = global_map_handler::get_stop_flag_atomic(global_map);
+        let pv_nodes = global_map_handler::get_pv_nodes_mutex(global_map);
+        let hash_sender = global_map_handler::get_hash_sender(global_map);
+
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            hash_sender: &hash_sender,
+        };
+
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
         search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
@@ -37,9 +50,9 @@ impl SearchService {
             turn_counter += 1;
             let mi = board.do_move(&turn);
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, global_map, local_map);
+                alpha, beta, stats, config, service, &context, local_map);
 
-            if global_map_handler::is_stop_flag(global_map) {
+            if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 let calc_time_ms = self.get_calc_time(&local_map);
                 search_result.stats = stats.clone();
                 search_result.stats.best_turn_nr = turn_counter;
@@ -52,7 +65,6 @@ impl SearchService {
             // save min max eval in zobrist table for better move sorting, if depth = 2
             // TODO missing test or remove
             if depth == 2 && config.use_zobrist {
-                let hash_sender = global_map_handler::get_hash_sender(global_map);
                 hash_sender.push((board.cached_hash, min_max_eval));
             }
 
@@ -106,7 +118,7 @@ impl SearchService {
         let calc_time_ms = self.get_calc_time(&local_map);
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
-        if global_map_handler::is_stop_flag(global_map) {
+        if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             search_result.completed = false;
         } else {
             search_result.completed = true;
@@ -120,7 +132,7 @@ impl SearchService {
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
-        global_map: &ThreadSafeDataMap, local_map: &mut DataMap)
+        context: &SearchContext, local_map: &mut DataMap)
         -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
 
         let mut turns: Vec<Turn> = Default::default();
@@ -149,8 +161,7 @@ impl SearchService {
                 
                 let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
                 if config.use_zobrist {
-                    let hash_sender = global_map_handler::get_hash_sender(global_map); // todo extract from map
-                    hash_sender.push((board.cached_hash, eval)); // TODO critical Test board.cached_hash is correct here
+                    context.hash_sender.push((board.cached_hash, eval)); // TODO critical Test board.cached_hash is correct here
                 }
                 eval
             };
@@ -184,7 +195,7 @@ impl SearchService {
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map).is_empty() {
+                if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
                     return match board.game_status {
                         GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                         GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -194,10 +205,10 @@ impl SearchService {
                 }
                 return (None, eval, Default::default());
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, global_map, local_map);
+                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, context, local_map);
                 if turns.is_empty() {
                     // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map).is_empty() {
+                    if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
                         return match board.game_status {
                             GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
                             GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
@@ -210,7 +221,7 @@ impl SearchService {
             }
         } else {
             local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
-            turns = service.move_gen.generate_valid_moves_list(board, stats, config, global_map, local_map);
+            turns = service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map);
         }
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
@@ -228,14 +239,14 @@ impl SearchService {
         let mut turn_counter = 0;
 
         for turn in &turns {
-            if global_map_handler::is_stop_flag(global_map) {
+            if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(&turn);
             let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, global_map, local_map);
+                alpha, beta, stats, config, service, context, local_map);
             let min_max_eval = min_max_result.1;
             board.undo_move(&turn, mi);
 
@@ -453,6 +464,106 @@ mod tests {
         assert_ne!("g5h4", result.get_best_move_algebraic());
          */
 
+    }
+
+    #[test]
+    fn stop_flag_termination_test() {
+        use std::sync::atomic::Ordering;
+        use std::thread;
+        use std::time::Duration;
+
+        let global_map = global_map_handler::create_new_global_map();
+        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+
+        let global_map_clone = global_map.clone();
+        let handle = thread::spawn(move || {
+            let service = Service::new();
+            let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+            let mut stats = Stats::new();
+            let config = Config::for_tests();
+            let mut local_map = global_map_handler::_get_default_local_map();
+
+            service.search.get_moves(
+                &mut board,
+                8,
+                true,
+                &mut stats,
+                &config,
+                &service,
+                &global_map_clone,
+                &mut local_map,
+            )
+        });
+
+        thread::sleep(Duration::from_millis(15));
+        stop_flag.store(true, Ordering::Relaxed);
+
+        let start_wait = std::time::Instant::now();
+        let search_result = handle.join().expect("Search thread panicked");
+        let duration = start_wait.elapsed();
+
+        assert!(duration < Duration::from_millis(150), "Search took too long to terminate: {:?}", duration);
+        assert!(!search_result.completed, "Search should be marked as incomplete");
+    }
+
+    #[test]
+    fn zobrist_table_concurrent_stress_test() {
+        use std::thread;
+
+        let global_map = global_map_handler::create_new_global_map();
+        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+
+        let mut handles = vec![];
+        let num_threads = 4;
+        let elements_per_thread = 500;
+
+        for t in 0..num_threads {
+            let table = zobrist_table.clone();
+            let handle = thread::spawn(move || {
+                for i in 0..elements_per_thread {
+                    let hash_key = (t as u64 * 1_000_000) + i as u64;
+                    let eval_val = (i % 30000) as i16;
+                    table.hash_map.insert(hash_key, eval_val);
+                    let read_val = table.get_eval_for_hash(&hash_key);
+                    assert_eq!(read_val, Some(eval_val));
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().expect("Stress thread panicked");
+        }
+
+        assert_eq!(zobrist_table.hash_map.len(), num_threads * elements_per_thread);
+    }
+
+    #[test]
+    fn thread_counter_integrity_test() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        use std::thread;
+        use std::sync::Arc;
+
+        let counter = Arc::new(AtomicI32::new(0));
+        let num_threads = 10;
+        let mut spawn_handles = vec![];
+
+        for _ in 0..num_threads {
+            counter.fetch_add(1, Ordering::Relaxed);
+            let counter_clone = counter.clone();
+
+            let handle = thread::spawn(move || {
+                thread::sleep(std::time::Duration::from_millis(5));
+                counter_clone.fetch_sub(1, Ordering::Relaxed);
+            });
+            spawn_handles.push(handle);
+        }
+
+        for handle in spawn_handles {
+            handle.join().expect("Spawned test thread panicked");
+        }
+
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
     }
 
 }

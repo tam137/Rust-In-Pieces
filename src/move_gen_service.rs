@@ -2,9 +2,9 @@
 use std::sync::RwLockReadGuard;
 use rand::Rng;
 
-use crate::{global_map_handler, zobrist};
+use crate::zobrist;
 use crate::config::Config;
-use crate::model::{Board, DataMapKey, GameStatus, Stats, ThreadSafeDataMap, Turn};
+use crate::model::{Board, DataMapKey, GameStatus, Stats, Turn, SearchContext};
 use crate::zobrist::ZobristTable;
 use crate::DataMap;
 
@@ -25,14 +25,14 @@ impl MoveGenService {
 
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(&self, board: &mut Board, stats: &mut Stats, config: &Config,
-        global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
+        context: &SearchContext, local_map: &DataMap) -> Vec<Turn> {
 
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
         let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(&move_list, board, stats,
-            config, true, global_map, local_map);
+            config, true, context, local_map);
 
         stats.add_created_capture_nodes(capture_moves.len());
         capture_moves
@@ -40,16 +40,16 @@ impl MoveGenService {
 
     /// Generates a list of valid moves for a given board state.
     pub fn generate_valid_moves_list(&self, board: &mut Board, stats: &mut Stats, config: &Config,
-        global_map: &ThreadSafeDataMap, local_map: &DataMap)-> Vec<Turn> {
+        context: &SearchContext, local_map: &DataMap)-> Vec<Turn> {
         if board.game_status != GameStatus::Normal {
             return vec![]
         }
         let move_list = self.generate_moves_list_for_piece(board, 0);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, global_map, local_map)
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, context, local_map)
     }
 
     fn get_valid_moves_from_move_list(&self, move_list: &[i32], board: &mut Board, stats: &mut Stats, config: &Config,
-        only_captures: bool, global_map: &ThreadSafeDataMap, local_map: &DataMap) -> Vec<Turn> {
+        only_captures: bool, context: &SearchContext, local_map: &DataMap) -> Vec<Turn> {
 
         let mut valid_moves = Vec::with_capacity(64);
         let white_turn = board.white_to_move;
@@ -61,15 +61,13 @@ impl MoveGenService {
             if board.cached_hash == 0 {
                 board.cached_hash = zobrist::gen(board);
             }
-            if let Some(pv_node_result) = global_map_handler::get_pv_node_for_hash(global_map, board.cached_hash) {
-                pv_node = Some(pv_node_result); // TODO assign direct
-                //let logger = global_map_handler::get_log_buffer_sender(global_map);
-                //logger.send(format!("Found Pv Node {:?}", pv_node)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+            let pv_nodes_guard = context.pv_nodes.lock().expect(crate::model::RIP_COULDN_LOCK_MUTEX);
+            if let Some(pv_node_result) = pv_nodes_guard.get(&board.cached_hash) {
+                pv_node = Some(pv_node_result.clone());
             }
-            
         }
         
-        let zobrist_table_read = global_map_handler::get_zobrist_table(&global_map);
+        let zobrist_table_read = context.zobrist_table;
     
         for i in (0..move_list.len()).step_by(2) {
             let idx0 = move_list[i];
@@ -730,6 +728,7 @@ impl MoveGenService {
 mod tests {
     use crate::notation_util::NotationUtil;
     use crate::Service;
+    use crate::global_map_handler;
     use super::*;
 
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
@@ -737,8 +736,18 @@ mod tests {
         let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
         let config = Config::for_tests();
+        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
+        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            hash_sender: &dummy_hash_sender,
+        };
 
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &local_map)
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map)
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
@@ -746,8 +755,18 @@ mod tests {
         let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
         let config = Config::for_tests();
+        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
+        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            hash_sender: &dummy_hash_sender,
+        };
 
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &global_map, &local_map)
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map)
     }
 
     #[test]
@@ -1102,7 +1121,18 @@ mod tests {
         move_row.push(Turn::_new_to_from(38, 58));
         global_map_handler::set_pv_nodes(&global_map, &move_row, board);
 
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &local_map);
+        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
+        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            hash_sender: &dummy_hash_sender,
+        };
+
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map);
         let first_turn = turns.get(0).unwrap();
         
         assert_eq!(81, first_turn.from);
@@ -1116,12 +1146,23 @@ mod tests {
         let global_map = global_map_handler::create_new_global_map();
         let mut local_map = DataMap::new();
 
+        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
+        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            hash_sender: &dummy_hash_sender,
+        };
+
         // missing king
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
 
         // find moves if fen has missing king
         local_map.insert(DataMapKey::ForceSkipValidationFlag, true);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &mut local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map);
         assert_eq!(38, turns.len());
 
         // avoid finding moves if uses do_move() funktion
@@ -1131,7 +1172,7 @@ mod tests {
         assert_eq!(false, board._white_king_on_board);
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::BlackWin, board.game_status);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &global_map, &mut local_map);
+        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map);
         assert_eq!(0, turns.len());
         board.undo_move(&turn, mi);
         assert_eq!(true, board._white_king_on_board);
