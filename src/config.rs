@@ -16,6 +16,7 @@ pub struct Config {
     pub quiescence_search_mode: QuiescenceSearchMode,
     pub print_info_string_during_search: bool,
     pub write_hash_buffer_size: usize,
+    #[allow(dead_code)]
     pub search_threads: i32,
     pub use_pv_nodes: bool,
     pub min_thinking_time: u64,
@@ -93,7 +94,7 @@ impl Config {
             quiescence_search_mode: QuiescenceSearchMode::Alpha3,
             print_info_string_during_search: false,
             write_hash_buffer_size: 10,
-            search_threads: 1,
+            search_threads: 2,
             use_pv_nodes: true,
             min_thinking_time: 2,
             game_loop: 3,

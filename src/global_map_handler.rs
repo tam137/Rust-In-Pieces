@@ -31,6 +31,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
     let search_result_vector = Arc::new(Mutex::new(Vec::default()));
     let pv_nodes_map = Arc::new(Mutex::new(HashMap::new()));
     let pv_nodes_len = Arc::new(AtomicI32::new(0));
+    let search_threads = Arc::new(AtomicI32::new(2)); // Default to 2 threads
 
     {
         let mut global_map_value = global_map.write().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
@@ -41,6 +42,7 @@ pub fn create_new_global_map() -> Arc<RwLock<DataMap>> {
         global_map_value.insert(DataMapKey::SearchResults, search_result_vector);
         global_map_value.insert(DataMapKey::PvNodes, pv_nodes_map);
         global_map_value.insert(DataMapKey::PvNodesLen, pv_nodes_len);
+        global_map_value.insert(DataMapKey::SearchThreads, search_threads);
     }
     global_map.clone()
 }
@@ -311,6 +313,21 @@ pub fn _get_default_local_map() -> DataMap {
     local_map
 }
 
+pub fn get_search_threads(global_map: &ThreadSafeDataMap) -> i32 {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let threads = global_map_value
+        .get_data::<Arc<AtomicI32>>(DataMapKey::SearchThreads)
+        .expect(RIP_MISSED_DM_KEY);
+    threads.load(Ordering::SeqCst)
+}
+
+pub fn set_search_threads(global_map: &ThreadSafeDataMap, value: i32) {
+    let global_map_value = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP);
+    let threads = global_map_value
+        .get_data::<Arc<AtomicI32>>(DataMapKey::SearchThreads)
+        .expect(RIP_MISSED_DM_KEY);
+    threads.store(value, Ordering::SeqCst);
+}
 
 
 #[cfg(test)]

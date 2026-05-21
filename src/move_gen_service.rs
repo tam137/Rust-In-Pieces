@@ -140,12 +140,17 @@ impl MoveGenService {
         }
         else { // SMP threads (only if PV config is on (default))
             let mut rng = rand::thread_rng();
-            let mut noisy_values: Vec<(i32, i32)> = valid_moves
-                .iter()
-                .map(|mv| (mv.rank as i32, rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32))
+            let mut noisy_moves: Vec<(Turn, i32)> = valid_moves
+                .into_iter()
+                .map(|mv| {
+                    let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
+                    let rank_with_noise = mv.rank as i32 + noise;
+                    (mv, rank_with_noise)
+                })
                 .collect();
             
-            noisy_values.sort_unstable_by(|a, b| (b.0 + b.1).cmp(&(a.0 + a.1)));
+            noisy_moves.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            valid_moves = noisy_moves.into_iter().map(|(mv, _)| mv).collect();
         }        
     
         // check Gamestatus
