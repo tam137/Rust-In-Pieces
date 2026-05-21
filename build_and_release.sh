@@ -17,7 +17,7 @@ echo -e "${CYAN}             SUPRAH AUTOMATED BUILD & RELEASE PIPELINE          
 echo -e "${CYAN}================================================================${NC}"
 
 # Step 1: Run all tests
-echo -e "\n${YELLOW}[1/4] Running tests...${NC}"
+echo -e "\n${YELLOW}[1/5] Running tests...${NC}"
 cargo test
 if [ $? -ne 0 ]; then
     echo -e "\n${RED}Error: Tests failed! Aborting build and release process.${NC}"
@@ -25,12 +25,24 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}Success: All tests passed!${NC}"
 
-# Step 2: Parse and bump version in Cargo.toml
-echo -e "\n${YELLOW}[2/4] Bumping version in Cargo.toml...${NC}"
-if [ ! -f "Cargo.toml" ]; then
-    echo -e "${RED}Error: Cargo.toml not found!${NC}"
+# Step 2: Backup configuration files
+echo -e "\n${YELLOW}[2/5] Creating backups for safe rollback...${NC}"
+if [ ! -f "Cargo.toml" ] || [ ! -f "CHANGELOG.md" ]; then
+    echo -e "${RED}Error: Cargo.toml or CHANGELOG.md not found!${NC}"
     exit 1
 fi
+
+cp Cargo.toml Cargo.toml.bak
+cp CHANGELOG.md CHANGELOG.md.bak
+
+rollback() {
+    echo -e "\n${RED}Rolling back configuration files...${NC}"
+    [ -f Cargo.toml.bak ] && cp Cargo.toml.bak Cargo.toml && rm Cargo.toml.bak
+    [ -f CHANGELOG.md.bak ] && cp CHANGELOG.md.bak CHANGELOG.md && rm CHANGELOG.md.bak
+}
+
+# Step 3: Parse and bump version in Cargo.toml & update CHANGELOG.md
+echo -e "\n${YELLOW}[3/5] Bumping version and updating CHANGELOG.md...${NC}"
 
 # Read current version
 VERSION_LINE=$(grep -E '^version\s*=' Cargo.toml | head -n 1)
@@ -38,6 +50,7 @@ CURRENT_VERSION=$(echo "$VERSION_LINE" | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
 
 if [ -z "$CURRENT_VERSION" ]; then
     echo -e "${RED}Error: Could not parse current version from Cargo.toml!${NC}"
+    rollback
     exit 1
 fi
 
@@ -55,18 +68,78 @@ echo -e "New Version:     ${GREEN}${BOLD}$NEW_VERSION${NC}"
 sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
 echo -e "${GREEN}Success: Cargo.toml updated to version $NEW_VERSION!${NC}"
 
-# Step 3: Build release binary
-echo -e "\n${YELLOW}[3/4] Compiling release binary...${NC}"
+# Update CHANGELOG.md
+DATE=$(date +%Y-%m-%d)
+CHANGES=""
+
+# Use the first command-line argument as the changelog message if provided
+if [ -n "$1" ]; then
+    echo -e "${CYAN}Using manual changelog message from arguments...${NC}"
+    # Format the input message properly as bullet points
+    if [[ "$1" =~ ^- ]]; then
+        CHANGES="$1"
+    else
+        CHANGES="- $1"
+    fi
+else
+    echo -e "${CYAN}No manual changelog message provided. Fetching recent git commits for changelog...${NC}"
+    COMMITS=$(git log -n 5 --oneline | cut -d' ' -f2-)
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        if [[ ! "$line" =~ "finalize" && ! "$line" =~ "bump" && ! "$line" =~ "release" ]]; then
+            CHANGES="$CHANGES\n- $line"
+        fi
+    done <<< "$COMMITS"
+fi
+
+if [ -z "$CHANGES" ]; then
+    CHANGES="\n- General improvements and updates"
+fi
+
+echo -e "Changelog Changes to be added:\n${CYAN}$CHANGES${NC}"
+
+# Insert into CHANGELOG.md using a robust python command
+python3 -c "
+import sys
+version = sys.argv[1]
+date = sys.argv[2]
+changes = sys.argv[3].replace('\\\\n', '\\n')
+
+with open('CHANGELOG.md', 'r') as f:
+    content = f.read()
+
+entry = f'## [V{version}] - {date}\n\n### Added\n{changes}\n\n### Fixed\n\n'
+
+idx = content.find('## [')
+if idx != -1:
+    new_content = content[:idx] + entry + '\n\n' + content[idx:]
+    with open('CHANGELOG.md', 'w') as f:
+        f.write(new_content)
+else:
+    with open('CHANGELOG.md', 'a') as f:
+        f.write('\n\n' + entry)
+" "$NEW_VERSION" "$DATE" "$CHANGES"
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}Success: CHANGELOG.md updated successfully!${NC}"
+else
+    echo -e "${RED}Error: Failed to update CHANGELOG.md!${NC}"
+    rollback
+    exit 1
+fi
+
+# Step 4: Build release binary
+echo -e "\n${YELLOW}[4/5] Compiling release binary...${NC}"
 cargo build --release
 if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: Compilation failed! Rolling back version in Cargo.toml...${NC}"
-    sed -i "s/version = \"$NEW_VERSION\"/version = \"$CURRENT_VERSION\"/" Cargo.toml
+    echo -e "${RED}Error: Compilation failed!${NC}"
+    rollback
     exit 1
 fi
 echo -e "${GREEN}Success: Release binary compiled successfully!${NC}"
 
-# Step 4: Copy to Matt-Magie engines folder
-echo -e "\n${YELLOW}[4/4] Deploying release to Matt-Magie engines directory...${NC}"
+# Step 5: Copy to Matt-Magie engines folder
+echo -e "\n${YELLOW}[5/5] Deploying release to Matt-Magie engines directory...${NC}"
 TARGET_DIR="../matt-magie/engines"
 mkdir -p "$TARGET_DIR"
 
@@ -75,6 +148,9 @@ cp "target/release/suprah" "$COPY_TARGET"
 chmod +x "$COPY_TARGET"
 
 if [ $? -eq 0 ]; then
+    # Clean up backups since build and deploy succeeded
+    rm -f Cargo.toml.bak CHANGELOG.md.bak
+    
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
     echo -e "\n${CYAN}================================================================${NC}"
     echo -e "${GREEN}${BOLD}RELEASE PROCESS COMPLETED SUCCESSFULLY!${NC}"
@@ -82,5 +158,6 @@ if [ $? -eq 0 ]; then
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
+    rollback
     exit 1
 fi
