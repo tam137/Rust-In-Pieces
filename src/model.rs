@@ -28,6 +28,7 @@ pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 pub enum ValueType {
     Integer(i32),
     AtomicInteger(Arc<AtomicI32>),
+    AtomicBool(Arc<std::sync::atomic::AtomicBool>),
     Bool(bool),
     LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
     ArcRwZobrist(Arc<ZobristTable>),
@@ -136,7 +137,6 @@ impl KeyToType<bool> for DataMapKey {
             (DataMapKey::BlackGivesCheck, ValueType::Bool(i)) => Some(i),
 
             // The are keys for global map, lock whole global_map when changing values
-            (DataMapKey::StopFlag, ValueType::Bool(a)) => Some(a),
             (DataMapKey::DebugFlag, ValueType::Bool(a)) => Some(a),
             _ => None,
         }
@@ -242,6 +242,25 @@ impl KeyToType<Arc<AtomicI32>> for DataMapKey {
     fn create_value(&self, value: Arc<AtomicI32>) -> ValueType {
         ValueType::AtomicInteger(value)
     }
+}
+
+impl KeyToType<Arc<std::sync::atomic::AtomicBool>> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<std::sync::atomic::AtomicBool>> {
+        match (self, value) {
+            (DataMapKey::StopFlag, ValueType::AtomicBool(a)) => Some(a),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: Arc<std::sync::atomic::AtomicBool>) -> ValueType {
+        ValueType::AtomicBool(value)
+    }
+}
+
+pub struct SearchContext<'a> {
+    pub zobrist_table: &'a ZobristTable,
+    pub stop_flag: &'a std::sync::atomic::AtomicBool,
+    pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
+    pub hash_sender: &'a SegQueue<(u64, i16)>,
 }
 
 

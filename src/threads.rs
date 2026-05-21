@@ -33,15 +33,15 @@ pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: A
         }
 
         if hash_buffer.len() >= config.write_hash_buffer_size {
-            let chash_map = &mut global_map_handler::get_zobrist_table(&global_map).hash_map.clone();
+            let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
 
             for (hash, eval) in hash_buffer.drain() {
-                chash_map.insert(hash, eval);
+                zobrist_table.hash_map.insert(hash, eval);
             }
 
-            let clean_up_size = if config.max_zobrist_hash_entries <= chash_map.len() {
-                let size = chash_map.len();
-                chash_map.clear();
+            let clean_up_size = if config.max_zobrist_hash_entries <= zobrist_table.hash_map.len() {
+                let size = zobrist_table.hash_map.len();
+                zobrist_table.hash_map.clear();
                 size
             } else {
                 0

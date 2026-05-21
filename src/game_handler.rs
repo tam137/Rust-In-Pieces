@@ -177,13 +177,12 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                 let mut local_map = local_map.clone();                                
                                 let time_info_search_thread = time_info_search_thread.clone();
                     
+                                active_threads.fetch_add(1, Ordering::SeqCst);
                                 let handle = thread::spawn(move || {
 
                                     let logger = global_map_handler::get_log_buffer_sender(&global_map);
 
-                                    // handle active Thread counter
-                                    let current_active_threads = active_threads.load(Ordering::SeqCst);
-                                    active_threads.store(current_active_threads + 1, Ordering::SeqCst);
+                                    // handle active Thread counter (incremented in parent thread)
 
                                     // depth depends of if we perform a PV search, or a SMP search
                                     let current_depth = if config.use_pv_nodes && calculate_pv.load(Ordering::SeqCst) == false {
@@ -256,8 +255,7 @@ pub fn game_loop(global_map: ThreadSafeDataMap, config: &Config, rx_game_command
                                         .expect(RIP_COULDN_LOCK_MUTEX);
                                     results_guard.push(search_result.clone());
 
-                                    let current_active_threads = active_threads.load(Ordering::SeqCst);
-                                    active_threads.store(current_active_threads - 1, Ordering::SeqCst);
+                                    active_threads.fetch_sub(1, Ordering::SeqCst);
 
                                     // Stop Search if game ends just by checking evaluation gt 32K
                                     if search_result.get_eval().abs() > 32000 {
