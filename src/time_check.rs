@@ -204,5 +204,6 @@ pub fn calculate_benchmark(engine_state: &Arc<EngineState>, mut local_map: &mut 
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::for_tests();
-    10000 / get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), &config, &service, engine_state, &mut local_map))
+    let duration = get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), &config, &service, engine_state, &mut local_map));
+    10000 / duration.max(1)
 }
