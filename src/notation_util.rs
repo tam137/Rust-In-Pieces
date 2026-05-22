@@ -4,39 +4,40 @@ use regex::Regex;
 pub struct NotationUtil;
 
 impl NotationUtil {
-    /// Converts a notation field (like "e2") to an index on the 10x12 board.
+    /// Converts a notation field (like "e2") to an index on the 64-square board.
     pub fn get_index_from_notation_field(notation: &str) -> i32 {
         let col = match notation.chars().nth(0) {
-            Some('a') => 1,
-            Some('b') => 2,
-            Some('c') => 3,
-            Some('d') => 4,
-            Some('e') => 5,
-            Some('f') => 6,
-            Some('g') => 7,
-            Some('h') => 8,
+            Some('a') => 0,
+            Some('b') => 1,
+            Some('c') => 2,
+            Some('d') => 3,
+            Some('e') => 4,
+            Some('f') => 5,
+            Some('g') => 6,
+            Some('h') => 7,
             _ => -1
         };
-        let row = 10 - notation.chars().nth(1).unwrap().to_digit(10).unwrap_or(0) as i32;
-        (row * 10) + col
+        let row = notation.chars().nth(1).unwrap().to_digit(10).unwrap_or(1) as i32 - 1;
+        (row * 8) + col
     }
 
     /// Converts a notation move (like "e2e4") to a `Turn` object.
     pub fn get_turn_from_notation(notation_move: &str) -> Turn {
-
         let valid_move_regex = Regex::new(r"^[a-h][1-8][a-h][1-8][qkbnr]?$").unwrap();
         if !valid_move_regex.is_match(notation_move) {
             panic!("RIP Invalid chess move notation: Must be in standard algebraic format. But: '{}'", notation_move);
         }
 
-        let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]);
-        let to = NotationUtil::get_index_from_notation_field(&notation_move[2..4]);
+        let from = NotationUtil::get_index_from_notation_field(&notation_move[0..2]) as u8;
+        let to = NotationUtil::get_index_from_notation_field(&notation_move[2..4]) as u8;
         let mut promotion = 0;
 
         // Promotion logic for white
         if notation_move.len() == 5 && notation_move.chars().nth(3) == Some('8') {
             promotion = match notation_move.chars().nth(4) {
                 Some('n') => 12,
+                Some('b') => 13,
+                Some('r') => 11,
                 _ => 14, // default to queen
             };
         }
@@ -45,6 +46,8 @@ impl NotationUtil {
         if notation_move.len() == 5 && notation_move.chars().nth(3) == Some('1') {
             promotion = match notation_move.chars().nth(4) {
                 Some('n') => 22,
+                Some('b') => 23,
+                Some('r') => 21,
                 _ => 24, // default to queen
             };
         }
@@ -73,12 +76,16 @@ impl NotationUtil {
             match notation.chars().nth(4) {
                 Some('q') => target_turn.promotion = 14,
                 Some('n') => target_turn.promotion = 12,
+                Some('b') => target_turn.promotion = 13,
+                Some('r') => target_turn.promotion = 11,
                 Some('Q') => target_turn.promotion = 14,
                 Some('N') => target_turn.promotion = 12,
+                Some('B') => target_turn.promotion = 13,
+                Some('R') => target_turn.promotion = 11,
                 _ => panic!("RIP Invalid promotion"),
             }
 
-            if target_turn.to / 90 == 1 {
+            if target_turn.to / 8 == 0 {
                 target_turn.promotion = target_turn.promotion + 10; // for black promotion
             }
         }
@@ -103,8 +110,8 @@ mod tests {
     #[test]
     fn normal_notation_test() {
         let turn = NotationUtil::get_turn_from_notation("d7d5");
-        assert_eq!(34, turn.from);
-        assert_eq!(54, turn.to);
+        assert_eq!(51, turn.from); // d7: col 3, row 6 -> 6 * 8 + 3 = 51
+        assert_eq!(35, turn.to);   // d5: col 3, row 4 -> 4 * 8 + 3 = 35
         assert_eq!(0, turn.capture);
         assert_eq!(false, turn.is_promotion());    
     }
@@ -113,10 +120,10 @@ mod tests {
     fn get_index_from_notation_test() {
         // Test the conversion from notation ("a1", "h8", etc.) to the board index
         let idx = NotationUtil::get_index_from_notation_field("a1");
-        assert_eq!(91, idx);
+        assert_eq!(0, idx);
 
         let idx = NotationUtil::get_index_from_notation_field("h8");
-        assert_eq!(28, idx);
+        assert_eq!(63, idx);
     }
 
     #[test]
@@ -129,20 +136,20 @@ mod tests {
 
         // First turn (e2e4)
         let turn1 = &turn_list[0];
-        assert_eq!(85, turn1.from);
-        assert_eq!(65, turn1.to);
+        assert_eq!(12, turn1.from); // e2: col 4, row 1 -> 1 * 8 + 4 = 12
+        assert_eq!(28, turn1.to);   // e4: col 4, row 3 -> 3 * 8 + 4 = 28
         assert_eq!(0, turn1.capture); // No capture
         assert_eq!(0, turn1.promotion); // Not a promotion move
 
         // Second turn (d7d5)
         let turn2 = &turn_list[1];
-        assert_eq!(34, turn2.from);
-        assert_eq!(54, turn2.to);
+        assert_eq!(51, turn2.from);
+        assert_eq!(35, turn2.to);
 
         // Third turn (e4d5)
         let turn3 = &turn_list[2];
-        assert_eq!(65, turn3.from);
-        assert_eq!(54, turn3.to);
+        assert_eq!(28, turn3.from);
+        assert_eq!(35, turn3.to);
         assert_eq!(0, turn3.capture); // No capture
         assert_eq!(0, turn3.promotion); // Not a promotion move
     }
@@ -157,7 +164,7 @@ mod tests {
         assert_eq!(12, turn.promotion); // Promotion to knight
 
         turn = NotationUtil::get_turn_from_notation("e7d8b");
-        assert_eq!(14, turn.promotion); // Promotion to bishop
+        assert_eq!(13, turn.promotion); // Promotion to bishop
 
         // Test promotion moves for black
         turn = NotationUtil::get_turn_from_notation("e2e1q");
@@ -167,7 +174,7 @@ mod tests {
         assert_eq!(22, turn.promotion); // Promotion to knight
 
         turn = NotationUtil::get_turn_from_notation("e2d1b");
-        assert_eq!(24, turn.promotion); // Promotion to bishop        
+        assert_eq!(23, turn.promotion); // Promotion to bishop        
     }
 
     #[test]
@@ -175,6 +182,4 @@ mod tests {
     fn test_invalid_notation_hash() {
         NotationUtil::get_turn_from_notation("g1=Q+");
     }
-
-
 }

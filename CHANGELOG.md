@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.4.0] - 2026-05-22
+
+### Added
+- Fix divide-by-zero panic in calculate() and coordinate conversion parsing
+
+### Fixed
+
+
+
+## [V0.4.0] - 2026-05-22
+
+### Added
+- Migrated engine to 64-bit Bitboard Architecture (v0.4.0).
+
+### Fixed
+
+
+
 ## [V0.3.0] - 2026-05-22
 
 ### Added

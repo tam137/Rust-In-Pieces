@@ -81,15 +81,15 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
 
     println!("\nexpected <1000ns");
     let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
-    time_it!(service.move_gen.get_attack_idx_list(&board.field, board.white_to_move, 44));
+    time_it!(service.move_gen.get_attack_idx_list(&board, board.white_to_move, 43)); // 43 is D6 (mailbox 44)
 
     println!("\nexpected <2µs");
     let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
-    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 44));
-    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board.field, board.white_to_move, 33));
+    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board, board.white_to_move, 43)); // 43 is D6 (mailbox 44)
+    time_it!(service.move_gen.get_attack_idx_list_with_shadow(&board, board.white_to_move, 50)); // 50 is C7 (mailbox 33)
 
     println!("\nexpected ~100ns");
-    let _my_field: [i32; 120] = time_it!(board.field.try_into().expect("RIP Invalid field size"));
+    let _my_occupied: u64 = time_it!(board.occupied);
     
     println!("\nexpected ~310ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";

@@ -232,7 +232,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
             }
 
             Err(_) => {
-                panic!("RIP Error reading std input");
+                break;
             }
         }
     }

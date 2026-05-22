@@ -5,27 +5,7 @@ use once_cell::sync::Lazy;
 use crate::model::Board;
 
 const NUM_PIECES: usize = 12;
-const BOARD_SIZE: usize = 120;
-
-
-const MAX_PIECE_VALUE: usize = 25;
-
-static FIG_MAP_ARRAY: Lazy<[Option<usize>; MAX_PIECE_VALUE + 1]> = Lazy::new(|| {
-    let mut fig_map = [None; MAX_PIECE_VALUE + 1];
-    fig_map[10] = Some(0);
-    fig_map[11] = Some(1);
-    fig_map[12] = Some(2);
-    fig_map[13] = Some(3);
-    fig_map[14] = Some(4);
-    fig_map[15] = Some(5);
-    fig_map[20] = Some(6);
-    fig_map[21] = Some(7);
-    fig_map[22] = Some(8);
-    fig_map[23] = Some(9);
-    fig_map[24] = Some(10);
-    fig_map[25] = Some(11);
-    fig_map
-});
+const BOARD_SIZE: usize = 64;
 
 static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(137);
@@ -66,18 +46,17 @@ impl ZobristTable {
     }
 }
 
-
 pub fn gen(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
         hash ^= *WHITE_TO_MOVE;
     }
-    for i in 0..BOARD_SIZE {
-        let piece = board.field[i];
-        if piece > 0 && (piece as usize) <= MAX_PIECE_VALUE {
-            if let Some(piece_index) = FIG_MAP_ARRAY[piece as usize] {
-                hash ^= ZOBRIST_TABLE[i][piece_index];
-            }
+    for piece_idx in 0..12 {
+        let mut bb = board.bitboards[piece_idx];
+        while bb != 0 {
+            let square = bb.trailing_zeros() as usize;
+            hash ^= ZOBRIST_TABLE[square][piece_idx];
+            bb &= bb - 1; // Clear least significant set bit
         }
     }
     hash

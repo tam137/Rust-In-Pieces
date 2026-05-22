@@ -23,14 +23,17 @@ pub fn std_reader(sender: mpsc::Sender<String>, _config: &Config) {
     loop {
         let mut uci_token = String::new();
         match io::stdin().read_line(&mut uci_token) {
+            Ok(0) => {
+                break;
+            }
             Ok(_) => {
                 if uci_token.trim().starts_with("quit") {
                     break;
                 }
-                sender.send(String::from(uci_token.trim())).expect(RIP_COULDN_SEND_TO_STD_IN_QUEUE);
+                let _ = sender.send(String::from(uci_token.trim()));
             }
             Err(_) => {
-                panic!("{}", RIP_ERR_READING_STD_IN);
+                break;
             }
         }
     }
@@ -167,7 +170,7 @@ pub fn uci_command_processor(
                 }
             },
             Err(_) => {
-                panic!("RIP Error reading from channel");
+                break;
             }
         }
         if let Err(_e) = io::stdout().flush() {
@@ -193,7 +196,7 @@ pub fn logger_buffer_thread(engine_state: Arc<EngineState>, _config: &Config, rx
                 tx_log_msg.send(log_entry).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             }
             Err(_) => {
-                panic!("RIP Error reading from channel");
+                break;
             }
         }
     }
@@ -208,7 +211,7 @@ fn logger_thread(engine_state: Arc<EngineState>, _config: &Config, rx_log_msg: R
                 logger_function(log_msg);
             }
             Err(_) => {
-                panic!("RIP Error reading from channel");
+                break;
             }
         }
     }

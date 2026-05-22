@@ -142,26 +142,21 @@ impl SearchService {
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
 
         if depth <= 0 {
-            let eval = if turn.has_hashed_eval {
-                turn.eval
+            stats.add_eval_nodes(1);
+            if board.white_to_move && turn.gives_check { // the turn is already applied to the board, so invert is_white
+                local_map.insert(DataMapKey::BlackGivesCheck, true);
+            }
+            else if !board.white_to_move && turn.gives_check {
+                local_map.insert(DataMapKey::WhiteGivesCheck, true);
             } else {
-                stats.add_eval_nodes(1);
-                if board.white_to_move && turn.gives_check { // the turn is already applied to the board, so invert is_white
-                    local_map.insert(DataMapKey::BlackGivesCheck, true);
-                }
-                else if !board.white_to_move && turn.gives_check {
-                    local_map.insert(DataMapKey::WhiteGivesCheck, true);
-                } else {
-                    local_map.insert(DataMapKey::WhiteGivesCheck, false);
-                    local_map.insert(DataMapKey::BlackGivesCheck, false);
-                }
-                
-                let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
-                if config.use_zobrist {
-                    context.zobrist_table.hash_map.insert(board.cached_hash, eval);
-                }
-                eval
-            };
+                local_map.insert(DataMapKey::WhiteGivesCheck, false);
+                local_map.insert(DataMapKey::BlackGivesCheck, false);
+            }
+            
+            let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
+            if config.use_zobrist {
+                context.zobrist_table.hash_map.insert(board.cached_hash, eval);
+            }
 
             let mut stand_pat_cut = true;
             local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
