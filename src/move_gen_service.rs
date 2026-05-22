@@ -257,9 +257,9 @@ impl MoveGenService {
 
             if move_turn.capture == 0 {
                 if Some(move_turn) == context.killer_moves[0] {
-                    move_turn.rank = 2;
+                    move_turn.rank = move_turn.rank.max(2);
                 } else if Some(move_turn) == context.killer_moves[1] {
-                    move_turn.rank = 1;
+                    move_turn.rank = move_turn.rank.max(1);
                 }
             }
 
