@@ -511,8 +511,18 @@ impl EvalService {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::global_map_handler;
     use crate::service::Service;
+    use std::time::Instant;
+    use crate::model::DataMapKey;
+    use crate::model::DataMap;
+
+    fn _get_default_local_map() -> DataMap {
+        let mut local_map = DataMap::new();
+        local_map.insert(DataMapKey::CalcTime, Instant::now());
+        local_map.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map.insert(DataMapKey::BlackGivesCheck, false);
+        local_map
+    }
 
     #[test]
     fn get_eval_even_test() {
@@ -570,7 +580,7 @@ mod tests {
         let eval_service = Service::new().eval;
         let movegen = &Service::new().move_gen;
         let config = &Config::new();
-        let local_map = &global_map_handler::_get_default_local_map();
+        let local_map = &_get_default_local_map();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
         let eval1 = eval_service.calc_eval(&board, config, movegen, local_map);
@@ -707,7 +717,7 @@ mod tests {
         let eval = Service::new().eval;
         let movegen = Service::new().move_gen;
         let config = Config::for_tests();
-        let local_map = &global_map_handler::_get_default_local_map();
+        let local_map = &_get_default_local_map();
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
@@ -726,7 +736,7 @@ mod tests {
         let mut eval_service = Service::new().eval;
         eval_service._set_custom_config(&Config::_for_evel_equal_tests());
         let movegen = Service::new().move_gen;
-        let local_map = &global_map_handler::_get_default_local_map();
+        let local_map = &_get_default_local_map();
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
@@ -739,7 +749,7 @@ mod tests {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
-        let local_map = &global_map_handler::_get_default_local_map();
+        let local_map = &_get_default_local_map();
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
@@ -753,7 +763,7 @@ mod tests {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
-        let local_map = &global_map_handler::_get_default_local_map();
+        let local_map = &_get_default_local_map();
 
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();

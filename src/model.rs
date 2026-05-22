@@ -1,20 +1,11 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::AtomicI32;
-use std::sync::{Arc, RwLock, Mutex};
-use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
 
-use crossbeam_queue::SegQueue;
-
-pub type ThreadSafeDataMap = Arc<RwLock<DataMap>>;
-pub type LoggerFnType = Arc<dyn Fn(String) + Send + Sync>;
-
 pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-pub const RIP_COULDN_LOCK_GLOBAL_MAP: &str = "RIP Could not lock global map";
 pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 
 pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
@@ -27,60 +18,21 @@ pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 #[derive(Clone)]
 pub enum ValueType {
     Integer(i32),
-    AtomicInteger(Arc<AtomicI32>),
-    AtomicBool(Arc<std::sync::atomic::AtomicBool>),
     Bool(bool),
-    LoggerFn(Arc<dyn Fn(String) + Send + Sync>),
-    ArcRwZobrist(Arc<ZobristTable>),
-    SenderU64I16(Arc<SegQueue<(u64, i16)>>),
-    SenderString(Sender<String>),
     Instant(Instant),
-    SearchResultVec(Arc<Mutex<Vec<SearchResult>>>),
-    TurnMap(Arc<Mutex<HashMap<u64, Turn>>>)
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum DataMapKey {
-    // the thrashold to determine stand pat (local map)
     WhiteThreshold,
     BlackThreshold,
-    // measuring thread calculation time (local map)
     CalcTime,
-    // order moves or skip in SMP threads (local map)
     MoveOrderingFlag,
-    // skip validation when set false (local map)
     ForceSkipValidationFlag,
-
-    // gives check flags for evaluation
     WhiteGivesCheck,
     BlackGivesCheck,
-
-    // is pv search thread
     PvFlag,
-    // all search threads stop immediately
-    StopFlag,
-    // set when 'debug on' cmd was received
-    DebugFlag,
-    // the logging funktion
-    Logger,
-    // the zobrist hash map
-    ZobristTable,
-    // list of search results from all threads
-    SearchResults,
-    // the current pv nodes
-    PvNodes,
-    // the current pv nodes len
-    PvNodesLen,
-    // the dynamic search thread limit
-    SearchThreads,
-    // some senders
-    HashSender,
-    StdInSender,
-    LogBufferSender,
-    GameCommandSender,
 }
-    
-
 
 #[derive(Clone)]
 pub struct DataMap {
@@ -131,70 +83,16 @@ impl KeyToType<i32> for DataMapKey {
 impl KeyToType<bool> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
         match (self, value) {
-            // The are keys for local map
-            (DataMapKey::PvFlag, ValueType::Bool(i)) => Some(i),
-            (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) => Some(i),
-            (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) => Some(i),
-            (DataMapKey::WhiteGivesCheck, ValueType::Bool(i)) => Some(i),
+            (DataMapKey::PvFlag, ValueType::Bool(i)) |
+            (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) |
+            (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) |
+            (DataMapKey::WhiteGivesCheck, ValueType::Bool(i)) |
             (DataMapKey::BlackGivesCheck, ValueType::Bool(i)) => Some(i),
-
-            // The are keys for global map, lock whole global_map when changing values
-            (DataMapKey::DebugFlag, ValueType::Bool(a)) => Some(a),
             _ => None,
         }
     }
     fn create_value(&self, value: bool) -> ValueType {
         ValueType::Bool(value)
-    }
-}
-
-impl KeyToType<Arc<dyn Fn(String) + Send + Sync>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<dyn Fn(String) + Send + Sync>> {
-        match (self, value) {
-            (DataMapKey::Logger, ValueType::LoggerFn(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<dyn Fn(String) + Send + Sync>) -> ValueType {
-        ValueType::LoggerFn(value)
-    }
-}
-
-impl KeyToType<Arc<ZobristTable>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<ZobristTable>> {
-        match (self, value) {
-            (DataMapKey::ZobristTable, ValueType::ArcRwZobrist(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<ZobristTable>) -> ValueType {
-        ValueType::ArcRwZobrist(value)
-    }
-}
-
-impl KeyToType<Arc<SegQueue<(u64, i16)>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<SegQueue<(u64, i16)>>> {
-        match (self, value) {
-            (DataMapKey::HashSender, ValueType::SenderU64I16(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<SegQueue<(u64, i16)>>) -> ValueType {
-        ValueType::SenderU64I16(value)
-    }
-}
-
-impl KeyToType<Sender<String>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Sender<String>> {
-        match (self, value) {
-            (DataMapKey::StdInSender, ValueType::SenderString(a)) |
-            (DataMapKey::GameCommandSender, ValueType::SenderString(a)) |
-            (DataMapKey::LogBufferSender, ValueType::SenderString(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Sender<String>) -> ValueType {
-        ValueType::SenderString(value)
     }
 }
 
@@ -210,60 +108,20 @@ impl KeyToType<Instant> for DataMapKey {
     }
 }
 
-impl KeyToType<Arc<Mutex<Vec<SearchResult>>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<Vec<SearchResult>>>> {
-        match (self, value) {
-            (DataMapKey::SearchResults, ValueType::SearchResultVec(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<Mutex<Vec<SearchResult>>>) -> ValueType {
-        ValueType::SearchResultVec(value)
-    }
-}
-
-impl KeyToType<Arc<Mutex<HashMap<u64, Turn>>>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<Mutex<HashMap<u64, Turn>>>> {
-        match (self, value) {
-            (DataMapKey::PvNodes, ValueType::TurnMap(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<Mutex<HashMap<u64, Turn>>>) -> ValueType {
-        ValueType::TurnMap(value)
-    }
-}
-
-impl KeyToType<Arc<AtomicI32>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<AtomicI32>> {
-        match (self, value) {
-            (DataMapKey::PvNodesLen, ValueType::AtomicInteger(a)) |
-            (DataMapKey::SearchThreads, ValueType::AtomicInteger(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<AtomicI32>) -> ValueType {
-        ValueType::AtomicInteger(value)
-    }
-}
-
-impl KeyToType<Arc<std::sync::atomic::AtomicBool>> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Arc<std::sync::atomic::AtomicBool>> {
-        match (self, value) {
-            (DataMapKey::StopFlag, ValueType::AtomicBool(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Arc<std::sync::atomic::AtomicBool>) -> ValueType {
-        ValueType::AtomicBool(value)
-    }
+pub struct EngineState {
+    pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub zobrist_table: std::sync::Arc<ZobristTable>,
+    pub pv_nodes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Turn>>>,
+    pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
+    pub logger: std::sync::Arc<std::sync::RwLock<std::sync::Arc<dyn Fn(String) + Send + Sync>>>,
+    pub log_sender: std::sync::mpsc::Sender<String>,
 }
 
 pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
     pub stop_flag: &'a std::sync::atomic::AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
-    pub hash_sender: &'a SegQueue<(u64, i16)>,
 }
 
 
@@ -993,7 +851,7 @@ impl SearchResult {
 mod tests {
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
-    use crate::UciGame;
+    use super::UciGame;
 
 
     #[test]

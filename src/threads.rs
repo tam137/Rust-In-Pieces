@@ -1,65 +1,25 @@
 use std::io::{self, Write};
-use std::collections::HashMap;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
 use std::time::Duration;
+use std::sync::atomic::Ordering;
 
 use chrono::Local;
-use crossbeam_queue::SegQueue;
 
 use crate::{time_check, Config};
-use crate::Service;
-use crate::model::ThreadSafeDataMap;
-use crate::DataMapKey;
-use crate::global_map_handler;
-use crate::model::LoggerFnType;
+use crate::service::Service;
+use crate::model::{EngineState, DataMap, DataMapKey};
 
 use crate::model::RIP_COULDN_SEND_TO_STD_IN_QUEUE;
 use crate::model::RIP_COULDN_SEND_TO_GAME_CMD_QUEUE;
 use crate::model::RIP_ERR_READING_STD_IN;
-use crate::model::RIP_COULDN_LOCK_GLOBAL_MAP;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
-pub fn hash_writer(global_map: ThreadSafeDataMap, config: &Config, hash_queue: Arc<SegQueue<(u64, i16)>>) {
-    let mut hash_buffer: HashMap<u64, i16> = HashMap::default();
-
-    loop {
-        while let Some((hash, eval)) = hash_queue.pop() {
-            hash_buffer.insert(hash, eval);
-        }
-
-        if hash_buffer.len() >= config.write_hash_buffer_size {
-            let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-
-            for (hash, eval) in hash_buffer.drain() {
-                zobrist_table.hash_map.insert(hash, eval);
-            }
-
-            let clean_up_size = if config.max_zobrist_hash_entries <= zobrist_table.hash_map.len() {
-                let size = zobrist_table.hash_map.len();
-                zobrist_table.hash_map.clear();
-                size
-            } else {
-                0
-            };
-
-            if clean_up_size > 0 {
-                global_map_handler::get_log_buffer_sender(&global_map)
-                    .send(format!("Cleared hash table: {} entries", clean_up_size))
-                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-            }
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-}
-
-
-pub fn std_reader(global_map: ThreadSafeDataMap, _config: &Config) {
-    let sender = global_map_handler::get_std_in_sender(&global_map);
+pub fn std_reader(sender: mpsc::Sender<String>, _config: &Config) {
     loop {
         let mut uci_token = String::new();
         match io::stdin().read_line(&mut uci_token) {
@@ -77,23 +37,23 @@ pub fn std_reader(global_map: ThreadSafeDataMap, _config: &Config) {
 }
 
 
-pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_std_in: Receiver<String>) {
-
-    let mut local_map = global_map_handler::_get_default_local_map();
+pub fn uci_command_processor(
+    engine_state: Arc<EngineState>,
+    config: &Config,
+    rx_std_in: Receiver<String>,
+    tx_game_command: mpsc::Sender<String>,
+) {
+    let mut local_map = DataMap::new();
+    local_map.insert(DataMapKey::CalcTime, std::time::Instant::now());
 
     let stdout = Service::new().stdout;
     let uci_parser = Service::new().uci_parser;
-    //let debug_flag = global_map_handler::is_debug_flag(&global_map);
-    //let stop_flag = global_map_handler::is_stop_flag(&global_map);
-    let tx_game_command = global_map_handler::get_game_command_sender(&global_map);
-    let benchmark_value = time_check::calculate_benchmark(&global_map, &mut local_map);
+    let benchmark_value = time_check::calculate_benchmark(&engine_state, &mut local_map);
 
     loop {
-
         match rx_std_in.recv() {
             Ok(uci_token) => {
-
-                let logger = global_map_handler::get_log_buffer_sender(&global_map);
+                let logger = engine_state.log_sender.clone();
 
                 if uci_token.trim() == "uci" {
                     stdout.write(&format!("id name Rust-In-Pieces {}", config.version));
@@ -129,19 +89,17 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("test") {
-                    time_check::run_time_check(&global_map, &mut local_map);
+                    time_check::run_time_check(&engine_state, &mut local_map);
                 }
 
                 else if uci_token.trim().starts_with("debug") {
-
                     let logger_function: Arc<dyn Fn(String) + Send + Sync> = if uci_token.starts_with("debug on") {
-
-                        global_map_handler::set_debug_flag(&global_map, true);
+                        engine_state.debug_flag.store(true, Ordering::SeqCst);
 
                         if config.log_to_console {
-                            Arc::from(Box::new(move |msg: String| {
+                            Arc::new(move |msg: String| {
                                 print!(">{}", msg);
-                            }) as Box<dyn Fn(String) + Send + Sync>)
+                            })
                         }
                         else {
                             let file = Arc::new(Mutex::new(
@@ -153,26 +111,25 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                                     .expect("RIP Failed to open log file"),
                             ));
 
-                            Arc::from(Box::new(move |msg: String| {
+                            Arc::new(move |msg: String| {
                                 let mut file = file.lock().unwrap();
                                 if let Err(e) = file.write_all(msg.as_bytes()) {
                                     eprintln!("RIP Error writing to file {}", e);
                                 }
-                            }) as Box<dyn Fn(String) + Send + Sync>)
+                            })
                         }
                         
                     } else if uci_token.starts_with("debug off") {
-                        global_map_handler::set_debug_flag(&global_map, false);
-                        Arc::from(Box::new(|_msg: String| {
+                        engine_state.debug_flag.store(false, Ordering::SeqCst);
+                        Arc::new(|_msg: String| {
                             // No logging
-                        }) as Box<dyn Fn(String) + Send + Sync>)
+                        })
                     } else {
                         panic!("RIP Could not parse uci debug cmd");
                     };
-                    {
-                        let mut global_map_value = global_map.write().expect("RIP Could not lock global map");
-                        global_map_value.insert(DataMapKey::Logger, logger_function.clone());  
-                    }
+
+                    *engine_state.logger.write().unwrap() = logger_function;
+
                     logger.send(format!("Engine startet: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     logger.send(format!("Benchmark Value: {}", benchmark_value)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 }
@@ -184,8 +141,8 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                         if let Some(val_str) = parts.last() {
                             if let Ok(threads) = val_str.parse::<i32>() {
                                 if threads > 0 {
-                                    global_map_handler::set_search_threads(&global_map, threads);
-                                    logger.send(format!("Set search threads to {}", threads)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                    logger.send(format!("Single-threaded engine. Ignoring setoption threads to {}", threads))
+                                        .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                 }
                             }
                         }
@@ -193,11 +150,11 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
                 }
 
                 else if uci_token.trim().starts_with("stop") {
-                    global_map_handler::set_stop_flag(&global_map, true);
+                    engine_state.stop_flag.store(true, Ordering::SeqCst);
                 }
 
                 else if uci_token.trim().starts_with("quit") {
-                    global_map_handler::set_stop_flag(&global_map, true);
+                    engine_state.stop_flag.store(true, Ordering::SeqCst);
                     tx_game_command.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                     break;
                 }
@@ -220,11 +177,12 @@ pub fn uci_command_processor(global_map: ThreadSafeDataMap, config: &Config, rx_
 }
 
 
-pub fn logger_buffer_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_buffer: Receiver<String>) {
+pub fn logger_buffer_thread(engine_state: Arc<EngineState>, _config: &Config, rx_log_buffer: Receiver<String>) {
     let (tx_log_msg, rx_log_msg) = mpsc::channel();
 
+    let state_clone = engine_state.clone();
     let _log_writer = thread::spawn(move || {
-        logger_thread(global_map, &Config::new(), rx_log_msg);
+        logger_thread(state_clone, &Config::new(), rx_log_msg);
     });
 
     loop {
@@ -242,15 +200,11 @@ pub fn logger_buffer_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_
 }
 
 
-fn logger_thread(global_map: ThreadSafeDataMap, _config: &Config, rx_log_msg: Receiver<String>) {
+fn logger_thread(engine_state: Arc<EngineState>, _config: &Config, rx_log_msg: Receiver<String>) {
     loop {
-        let logger_function = global_map.read().expect(RIP_COULDN_LOCK_GLOBAL_MAP)
-        .get_data::<LoggerFnType>(DataMapKey::Logger)
-        .expect("RIP Can not find logger")
-        .clone();
-
         match rx_log_msg.recv() {
             Ok(log_msg) => {
+                let logger_function = engine_state.logger.read().unwrap().clone();
                 logger_function(log_msg);
             }
             Err(_) => {

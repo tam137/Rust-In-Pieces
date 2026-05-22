@@ -20,6 +20,7 @@ pub struct Config {
     pub search_threads: i32,
     pub use_pv_nodes: bool,
     pub min_thinking_time: u64,
+    #[allow(dead_code)]
     pub game_loop: u64,
     pub smp_thread_eval_noise: i16,
     pub skip_strong_validation: bool,
