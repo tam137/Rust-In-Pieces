@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.5.2] - 2026-05-22
+
+### Added
+- Fix division by zero when benchmark search duration is 0ms
+
+### Fixed
+
+
+
 ## [V0.5.1] - 2026-05-22
 
 ### Added
