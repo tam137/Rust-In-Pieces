@@ -247,20 +247,25 @@ impl MoveGenService {
 
             if let Some(pv) = &pv_node {
                 if *pv == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus;
+                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
                 }
             } else if let Some(tt_move) = &tt_best_move {
                 if *tt_move == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus;
+                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
                 }
             }
 
             if move_turn.capture == 0 {
                 if Some(move_turn) == context.killer_moves[0] {
-                    move_turn.rank = move_turn.rank.max(2);
+                    move_turn.rank = move_turn.rank.max(20000);
                 } else if Some(move_turn) == context.killer_moves[1] {
-                    move_turn.rank = move_turn.rank.max(1);
+                    move_turn.rank = move_turn.rank.max(10000);
                 }
+
+                let from = move_turn.from as usize;
+                let to = move_turn.to as usize;
+                let history_bonus = unsafe { (*context.history_table)[from][to] } as i32;
+                move_turn.rank += history_bonus;
             }
 
             // Check for castling
@@ -272,18 +277,18 @@ impl MoveGenService {
             }
 
             move_turn.rank += match move_turn.capture {
-                10 | 20 => 2,
-                11 | 21 => 5,
-                12 | 22 => 3,
-                13 | 23 => 3,
-                14 | 24 => 9,
+                10 | 20 => 20000,
+                11 | 21 => 50000,
+                12 | 22 => 30000,
+                13 | 23 => 30000,
+                14 | 24 => 90000,
                 _ => 0,
             };
 
             if move_turn.capture != 0 {
                 move_turn.rank += match board.get_piece_at(move_turn.from) {
-                    11 | 21 => -1,
-                    14 | 24 => -3,
+                    11 | 21 => -10000,
+                    14 | 24 => -30000,
                     _ => 0,
                 };
             }
@@ -431,13 +436,13 @@ impl MoveGenService {
             if let Some(eval) = self.get_hash(board, config, zobrist_table_read) {
                 turn.eval = eval;
                 turn.has_hashed_eval = true;
-                turn.rank += config.is_hashed_rank_bonus;
+                turn.rank += config.is_hashed_rank_bonus * 10000;
                 stats.add_zobrist_hit(1);
             }
 
             if self.is_in_check(board) {
                 turn.gives_check = true;
-                turn.rank += config.give_check_rank_bonus;
+                turn.rank += config.give_check_rank_bonus * 10000;
             }
             valid_moves.push(*turn);
         }
@@ -459,8 +464,8 @@ impl MoveGenService {
         for &promotion in &promotion_types {
             turn.promotion = promotion;
             match promotion {
-                12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight,
-                14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen,
+                12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
+                14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                 _ => panic!("Promotion value not expected"),
             }
             self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
@@ -897,11 +902,13 @@ mod tests {
         let zobrist_table = ZobristTable::new();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
+            history_table: &history_table,
         };
 
         service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map)
@@ -914,11 +921,13 @@ mod tests {
         let zobrist_table = ZobristTable::new();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
+            history_table: &history_table,
         };
 
         service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map)
@@ -1272,11 +1281,13 @@ mod tests {
 
         let zobrist_table = ZobristTable::new();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
+            history_table: &history_table,
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map);
@@ -1295,11 +1306,13 @@ mod tests {
         let zobrist_table = ZobristTable::new();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
+            history_table: &history_table,
         };
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");

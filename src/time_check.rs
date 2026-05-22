@@ -39,11 +39,13 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
     let config = &Config::new().for_timing_tests();
     let mut stats = Stats::new();
 
+    let history_table = [[0u32; 64]; 64];
     let context = crate::model::SearchContext {
         zobrist_table: &engine_state.zobrist_table,
         stop_flag: &engine_state.stop_flag,
         pv_nodes: &engine_state.pv_nodes,
         killer_moves: [None; 2],
+        history_table: &history_table,
     };
 
     println!("expected <10µs");

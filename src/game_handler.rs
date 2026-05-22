@@ -202,11 +202,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         } else {
                             // Fallback if search was immediately aborted
                             let mut stats = Stats::default();
+                            let history_table = [[0u32; 64]; 64];
                             let context = crate::model::SearchContext {
                                 zobrist_table: &engine_state.zobrist_table,
                                 stop_flag: &engine_state.stop_flag,
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],
+                                history_table: &history_table,
                             };
                             let valid_moves = service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map);
                             if let Some(first_move) = valid_moves.first() {
