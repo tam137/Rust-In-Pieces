@@ -732,24 +732,22 @@ impl MoveGenService {
 #[cfg(test)]
 mod tests {
     use crate::notation_util::NotationUtil;
-    use crate::Service;
-    use crate::global_map_handler;
+    use crate::service::Service;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
     use super::*;
 
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
-        let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
         let config = Config::for_tests();
-        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
-        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
-        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let zobrist_table = ZobristTable::new();
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
-            hash_sender: &dummy_hash_sender,
         };
 
         service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map)
@@ -757,18 +755,15 @@ mod tests {
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
-        let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
         let config = Config::for_tests();
-        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
-        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
-        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let zobrist_table = ZobristTable::new();
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
-            hash_sender: &dummy_hash_sender,
         };
 
         service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map)
@@ -1116,7 +1111,6 @@ mod tests {
     fn move_ordering_with_pv_nodes_test() {
         let service = Service::new();
         let config = Config::for_tests();
-        let global_map = global_map_handler::create_new_global_map();
         let local_map = DataMap::new();
 
         let board = &mut service.fen.set_init_board();
@@ -1124,17 +1118,23 @@ mod tests {
         let mut move_row = Vec::default();
         move_row.push(Turn::_new_to_from(81, 61));
         move_row.push(Turn::_new_to_from(38, 58));
-        global_map_handler::set_pv_nodes(&global_map, &move_row, board);
 
-        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
-        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
-        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let mut pv_nodes_map = HashMap::new();
+        let old_board = board.clone();
+        for turn in &move_row {
+            let hash = zobrist::gen(board);
+            pv_nodes_map.insert(hash, turn.clone());
+            board.do_move(turn);
+        }
+        *board = old_board;
+        let pv_nodes = Mutex::new(pv_nodes_map);
+
+        let zobrist_table = ZobristTable::new();
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
-            hash_sender: &dummy_hash_sender,
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map);
@@ -1148,18 +1148,15 @@ mod tests {
     fn skip_validation_and_check_game_end_test() {
         let service = Service::new();
         let config = Config::for_tests();
-        let global_map = global_map_handler::create_new_global_map();
         let mut local_map = DataMap::new();
 
-        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
-        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
-        let pv_nodes = global_map_handler::get_pv_nodes_mutex(&global_map);
-        let dummy_hash_sender = crossbeam_queue::SegQueue::new();
+        let zobrist_table = ZobristTable::new();
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
-            hash_sender: &dummy_hash_sender,
         };
 
         // missing king

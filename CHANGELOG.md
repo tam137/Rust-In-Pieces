@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.3.0] - 2026-05-22
+
+### Added
+- Refactored engine to single-threaded Iterative Deepening Search, removed Lazy SMP and global_map, fixed board corruption on early search aborts
+
+### Fixed
+
+
+
 ## [V0.2.7] - 2026-05-21
 
 ### Added

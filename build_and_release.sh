@@ -54,12 +54,18 @@ if [ -z "$CURRENT_VERSION" ]; then
     exit 1
 fi
 
-# Parse major, minor, patch
-IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+# Determine new version
+if [ -n "$OVERRIDE_VERSION" ]; then
+    NEW_VERSION="$OVERRIDE_VERSION"
+    echo -e "Overriding version with environment variable: ${GREEN}${BOLD}$NEW_VERSION${NC}"
+else
+    # Parse major, minor, patch
+    IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
 
-# Bump the patch version
-NEW_PATCH=$((patch + 1))
-NEW_VERSION="$major.$minor.$NEW_PATCH"
+    # Bump the patch version
+    NEW_PATCH=$((patch + 1))
+    NEW_VERSION="$major.$minor.$NEW_PATCH"
+fi
 
 echo -e "Current Version: ${BOLD}$CURRENT_VERSION${NC}"
 echo -e "New Version:     ${GREEN}${BOLD}$NEW_VERSION${NC}"

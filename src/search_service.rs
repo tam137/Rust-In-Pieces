@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::time::Instant;
+use std::sync::Arc;
 
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, ThreadSafeDataMap, Turn, Variant, SearchContext, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
-use crate::global_map_handler;
 
 use crate::model::RIP_MISSED_DM_KEY;
 
@@ -17,28 +17,35 @@ impl SearchService {
         SearchService
     }
 
-    pub fn get_moves(&self, board: &mut Board, depth: i32, white: bool, stats: &mut Stats, config: &Config,
-        service: &Service, global_map: &ThreadSafeDataMap, local_map: &mut DataMap) -> SearchResult {
-
-        let logger = global_map_handler::get_log_buffer_sender(global_map);
+    pub fn get_moves(
+        &self,
+        board: &mut Board,
+        depth: i32,
+        white: bool,
+        stats: &mut Stats,
+        config: &Config,
+        service: &Service,
+        engine_state: &Arc<EngineState>,
+        local_map: &mut DataMap,
+    ) -> SearchResult {
+        let logger = engine_state.log_sender.clone();
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
 
-        let zobrist_table = global_map_handler::get_zobrist_table(global_map);
-        let stop_flag = global_map_handler::get_stop_flag_atomic(global_map);
-        let pv_nodes = global_map_handler::get_pv_nodes_mutex(global_map);
-        let hash_sender = global_map_handler::get_hash_sender(global_map);
+        let zobrist_table = &engine_state.zobrist_table;
+        let stop_flag = &engine_state.stop_flag;
+        let pv_nodes = &engine_state.pv_nodes;
 
         let context = SearchContext {
-            zobrist_table: &zobrist_table,
-            stop_flag: &stop_flag,
-            pv_nodes: &pv_nodes,
-            hash_sender: &hash_sender,
+            zobrist_table,
+            stop_flag,
+            pv_nodes,
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
+        search_result.is_white_move = white;
         search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
 
         let mut alpha: i16 = i16::MIN;
@@ -53,6 +60,7 @@ impl SearchService {
                 alpha, beta, stats, config, service, &context, local_map);
 
             if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                board.undo_move(&turn, mi);
                 let calc_time_ms = self.get_calc_time(&local_map);
                 search_result.stats = stats.clone();
                 search_result.stats.best_turn_nr = turn_counter;
@@ -63,11 +71,9 @@ impl SearchService {
             let min_max_eval = min_max_result.1;
 
             // save min max eval in zobrist table for better move sorting, if depth = 2
-            // TODO missing test or remove
             if depth == 2 && config.use_zobrist {
-                hash_sender.push((board.cached_hash, min_max_eval));
+                zobrist_table.hash_map.insert(board.cached_hash, min_max_eval);
             }
-
 
             board.undo_move(&turn, mi);
             if white {
@@ -123,9 +129,6 @@ impl SearchService {
         } else {
             search_result.completed = true;
         }
-        global_map_handler::push_search_result(global_map, search_result.clone());
-        logger.send(format!("pushed search result calculated depth {}", search_result.calculated_depth))
-            .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
         search_result
     }
     
@@ -138,12 +141,6 @@ impl SearchService {
         let mut turns: Vec<Turn> = Default::default();
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
 
-/*
-        // for debug
-        if depth <= 0 && turn.from == 61 && turn.to == 72 && turn.capture == 11 && board.cached_hash == 6026442690037892337 {
-            println!("stop");
-        }
- */
         if depth <= 0 {
             let eval = if turn.has_hashed_eval {
                 turn.eval
@@ -161,7 +158,7 @@ impl SearchService {
                 
                 let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
                 if config.use_zobrist {
-                    context.hash_sender.push((board.cached_hash, eval)); // TODO critical Test board.cached_hash is correct here
+                    context.zobrist_table.hash_map.insert(board.cached_hash, eval);
                 }
                 eval
             };
@@ -186,12 +183,6 @@ impl SearchService {
                 };
             }
             
-
-            /*
-            if stand_pat_cut && turn.gives_check {
-                turns = service.move_gen.generate_valid_moves_list(board, stats, service);
-            }
-            */          
 
             if stand_pat_cut && turns.is_empty(){
                 // check for mate or draw or leave quitesearch
@@ -315,20 +306,34 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, Stats};
+    use crate::config::Config;
     use crate::service::Service;
-    use crate::model::{Board, SearchResult};
-    use crate::global_map_handler;
+    use crate::model::{Board, SearchResult, EngineState, DataMap, DataMapKey, Stats};
+    use crate::zobrist::ZobristTable;
+    use std::sync::Arc;
+    use std::time::Instant;
 
     pub fn search(board: &mut Board, depth: i32, white: bool) -> SearchResult {
         let service = Service::new();
         let config = Config::for_tests();
         let mut stats = Stats::new();
-        let mut local_map = global_map_handler::_get_default_local_map();
+        let mut local_map = DataMap::new();
+        local_map.insert(DataMapKey::CalcTime, std::time::Instant::now());
+        local_map.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map.insert(DataMapKey::BlackGivesCheck, false);
 
-        let global_map = global_map_handler::create_new_global_map();
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::new()),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
 
-        service.search.get_moves(&mut *board, depth, white, &mut stats, &config, &service, &global_map, &mut local_map)
+        service.search.get_moves(&mut *board, depth, white, &mut stats, &config, &service, &engine_state, &mut local_map)
     }
     
 
@@ -391,10 +396,7 @@ mod tests {
 
         let mut board = fen_service.set_fen("6k1/5pp1/5rnp/2Npb3/3PP3/r1P1R2P/5PP1/4BR1K b - - 0 1");
         let result = search(&mut board, 2, false);
-        //result.print_all_variants();
         assert!(result.get_eval() > 0);
-        // assert_eq!(result.get_best_move_algebraic(), "e5d4"); // TODO activate
-
     }
 
 
@@ -404,20 +406,16 @@ mod tests {
 
         let mut board = fen_service.set_fen("3r2nk/6pp/3p4/4p3/3BP3/8/3R2PP/6NK w - - 0 1");
         let result = search(&mut board, 2, true);
-        //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4e5");
         
         let mut board = fen_service.set_fen("7k/6pp/3p4/4n3/3QP3/8/3R2PP/7K w - - 0 1");
         let result = search(&mut board, 2, true);
-        //result.print_all_variants();
-        assert_eq!(result.get_best_move_algebraic(), "d4d6"); // d4e5 also matt in 4
+        assert_eq!(result.get_best_move_algebraic(), "d4d6");
 
 
         let mut board = fen_service.set_fen("7k/6pp/3p1p2/4r3/p2QP3/8/3R2PP/7K w - - 0 1");
         let result = search(&mut board, 2, true);
-        //result.print_all_variants();
         assert_eq!(result.get_best_move_algebraic(), "d4a4");
-
     }
 
 
@@ -429,41 +427,16 @@ mod tests {
         let mut board = fen_service.set_fen("4k3/5pp1/2r3np/2Ppp3/3BP3/7P/5PP1/3RR1K1 b - - 0 1");
         let result = search(&mut board, 2, false);
         result._print_all_variants();
-        //assert!(result.get_eval() < -100);
-        //assert_eq!(result.get_best_move_algebraic(), "d5e4");
     }
 
-    // 
+    
     #[test]
     fn practical_moves_from_games() {
         let fen_service = Service::new().fen;
 
         let mut board = fen_service.set_fen("rnbqkbnr/1p3ppp/p7/1Np5/1P1p4/5N2/P2PPPPP/R1BQKB1R w KQkq - 0 7");
         let result = search(&mut board, 3, true);
-        //assert_eq!( "g4e2", result.get_best_move_algebraic());
         result._print_all_variants();
-
-        /*
-
-        let mut board = fen_service.set_fen("r2q1rk1/1pp2pbp/3p1np1/P1nPp1N1/4P1b1/2N5/P1PBBPPP/R2Q1RK1 b - - 4 11");
-        let result = search(&mut board, 2, false);
-        assert_eq!( "g4e2", result.get_best_move_algebraic()); // or g4c8 or g4d7
-        //result.print_all_variants();
-
-        let mut board = fen_service.set_fen("r1q1k2r/p1pRbp2/5p2/1p5p/5B2/6P1/PPQ1PP1P/4KB1R b Kkq - 0 20");
-        let result = search(&mut board, 2, false);
-        //result.print_all_variants();
-        assert_eq!( "c8d7", result.get_best_move_algebraic());
-
-        let mut board = fen_service.set_fen("7r/p1p2p1p/P3k1p1/2KR1nr1/2P5/8/8/8 w - - 2 35");
-        let result = search(&mut board, 2, true);
-        assert_ne!("d5e5", result.get_best_move_algebraic());
-
-        let mut board = fen_service.set_fen("r3k2r/pp1n2p1/2p3p1/5pB1/3Pn3/2P3P1/PP2B1PP/R4RK1 w kq - 3 18");
-        let result = search(&mut board, 3, true);
-        assert_ne!("g5h4", result.get_best_move_algebraic());
-         */
-
     }
 
     #[test]
@@ -472,16 +445,28 @@ mod tests {
         use std::thread;
         use std::time::Duration;
 
-        let global_map = global_map_handler::create_new_global_map();
-        let stop_flag = global_map_handler::get_stop_flag_atomic(&global_map);
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::new()),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+        let stop_flag = engine_state.stop_flag.clone();
 
-        let global_map_clone = global_map.clone();
+        let engine_state_clone = engine_state.clone();
         let handle = thread::spawn(move || {
             let service = Service::new();
             let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
             let mut stats = Stats::new();
             let config = Config::for_tests();
-            let mut local_map = global_map_handler::_get_default_local_map();
+            let mut local_map = DataMap::new();
+            local_map.insert(DataMapKey::CalcTime, Instant::now());
+            local_map.insert(DataMapKey::WhiteGivesCheck, false);
+            local_map.insert(DataMapKey::BlackGivesCheck, false);
 
             service.search.get_moves(
                 &mut board,
@@ -490,7 +475,7 @@ mod tests {
                 &mut stats,
                 &config,
                 &service,
-                &global_map_clone,
+                &engine_state_clone,
                 &mut local_map,
             )
         });
@@ -510,8 +495,7 @@ mod tests {
     fn zobrist_table_concurrent_stress_test() {
         use std::thread;
 
-        let global_map = global_map_handler::create_new_global_map();
-        let zobrist_table = global_map_handler::get_zobrist_table(&global_map);
+        let zobrist_table = Arc::new(ZobristTable::new());
 
         let mut handles = vec![];
         let num_threads = 4;

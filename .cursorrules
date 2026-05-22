@@ -29,3 +29,4 @@
   4. Compiles the optimized production release binary.
   5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
 - **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!
+- **Execution Restriction:** Only execute the build and release script (`./build_and_release.sh`) or compile a new release binary when the USER explicitly requests or triggers a release. Do NOT automatically trigger or run a build/release after implementing changes unless explicitly asked.
