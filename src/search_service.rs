@@ -56,11 +56,38 @@ impl SearchService {
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
 
+        let total_root_moves = turns.len() as i32;
+        local_map.insert(DataMapKey::RootMovesTotal, total_root_moves);
+        local_map.insert(DataMapKey::RootMovesSearched, 0);
+
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
         for turn in &turns {
+            // Check time at the start of each root move
+            let elapsed = self.get_calc_time(local_map) as i32;
+            if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
+                let mut dynamic_target = target;
+                if target < i32::MAX - 1000000 {
+                    if total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
+                        dynamic_target = (target * 13) / 10;
+                    }
+                }
+                if elapsed >= dynamic_target {
+                    stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+
+            if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                let calc_time_ms = self.get_calc_time(local_map);
+                search_result.stats = stats.clone();
+                search_result.stats.best_turn_nr = turn_counter as i8;
+                search_result.stats.calc_time_ms = calc_time_ms as usize;
+                break;
+            }
+
             turn_counter += 1;
+            local_map.insert(DataMapKey::RootMovesSearched, turn_counter - 1);
             let mi = board.do_move(turn);
 
             let child_context = SearchContext {
@@ -79,7 +106,7 @@ impl SearchService {
                 board.undo_move(turn, mi);
                 let calc_time_ms = self.get_calc_time(local_map);
                 search_result.stats = stats.clone();
-                search_result.stats.best_turn_nr = turn_counter;
+                search_result.stats.best_turn_nr = turn_counter as i8;
                 search_result.stats.calc_time_ms = calc_time_ms as usize;
                 break;
             }
@@ -115,7 +142,7 @@ impl SearchService {
                     search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
-                    stats.best_turn_nr = turn_counter;
+                    stats.best_turn_nr = turn_counter as i8;
                     let calc_time_ms = self.get_calc_time(local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
@@ -139,7 +166,7 @@ impl SearchService {
                     search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
-                    search_result.stats.best_turn_nr = turn_counter;
+                    search_result.stats.best_turn_nr = turn_counter as i8;
                     let calc_time_ms = self.get_calc_time(local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
@@ -316,6 +343,24 @@ impl SearchService {
             let mut child_pv = [None; 128];
 
             for capture_turn in &turns {
+                if stats.calculated_nodes & 1023 == 0 {
+                    let elapsed = self.get_calc_time(local_map) as i32;
+                    if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
+                        let mut dynamic_target = target;
+                        if let (Some(&searched), Some(&total)) = (
+                            local_map.get_data::<i32>(DataMapKey::RootMovesSearched),
+                            local_map.get_data::<i32>(DataMapKey::RootMovesTotal),
+                        ) {
+                            if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+                                dynamic_target = (target * 13) / 10;
+                            }
+                        }
+                        if elapsed >= dynamic_target {
+                            context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+
                 if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     break;
                 }
@@ -371,6 +416,24 @@ impl SearchService {
         let mut child_pv = [None; 128];
 
         for current_turn in &turns {
+            if stats.calculated_nodes & 1023 == 0 {
+                let elapsed = self.get_calc_time(local_map) as i32;
+                if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
+                    let mut dynamic_target = target;
+                    if let (Some(&searched), Some(&total)) = (
+                        local_map.get_data::<i32>(DataMapKey::RootMovesSearched),
+                        local_map.get_data::<i32>(DataMapKey::RootMovesTotal),
+                    ) {
+                        if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+                            dynamic_target = (target * 13) / 10;
+                        }
+                    }
+                    if elapsed >= dynamic_target {
+                        context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+
             if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }

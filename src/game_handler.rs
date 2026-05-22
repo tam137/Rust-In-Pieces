@@ -1,8 +1,8 @@
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::thread;
+
 
 use crate::DataMap;
 use crate::DataMapKey;
@@ -107,32 +107,39 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() || !config.use_book {
-                        // Spawn background timer observer thread
-                        let engine_state_timer = engine_state.clone();
-                        let time_info_observer = time_info.clone();
-                        let config_timer = config.clone();
-                        let white_timer = white;
-                        let move_count_timer = game.board.move_count;
-
-                        let _time_observer_thread = thread::spawn(move || {
-                            let timer_logger = engine_state_timer.log_sender.clone();
-                            if time_info_observer.time_mode == TimeMode::None || time_info_observer.time_mode == TimeMode::Depth {
-                                timer_logger.send(format!("TimeMode is {:?}", time_info_observer.time_mode)).ok();
-                                return;
-                            }
-
-                            let my_thinking_time = calculate_thinking_time(&time_info_observer, white_timer, move_count_timer, &config_timer);
-                            timer_logger.send(format!("My thinking time is: {}", my_thinking_time)).ok();
-
-                            thread::sleep(Duration::from_millis(my_thinking_time));
-                            engine_state_timer.stop_flag.store(true, Ordering::SeqCst);
-                            timer_logger.send(format!("Time up. Set stop flag true")).ok();
-                        });
-
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
                         local_map.insert(DataMapKey::WhiteGivesCheck, false);
                         local_map.insert(DataMapKey::BlackGivesCheck, false);
+
+                        // Eindeutige Züge (Obvious Moves / Early Exit)
+                        let mut stats = Stats::default();
+                        let history_table = [[0u32; 64]; 64];
+                        let context = crate::model::SearchContext {
+                            zobrist_table: &engine_state.zobrist_table,
+                            stop_flag: &engine_state.stop_flag,
+                            pv_nodes: &engine_state.pv_nodes,
+                            killer_moves: [None; 2],
+                            history_table: &history_table,
+                        };
+                        let valid_moves = service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map);
+
+                        if valid_moves.len() == 1 {
+                            let mv_str = valid_moves[0].to_algebraic();
+                            stdout.write(&format!("bestmove {}", mv_str));
+                            game.do_move(&mv_str);
+                            logger.send(format!("Only one legal move found. Playing bestmove: {}", mv_str)).ok();
+                            continue;
+                        }
+
+                        // Calculate and store the target time in local_map
+                        let my_thinking_time = if time_info.time_mode == TimeMode::None || time_info.time_mode == TimeMode::Depth {
+                            i32::MAX as u64
+                        } else {
+                            calculate_thinking_time(&time_info, white, game.board.move_count, &config)
+                        };
+                        local_map.insert(DataMapKey::TargetTime, my_thinking_time as i32);
+                        logger.send(format!("My thinking time is: {}", my_thinking_time)).ok();
 
                         // Clear old PV data
                         engine_state.pv_nodes.lock().unwrap().clear();
@@ -241,16 +248,19 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, c
     let thinking_time = match time_info.time_mode {
         TimeMode::None => 2000,
         
-        TimeMode::Movetime => if white { time_info.wtime - 500 } else { time_info.btime - 500 },
+        TimeMode::Movetime => {
+            let my_time = if white { time_info.wtime } else { time_info.btime };
+            (my_time - 50).max(10)
+        }
         
         TimeMode::MoveToGo => {
             let my_time = if white { time_info.wtime } else { time_info.btime };
             let my_thinking_time = (my_time / (time_info.moves_to_go + 1)) + (if white { time_info.winc } else { time_info.binc });
             
             if my_thinking_time > my_time { // when increment is bigger then current time left
-                my_time - 1000
+                (my_time - 1000).max(10)
             } else {
-                my_thinking_time
+                my_thinking_time.max(10)
             }
         }
         
@@ -258,15 +268,15 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, c
             let my_time = if white { time_info.wtime } else { time_info.btime };
             
             let my_thinking_time = if move_count < 40 {
-                (my_time as f64 * (0.02 + (move_count as f64 / 1000 as f64) as f64)) as i32
+                (my_time as f64 * (0.02 + (move_count as f64 / 1000.0))) as i32
             } else {
                 my_time / 20
             } + if white { time_info.winc } else { time_info.binc };
 
             if my_thinking_time > my_time { // when increment is bigger then current time left
-                my_time - 1000
+                (my_time - 1000).max(10)
             } else {
-                my_thinking_time
+                my_thinking_time.max(10)
             }
             
         }
@@ -276,6 +286,7 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, c
         }
     };
 
+    let thinking_time = thinking_time.max(10);
     if (thinking_time as u64) < config.min_thinking_time { config.min_thinking_time } else { thinking_time as u64}
 }
 
