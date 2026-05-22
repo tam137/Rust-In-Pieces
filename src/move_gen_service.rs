@@ -218,7 +218,7 @@ impl MoveGenService {
             }
             let pv_nodes_guard = context.pv_nodes.lock().expect(crate::model::RIP_COULDN_LOCK_MUTEX);
             if let Some(pv_node_result) = pv_nodes_guard.get(&board.cached_hash) {
-                pv_node = Some(pv_node_result.clone());
+                pv_node = Some(*pv_node_result);
             }
         }
 
@@ -431,7 +431,7 @@ impl MoveGenService {
                 turn.gives_check = true;
                 turn.rank += config.give_check_rank_bonus;
             }
-            valid_moves.push(turn.clone());
+            valid_moves.push(*turn);
         }
         board.undo_move(turn, move_info);
     }
@@ -1254,7 +1254,7 @@ mod tests {
         let old_board = board.clone();
         for turn in &move_row {
             let hash = zobrist::gen(board);
-            pv_nodes_map.insert(hash, turn.clone());
+            pv_nodes_map.insert(hash, *turn);
             board.do_move(turn);
         }
         *board = old_board;
