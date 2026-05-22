@@ -1,20 +1,16 @@
-use std::cell::RefCell;
-
-use crate::model::{Board, INIT_BOARD_FEN};
+use crate::model::{
+    Board, INIT_BOARD_FEN,
+    WHITE_PAWN, WHITE_ROOK, WHITE_KNIGHT, WHITE_BISHOP, WHITE_QUEEN, WHITE_KING,
+    BLACK_PAWN, BLACK_ROOK, BLACK_KNIGHT, BLACK_BISHOP, BLACK_QUEEN, BLACK_KING,
+};
 use crate::notation_util::NotationUtil;
-
 
 pub struct FenService;
 
 impl FenService {
     /// Sets up a board from a given FEN string.
     pub fn set_fen(&self, fen: &str) -> Board {
-        let mut field = [0; 120];
-        self.clear_field(&mut field);
-
-        let mut index = 21;
-        let mut line_for_en_passante = -1;
-        
+        let mut bitboards = [0u64; 12];
 
         let parts: Vec<&str> = fen.split_whitespace().collect();
         let board_part = parts[0];
@@ -24,30 +20,35 @@ impl FenService {
         let move_number_part = if parts.len() > 5 { parts[5] } else { "1" };
 
         // Process the board position
+        let mut rank = 7i32;
+        let mut file = 0i32;
+
         for c in board_part.chars() {
             if c == '/' {
-                index += 2; // Move to the next row
+                rank -= 1;
+                file = 0;
             } else if c.is_digit(10) {
-                index += c.to_digit(10).unwrap() as usize; // Skip empty squares
+                file += c.to_digit(10).unwrap() as i32;
             } else {
-                let piece = match c {
-                    'K' => 15,
-                    'Q' => 14,
-                    'R' => 11,
-                    'B' => 13,
-                    'N' => 12,
-                    'P' => 10,
-                    'k' => 25,
-                    'q' => 24,
-                    'r' => 21,
-                    'b' => 23,
-                    'n' => 22,
-                    'p' => 20,
-                    _ => 0, // Ignore invalid characters
+                let piece_idx = match c {
+                    'P' => Some(WHITE_PAWN),
+                    'R' => Some(WHITE_ROOK),
+                    'N' => Some(WHITE_KNIGHT),
+                    'B' => Some(WHITE_BISHOP),
+                    'Q' => Some(WHITE_QUEEN),
+                    'K' => Some(WHITE_KING),
+                    'p' => Some(BLACK_PAWN),
+                    'r' => Some(BLACK_ROOK),
+                    'n' => Some(BLACK_KNIGHT),
+                    'b' => Some(BLACK_BISHOP),
+                    'q' => Some(BLACK_QUEEN),
+                    'k' => Some(BLACK_KING),
+                    _ => None,
                 };
-                if piece != 0 {
-                    field[index] = piece;
-                    index += 1;
+                if let Some(idx) = piece_idx {
+                    let square = rank * 8 + file;
+                    bitboards[idx] |= 1u64 << square;
+                    file += 1;
                 }
             }
         }
@@ -62,36 +63,24 @@ impl FenService {
         let black_possible_to_castle_long = castling_part.contains('q');
 
         // Process en passant possibility
+        let mut field_for_en_passante = -1i8;
         if en_passant_part != "-" {
-            line_for_en_passante = NotationUtil::get_index_from_notation_field(en_passant_part);
+            field_for_en_passante = NotationUtil::get_index_from_notation_field(en_passant_part) as i8;
         }
 
         // Process move number
         let move_number = move_number_part.parse::<i32>().unwrap_or(1);
 
-        let white_king = RefCell::new(false);
-        let black_king = RefCell::new(false);
-        
-        field.iter().for_each(|&f| {
-            if f == 15 {
-                *white_king.borrow_mut() = true;
-            }
-            if f == 25 {
-                *black_king.borrow_mut() = true;
-            }
-        });
-        
-        // Um die Werte zu verwenden:
-        let white_king = white_king.into_inner();
-        let black_king = black_king.into_inner();
+        let white_king = bitboards[WHITE_KING] != 0;
+        let black_king = bitboards[BLACK_KING] != 0;
 
         Board::new(
-            field,
+            bitboards,
             white_possible_to_castle_long,
             white_possible_to_castle_short,
             black_possible_to_castle_long,
             black_possible_to_castle_short,
-            line_for_en_passante,
+            field_for_en_passante,
             white_to_move,
             move_number,
             white_king,
@@ -103,27 +92,16 @@ impl FenService {
         self.set_fen(INIT_BOARD_FEN)
     }
 
-    /// Clears the board by initializing all positions to -11 (out of bounds) or 0 (empty squares).
-    fn clear_field(&self, field: &mut [i32; 120]) {
-        for i in 0..field.len() {
-            if i < 21 || i > 98 || i % 10 == 0 || i % 10 == 9 {
-                field[i] = -11; // Set border squares to -11
-            } else {
-                field[i] = 0; // Set empty squares to 0
-            }
-        }
-    }
-
     /// Generates a FEN string from a given Board.
     pub fn get_fen(&self, board: &Board) -> String {
         let mut fen = String::new();
         let mut empty_count = 0;
 
-        // Process board positions
-        for rank in 0..8 {
+        // Process board positions (ranks 7 down to 0, files 0 to 7)
+        for rank in (0..8).rev() {
             for file in 0..8 {
-                let index = 21 + rank * 10 + file;
-                let piece = board.field[index];
+                let square = rank * 8 + file;
+                let piece = board.get_piece_at(square as u8);
 
                 if piece == 0 {
                     empty_count += 1;
@@ -133,18 +111,18 @@ impl FenService {
                         empty_count = 0;
                     }
                     let piece_char = match piece {
-                        15 => 'K',
-                        14 => 'Q',
-                        11 => 'R',
-                        13 => 'B',
-                        12 => 'N',
                         10 => 'P',
-                        25 => 'k',
-                        24 => 'q',
-                        21 => 'r',
-                        23 => 'b',
-                        22 => 'n',
+                        11 => 'R',
+                        12 => 'N',
+                        13 => 'B',
+                        14 => 'Q',
+                        15 => 'K',
                         20 => 'p',
+                        21 => 'r',
+                        22 => 'n',
+                        23 => 'b',
+                        24 => 'q',
+                        25 => 'k',
                         _ => ' ',
                     };
                     if piece_char != ' ' {
@@ -156,7 +134,7 @@ impl FenService {
                 fen.push_str(&empty_count.to_string());
                 empty_count = 0;
             }
-            if rank < 7 {
+            if rank > 0 {
                 fen.push('/');
             }
         }
@@ -200,14 +178,14 @@ impl FenService {
         fen
     }
 
-    /// Converts a board index to a notation field (e.g., 34 -> "d6").
-    pub fn get_notation_from_index(&self, index: i32) -> String {
-        if index < 21 || index > 98 || index % 10 == 0 || index % 10 == 9 {
+    /// Converts a board index to a notation field (e.g., 28 -> "e4").
+    pub fn get_notation_from_index(&self, index: i8) -> String {
+        if index < 0 || index > 63 {
             return String::from("-"); // Invalid index
         }
 
-        let rank_index = 7 - ((index - 21) / 10);
-        let file_index = (index % 10) - 1;
+        let file_index = index % 8;
+        let rank_index = index / 8;
 
         let file = (b'a' + file_index as u8) as char;
         let rank = (b'1' + rank_index as u8) as char;
@@ -216,11 +194,9 @@ impl FenService {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::service::Service;
-
 
     #[test]
     fn fen_comparing_test() {
@@ -246,5 +222,4 @@ mod tests {
         let result_fen = fen_service.get_fen(&board);
         assert_eq!(test_fen, result_fen);
     }
-
 }

@@ -193,12 +193,25 @@ pub struct TimeInfo {
 }
 
 
+pub const WHITE_PAWN: usize = 0;
+pub const WHITE_ROOK: usize = 1;
+pub const WHITE_KNIGHT: usize = 2;
+pub const WHITE_BISHOP: usize = 3;
+pub const WHITE_QUEEN: usize = 4;
+pub const WHITE_KING: usize = 5;
+pub const BLACK_PAWN: usize = 6;
+pub const BLACK_ROOK: usize = 7;
+pub const BLACK_KNIGHT: usize = 8;
+pub const BLACK_BISHOP: usize = 9;
+pub const BLACK_QUEEN: usize = 10;
+pub const BLACK_KING: usize = 11;
+
 #[derive(Debug, Clone)]
 pub struct Turn {
-    pub from: i32,
-    pub to: i32,
-    pub capture: i32,
-    pub promotion: i32,
+    pub from: u8,
+    pub to: u8,
+    pub capture: u8,
+    pub promotion: u8,
     pub gives_check: bool,
     pub eval: i16,
     pub hash: u64,
@@ -223,7 +236,7 @@ impl PartialEq<&Turn> for Turn {
 
 impl Turn {
     // Constructor with all fields
-    pub fn new(from: i32, to: i32, capture: i32, promotion: i32, gives_check: bool, eval: i16) -> Self {
+    pub fn new(from: u8, to: u8, capture: u8, promotion: u8, gives_check: bool, eval: i16) -> Self {
         Turn {
             from,
             to,
@@ -237,7 +250,7 @@ impl Turn {
         }
     }
 
-    pub fn _new_to_from(from: i32, to: i32) -> Self {
+    pub fn _new_to_from(from: u8, to: u8) -> Self {
         Turn {
             from,
             to,
@@ -257,17 +270,31 @@ impl Turn {
     }
 
     pub fn to_algebraic(&self) -> String {
-        let column_from = (self.from % 10 + 96) as u8;
-        let row_from = (10 - (self.from / 10) + 48) as u8;
-        let column_to = (self.to % 10 + 96) as u8;
-        let row_to = (10 - (self.to / 10) + 48) as u8;
-        let mut promotional_lit = "";
-        if self.promotion != 0 {
-            promotional_lit = if self.promotion % 10 == 4 { "q" } else { "n" };
-        }
+        let col_from = self.from % 8;
+        let row_from = self.from / 8;
+        let col_to = self.to % 8;
+        let row_to = self.to / 8;
+
+        let char_from_col = (col_from + b'a') as char;
+        let char_from_row = (row_from + b'1') as char;
+        let char_to_col = (col_to + b'a') as char;
+        let char_to_row = (row_to + b'1') as char;
+
+        let promotion_lit = if self.promotion != 0 {
+            match self.promotion % 10 {
+                4 => "q",
+                2 => "n",
+                3 => "b",
+                1 => "r",
+                _ => "",
+            }
+        } else {
+            ""
+        };
+
         format!(
             "{}{}{}{}{}",
-            column_from as char, row_from as char, column_to as char, row_to as char, &promotional_lit
+            char_from_col, char_from_row, char_to_col, char_to_row, promotion_lit
         )
     }
 }
@@ -278,16 +305,20 @@ impl Turn {
 pub struct MoveInformation {
     pub castle_information: CastleInformation,
     pub hash: u64,
-    pub en_passante: i32,
+    pub en_passante: i8,
+    pub capture: u8,
+    pub moved_piece: u8,
 }
 
 impl MoveInformation {
     // Constructor
-    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i32) -> Self {
+    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i8, capture: u8, moved_piece: u8) -> Self {
         MoveInformation {
             castle_information,
             hash,
             en_passante,
+            capture,
+            moved_piece,
         }
     }
 }
@@ -307,12 +338,15 @@ impl CastleInformation {
 
 #[derive(Debug, Clone)]
 pub struct Board {
-    pub field: [i32; 120],
+    pub bitboards: [u64; 12],
+    pub white_pieces: u64,
+    pub black_pieces: u64,
+    pub occupied: u64,
     pub white_possible_to_castle_long: bool,
     pub white_possible_to_castle_short: bool,
     pub black_possible_to_castle_long: bool,
     pub black_possible_to_castle_short: bool,
-    pub field_for_en_passante: i32,  // 0 if no en passant possible, only used by fen import
+    pub field_for_en_passante: i8,  // -1 if no en passant possible, 0..63
     pub white_to_move: bool,
     pub move_count: i32,
     pub game_status: GameStatus,
@@ -325,19 +359,28 @@ pub struct Board {
 impl Board {
     // Constructor
     pub fn new(
-        field: [i32; 120],
+        bitboards: [u64; 12],
         white_possible_to_castle_long: bool,
         white_possible_to_castle_short: bool,
         black_possible_to_castle_long: bool,
         black_possible_to_castle_short: bool,
-        field_for_en_passante: i32,
+        field_for_en_passante: i8,
         white_to_move: bool,
         move_count: i32,
         _white_king_on_board: bool,
         _black_king_on_board: bool,
     ) -> Self {
+        let white_pieces = bitboards[WHITE_PAWN] | bitboards[WHITE_ROOK] | bitboards[WHITE_KNIGHT] |
+                           bitboards[WHITE_BISHOP] | bitboards[WHITE_QUEEN] | bitboards[WHITE_KING];
+        let black_pieces = bitboards[BLACK_PAWN] | bitboards[BLACK_ROOK] | bitboards[BLACK_KNIGHT] |
+                           bitboards[BLACK_BISHOP] | bitboards[BLACK_QUEEN] | bitboards[BLACK_KING];
+        let occupied = white_pieces | black_pieces;
+
         Board {
-            field,
+            bitboards,
+            white_pieces,
+            black_pieces,
+            occupied,
             white_possible_to_castle_long,
             white_possible_to_castle_short,
             black_possible_to_castle_long,
@@ -348,116 +391,182 @@ impl Board {
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
             cached_hash: 0,
-            _white_king_on_board: true,
-            _black_king_on_board: true,
+            _white_king_on_board,
+            _black_king_on_board,
         }
+    }
+
+    pub fn piece_to_bb_idx(piece: u8) -> usize {
+        match piece {
+            10 => WHITE_PAWN,
+            11 => WHITE_ROOK,
+            12 => WHITE_KNIGHT,
+            13 => WHITE_BISHOP,
+            14 => WHITE_QUEEN,
+            15 => WHITE_KING,
+            20 => BLACK_PAWN,
+            21 => BLACK_ROOK,
+            22 => BLACK_KNIGHT,
+            23 => BLACK_BISHOP,
+            24 => BLACK_QUEEN,
+            25 => BLACK_KING,
+            _ => panic!("Invalid piece ID: {}", piece),
+        }
+    }
+
+    pub fn get_piece_at(&self, square: u8) -> u8 {
+        let mask = 1u64 << square;
+        if (self.occupied & mask) == 0 {
+            return 0;
+        }
+        for i in 0..12 {
+            if (self.bitboards[i] & mask) != 0 {
+                return match i {
+                    WHITE_PAWN => 10,
+                    WHITE_ROOK => 11,
+                    WHITE_KNIGHT => 12,
+                    WHITE_BISHOP => 13,
+                    WHITE_QUEEN => 14,
+                    WHITE_KING => 15,
+                    BLACK_PAWN => 20,
+                    BLACK_ROOK => 21,
+                    BLACK_KNIGHT => 22,
+                    BLACK_BISHOP => 23,
+                    BLACK_QUEEN => 24,
+                    BLACK_KING => 25,
+                    _ => 0,
+                };
+            }
+        }
+        0
     }
 
     /// return the index of kings (white_king, black_king)
-    pub fn get_king_positions(&self) -> (i32, i32) { // TODO write Test
-        let mut white_king_pos = -1;
-        let mut black_king_pos = -1;
-
-        for i in 21..99 {
-            if self.field[i] == 15 {
-                white_king_pos = i as i32;
-            }
-            if self.field[i] == 25 {
-                black_king_pos = i as i32;
-            }
-        }
-        (white_king_pos, black_king_pos)
+    pub fn get_king_positions(&self) -> (i32, i32) {
+        let white_king_pos = self.bitboards[WHITE_KING].trailing_zeros() as i32;
+        let black_king_pos = self.bitboards[BLACK_KING].trailing_zeros() as i32;
+        (
+            if white_king_pos < 64 { white_king_pos } else { -1 },
+            if black_king_pos < 64 { black_king_pos } else { -1 }
+        )
     }
-
 
     /// It only panics if the from field is != 0
     /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
+        let from = turn.from;
+        let to = turn.to;
+        let from_mask = 1u64 << from;
+        let to_mask = 1u64 << to;
 
-        // validation
-        if self.field[turn.from as usize] == 0 {
+        let moved_piece = self.get_piece_at(from);
+        if moved_piece == 0 {
             panic!("RIP do_move(): Field on turn.from is 0\n{:?}", turn);
         }
-        
+
         let old_castle_information = self.get_castle_information();
         let old_field_for_en_passante = self.field_for_en_passante;
 
+        let mut actual_capture = turn.capture;
+        if actual_capture == 0 {
+            let piece_at_to = self.get_piece_at(to);
+            if piece_at_to != 0 && (piece_at_to >= 10 && piece_at_to <= 15) != self.white_to_move {
+                actual_capture = piece_at_to;
+            } else if (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante) {
+                actual_capture = if self.white_to_move { 20 } else { 10 };
+            }
+        }
+
         // handle king counter
-        match self.field[turn.to as usize] {
-            15 => {
-                self._white_king_on_board = false;
-                self.game_status = GameStatus::BlackWin;
-            }
-            25 => {
-                self._black_king_on_board = false;
-                self.game_status = GameStatus::WhiteWin;
-            }
-            _ => {}
+        if actual_capture == 15 {
+            self._white_king_on_board = false;
+            self.game_status = GameStatus::BlackWin;
+        } else if actual_capture == 25 {
+            self._black_king_on_board = false;
+            self.game_status = GameStatus::WhiteWin;
         }
 
-        // Handling en passante information
-        self.field_for_en_passante = -1;
-        if (self.white_to_move && turn.from / 10 == 8 && turn.to / 10 == 6 && self.field[turn.from as usize] == 10) 
-            || (!self.white_to_move && turn.from / 10 == 3 && turn.to / 10 == 5 && self.field[turn.from as usize] == 20) {
-            
-            let base = if self.white_to_move { 70 } else { 40 };
-            self.field_for_en_passante = base + (turn.from % 10);
+        let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
+
+        // Move the piece
+        if turn.is_promotion() {
+            self.bitboards[moved_bb_idx] ^= from_mask;
+            let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
+            self.bitboards[promo_bb_idx] ^= to_mask;
+        } else {
+            self.bitboards[moved_bb_idx] ^= from_mask | to_mask;
         }
 
-        // Handling castling for white and black
-        if self.field[turn.from as usize] == 15 || self.field[turn.from as usize] == 25 {
-            match (turn.from, turn.to) {
-                (25, 27) => {
-                    self.field[28] = 0;
-                    self.field[26] = 21;
+        // Handle capture
+        if actual_capture != 0 {
+            // Check if it was an en passant capture
+            let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante);
+            if is_en_passant {
+                if self.white_to_move {
+                    let victim_sq = to - 8;
+                    self.bitboards[BLACK_PAWN] &= !(1u64 << victim_sq);
+                } else {
+                    let victim_sq = to + 8;
+                    self.bitboards[WHITE_PAWN] &= !(1u64 << victim_sq);
                 }
-                (25, 23) => {
-                    self.field[21] = 0;
-                    self.field[24] = 21;
+            } else {
+                let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
+                self.bitboards[capture_bb_idx] &= !to_mask;
+            }
+        }
+
+        // Handling castling for white and black (rook movements)
+        if moved_piece == 15 || moved_piece == 25 {
+            let is_castling = (to as i8 - from as i8).abs() == 2;
+            if is_castling {
+                match to {
+                    6 => { // White short
+                        self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
+                    }
+                    2 => { // White long
+                        self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
+                    }
+                    62 => { // Black short
+                        self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
+                    }
+                    58 => { // Black long
+                        self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
+                    }
+                    _ => {}
                 }
-                (95, 97) => {
-                    self.field[98] = 0;
-                    self.field[96] = 11;
-                }
-                (95, 93) => {
-                    self.field[91] = 0;
-                    self.field[94] = 11;
-                }
-                _ => {}
             }
         }
 
         // Update castling rights
-        match turn.from {
-            21 => self.black_possible_to_castle_long = false,
-            28 => self.black_possible_to_castle_short = false,
-            25 => {
+        match from {
+            56 => self.black_possible_to_castle_long = false,
+            63 => self.black_possible_to_castle_short = false,
+            60 => {
                 self.black_possible_to_castle_long = false;
                 self.black_possible_to_castle_short = false;
             }
-            91 => self.white_possible_to_castle_long = false,
-            98 => self.white_possible_to_castle_short = false,
-            95 => {
+            0 => self.white_possible_to_castle_long = false,
+            7 => self.white_possible_to_castle_short = false,
+            4 => {
                 self.white_possible_to_castle_long = false;
                 self.white_possible_to_castle_short = false;
             }
             _ => {}
         }
-
-        // Handle promotion
-        if turn.is_promotion() {
-            self.field[turn.to as usize] = turn.promotion;
-        } else {
-            self.field[turn.to as usize] = self.field[turn.from as usize];
+        match to {
+            56 => self.black_possible_to_castle_long = false,
+            63 => self.black_possible_to_castle_short = false,
+            0 => self.white_possible_to_castle_long = false,
+            7 => self.white_possible_to_castle_short = false,
+            _ => {}
         }
 
-        self.field[turn.from as usize] = 0;
-
-        // Handle en passante
-        if old_field_for_en_passante == turn.to && self.field[turn.to as usize] == 10 {
-            self.field[(turn.to + 10) as usize] = 0;
-        } else if old_field_for_en_passante == turn.to && self.field[turn.to as usize] == 20 {
-            self.field[(turn.to - 10) as usize] = 0;
+        // Handling en passante target square
+        self.field_for_en_passante = -1;
+        if moved_piece == 10 && from / 8 == 1 && to / 8 == 3 {
+            self.field_for_en_passante = (from + 8) as i8;
+        } else if moved_piece == 20 && from / 8 == 6 && to / 8 == 4 {
+            self.field_for_en_passante = (from - 8) as i8;
         }
 
         // Increment move count if it's black's turn
@@ -465,6 +574,13 @@ impl Board {
             self.move_count += 1;
         }
         self.white_to_move = !self.white_to_move;
+
+        // Recalculate occupied bitboards
+        self.white_pieces = self.bitboards[WHITE_PAWN] | self.bitboards[WHITE_ROOK] | self.bitboards[WHITE_KNIGHT] |
+                           self.bitboards[WHITE_BISHOP] | self.bitboards[WHITE_QUEEN] | self.bitboards[WHITE_KING];
+        self.black_pieces = self.bitboards[BLACK_PAWN] | self.bitboards[BLACK_ROOK] | self.bitboards[BLACK_KNIGHT] |
+                           self.bitboards[BLACK_BISHOP] | self.bitboards[BLACK_QUEEN] | self.bitboards[BLACK_KING];
+        self.occupied = self.white_pieces | self.black_pieces;
 
         // Calculate the board hash and update the move repetition map
         if turn.hash == 0 {
@@ -484,56 +600,82 @@ impl Board {
                 self.game_status = GameStatus::Draw;
             }
         }
-        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante)
+        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante, actual_capture, moved_piece)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
+        self.cached_hash = 0;
 
-        self.cached_hash = 0; // TODO set cache information?!
-
-        // validation
-        if self.field[turn.to as usize] == 0 {
-            panic!("RIP undo_move(): Field on turn.to is 0\n{:?}", turn);
-        }
+        let from = turn.from;
+        let to = turn.to;
+        let from_mask = 1u64 << from;
+        let to_mask = 1u64 << to;
 
         // handle king counter
-        match turn.capture {
-            15 => self._white_king_on_board = true,
-            25 => self._black_king_on_board = true,
-            _ => {}
+        if move_information.capture == 15 {
+            self._white_king_on_board = true;
+        } else if move_information.capture == 25 {
+            self._black_king_on_board = true;
         }
 
         self.game_status = GameStatus::Normal;
-        assert!(self._white_king_on_board && self._black_king_on_board, "RIP at least one King missing on the board");
+        // assert!(self._white_king_on_board && self._black_king_on_board, "RIP at least one King missing on the board");
 
         let castle_information = move_information.castle_information;
-        let mut is_en_passante_move = false;
 
-        // Handle en passante undo
-        if turn.to == move_information.en_passante && self.field[turn.to as usize] == 10 {
-            self.field[(turn.to + 10) as usize] = 20;
-            is_en_passante_move = true;
-        } else if turn.to == move_information.en_passante && self.field[turn.to as usize] == 20 {
-            self.field[(turn.to - 10) as usize] = 10;
-            is_en_passante_move = true;
-        }
+        // Find the moved piece
+        let moved_piece = move_information.moved_piece;
 
-        // Handle promotion undo
+        let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
+
+        // Undo move
         if turn.is_promotion() {
-            self.field[turn.from as usize] = 10; // Reset to pawn
-            if self.white_to_move {
-                self.field[turn.from as usize] += 10; // Black pawn for black promotion
-            }
+            let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
+            self.bitboards[promo_bb_idx] ^= to_mask;
+            self.bitboards[moved_bb_idx] ^= from_mask;
         } else {
-            self.field[turn.from as usize] = self.field[turn.to as usize];
+            self.bitboards[moved_bb_idx] ^= from_mask | to_mask;
         }
 
-        if is_en_passante_move {
-            self.field[turn.to as usize] = 0;
-        } else {
-            self.field[turn.to as usize] = turn.capture.max(0);
-        }        
+        // Handle capture undo
+        if move_information.capture != 0 {
+            let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == move_information.en_passante);
+            if is_en_passant {
+                if !self.white_to_move { // White played the EP capture
+                    let victim_sq = to - 8;
+                    self.bitboards[BLACK_PAWN] |= 1u64 << victim_sq;
+                } else { // Black played the EP capture
+                    let victim_sq = to + 8;
+                    self.bitboards[WHITE_PAWN] |= 1u64 << victim_sq;
+                }
+            } else {
+                let capture_bb_idx = Board::piece_to_bb_idx(move_information.capture);
+                self.bitboards[capture_bb_idx] |= to_mask;
+            }
+        }
+
+        // Handle castling undo (rook movements)
+        if moved_piece == 15 || moved_piece == 25 {
+            let is_castling = (to as i8 - from as i8).abs() == 2;
+            if is_castling {
+                match to {
+                    6 => { // White short
+                        self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
+                    }
+                    2 => { // White long
+                        self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
+                    }
+                    62 => { // Black short
+                        self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
+                    }
+                    58 => { // Black long
+                        self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // Restore castling rights and en passante information
         self.white_possible_to_castle_long = castle_information.white_possible_to_castle_long;
@@ -542,34 +684,18 @@ impl Board {
         self.black_possible_to_castle_short = castle_information.black_possible_to_castle_short;
         self.field_for_en_passante = move_information.en_passante;
 
-        // Handle castling undo
-        if self.field[turn.from as usize] == 15 || self.field[turn.from as usize] == 25 {
-            match (turn.from, turn.to) {
-                (25, 27) => {
-                    self.field[28] = 21;
-                    self.field[26] = 0;
-                }
-                (25, 23) => {
-                    self.field[21] = 21;
-                    self.field[24] = 0;
-                }
-                (95, 97) => {
-                    self.field[98] = 11;
-                    self.field[96] = 0;
-                }
-                (95, 93) => {
-                    self.field[91] = 11;
-                    self.field[94] = 0;
-                }
-                _ => {}
-            }
-        }
-
-        // Decrement move count if it was white's move
+        // Decrement move count if it was white's move (meaning we are undoing black's move, so white_to_move will become true)
         if self.white_to_move {
             self.move_count -= 1;
         }
         self.white_to_move = !self.white_to_move;
+
+        // Recalculate occupied bitboards
+        self.white_pieces = self.bitboards[WHITE_PAWN] | self.bitboards[WHITE_ROOK] | self.bitboards[WHITE_KNIGHT] |
+                           self.bitboards[WHITE_BISHOP] | self.bitboards[WHITE_QUEEN] | self.bitboards[WHITE_KING];
+        self.black_pieces = self.bitboards[BLACK_PAWN] | self.bitboards[BLACK_ROOK] | self.bitboards[BLACK_KNIGHT] |
+                           self.bitboards[BLACK_BISHOP] | self.bitboards[BLACK_QUEEN] | self.bitboards[BLACK_KING];
+        self.occupied = self.white_pieces | self.black_pieces;
 
         // Update the move repetition map
         if let Some(count) = self.move_repetition_map.get_mut(&move_information.hash) {
@@ -594,18 +720,14 @@ impl Board {
     /// gives an indicator wich depth to the search can be applied. 100 is maximum
     pub fn _calculate_complexity(&self) -> i32 {
         let mut complexity = 0;
-        
-        for &field in self.field.iter() {
-            if field == 0 { 
-                continue;
-            }
-            
-            complexity += match field % 10 {
-                0 => 1,  // pawn
-                1 => 6,  // rook
-                2 => 3,  // knight
-                3 => 6,  // bishop
-                4 => 12, // queen
+        for i in 0..12 {
+            let count = self.bitboards[i].count_ones() as i32;
+            complexity += count * match i {
+                WHITE_PAWN | BLACK_PAWN => 1,
+                WHITE_ROOK | BLACK_ROOK => 6,
+                WHITE_KNIGHT | BLACK_KNIGHT => 3,
+                WHITE_BISHOP | BLACK_BISHOP => 6,
+                WHITE_QUEEN | BLACK_QUEEN => 12,
                 _ => 0,
             };
         }
@@ -619,9 +741,11 @@ impl Board {
 
     pub fn _get_piece_idx(&self) -> Vec<usize> {
         let mut piece_idx = Vec::with_capacity(32);
-
-        for idx in 20..99 {
-            if self.field[idx as usize] > 0 { piece_idx.push(idx as usize); }
+        let mut temp = self.occupied;
+        while temp != 0 {
+            let square = temp.trailing_zeros() as usize;
+            piece_idx.push(square);
+            temp &= temp - 1;
         }
         piece_idx
     }
@@ -630,7 +754,6 @@ impl Board {
 // Implement `PartialEq` manually for the `Board` struct, for unittests
 impl PartialEq for Board {
     fn eq(&self, other: &Self) -> bool {
-        // Check if all the fields of the Board match
         self.white_possible_to_castle_long == other.white_possible_to_castle_long &&
             self.white_possible_to_castle_short == other.white_possible_to_castle_short &&
             self.black_possible_to_castle_long == other.black_possible_to_castle_long &&
@@ -639,8 +762,8 @@ impl PartialEq for Board {
             self.white_to_move == other.white_to_move &&
             self.move_count == other.move_count &&
             self.game_status == other.game_status &&
-            self.field == other.field &&  // Direct comparison of arrays (fixed-size arrays implement PartialEq)
-            self.move_repetition_map == other.move_repetition_map  // HashMap comparison
+            self.bitboards == other.bitboards &&
+            self.move_repetition_map == other.move_repetition_map
     }
 }
 
@@ -683,9 +806,14 @@ impl Stats {
     }
 
     pub fn calculate(&mut self) -> &mut Self {
-        self.cuts = 100 - (self.calculated_nodes as i32 * 100 / self.created_nodes as i32);
-        self.capture_share = self.created_capture_node as i32 * 100 / self.created_nodes as i32;
-        self.nodes_per_ms = self.created_nodes as i32 / (self.calc_time_ms as i32 + 1);
+        if self.created_nodes > 0 {
+            self.cuts = 100 - (self.calculated_nodes * 100 / self.created_nodes) as i32;
+            self.capture_share = (self.created_capture_node * 100 / self.created_nodes) as i32;
+        } else {
+            self.cuts = 0;
+            self.capture_share = 0;
+        }
+        self.nodes_per_ms = (self.created_nodes / (self.calc_time_ms + 1)) as i32;
         self.zobrist_hit = self.zobrist_hit * 100 / (self.eval_nodes + 1);
         self
     }
@@ -908,24 +1036,24 @@ mod tests {
         let mut board = fen_service.set_init_board();
         let turn1 = NotationUtil::get_turn_from_notation("e2e4");
         let mi1 = board.do_move(&turn1);
-        assert_eq!(75, board.field_for_en_passante);
+        assert_eq!(20, board.field_for_en_passante);
         assert_eq!(-1, mi1.en_passante);
 
         let turn2 = NotationUtil::get_turn_from_notation("e7e5");
         let mi2 = board.do_move(&turn2);
-        assert_eq!(45, board.field_for_en_passante);
-        assert_eq!(75, mi2.en_passante);
+        assert_eq!(44, board.field_for_en_passante);
+        assert_eq!(20, mi2.en_passante);
 
         let turn3 = NotationUtil::get_turn_from_notation("d7d6");
         let mi3 = board.do_move(&turn3);
         assert_eq!(-1, board.field_for_en_passante);
-        assert_eq!(45, mi3.en_passante);
+        assert_eq!(44, mi3.en_passante);
 
         board.undo_move(&turn3, mi3);
-        assert_eq!(45, board.field_for_en_passante);
+        assert_eq!(44, board.field_for_en_passante);
 
         board.undo_move(&turn2, mi2);
-        assert_eq!(75, board.field_for_en_passante);
+        assert_eq!(20, board.field_for_en_passante);
 
         board.undo_move(&turn1, mi1);
         assert_eq!(-1, board.field_for_en_passante);
@@ -940,26 +1068,26 @@ mod tests {
         let mut turn = NotationUtil::get_turn_from_notation("h5g6");
         turn.capture = 20;
         let mi = board.do_move(&turn);
-        assert_eq!(47, mi.en_passante);
-        assert_eq!(0, board.field[57]);
+        assert_eq!(46, mi.en_passante);
+        assert_eq!(0, board.get_piece_at(38));
 
         board.undo_move(&turn, mi);
-        assert_eq!(0, board.field[47]);
-        assert_eq!(20, board.field[57]);
-        assert_eq!(10, board.field[58]);
+        assert_eq!(0, board.get_piece_at(46));
+        assert_eq!(20, board.get_piece_at(38));
+        assert_eq!(10, board.get_piece_at(39));
 
         // for black
         let mut board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/P1Pp4/8/1P1PPPPP/RNBQKBNR b KQkq c3 0 3");
         let mut turn = NotationUtil::get_turn_from_notation("d4c3");
         turn.capture = 10;
         let mi = board.do_move(&turn);
-        assert_eq!(73, mi.en_passante);
-        assert_eq!(0, board.field[63]);
+        assert_eq!(18, mi.en_passante);
+        assert_eq!(0, board.get_piece_at(26));
 
         board.undo_move(&turn, mi);
-        assert_eq!(0, board.field[73]);
-        assert_eq!(10, board.field[63]);
-        assert_eq!(20, board.field[64]);    
+        assert_eq!(0, board.get_piece_at(18));
+        assert_eq!(10, board.get_piece_at(26));
+        assert_eq!(20, board.get_piece_at(27));    
     }
 
     #[test]
@@ -977,8 +1105,8 @@ mod tests {
 
         // White short castle
         let mi1 = board.do_move(castle_white_short);
-        assert_eq!(board.field[97], 15);
-        assert_eq!(board.field[96], 11);
+        assert_eq!(board.get_piece_at(6), 15);
+        assert_eq!(board.get_piece_at(5), 11);
         assert!(!board.get_castle_information().white_possible_to_castle_short);
         assert!(!board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
@@ -991,14 +1119,14 @@ mod tests {
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
         assert!(board.get_castle_information().black_possible_to_castle_long);
-        assert_eq!(board.field[95], 15);
-        assert_eq!(board.field[98], 11);
+        assert_eq!(board.get_piece_at(4), 15);
+        assert_eq!(board.get_piece_at(7), 11);
         assert_eq!(board, init_board);
 
         // White long castle
         let mi2 = board.do_move(castle_white_long);
-        assert_eq!(board.field[93], 15);
-        assert_eq!(board.field[94], 11);
+        assert_eq!(board.get_piece_at(2), 15);
+        assert_eq!(board.get_piece_at(3), 11);
         assert!(!board.get_castle_information().white_possible_to_castle_short);
         assert!(!board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
@@ -1011,14 +1139,14 @@ mod tests {
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
         assert!(board.get_castle_information().black_possible_to_castle_long);
-        assert_eq!(board.field[95], 15);
-        assert_eq!(board.field[98], 11);
+        assert_eq!(board.get_piece_at(4), 15);
+        assert_eq!(board.get_piece_at(7), 11);
         assert_eq!(board, init_board);
 
         // Black short castle
         let mi3 = board.do_move(castle_black_short);
-        assert_eq!(board.field[27], 25);
-        assert_eq!(board.field[26], 21);
+        assert_eq!(board.get_piece_at(62), 25);
+        assert_eq!(board.get_piece_at(61), 21);
         assert!(board.get_castle_information().white_possible_to_castle_short);
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(!board.get_castle_information().black_possible_to_castle_short);
@@ -1031,14 +1159,14 @@ mod tests {
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
         assert!(board.get_castle_information().black_possible_to_castle_long);
-        assert_eq!(board.field[25], 25);
-        assert_eq!(board.field[28], 21);
+        assert_eq!(board.get_piece_at(60), 25);
+        assert_eq!(board.get_piece_at(63), 21);
         assert_eq!(board, init_board);
 
         // Black long castle
         let mi4 = board.do_move(castle_black_long);
-        assert_eq!(board.field[23], 25);
-        assert_eq!(board.field[24], 21);
+        assert_eq!(board.get_piece_at(58), 25);
+        assert_eq!(board.get_piece_at(59), 21);
         assert!(board.get_castle_information().white_possible_to_castle_short);
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(!board.get_castle_information().black_possible_to_castle_short);
@@ -1051,8 +1179,8 @@ mod tests {
         assert!(board.get_castle_information().white_possible_to_castle_long);
         assert!(board.get_castle_information().black_possible_to_castle_short);
         assert!(board.get_castle_information().black_possible_to_castle_long);
-        assert_eq!(board.field[25], 25);
-        assert_eq!(board.field[28], 21);
+        assert_eq!(board.get_piece_at(60), 25);
+        assert_eq!(board.get_piece_at(63), 21);
         assert_eq!(board, init_board);
     }
 
@@ -1155,11 +1283,11 @@ mod tests {
         let mut capture_move = NotationUtil::get_turn_from_notation("d4c3");
         capture_move.capture = 12;
         let mi = game.board.do_move(&capture_move);
-        assert_eq!(20, game.board.field[73]);
+        assert_eq!(20, game.board.get_piece_at(18));
 
         
         game.board.undo_move(&capture_move, mi);
-        assert_eq!(12, game.board.field[73]);
+        assert_eq!(12, game.board.get_piece_at(18));
     }
 
 

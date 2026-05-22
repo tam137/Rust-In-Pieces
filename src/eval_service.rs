@@ -40,28 +40,30 @@ impl EvalService {
         let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
 
-        let field = &board.field;
-        for idx in 21..99 {
-            let piece = field[idx];
+        let mut temp = board.occupied;
+        while temp != 0 {
+            let sq = temp.trailing_zeros() as u8;
+            let piece = board.get_piece_at(sq);
             let eval_for_piece: i16 = match piece {
-                10 => self.white_pawn(idx, board, config, field, game_phase),
-                11 => self.white_rook(idx, board, config, field, game_phase),
-                12 => self.white_knight(idx, board, config, field, game_phase),
-                13 => self.white_bishop(idx, board, config, field, game_phase, movegen),
-                14 => self.white_queen(idx, board, config, field, game_phase, movegen),
-                15 => self.white_king(idx, board, config, field, game_phase, movegen),
-                20 => self.black_pawn(idx, board, config, field, game_phase),
-                21 => self.black_rook(idx, board, config, field, game_phase),
-                22 => self.black_knight(idx, board, config, field, game_phase),
-                23 => self.black_bishop(idx, board, config, field, game_phase, movegen),
-                24 => self.black_queen(idx, board, config, field, game_phase, movegen),
-                25 => self.black_king(idx, board, config, field, game_phase, movegen),
+                10 => self.white_pawn(sq, board, config, game_phase),
+                11 => self.white_rook(sq, board, config, game_phase),
+                12 => self.white_knight(sq, board, config, game_phase, movegen),
+                13 => self.white_bishop(sq, board, config, game_phase, movegen),
+                14 => self.white_queen(sq, board, config, game_phase, movegen),
+                15 => self.white_king(sq, board, config, game_phase, movegen),
+                20 => self.black_pawn(sq, board, config, game_phase),
+                21 => self.black_rook(sq, board, config, game_phase),
+                22 => self.black_knight(sq, board, config, game_phase, movegen),
+                23 => self.black_bishop(sq, board, config, game_phase, movegen),
+                24 => self.black_queen(sq, board, config, game_phase, movegen),
+                25 => self.black_king(sq, board, config, game_phase, movegen),
                 _ => 0,
             };
             if config.print_eval_per_figure && piece > 0 {
-                println!("{},\t{},\t{}", idx, piece, eval_for_piece);
+                println!("{},\t{},\t{}", sq, piece, eval_for_piece);
             }
             eval = eval + eval_for_piece;
+            temp &= temp - 1;
         }
 
         // TODO Tests
@@ -73,7 +75,6 @@ impl EvalService {
 
         eval += self.calculate_weighted_eval(gives_chess_eval, 0, game_phase);
 
-
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
         eval = self.adjust_eval(eval, game_phase, config);
 
@@ -83,19 +84,26 @@ impl EvalService {
         eval
     }
 
-    fn white_pawn(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
-        let moves_until_promote = idx / 10 - 2;
-        let on_rank = 8 - moves_until_promote;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
+        let moves_until_promote = 7 - rank;
+        let on_rank = rank + 1;
 
         if (on_rank >= 3) && (on_rank <= 5) {
-            if f[idx-11] == 12 || f[idx-9] == 12 {
+            let white_knights = board.bitboards[crate::model::WHITE_KNIGHT];
+            let has_white_knight_support =
+                (file > 0 && ((1u64 << (sq + 7)) & white_knights) != 0) ||
+                (file < 7 && ((1u64 << (sq + 9)) & white_knights) != 0);
+            if has_white_knight_support {
                 o_eval = o_eval + config.pawn_supports_knight_outpost;
             }
         }
 
-        if idx==54 || idx==55 || idx==64 || idx==65 {
+        if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
             o_eval = o_eval + config.pawn_centered;
         }
 
@@ -113,11 +121,15 @@ impl EvalService {
             _ => ()
         }
 
-        if f[idx-9] == 10 || f[idx-11] == 10 {
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        if (file < 7 && ((1u64 << (sq + 9)) & white_pawns) != 0) ||
+           (file > 0 && ((1u64 << (sq + 7)) & white_pawns) != 0) {
             o_eval = o_eval + config.pawn_structure;
         }
 
-        if f[idx-9] == 13 || f[idx-11] == 13 {
+        let white_bishops = board.bitboards[crate::model::WHITE_BISHOP];
+        if (file < 7 && ((1u64 << (sq + 9)) & white_bishops) != 0) ||
+           (file > 0 && ((1u64 << (sq + 7)) & white_bishops) != 0) {
             e_eval = e_eval + config.pawn_defends_bishop;
         }
 
@@ -125,7 +137,15 @@ impl EvalService {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
 
-        if (f[idx-9] >= 21 && f[idx-9] <= 25) || (f[idx-11] >= 21 && f[idx-11] <= 25) {
+        let black_non_pawns = board.bitboards[crate::model::BLACK_ROOK] |
+                              board.bitboards[crate::model::BLACK_KNIGHT] |
+                              board.bitboards[crate::model::BLACK_BISHOP] |
+                              board.bitboards[crate::model::BLACK_QUEEN] |
+                              board.bitboards[crate::model::BLACK_KING];
+        let attacked_by_pawn =
+            (file < 7 && ((1u64 << (sq + 9)) & black_non_pawns) != 0) ||
+            (file > 0 && ((1u64 << (sq + 7)) & black_non_pawns) != 0);
+        if attacked_by_pawn {
             o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move {
                 config.pawn_attacks_opponent_fig_with_tempo
             } else {
@@ -134,7 +154,11 @@ impl EvalService {
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
-        if f[idx-10] == 10 || f[idx-20] == 10 || f[idx-30] == 10 {
+        let has_doubled_pawn =
+            (sq + 8 < 64 && ((1u64 << (sq + 8)) & white_pawns) != 0) ||
+            (sq + 16 < 64 && ((1u64 << (sq + 16)) & white_pawns) != 0) ||
+            (sq + 24 < 64 && ((1u64 << (sq + 24)) & white_pawns) != 0);
+        if has_doubled_pawn {
             o_eval -= config.pawn_double_malus;
             e_eval -= config.pawn_double_malus / 2;
         }
@@ -143,19 +167,25 @@ impl EvalService {
         eval + config.piece_eval_pawn
     }
 
-    fn black_pawn(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
-        let moves_until_promote = 9 - (idx / 10);
-        let on_rank = 8 - moves_until_promote;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
+        let moves_until_promote = rank;
 
-        if (on_rank >= 3) && (on_rank <= 5) {
-            if f[idx+11] == 22 || f[idx+9] == 22 {
+        if (rank >= 3) && (rank <= 5) {
+            let black_knights = board.bitboards[crate::model::BLACK_KNIGHT];
+            let has_black_knight_support =
+                (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_knights) != 0) ||
+                (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_knights) != 0);
+            if has_black_knight_support {
                 o_eval = o_eval - config.pawn_supports_knight_outpost;
             }
         }
 
-        if idx==54 || idx==55 || idx==64 || idx==65 {
+        if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
             o_eval = o_eval - config.pawn_centered;
         }
 
@@ -173,11 +203,15 @@ impl EvalService {
             _ => ()
         }
 
-        if f[idx+9] == 20 || f[idx+11] == 20 {
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_pawns) != 0) ||
+           (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_pawns) != 0) {
             o_eval = o_eval - config.pawn_structure;
         }
 
-        if f[idx+9] == 23 || f[idx+11] == 23 {
+        let black_bishops = board.bitboards[crate::model::BLACK_BISHOP];
+        if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_bishops) != 0) ||
+           (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_bishops) != 0) {
             e_eval = e_eval - config.pawn_defends_bishop;
         }
 
@@ -185,7 +219,15 @@ impl EvalService {
             o_eval = o_eval + config.pawn_undeveloped_malus;
         }
 
-        if (f[idx+9] >= 11 && f[idx+9] <= 15) || (f[idx+11] >= 11 && f[idx+11] <= 15) {
+        let white_non_pawns = board.bitboards[crate::model::WHITE_ROOK] |
+                              board.bitboards[crate::model::WHITE_KNIGHT] |
+                              board.bitboards[crate::model::WHITE_BISHOP] |
+                              board.bitboards[crate::model::WHITE_QUEEN] |
+                              board.bitboards[crate::model::WHITE_KING];
+        let attacked_by_pawn =
+            (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & white_non_pawns) != 0) ||
+            (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & white_non_pawns) != 0);
+        if attacked_by_pawn {
             o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move {
                 config.pawn_attacks_opponent_fig_with_tempo
             } else {
@@ -194,7 +236,11 @@ impl EvalService {
             e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
-        if f[idx+10] == 20 || f[idx+20] == 20 || f[idx+30] == 20 {
+        let has_doubled_pawn =
+            (sq >= 8 && ((1u64 << (sq - 8)) & black_pawns) != 0) ||
+            (sq >= 16 && ((1u64 << (sq - 16)) & black_pawns) != 0) ||
+            (sq >= 24 && ((1u64 << (sq - 24)) & black_pawns) != 0);
+        if has_doubled_pawn {
             o_eval += config.pawn_double_malus;
             e_eval += config.pawn_double_malus / 2;
         }
@@ -203,57 +249,47 @@ impl EvalService {
         eval - config.piece_eval_pawn
     }
 
-
-    fn white_rook(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], _game_phase: i16) -> i16 {
-        let eval = config.piece_eval_rook;
-        eval
+    fn white_rook(&self, _sq: u8, _board: &Board, config: &Config, _game_phase: i16) -> i16 {
+        config.piece_eval_rook
     }
 
-    fn black_rook(&self, _idx: usize, _board: &Board, config: &Config, _f: &[i32; 120], _game_phase: i16) -> i16 {
-        let eval = -config.piece_eval_rook;
-        eval
+    fn black_rook(&self, _sq: u8, _board: &Board, config: &Config, _game_phase: i16) -> i16 {
+        -config.piece_eval_rook
     }
 
-
-    fn white_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
-        let on_rank = 8 - (idx / 10 - 2);
-        let on_file = idx % 10;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
     
-        if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
+        if rank == 0 || rank == 7 || file == 0 || file == 7 {
             o_eval -= config.knight_on_rim_malus;
         }
 
         // Evaluate knight attacks on other pieces
-        for &offset in &self.knight_moves {
-            let target_idx = idx as i32 + offset as i32;
-            assert!(target_idx >= 0 && (target_idx as usize) < f.len());
-            if let Some(&piece) = f.get(target_idx as usize) {
-                for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_white {
-                    if piece == target_piece.into() {
-                        o_eval += bonus_simple;
-                        if board.white_to_move {
-                            o_eval += bonus_tempo;
-                        }
-                        break;
-                    }
-                }
+        let attacks = movegen.get_knight_attacks(sq as usize);
+        for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_white {
+            let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
+            let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
+            o_eval += count * bonus_simple;
+            if board.white_to_move {
+                o_eval += count * bonus_tempo;
             }
         }
 
-        if idx==43||idx==44||idx==45||idx==46||
-            idx==53||idx==54||idx==55||idx==56||
-            idx==63||idx==64||idx==65||idx==66 {
+        let is_centered = (rank >= 3 && rank <= 5) && (file >= 2 && file <= 5);
+        if is_centered {
             e_eval += config.knight_centered;
             o_eval += config.knight_centered / 2;
         }
     
-        if idx == 92 || idx == 97 {
+        if sq == 1 || sq == 6 {
             o_eval -= config.undeveloped_knight_malus;
         }
 
-        if f[idx-10] == 20 {
+        if sq + 8 < 64 && ((1u64 << (sq + 8)) & board.bitboards[crate::model::BLACK_PAWN]) != 0 {
             e_eval += config.knight_blockes_pawn;
             o_eval += config.knight_blockes_pawn / 2;
         }
@@ -261,72 +297,62 @@ impl EvalService {
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_knight
     }
-    
 
-    fn black_knight(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16) -> i16 {
+    fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
-        let on_rank = 8 - (idx / 10 - 2);
-        let on_file = idx % 10;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
     
-        if on_rank == 1 || on_rank == 8 || on_file == 1 || on_file == 8 {
+        if rank == 0 || rank == 7 || file == 0 || file == 7 {
             o_eval += config.knight_on_rim_malus;
         }
     
         // Evaluate knight attacks on other pieces
-        for &offset in &self.knight_moves {
-            let target_idx = idx as i32 + offset as i32;
-            assert!(target_idx >= 0 && (target_idx as usize) < f.len());
-            if let Some(&piece) = f.get(target_idx as usize) {
-                for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_black {
-                    if piece == target_piece.into() {
-                        o_eval -= bonus_simple;
-                        if !board.white_to_move {
-                            o_eval -= bonus_tempo;
-                        }
-                        break;
-                    }
-                }
+        let attacks = movegen.get_knight_attacks(sq as usize);
+        for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_black {
+            let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
+            let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
+            o_eval -= count * bonus_simple;
+            if !board.white_to_move {
+                o_eval -= count * bonus_tempo;
             }
         }
-        
 
-        if  idx==53||idx==54||idx==55||idx==56||
-            idx==63||idx==64||idx==65||idx==66||
-            idx==73||idx==74||idx==75||idx==76 {
+        let is_centered = (rank >= 2 && rank <= 4) && (file >= 2 && file <= 5);
+        if is_centered {
             e_eval -= config.knight_centered;
             o_eval -= config.knight_centered / 2;
         }
     
-        if idx == 22 || idx == 27 {
+        if sq == 57 || sq == 62 {
             o_eval += config.undeveloped_knight_malus;
         }
 
-        if f[idx+10] == 10 {
+        if sq >= 8 && ((1u64 << (sq - 8)) & board.bitboards[crate::model::WHITE_PAWN]) != 0 {
             e_eval -= config.knight_blockes_pawn;
             o_eval -= config.knight_blockes_pawn / 2;
         }
     
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval - config.piece_eval_knight
-    }   
+    }
 
-
-    fn white_bishop(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
+        let sq = sq as i32;
+        let file = sq % 8;
 
-        if idx == 93 || idx == 96 {
+        if sq == 2 || sq == 5 {
             o_eval = o_eval - config.undeveloped_bishop_malus;
         }
 
-        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        //o_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
-
-        if idx % 10 == 8 && f[idx+9] != 0 { // TODO make this static to avoid modul
+        if file == 7 && sq >= 9 && ((1u64 << (sq - 9)) & board.occupied) != 0 {
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
-        if idx % 10 == 1 && f[idx+11] != 0 {
+        if file == 0 && sq >= 7 && ((1u64 << (sq - 7)) & board.occupied) != 0 {
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
 
@@ -334,21 +360,20 @@ impl EvalService {
         eval + config.piece_eval_bishop
     }
 
-    fn black_bishop(&self, idx: usize, _board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, _movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
+        let sq = sq as i32;
+        let file = sq % 8;
 
-        if idx == 23 || idx == 26 {
+        if sq == 58 || sq == 61 {
             o_eval = o_eval + config.undeveloped_bishop_malus;
         }
 
-        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        //o_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
-
-        if idx % 10 == 8 && f[idx-11] != 0 { // TODO make this static to avoid modul
+        if file == 7 && sq + 7 < 64 && ((1u64 << (sq + 7)) & board.occupied) != 0 {
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
-        if idx % 10 == 1 && f[idx-9] != 0 {
+        if file == 0 && sq + 9 < 64 && ((1u64 << (sq + 9)) & board.occupied) != 0 {
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
 
@@ -356,15 +381,11 @@ impl EvalService {
         eval - config.piece_eval_bishop
     }
 
-
-    fn white_queen(&self, _idx: usize, board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
-        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        //e_eval += moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
-
-        let in_attack = _movegen.get_attack_idx_list(_f, true, _idx as i32);
+        let in_attack = movegen.get_attack_idx_list(board, true, sq as i32);
         if in_attack.len() > 0 {
             o_eval -= (config.queen_in_attack * in_attack.len() as i16) + if !board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
         }
@@ -373,14 +394,11 @@ impl EvalService {
         eval + config.piece_eval_queen
     }
 
-    fn black_queen(&self, _idx: usize, board: &Board, config: &Config, _f: &[i32; 120], game_phase: i16, _movegen: &MoveGenService) -> i16 {
+    fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let e_eval = 0;
 
-        //let moves = movegen.generate_moves_list_for_piece(board, idx as i32);
-        //e_eval -= moves.len() as i16 / 2 * config.move_freedom_bonus as i16;
-
-        let in_attack = _movegen.get_attack_idx_list(_f, false, _idx as i32);
+        let in_attack = movegen.get_attack_idx_list(board, false, sq as i32);
         if in_attack.len() > 0 {
             o_eval += (config.queen_in_attack * in_attack.len() as i16) + if board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
         }
@@ -389,15 +407,18 @@ impl EvalService {
         eval - config.piece_eval_queen
     }
  
-    fn white_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn white_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
 
-        if idx == 94 || idx == 95 || idx == 96 || idx == 84 || idx == 85 || idx == 86 {
+        if sq == 3 || sq == 4 || sq == 5 || sq == 11 || sq == 12 || sq == 13 {
             o_eval -= config.undeveloped_king_malus
         }
 
-        let in_check = movegen.get_attack_idx_list(&board.field, true, idx as i32).len();
+        let in_check = movegen.get_attack_idx_list(board, true, sq as i32).len();
         if in_check == 1 {
             o_eval -= config.king_in_check_malus;
             e_eval -= config.king_in_check_malus;
@@ -406,18 +427,15 @@ impl EvalService {
             e_eval -= config.king_in_double_check_malus;
         }
 
-        if idx==43||idx==44||idx==45||idx==46||
-           idx==53||idx==54||idx==55||idx==56||
-           idx==63||idx==64||idx==65||idx==66||
-           idx==73||idx==74||idx==75||idx==76 {
+        if rank >= 2 && rank <= 5 && file >= 2 && file <= 5 {
             e_eval += config.king_centered;
         }
 
-        o_eval = o_eval + if f[idx-9]/10==1 { config.king_shield } else { 0 };
-        o_eval = o_eval + if f[idx-10]/10==1 { config.king_shield } else { 0 };
-        o_eval = o_eval + if f[idx-11]/10==1 { config.king_shield } else { 0 };
+        if file > 0 && sq + 7 < 64 && ((1u64 << (sq + 7)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
+        if sq + 8 < 64 && ((1u64 << (sq + 8)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
+        if file < 7 && sq + 9 < 64 && ((1u64 << (sq + 9)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
 
-        if idx / 10 == 9 && idx - 9 != 0 && idx - 10 != 0 && idx - 11 != 0 {
+        if rank == 0 {
             e_eval = e_eval - config.king_trapp_at_baseline_malus;
         }
 
@@ -425,15 +443,18 @@ impl EvalService {
         eval + config.piece_eval_king
     }
 
-    fn black_king(&self, idx: usize, board: &Board, config: &Config, f: &[i32; 120], game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn black_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
 
-        if idx == 24 || idx == 25 || idx == 26 || idx == 34 || idx == 35 || idx == 36 {
+        if sq == 59 || sq == 60 || sq == 61 || sq == 51 || sq == 52 || sq == 53 {
             o_eval += config.undeveloped_king_malus
         }
 
-        let in_check = movegen.get_attack_idx_list(&board.field, false, idx as i32).len();
+        let in_check = movegen.get_attack_idx_list(board, false, sq as i32).len();
         if in_check == 1 {
             o_eval += config.king_in_check_malus;
             e_eval += config.king_in_check_malus;
@@ -442,18 +463,15 @@ impl EvalService {
             e_eval += config.king_in_double_check_malus;
         }
 
-        if idx==43||idx==44||idx==45||idx==46||
-        idx==53||idx==54||idx==55||idx==56||
-        idx==63||idx==64||idx==65||idx==66||
-        idx==73||idx==74||idx==75||idx==76 {
-         e_eval -= config.king_centered;
-     }
+        if rank >= 2 && rank <= 5 && file >= 2 && file <= 5 {
+            e_eval -= config.king_centered;
+        }
 
-        o_eval = o_eval - if f[idx+9]/20==1 { config.king_shield } else { 0 };
-        o_eval = o_eval - if f[idx+10]/20==1 { config.king_shield } else { 0 };
-        o_eval = o_eval - if f[idx+11]/20==1 { config.king_shield } else { 0 };
+        if file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
+        if sq >= 8 && ((1u64 << (sq - 8)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
+        if file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
 
-        if idx / 10 == 2 && idx + 9 != 0 && idx + 10 != 0 && idx + 11 != 0 {
+        if rank == 7 {
             e_eval = e_eval + config.king_trapp_at_baseline_malus;
         }
 
@@ -474,12 +492,8 @@ impl EvalService {
     /// a middle value like 128 respects early and late game evaluation in the same weight
     /// All with 6 or less pieces is considered pure endgame
     fn get_game_phase(&self, board: &Board) -> u32 {
-        let field = board.field;
-        let mut phase = 0;
-        for idx in 21..99 {
-            if field[idx] > 0 { phase = phase + 8; } else { continue };
-        }
-        let phase = phase - 48;
+        let occupied_count = board.occupied.count_ones() as i32;
+        let phase = occupied_count * 8 - 48;
         let phase = if phase < 0 { 0 } else { (phase as f64 * 1.23) as u32 };
         phase
     }
