@@ -255,6 +255,14 @@ impl MoveGenService {
                 }
             }
 
+            if move_turn.capture == 0 {
+                if Some(move_turn) == context.killer_moves[0] {
+                    move_turn.rank = 2;
+                } else if Some(move_turn) == context.killer_moves[1] {
+                    move_turn.rank = 1;
+                }
+            }
+
             // Check for castling
             let moved_piece = board.get_piece_at(idx0);
             if !only_captures && (moved_piece == king_value && (idx1 as i32 - idx0 as i32).abs() == 2) {
@@ -893,6 +901,7 @@ mod tests {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
         };
 
         service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map)
@@ -909,6 +918,7 @@ mod tests {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
         };
 
         service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map)
@@ -1266,6 +1276,7 @@ mod tests {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map);
@@ -1288,6 +1299,7 @@ mod tests {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
         };
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");

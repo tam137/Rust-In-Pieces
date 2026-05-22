@@ -27,22 +27,17 @@ use crate::threads::uci_command_processor;
 use crate::threads::logger_buffer_thread;
 
 use model::DataMapKey;
-use model::QuiescenceSearchMode;
 use model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
-    let config = Config::new();
 
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
     local_map.insert(DataMapKey::WhiteGivesCheck, false);
     local_map.insert(DataMapKey::BlackGivesCheck, false);
 
-    if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-        local_map.insert(DataMapKey::WhiteThreshold, 0);
-        local_map.insert(DataMapKey::BlackThreshold, 0);
-    }
+
 
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();

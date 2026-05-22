@@ -92,7 +92,7 @@ impl Config {
             _print_commands: false,
             print_eval_per_figure: false,
             log_to_console: false,
-            quiescence_search_mode: QuiescenceSearchMode::Alpha3,
+            quiescence_search_mode: QuiescenceSearchMode::Alpha2,
             print_info_string_during_search: false,
             write_hash_buffer_size: 10,
             search_threads: 2,

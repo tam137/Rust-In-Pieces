@@ -24,8 +24,6 @@ pub enum ValueType {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum DataMapKey {
-    WhiteThreshold,
-    BlackThreshold,
     CalcTime,
     MoveOrderingFlag,
     ForceSkipValidationFlag,
@@ -67,18 +65,6 @@ pub trait KeyToType<T> {
     fn create_value(&self, value: T) -> ValueType;
 }
 
-impl KeyToType<i32> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a i32> {
-        match (self, value) {
-            (DataMapKey::WhiteThreshold, ValueType::Integer(i)) |
-            (DataMapKey::BlackThreshold, ValueType::Integer(i)) => Some(i),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: i32) -> ValueType {
-        ValueType::Integer(value)
-    }
-}
 
 impl KeyToType<bool> for DataMapKey {
     fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
@@ -122,6 +108,7 @@ pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
     pub stop_flag: &'a std::sync::atomic::AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
+    pub killer_moves: [Option<Turn>; 2],
 }
 
 
@@ -137,7 +124,6 @@ pub enum GameStatus {
 #[derive(Debug, PartialEq, Clone)]
 pub enum QuiescenceSearchMode {
     Alpha2,
-    Alpha3,
 }
 
 #[derive(Clone)]
