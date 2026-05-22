@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.5.1] - 2026-05-22
+
+### Added
+- v0.5.1: Added History Heuristic move-ordering and resolved in-check Quiescence Search stand-pat cutoff bug
+
+### Fixed
+
+
+
 ## [V0.5.0] - 2026-05-22
 
 ### Added
