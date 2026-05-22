@@ -30,3 +30,10 @@
   5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
 - **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!
 - **Execution Restriction:** Only execute the build and release script (`./build_and_release.sh`) or compile a new release binary when the USER explicitly requests or triggers a release. Do NOT automatically trigger or run a build/release after implementing changes unless explicitly asked.
+
+## Testing & Verification Policy
+- **Simple Implementations:** For standard development and simple implementations, only execute active unit tests (`cargo test`). Do NOT run heavy, ignored tests or the tournament verification script.
+- **Release Verification Requirement:** The heavy verification processes MUST only be executed when a release is explicitly requested by the USER (via `./build_and_release.sh` and the associated deploy):
+  1. Execute deep search/ignored tests: `cargo test -- --ignored`.
+  2. Execute the live tournament verification matchup: Run the 10-game tournament script (`./run_verify.sh` in the `matt-magie` repository) to verify play strength and ensure 100% crash-free/panic-free operation before releasing.
+

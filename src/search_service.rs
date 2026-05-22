@@ -72,7 +72,12 @@ impl SearchService {
 
             // save min max eval in zobrist table for better move sorting, if depth = 2
             if depth == 2 && config.use_zobrist {
-                zobrist_table.hash_map.insert(board.cached_hash, min_max_eval);
+                zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                    eval: min_max_eval,
+                    depth: 1,
+                    entry_type: crate::zobrist::TranspositionType::Exact,
+                    best_move: min_max_result.0.clone(),
+                });
             }
 
             board.undo_move(&turn, mi);
@@ -141,6 +146,48 @@ impl SearchService {
         let mut turns: Vec<Turn> = Default::default();
         let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
 
+        let orig_alpha = alpha;
+        let orig_beta = beta;
+
+        if depth > 0 && config.use_zobrist {
+            if board.cached_hash == 0 {
+                board.cached_hash = crate::zobrist::gen(board);
+            }
+            if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                if entry.depth >= depth {
+                    match entry.entry_type {
+                        crate::zobrist::TranspositionType::Exact => {
+                            let mut best_move_row = VecDeque::new();
+                            if let Some(ref m) = entry.best_move {
+                                best_move_row.push_back(Some(m.clone()));
+                            }
+                            return (entry.best_move, entry.eval, best_move_row);
+                        }
+                        crate::zobrist::TranspositionType::LowerBound => {
+                            alpha = alpha.max(entry.eval);
+                            if alpha >= beta {
+                                let mut best_move_row = VecDeque::new();
+                                if let Some(ref m) = entry.best_move {
+                                    best_move_row.push_back(Some(m.clone()));
+                                }
+                                return (entry.best_move, entry.eval, best_move_row);
+                            }
+                        }
+                        crate::zobrist::TranspositionType::UpperBound => {
+                            beta = beta.min(entry.eval);
+                            if alpha >= beta {
+                                let mut best_move_row = VecDeque::new();
+                                if let Some(ref m) = entry.best_move {
+                                    best_move_row.push_back(Some(m.clone()));
+                                }
+                                return (entry.best_move, entry.eval, best_move_row);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if depth <= 0 {
             stats.add_eval_nodes(1);
             if board.white_to_move && turn.gives_check { // the turn is already applied to the board, so invert is_white
@@ -155,7 +202,12 @@ impl SearchService {
             
             let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
             if config.use_zobrist {
-                context.zobrist_table.hash_map.insert(board.cached_hash, eval);
+                context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                    eval,
+                    depth: 0,
+                    entry_type: crate::zobrist::TranspositionType::Exact,
+                    best_move: None,
+                });
             }
 
             let mut stand_pat_cut = true;
@@ -267,6 +319,27 @@ impl SearchService {
                 break;
             }
         }
+
+        if config.use_zobrist && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let entry_type = if eval <= orig_alpha {
+                crate::zobrist::TranspositionType::UpperBound
+            } else if eval >= orig_beta {
+                crate::zobrist::TranspositionType::LowerBound
+            } else {
+                crate::zobrist::TranspositionType::Exact
+            };
+
+            context.zobrist_table.insert_entry(
+                board.cached_hash,
+                crate::zobrist::TranspositionEntry {
+                    eval,
+                    depth,
+                    entry_type,
+                    best_move: best_move.clone(),
+                },
+            );
+        }
+
         return (best_move, eval, best_move_row);
     }
 
@@ -303,7 +376,7 @@ impl SearchService {
 mod tests {
     use crate::config::Config;
     use crate::service::Service;
-    use crate::model::{Board, SearchResult, EngineState, DataMap, DataMapKey, Stats};
+    use crate::model::{Board, SearchResult, EngineState, DataMap, DataMapKey, Stats, SearchContext, Turn};
     use crate::zobrist::ZobristTable;
     use std::sync::Arc;
     use std::time::Instant;
@@ -502,7 +575,13 @@ mod tests {
                 for i in 0..elements_per_thread {
                     let hash_key = (t as u64 * 1_000_000) + i as u64;
                     let eval_val = (i % 30000) as i16;
-                    table.hash_map.insert(hash_key, eval_val);
+                    let entry = crate::zobrist::TranspositionEntry {
+                        eval: eval_val,
+                        depth: 4,
+                        entry_type: crate::zobrist::TranspositionType::Exact,
+                        best_move: None,
+                    };
+                    table.insert_entry(hash_key, entry);
                     let read_val = table.get_eval_for_hash(&hash_key);
                     assert_eq!(read_val, Some(eval_val));
                 }
@@ -543,6 +622,119 @@ mod tests {
         }
 
         assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn zobrist_transposition_table_cutoff_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let mut stats = Stats::new();
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+
+        let mut local_map = DataMap::new();
+        local_map.insert(DataMapKey::CalcTime, Instant::now());
+        local_map.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map.insert(DataMapKey::BlackGivesCheck, false);
+
+        let table = Arc::new(ZobristTable::new());
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: table.clone(),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let context = SearchContext {
+            zobrist_table: &engine_state.zobrist_table,
+            stop_flag: &engine_state.stop_flag,
+            pv_nodes: &engine_state.pv_nodes,
+        };
+
+        // 1. Insert an Exact transposition entry
+        board.cached_hash = crate::zobrist::gen(&board);
+        let test_hash = board.cached_hash;
+        table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            eval: 500,
+            depth: 3,
+            entry_type: crate::zobrist::TranspositionType::Exact,
+            best_move: None,
+        });
+
+        // Search depth 3. It should trigger an immediate exact cutoff and return 500.
+        let result = service.search.minimax(
+            &mut board,
+            &Turn::new(0, 0, 0, 0, false, 0),
+            3,
+            true,
+            i16::MIN,
+            i16::MAX,
+            &mut stats,
+            &config,
+            &service,
+            &context,
+            &mut local_map,
+        );
+
+        assert_eq!(result.1, 500);
+        assert_eq!(stats.calculated_nodes, 0); // No nodes calculated because of TT cutoff!
+
+        // 2. LowerBound cutoff verification
+        stats = Stats::new();
+        table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            eval: 600,
+            depth: 4,
+            entry_type: crate::zobrist::TranspositionType::LowerBound,
+            best_move: None,
+        });
+
+        // Search depth 4, alpha = 200, beta = 500. Since eval (600) >= beta (500), it should cause a beta cutoff.
+        let result_lower = service.search.minimax(
+            &mut board,
+            &Turn::new(0, 0, 0, 0, false, 0),
+            4,
+            true,
+            200,
+            500,
+            &mut stats,
+            &config,
+            &service,
+            &context,
+            &mut local_map,
+        );
+        assert_eq!(result_lower.1, 600);
+        assert_eq!(stats.calculated_nodes, 0);
+
+        // 3. UpperBound cutoff verification
+        stats = Stats::new();
+        table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            eval: 100,
+            depth: 2,
+            entry_type: crate::zobrist::TranspositionType::UpperBound,
+            best_move: None,
+        });
+
+        // Search depth 2, alpha = 300, beta = 700. Since eval (100) <= alpha (300), it should cause an alpha cutoff.
+        let result_upper = service.search.minimax(
+            &mut board,
+            &Turn::new(0, 0, 0, 0, false, 0),
+            2,
+            true,
+            300,
+            700,
+            &mut stats,
+            &config,
+            &service,
+            &context,
+            &mut local_map,
+        );
+        assert_eq!(result_upper.1, 100);
+        assert_eq!(stats.calculated_nodes, 0);
     }
 
 }

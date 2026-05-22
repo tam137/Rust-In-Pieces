@@ -222,6 +222,16 @@ impl MoveGenService {
             }
         }
 
+        let mut tt_best_move = None;
+        if !only_captures && config.use_zobrist {
+            if board.cached_hash == 0 {
+                board.cached_hash = zobrist::gen(board);
+            }
+            if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                tt_best_move = entry.best_move;
+            }
+        }
+
         let zobrist_table_read = context.zobrist_table;
 
         for i in (0..move_list.len()).step_by(2) {
@@ -237,6 +247,10 @@ impl MoveGenService {
 
             if let Some(pv) = &pv_node {
                 if *pv == move_turn {
+                    move_turn.rank = config.is_pv_node_rank_bonus;
+                }
+            } else if let Some(tt_move) = &tt_best_move {
+                if *tt_move == move_turn {
                     move_turn.rank = config.is_pv_node_rank_bonus;
                 }
             }

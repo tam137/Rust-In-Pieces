@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [V0.4.0] - 2026-05-22
+## [V0.4.1] - 2026-05-22
 
 ### Added
-- Fix divide-by-zero panic in calculate() and coordinate conversion parsing
+- Transposition Table (TT) Optimization: Upgraded the legacy simple evaluation cache into a fully fledged Transposition Table (ZobristTable) storing TranspositionEntry containing evaluation, depth, transposition type (Exact, LowerBound, UpperBound), and best move. Added full Alpha-Beta bounds checking and pruning inside the minimax search, along with move ordering enhancements prioritizing the TT best move with PV node rank bonus.
 
 ### Fixed
 
@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.4.0] - 2026-05-22
 
 ### Added
+- Fix divide-by-zero panic in calculate() and coordinate conversion parsing
 - Migrated engine to 64-bit Bitboard Architecture (v0.4.0).
 
 ### Fixed
