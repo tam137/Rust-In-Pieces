@@ -52,16 +52,17 @@ impl SearchService {
         let mut beta: i16 = i16::MAX;
 
         let mut turn_counter = 0;
+        let mut child_pv = [None; 128];
 
         for turn in &turns {
             turn_counter += 1;
-            let mi = board.do_move(&turn);
-            let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &context, local_map);
+            let mi = board.do_move(turn);
+            let min_max_result = self.minimax(board, turn, depth - 1, !white,
+                alpha, beta, stats, config, service, &context, local_map, &mut child_pv);
 
             if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                board.undo_move(&turn, mi);
-                let calc_time_ms = self.get_calc_time(&local_map);
+                board.undo_move(turn, mi);
+                let calc_time_ms = self.get_calc_time(local_map);
                 search_result.stats = stats.clone();
                 search_result.stats.best_turn_nr = turn_counter;
                 search_result.stats.calc_time_ms = calc_time_ms as usize;
@@ -76,22 +77,25 @@ impl SearchService {
                     eval: min_max_eval,
                     depth: 1,
                     entry_type: crate::zobrist::TranspositionType::Exact,
-                    best_move: min_max_result.0.clone(),
+                    best_move: min_max_result.0,
                 });
             }
 
-            board.undo_move(&turn, mi);
+            board.undo_move(turn, mi);
             if white {
                 if min_max_eval > best_eval {
                     best_eval = min_max_eval;
                     alpha = min_max_eval;
-                    let mut best_move_row = min_max_result.2;
-                    best_move_row.insert(0, Some(turn.clone()));
-                    search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
+                    let mut best_move_row = VecDeque::new();
+                    best_move_row.push_back(Some(*turn));
+                    for mv in child_pv.iter().take_while(|x| x.is_some()) {
+                        best_move_row.push_back(*mv);
+                    }
+                    search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
                     stats.best_turn_nr = turn_counter;
-                    let calc_time_ms = self.get_calc_time(&local_map);
+                    let calc_time_ms = self.get_calc_time(local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
                     if config.print_info_string_during_search {
@@ -106,13 +110,16 @@ impl SearchService {
                 if min_max_eval < best_eval {
                     best_eval = min_max_eval;
                     beta = min_max_eval;
-                    let mut best_move_row = min_max_result.2;
-                    best_move_row.insert(0, Some(turn.clone()));
-                    search_result.add_variant(Variant { best_move: Some(turn.clone()), move_row: best_move_row, eval: min_max_eval });
+                    let mut best_move_row = VecDeque::new();
+                    best_move_row.push_back(Some(*turn));
+                    for mv in child_pv.iter().take_while(|x| x.is_some()) {
+                        best_move_row.push_back(*mv);
+                    }
+                    search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
                     search_result.is_white_move = white;
                     search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
                     search_result.stats.best_turn_nr = turn_counter;
-                    let calc_time_ms = self.get_calc_time(&local_map);
+                    let calc_time_ms = self.get_calc_time(local_map);
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
                     if config.print_info_string_during_search {
@@ -126,7 +133,7 @@ impl SearchService {
             }
         }        
         
-        let calc_time_ms = self.get_calc_time(&local_map);
+        let calc_time_ms = self.get_calc_time(local_map);
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -140,11 +147,14 @@ impl SearchService {
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
-        context: &SearchContext, local_map: &mut DataMap)
-        -> (Option<Turn>, i16, VecDeque<Option<Turn>>) {
+        context: &SearchContext, local_map: &mut DataMap, pv: &mut [Option<Turn>; 128])
+        -> (Option<Turn>, i16) {
+
+        for slot in pv.iter_mut() {
+            *slot = None;
+        }
 
         let mut turns: Vec<Turn> = Default::default();
-        let mut best_move_row: VecDeque<Option<Turn>> = VecDeque::new();
 
         let orig_alpha = alpha;
         let orig_beta = beta;
@@ -157,30 +167,27 @@ impl SearchService {
                 if entry.depth >= depth {
                     match entry.entry_type {
                         crate::zobrist::TranspositionType::Exact => {
-                            let mut best_move_row = VecDeque::new();
-                            if let Some(ref m) = entry.best_move {
-                                best_move_row.push_back(Some(m.clone()));
+                            if let Some(m) = entry.best_move {
+                                pv[0] = Some(m);
                             }
-                            return (entry.best_move, entry.eval, best_move_row);
+                            return (entry.best_move, entry.eval);
                         }
                         crate::zobrist::TranspositionType::LowerBound => {
                             alpha = alpha.max(entry.eval);
                             if alpha >= beta {
-                                let mut best_move_row = VecDeque::new();
-                                if let Some(ref m) = entry.best_move {
-                                    best_move_row.push_back(Some(m.clone()));
+                                if let Some(m) = entry.best_move {
+                                    pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry.eval, best_move_row);
+                                return (entry.best_move, entry.eval);
                             }
                         }
                         crate::zobrist::TranspositionType::UpperBound => {
                             beta = beta.min(entry.eval);
                             if alpha >= beta {
-                                let mut best_move_row = VecDeque::new();
-                                if let Some(ref m) = entry.best_move {
-                                    best_move_row.push_back(Some(m.clone()));
+                                if let Some(m) = entry.best_move {
+                                    pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry.eval, best_move_row);
+                                return (entry.best_move, entry.eval);
                             }
                         }
                     }
@@ -200,7 +207,7 @@ impl SearchService {
                 local_map.insert(DataMapKey::BlackGivesCheck, false);
             }
             
-            let eval = service.eval.calc_eval(board, config, &service.move_gen, &local_map);
+            let eval = service.eval.calc_eval(board, config, &service.move_gen, local_map);
             if config.use_zobrist {
                 context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
                     eval,
@@ -224,9 +231,9 @@ impl SearchService {
 
             if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
                 stand_pat_cut = if white {
-                    self.get_white_threshold_value(&local_map) < eval as i32 || turn.capture == 0
+                    self.get_white_threshold_value(local_map) < eval as i32 || turn.capture == 0
                 } else {
-                    self.get_black_threshold_value(&local_map) > eval as i32 || turn.capture == 0
+                    self.get_black_threshold_value(local_map) > eval as i32 || turn.capture == 0
                 };
             }
             
@@ -235,26 +242,26 @@ impl SearchService {
                 // check for mate or draw or leave quitesearch
                 if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
                     return match board.game_status {
-                        GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
-                        GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
-                        GameStatus::Draw => (None, 0, Default::default()),
+                        GameStatus::WhiteWin => (None, i16::MAX - 1),
+                        GameStatus::BlackWin => (None, i16::MIN + 1),
+                        GameStatus::Draw => (None, 0),
                         _ => panic!("RIP no defined game end"),
                     };
                 }
-                return (None, eval, Default::default());
+                return (None, eval);
             } else {
                 turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, context, local_map);
                 if turns.is_empty() {
                     // check for mate or draw
                     if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
                         return match board.game_status {
-                            GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
-                            GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
-                            GameStatus::Draw => (None, 0, Default::default()),
+                            GameStatus::WhiteWin => (None, i16::MAX - 1),
+                            GameStatus::BlackWin => (None, i16::MIN + 1),
+                            GameStatus::Draw => (None, 0),
                             _ => panic!("RIP no defined game end"),
                         };
                     }
-                    return (None, eval, Default::default());
+                    return (None, eval);
                 }
             }
         } else {
@@ -267,14 +274,15 @@ impl SearchService {
 
         if turns.len() == 0 || board.game_status != GameStatus::Normal {
             return match board.game_status {
-                GameStatus::WhiteWin => (None, i16::MAX - 1, best_move_row),
-                GameStatus::BlackWin => (None, i16::MIN + 1, best_move_row),
-                GameStatus::Draw => (None, 0, Default::default()),
+                GameStatus::WhiteWin => (None, i16::MAX - 1),
+                GameStatus::BlackWin => (None, i16::MIN + 1),
+                GameStatus::Draw => (None, 0),
                 _ => panic!("RIP no defined game end"),
             };
         }
 
         let mut turn_counter = 0;
+        let mut child_pv = [None; 128];
 
         for turn in &turns {
             if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -282,19 +290,19 @@ impl SearchService {
             }
             turn_counter += 1;
             stats.add_calculated_nodes(1);
-            let mi = board.do_move(&turn);
-            let min_max_result = self.minimax(board, &turn, depth - 1, !white,
-                alpha, beta, stats, config, service, context, local_map);
+            let mi = board.do_move(turn);
+            let min_max_result = self.minimax(board, turn, depth - 1, !white,
+                alpha, beta, stats, config, service, context, local_map, &mut child_pv);
             let min_max_eval = min_max_result.1;
-            board.undo_move(&turn, mi);
+            board.undo_move(turn, mi);
 
             if white {
                 if eval < min_max_eval {
                     eval = min_max_eval;
                     alpha = min_max_eval;
-                    best_move_row = min_max_result.2;
-                    best_move_row.insert(0, Some(turn.clone()));
-                    best_move = Some(turn.clone());
+                    best_move = Some(*turn);
+                    pv[0] = Some(*turn);
+                    pv[1..].copy_from_slice(&child_pv[..127]);
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_threshold(1);
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
@@ -305,9 +313,9 @@ impl SearchService {
                 if eval > min_max_eval {
                     eval = min_max_eval;
                     beta = min_max_eval;
-                    best_move_row = min_max_result.2;
-                    best_move_row.insert(0, Some(turn.clone()));
-                    best_move = Some(turn.clone());
+                    best_move = Some(*turn);
+                    pv[0] = Some(*turn);
+                    pv[1..].copy_from_slice(&child_pv[..127]);
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_threshold(1);
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
@@ -335,12 +343,12 @@ impl SearchService {
                     eval,
                     depth,
                     entry_type,
-                    best_move: best_move.clone(),
+                    best_move,
                 },
             );
         }
 
-        return (best_move, eval, best_move_row);
+        return (best_move, eval);
     }
 
     fn get_white_threshold_value(&self, local_map: &DataMap) -> i32 {
@@ -679,6 +687,7 @@ mod tests {
             &service,
             &context,
             &mut local_map,
+            &mut [None; 128],
         );
 
         assert_eq!(result.1, 500);
@@ -706,6 +715,7 @@ mod tests {
             &service,
             &context,
             &mut local_map,
+            &mut [None; 128],
         );
         assert_eq!(result_lower.1, 600);
         assert_eq!(stats.calculated_nodes, 0);
@@ -732,6 +742,7 @@ mod tests {
             &service,
             &context,
             &mut local_map,
+            &mut [None; 128],
         );
         assert_eq!(result_upper.1, 100);
         assert_eq!(stats.calculated_nodes, 0);

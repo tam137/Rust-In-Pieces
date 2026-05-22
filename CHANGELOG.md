@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.4.2] - 2026-05-22
+
+### Added
+- Eliminated avoidable clone operations and heap allocations in minimax search path
+
+### Fixed
+
+
+
 ## [V0.4.1] - 2026-05-22
 
 ### Added

@@ -206,7 +206,7 @@ pub const BLACK_BISHOP: usize = 9;
 pub const BLACK_QUEEN: usize = 10;
 pub const BLACK_KING: usize = 11;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Turn {
     pub from: u8,
     pub to: u8,

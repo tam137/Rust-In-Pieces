@@ -32,7 +32,7 @@ pub enum TranspositionType {
     UpperBound, // All Node (Alpha cutoff - score is at most this)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TranspositionEntry {
     pub eval: i16,
     pub depth: i32,
@@ -53,7 +53,7 @@ impl ZobristTable {
     }
 
     pub fn get_entry(&self, hash: &u64) -> Option<TranspositionEntry> {
-        self.hash_map.get(hash).map(|value| (*value).clone())
+        self.hash_map.get(hash).map(|value| *value)
     }
 
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
