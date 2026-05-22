@@ -37,3 +37,7 @@
   1. Execute deep search/ignored tests: `cargo test -- --ignored` if appropriate.
   2. Execute the live tournament verification matchup (`./run_verify.sh` in the `matt-magie` repository) ONLY if the USER explicitly requests or mentions it. Do NOT run the tournament verification script by default during a release unless explicitly asked.
 
+## Git & Version Control Policy
+- **Strict Limit on Git Operations:** The AI must NEVER automatically or preemptively execute `git commit` or `git push` commands.
+- **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
+- **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
