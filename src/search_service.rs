@@ -37,12 +37,14 @@ impl SearchService {
         let pv_nodes = &engine_state.pv_nodes;
 
         let mut killer_moves: [[Option<Turn>; 2]; 128] = [[None; 2]; 128];
+        let mut history_table = [[0u32; 64]; 64];
 
         let context = SearchContext {
             zobrist_table,
             stop_flag,
             pv_nodes,
             killer_moves: [None; 2],
+            history_table: &history_table,
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map);
@@ -66,11 +68,12 @@ impl SearchService {
                 stop_flag: context.stop_flag,
                 pv_nodes: context.pv_nodes,
                 killer_moves: killer_moves[1],
+                history_table: &history_table,
             };
 
             let min_max_result = self.minimax(board, turn, depth - 1, !white,
                 alpha, beta, stats, config, service, &child_context, local_map, &mut child_pv,
-                1, &mut killer_moves);
+                1, &mut killer_moves, &mut history_table);
 
             if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 board.undo_move(turn, mi);
@@ -166,7 +169,8 @@ impl SearchService {
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, local_map: &mut DataMap, pv: &mut [Option<Turn>; 128],
-        ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128])
+        ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
+        history_table: &mut [[u32; 64]; 64])
         -> (Option<Turn>, i16) {
 
         for slot in pv.iter_mut() {
@@ -245,6 +249,7 @@ impl SearchService {
             stop_flag: context.stop_flag,
             pv_nodes: context.pv_nodes,
             killer_moves: if ply >= 0 && ply < 128 { killer_moves[ply as usize] } else { [None; 2] },
+            history_table,
         };
 
         // Quiescence Search (depth <= 0)
@@ -259,48 +264,55 @@ impl SearchService {
                 local_map.insert(DataMapKey::BlackGivesCheck, false);
             }
 
-            let stand_pat = service.eval.calc_eval(board, config, &service.move_gen, local_map);
-            if config.use_zobrist {
-                context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                    eval: stand_pat,
-                    depth: 0,
-                    entry_type: crate::zobrist::TranspositionType::Exact,
-                    best_move: None,
-                });
-            }
+            let in_check = turn.gives_check;
+            let mut stand_pat = 0;
+            let mut eval = if white { i16::MIN } else { i16::MAX };
 
-            // Stand-pat cutoffs
-            if white {
-                if stand_pat >= beta {
-                    return (None, stand_pat);
+            if !in_check {
+                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, local_map);
+                eval = stand_pat;
+                if config.use_zobrist {
+                    context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                        eval: stand_pat,
+                        depth: 0,
+                        entry_type: crate::zobrist::TranspositionType::Exact,
+                        best_move: None,
+                    });
                 }
-                alpha = alpha.max(stand_pat);
-            } else {
-                if stand_pat <= alpha {
-                    return (None, stand_pat);
+
+                // Stand-pat cutoffs
+                if white {
+                    if stand_pat >= beta {
+                        return (None, stand_pat);
+                    }
+                    alpha = alpha.max(stand_pat);
+                } else {
+                    if stand_pat <= alpha {
+                        return (None, stand_pat);
+                    }
+                    beta = beta.min(stand_pat);
                 }
-                beta = beta.min(stand_pat);
             }
 
             local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
-            let turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, local_map);
+            let turns = if in_check {
+                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map)
+            } else {
+                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, local_map)
+            };
 
             if turns.is_empty() {
-                if turn.gives_check {
-                    let all_moves = service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map);
-                    if all_moves.is_empty() {
-                        return match board.game_status {
-                            GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
-                            GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
-                            GameStatus::Draw => (None, 0),
-                            _ => panic!("RIP no defined game end"),
-                        };
-                    }
+                if in_check {
+                    return match board.game_status {
+                        GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
+                        GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
+                        GameStatus::Draw => (None, 0),
+                        _ => panic!("RIP no defined game end"),
+                    };
                 }
                 return (None, stand_pat);
             }
 
-            let mut eval = stand_pat;
             let mut child_pv = [None; 128];
 
             for capture_turn in &turns {
@@ -311,7 +323,7 @@ impl SearchService {
                 let mi = board.do_move(capture_turn);
                 let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
                     alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
-                    ply + 1, killer_moves);
+                    ply + 1, killer_moves, history_table);
                 let min_max_eval = min_max_result.1;
                 board.undo_move(capture_turn, mi);
 
@@ -367,7 +379,7 @@ impl SearchService {
             let mi = board.do_move(current_turn);
             let min_max_result = self.minimax(board, current_turn, depth - 1, !white,
                 alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
-                ply + 1, killer_moves);
+                ply + 1, killer_moves, history_table);
             let min_max_eval = min_max_result.1;
             board.undo_move(current_turn, mi);
 
@@ -399,12 +411,28 @@ impl SearchService {
                 }
             }
             if beta <= alpha {
-                // Killer Move storage
-                if depth > 0 && current_turn.capture == 0 && (ply as usize) < 128 {
-                    let p = ply as usize;
-                    if Some(*current_turn) != killer_moves[p][0] {
-                        killer_moves[p][1] = killer_moves[p][0];
-                        killer_moves[p][0] = Some(*current_turn);
+                if depth > 0 && current_turn.capture == 0 {
+                    // Killer Move storage
+                    if (ply as usize) < 128 {
+                        let p = ply as usize;
+                        if Some(*current_turn) != killer_moves[p][0] {
+                            killer_moves[p][1] = killer_moves[p][0];
+                            killer_moves[p][0] = Some(*current_turn);
+                        }
+                    }
+
+                    // History Heuristic Accumulation
+                    let from = current_turn.from as usize;
+                    let to = current_turn.to as usize;
+                    history_table[from][to] += (depth * depth) as u32;
+
+                    // Overflow Protection & Ageing
+                    if history_table[from][to] > 9000 {
+                        for r in history_table.iter_mut() {
+                            for c in r.iter_mut() {
+                                *c /= 2;
+                            }
+                        }
                     }
                 }
                 break;
@@ -732,11 +760,13 @@ mod tests {
             log_sender: tx_log,
         });
 
+        let mut test_history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &engine_state.zobrist_table,
             stop_flag: &engine_state.stop_flag,
             pv_nodes: &engine_state.pv_nodes,
             killer_moves: [None; 2],
+            history_table: &test_history_table,
         };
 
         let mut test_killer_moves = [[None; 2]; 128];
@@ -767,6 +797,7 @@ mod tests {
             &mut [None; 128],
             1,
             &mut test_killer_moves,
+            &mut test_history_table,
         );
 
         assert_eq!(result.1, 500);
@@ -797,6 +828,7 @@ mod tests {
             &mut [None; 128],
             1,
             &mut test_killer_moves,
+            &mut test_history_table,
         );
         assert_eq!(result_lower.1, 600);
         assert_eq!(stats.calculated_nodes, 0);
@@ -826,6 +858,7 @@ mod tests {
             &mut [None; 128],
             1,
             &mut test_killer_moves,
+            &mut test_history_table,
         );
         assert_eq!(result_upper.1, 100);
         assert_eq!(stats.calculated_nodes, 0);

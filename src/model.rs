@@ -109,6 +109,7 @@ pub struct SearchContext<'a> {
     pub stop_flag: &'a std::sync::atomic::AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
+    pub history_table: *const [[u32; 64]; 64],
 }
 
 
