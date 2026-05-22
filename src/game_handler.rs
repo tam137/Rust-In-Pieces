@@ -7,7 +7,7 @@ use std::thread;
 use crate::DataMap;
 use crate::DataMapKey;
 use crate::Config;
-use crate::model::{EngineState, TimeInfo, TimeMode, SearchResult, UciGame, Stats, QuiescenceSearchMode};
+use crate::model::{EngineState, TimeInfo, TimeMode, SearchResult, UciGame, Stats};
 use crate::service::Service;
 use crate::book::Book;
 use crate::zobrist;
@@ -26,10 +26,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
 
-    if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-        local_map.insert(DataMapKey::WhiteThreshold, 0);
-        local_map.insert(DataMapKey::BlackThreshold, 0);
-    }
+
 
     loop {
         match rx_game_command.recv() {
@@ -201,10 +198,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             game.do_move(&res.get_best_move_algebraic());
                             logger.send(format!("final move: bestmove {}", res.get_best_move_algebraic())).ok();
 
-                            if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                                local_map.insert(DataMapKey::WhiteThreshold, res.get_eval() as i32);
-                                local_map.insert(DataMapKey::BlackThreshold, res.get_eval() as i32);
-                            }
+
                         } else {
                             // Fallback if search was immediately aborted
                             let mut stats = Stats::default();
@@ -212,6 +206,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 zobrist_table: &engine_state.zobrist_table,
                                 stop_flag: &engine_state.stop_flag,
                                 pv_nodes: &engine_state.pv_nodes,
+                                killer_moves: [None; 2],
                             };
                             let valid_moves = service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map);
                             if let Some(first_move) = valid_moves.first() {

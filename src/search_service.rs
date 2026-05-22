@@ -3,7 +3,7 @@ use std::time::Instant;
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, QuiescenceSearchMode, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, DataMap, DataMapKey, GameStatus, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 
 use crate::model::RIP_MISSED_DM_KEY;
@@ -36,10 +36,13 @@ impl SearchService {
         let stop_flag = &engine_state.stop_flag;
         let pv_nodes = &engine_state.pv_nodes;
 
+        let mut killer_moves: [[Option<Turn>; 2]; 128] = [[None; 2]; 128];
+
         let context = SearchContext {
             zobrist_table,
             stop_flag,
             pv_nodes,
+            killer_moves: [None; 2],
         };
 
         let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map);
@@ -57,8 +60,17 @@ impl SearchService {
         for turn in &turns {
             turn_counter += 1;
             let mi = board.do_move(turn);
+
+            let child_context = SearchContext {
+                zobrist_table: context.zobrist_table,
+                stop_flag: context.stop_flag,
+                pv_nodes: context.pv_nodes,
+                killer_moves: killer_moves[1],
+            };
+
             let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &context, local_map, &mut child_pv);
+                alpha, beta, stats, config, service, &child_context, local_map, &mut child_pv,
+                1, &mut killer_moves);
 
             if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 board.undo_move(turn, mi);
@@ -73,8 +85,14 @@ impl SearchService {
 
             // save min max eval in zobrist table for better move sorting, if depth = 2
             if depth == 2 && config.use_zobrist {
+                let mut stored_eval = min_max_eval;
+                if min_max_eval > 30000 {
+                    stored_eval = min_max_eval + 1;
+                } else if min_max_eval < -30000 {
+                    stored_eval = min_max_eval - 1;
+                }
                 zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                    eval: min_max_eval,
+                    eval: stored_eval,
                     depth: 1,
                     entry_type: crate::zobrist::TranspositionType::Exact,
                     best_move: min_max_result.0,
@@ -147,47 +165,73 @@ impl SearchService {
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
-        context: &SearchContext, local_map: &mut DataMap, pv: &mut [Option<Turn>; 128])
+        context: &SearchContext, local_map: &mut DataMap, pv: &mut [Option<Turn>; 128],
+        ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128])
         -> (Option<Turn>, i16) {
 
         for slot in pv.iter_mut() {
             *slot = None;
         }
 
-        let mut turns: Vec<Turn> = Default::default();
+        // Mate Distance Pruning at node entry
+        if ply > 0 {
+            let mate_value = i16::MAX - 1 - ply as i16;
+            if mate_value < beta {
+                beta = beta.min(mate_value);
+                if alpha >= beta {
+                    return (None, beta);
+                }
+            }
+            let mate_value = i16::MIN + 1 + ply as i16;
+            if mate_value > alpha {
+                alpha = alpha.max(mate_value);
+                if alpha >= beta {
+                    return (None, alpha);
+                }
+            }
+        }
 
         let orig_alpha = alpha;
         let orig_beta = beta;
 
+        // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
             if board.cached_hash == 0 {
                 board.cached_hash = crate::zobrist::gen(board);
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
                 if entry.depth >= depth {
+                    let mut entry_eval = entry.eval;
+                    // De-normalize mate score
+                    if entry_eval > 30000 {
+                        entry_eval = entry_eval - ply as i16;
+                    } else if entry_eval < -30000 {
+                        entry_eval = entry_eval + ply as i16;
+                    }
+
                     match entry.entry_type {
                         crate::zobrist::TranspositionType::Exact => {
                             if let Some(m) = entry.best_move {
                                 pv[0] = Some(m);
                             }
-                            return (entry.best_move, entry.eval);
+                            return (entry.best_move, entry_eval);
                         }
                         crate::zobrist::TranspositionType::LowerBound => {
-                            alpha = alpha.max(entry.eval);
+                            alpha = alpha.max(entry_eval);
                             if alpha >= beta {
                                 if let Some(m) = entry.best_move {
                                     pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry.eval);
+                                return (entry.best_move, entry_eval);
                             }
                         }
                         crate::zobrist::TranspositionType::UpperBound => {
-                            beta = beta.min(entry.eval);
+                            beta = beta.min(entry_eval);
                             if alpha >= beta {
                                 if let Some(m) = entry.best_move {
                                     pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry.eval);
+                                return (entry.best_move, entry_eval);
                             }
                         }
                     }
@@ -195,87 +239,117 @@ impl SearchService {
             }
         }
 
+        // SearchContext for current ply with specific killer moves
+        let current_context = SearchContext {
+            zobrist_table: context.zobrist_table,
+            stop_flag: context.stop_flag,
+            pv_nodes: context.pv_nodes,
+            killer_moves: if ply >= 0 && ply < 128 { killer_moves[ply as usize] } else { [None; 2] },
+        };
+
+        // Quiescence Search (depth <= 0)
         if depth <= 0 {
             stats.add_eval_nodes(1);
-            if board.white_to_move && turn.gives_check { // the turn is already applied to the board, so invert is_white
+            if board.white_to_move && turn.gives_check {
                 local_map.insert(DataMapKey::BlackGivesCheck, true);
-            }
-            else if !board.white_to_move && turn.gives_check {
+            } else if !board.white_to_move && turn.gives_check {
                 local_map.insert(DataMapKey::WhiteGivesCheck, true);
             } else {
                 local_map.insert(DataMapKey::WhiteGivesCheck, false);
                 local_map.insert(DataMapKey::BlackGivesCheck, false);
             }
-            
-            let eval = service.eval.calc_eval(board, config, &service.move_gen, local_map);
+
+            let stand_pat = service.eval.calc_eval(board, config, &service.move_gen, local_map);
             if config.use_zobrist {
                 context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                    eval,
+                    eval: stand_pat,
                     depth: 0,
                     entry_type: crate::zobrist::TranspositionType::Exact,
                     best_move: None,
                 });
             }
 
-            let mut stand_pat_cut = true;
-            local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
-
-            if config.quiescence_search_mode == QuiescenceSearchMode::Alpha2 {
-                stand_pat_cut = if white {
-                    beta < eval || (turn.capture == 0)
-                } else {
-                    alpha > eval || (turn.capture == 0)
-                };
-            }
-                
-
-            if config.quiescence_search_mode == QuiescenceSearchMode::Alpha3 {
-                stand_pat_cut = if white {
-                    self.get_white_threshold_value(local_map) < eval as i32 || turn.capture == 0
-                } else {
-                    self.get_black_threshold_value(local_map) > eval as i32 || turn.capture == 0
-                };
-            }
-            
-
-            if stand_pat_cut && turns.is_empty(){
-                // check for mate or draw or leave quitesearch
-                if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
-                    return match board.game_status {
-                        GameStatus::WhiteWin => (None, i16::MAX - 1),
-                        GameStatus::BlackWin => (None, i16::MIN + 1),
-                        GameStatus::Draw => (None, 0),
-                        _ => panic!("RIP no defined game end"),
-                    };
+            // Stand-pat cutoffs
+            if white {
+                if stand_pat >= beta {
+                    return (None, stand_pat);
                 }
-                return (None, eval);
+                alpha = alpha.max(stand_pat);
             } else {
-                turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, context, local_map);
-                if turns.is_empty() {
-                    // check for mate or draw
-                    if service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map).is_empty() {
+                if stand_pat <= alpha {
+                    return (None, stand_pat);
+                }
+                beta = beta.min(stand_pat);
+            }
+
+            local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
+            let turns = service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, local_map);
+
+            if turns.is_empty() {
+                if turn.gives_check {
+                    let all_moves = service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map);
+                    if all_moves.is_empty() {
                         return match board.game_status {
-                            GameStatus::WhiteWin => (None, i16::MAX - 1),
-                            GameStatus::BlackWin => (None, i16::MIN + 1),
+                            GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
+                            GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
                             GameStatus::Draw => (None, 0),
                             _ => panic!("RIP no defined game end"),
                         };
                     }
-                    return (None, eval);
+                }
+                return (None, stand_pat);
+            }
+
+            let mut eval = stand_pat;
+            let mut child_pv = [None; 128];
+
+            for capture_turn in &turns {
+                if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                stats.add_calculated_nodes(1);
+                let mi = board.do_move(capture_turn);
+                let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
+                    alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
+                    ply + 1, killer_moves);
+                let min_max_eval = min_max_result.1;
+                board.undo_move(capture_turn, mi);
+
+                if white {
+                    if eval < min_max_eval {
+                        eval = min_max_eval;
+                        alpha = alpha.max(min_max_eval);
+                        pv[0] = Some(*capture_turn);
+                        pv[1..].copy_from_slice(&child_pv[..127]);
+                    }
+                } else {
+                    if eval > min_max_eval {
+                        eval = min_max_eval;
+                        beta = beta.min(min_max_eval);
+                        pv[0] = Some(*capture_turn);
+                        pv[1..].copy_from_slice(&child_pv[..127]);
+                    }
+                }
+
+                if beta <= alpha {
+                    break;
                 }
             }
-        } else {
-            local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
-            turns = service.move_gen.generate_valid_moves_list(board, stats, config, context, local_map);
+
+            return (None, eval);
         }
+
+        // Standard Search (depth > 0)
+        local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
+        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map);
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
         let mut best_move: Option<Turn> = None;
 
-        if turns.len() == 0 || board.game_status != GameStatus::Normal {
+        if turns.is_empty() || board.game_status != GameStatus::Normal {
             return match board.game_status {
-                GameStatus::WhiteWin => (None, i16::MAX - 1),
-                GameStatus::BlackWin => (None, i16::MIN + 1),
+                GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
+                GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
                 GameStatus::Draw => (None, 0),
                 _ => panic!("RIP no defined game end"),
             };
@@ -284,50 +358,60 @@ impl SearchService {
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
-        for turn in &turns {
+        for current_turn in &turns {
             if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             turn_counter += 1;
             stats.add_calculated_nodes(1);
-            let mi = board.do_move(turn);
-            let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                alpha, beta, stats, config, service, context, local_map, &mut child_pv);
+            let mi = board.do_move(current_turn);
+            let min_max_result = self.minimax(board, current_turn, depth - 1, !white,
+                alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
+                ply + 1, killer_moves);
             let min_max_eval = min_max_result.1;
-            board.undo_move(turn, mi);
+            board.undo_move(current_turn, mi);
 
             if white {
                 if eval < min_max_eval {
                     eval = min_max_eval;
-                    alpha = min_max_eval;
-                    best_move = Some(*turn);
-                    pv[0] = Some(*turn);
+                    alpha = alpha.max(min_max_eval);
+                    best_move = Some(*current_turn);
+                    pv[0] = Some(*current_turn);
                     pv[1..].copy_from_slice(&child_pv[..127]);
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_threshold(1);
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
-                        service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
+                        service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
                 }
             } else {
                 if eval > min_max_eval {
                     eval = min_max_eval;
-                    beta = min_max_eval;
-                    best_move = Some(*turn);
-                    pv[0] = Some(*turn);
+                    beta = beta.min(min_max_eval);
+                    best_move = Some(*current_turn);
+                    pv[0] = Some(*current_turn);
                     pv[1..].copy_from_slice(&child_pv[..127]);
                     if config.in_debug && turn_counter > 30 {
                         stats.add_turn_nr_gt_threshold(1);
                         stats.add_log(format!("{}, move {} was the {} lvl:{}",
-                        service.fen.get_fen(board), &turn.to_algebraic(), turn_counter, config.search_depth - depth));
+                        service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
                 }
             }
             if beta <= alpha {
+                // Killer Move storage
+                if depth > 0 && current_turn.capture == 0 && (ply as usize) < 128 {
+                    let p = ply as usize;
+                    if Some(*current_turn) != killer_moves[p][0] {
+                        killer_moves[p][1] = killer_moves[p][0];
+                        killer_moves[p][0] = Some(*current_turn);
+                    }
+                }
                 break;
             }
         }
 
+        // Transposition Table Write
         if config.use_zobrist && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             let entry_type = if eval <= orig_alpha {
                 crate::zobrist::TranspositionType::UpperBound
@@ -337,10 +421,18 @@ impl SearchService {
                 crate::zobrist::TranspositionType::Exact
             };
 
+            let mut stored_eval = eval;
+            // Normalize mate score
+            if eval > 30000 {
+                stored_eval = eval + ply as i16;
+            } else if eval < -30000 {
+                stored_eval = eval - ply as i16;
+            }
+
             context.zobrist_table.insert_entry(
                 board.cached_hash,
                 crate::zobrist::TranspositionEntry {
-                    eval,
+                    eval: stored_eval,
                     depth,
                     entry_type,
                     best_move,
@@ -349,24 +441,6 @@ impl SearchService {
         }
 
         return (best_move, eval);
-    }
-
-    fn get_white_threshold_value(&self, local_map: &DataMap) -> i32 {
-        if let Some(white_threshold) = local_map.get_data::<i32>(DataMapKey::WhiteThreshold) {
-            *white_threshold
-        }
-        else {
-            panic!("RIP Cant read white threshold");
-        }
-    }
-
-    fn get_black_threshold_value(&self, local_map: &DataMap) -> i32 {
-        if let Some(black_threshold) = local_map.get_data::<i32>(DataMapKey::BlackThreshold) {
-            *black_threshold
-        }
-        else {
-            panic!("RIP Cant read white threshold");
-        }
     }
 
     fn get_calc_time(&self, local_map: &DataMap) -> u128 {
@@ -420,18 +494,18 @@ mod tests {
         
         let mut board = fen_service.set_fen("8/3K4/8/8/5RR1/8/k7/8 w - - 0 1");
         let result = search(&mut board, 6, true);
-        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_eval(), 32761);
         assert_eq!(result.get_best_move_algebraic(), "f4f3");
 
         let mut board = fen_service.set_fen("r1q1r1k1/ppppppp1/n1b4p/7N/2B1P2N/2B2Q1P/PPPP1PP1/R3R1K1 w Qq - 0 1");
         let result = search(&mut board, 4, true);
-        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_eval(), 32763);
         assert_eq!(result.get_best_move_algebraic(), "f3f7");
         
 
         let mut board = fen_service.set_fen("6rk/R2R4/7P/8/p1B2P2/2P4P/P5K1/8 w - - 5 39");
         let result = search(&mut board, 6, true);
-        assert_eq!(result.get_eval(), 32766);
+        assert_eq!(result.get_eval(), 32761);
         assert_eq!(result.get_best_move_algebraic(), "c4g8");
     }
 
@@ -443,19 +517,19 @@ mod tests {
         
         let mut board = fen_service.set_fen("8/1p6/p1P5/2p5/K1p2P2/P2kPn1P/1r6/8 b - - 3 43");
         let result = search(&mut board, 6, false);
-        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_eval(), -32762);
         assert_eq!(result.get_best_move_algebraic(), "b7b6");
 
         
         let mut board = fen_service.set_fen("8/8/8/2k5/8/5p1r/1K6/8 b - - 0 1");
         let result = search(&mut board, 8, false);
-        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_eval(), -32760);
         assert_eq!(result.get_best_move_algebraic(), "f3f2");
         
 
         let mut board = fen_service.set_fen("8/5pkp/p5p1/4p3/1P3P2/P3P1KP/2q3P1/3r4 b - - 0 37");
         let result = search(&mut board, 6, false);
-        assert_eq!(result.get_eval(), -32767);
+        assert_eq!(result.get_eval(), -32762);
         assert_eq!(result.get_best_move_algebraic(), "d1g1");
     }
 
@@ -662,7 +736,10 @@ mod tests {
             zobrist_table: &engine_state.zobrist_table,
             stop_flag: &engine_state.stop_flag,
             pv_nodes: &engine_state.pv_nodes,
+            killer_moves: [None; 2],
         };
+
+        let mut test_killer_moves = [[None; 2]; 128];
 
         // 1. Insert an Exact transposition entry
         board.cached_hash = crate::zobrist::gen(&board);
@@ -688,6 +765,8 @@ mod tests {
             &context,
             &mut local_map,
             &mut [None; 128],
+            1,
+            &mut test_killer_moves,
         );
 
         assert_eq!(result.1, 500);
@@ -716,6 +795,8 @@ mod tests {
             &context,
             &mut local_map,
             &mut [None; 128],
+            1,
+            &mut test_killer_moves,
         );
         assert_eq!(result_lower.1, 600);
         assert_eq!(stats.calculated_nodes, 0);
@@ -743,6 +824,8 @@ mod tests {
             &context,
             &mut local_map,
             &mut [None; 128],
+            1,
+            &mut test_killer_moves,
         );
         assert_eq!(result_upper.1, 100);
         assert_eq!(stats.calculated_nodes, 0);
