@@ -8,11 +8,9 @@ pub const INIT_BOARD_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w 
 
 pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 
-pub const RIP_COULDN_SEND_TO_STD_IN_QUEUE: &str = "RIP Could not Send commands to std in queue";
 pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
 pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
-pub const RIP_ERR_READING_STD_IN: &str = "RIP Error reading std input";
 pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 
 #[derive(Clone)]
@@ -30,6 +28,9 @@ pub enum DataMapKey {
     WhiteGivesCheck,
     BlackGivesCheck,
     PvFlag,
+    TargetTime,
+    RootMovesTotal,
+    RootMovesSearched,
 }
 
 #[derive(Clone)]
@@ -91,6 +92,20 @@ impl KeyToType<Instant> for DataMapKey {
     }
     fn create_value(&self, value: Instant) -> ValueType {
         ValueType::Instant(value)
+    }
+}
+
+impl KeyToType<i32> for DataMapKey {
+    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a i32> {
+        match (self, value) {
+            (DataMapKey::TargetTime, ValueType::Integer(i)) |
+            (DataMapKey::RootMovesTotal, ValueType::Integer(i)) |
+            (DataMapKey::RootMovesSearched, ValueType::Integer(i)) => Some(i),
+            _ => None,
+        }
+    }
+    fn create_value(&self, value: i32) -> ValueType {
+        ValueType::Integer(value)
     }
 }
 

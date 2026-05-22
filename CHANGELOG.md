@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.5.3] - 2026-05-22
+
+### Added
+- Fix integer underflow in calculate_thinking_time and reduce Movetime buffer to 50ms
+- Implement Obvious Moves early exit when only 1 legal root move exists
+- Refactor search timing to use single-threaded node-based check (every 1024 nodes) in minimax and quiescence search
+- Implement Flexible Abort (+30% target time extension when >= 85% of root moves have been searched)
+
+### Fixed
+
+
+
 ## [V0.5.2] - 2026-05-22
 
 ### Added

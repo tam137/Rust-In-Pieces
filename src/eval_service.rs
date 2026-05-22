@@ -4,7 +4,7 @@ use crate::move_gen_service::MoveGenService;
 
 
 pub struct EvalService {
-    knight_moves: [i16; 8],
+    _knight_moves: [i16; 8],
     attack_bonus_white: [(i16, i16, i16); 2],
     attack_bonus_black: [(i16, i16, i16); 2],
 }
@@ -13,7 +13,7 @@ impl EvalService {
 
     pub fn new(config: &Config) -> Self {
         Self {
-            knight_moves: [-21, -19, -12, -8, 21, 19, 12, 8],
+            _knight_moves: [-21, -19, -12, -8, 21, 19, 12, 8],
             attack_bonus_white: [
                 (21, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
                 (23, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
