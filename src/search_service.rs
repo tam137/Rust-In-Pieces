@@ -930,4 +930,39 @@ mod tests {
         assert_eq!(stats.calculated_nodes, 0);
     }
 
+    #[test]
+    #[ignore]
+    fn print_search_times_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let config = Config::new();
+        let table = Arc::new(ZobristTable::new());
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: table.clone(),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        println!("\nSuchtiefen-Benchmark für startpos:");
+        for d in 1..=9 {
+            let mut stats = Stats::new();
+            let mut local_map = DataMap::new();
+            local_map.insert(DataMapKey::CalcTime, Instant::now());
+            local_map.insert(DataMapKey::WhiteGivesCheck, false);
+            local_map.insert(DataMapKey::BlackGivesCheck, false);
+
+            let start = Instant::now();
+            service.search.get_moves(&mut board, d, true, &mut stats, &config, &service, &engine_state, &mut local_map);
+            let elapsed = start.elapsed();
+            let elapsed_ms = elapsed.as_millis().max(1);
+            println!("Tiefe {}: {} ms (Knoten: {}, nps: {} k)", d, elapsed.as_millis(), stats.calculated_nodes, stats.calculated_nodes / elapsed_ms as usize);
+        }
+    }
+
 }
