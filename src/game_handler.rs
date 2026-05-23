@@ -122,10 +122,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             killer_moves: [None; 2],
                             history_table: &history_table,
                         };
-                        let valid_moves = service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map);
+                        let mut valid_moves = crate::model::MoveList::new();
+                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);
 
-                        if valid_moves.len() == 1 {
-                            let mv_str = valid_moves[0].to_algebraic();
+                        if valid_moves.len == 1 {
+                            let mv_str = valid_moves.moves[0].to_algebraic();
                             stdout.write(&format!("bestmove {}", mv_str));
                             game.do_move(&mv_str);
                             logger.send(format!("Only one legal move found. Playing bestmove: {}", mv_str)).ok();
@@ -217,8 +218,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 killer_moves: [None; 2],
                                 history_table: &history_table,
                             };
-                            let valid_moves = service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map);
-                            if let Some(first_move) = valid_moves.first() {
+                            let mut valid_moves = crate::model::MoveList::new();
+                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);
+                            if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));
                                 game.do_move(&mv_str);

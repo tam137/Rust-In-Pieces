@@ -47,7 +47,8 @@ impl SearchService {
             history_table: &history_table,
         };
 
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map);
+        let mut turns = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map, &mut turns);
         let mut search_result: SearchResult = SearchResult::default();
         search_result.calculated_depth = depth;
         search_result.is_white_move = white;
@@ -56,14 +57,14 @@ impl SearchService {
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
 
-        let total_root_moves = turns.len() as i32;
+        let total_root_moves = turns.len as i32;
         local_map.insert(DataMapKey::RootMovesTotal, total_root_moves);
         local_map.insert(DataMapKey::RootMovesSearched, 0);
 
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
-        for turn in &turns {
+        for turn in turns.as_slice() {
             // Check time at the start of each root move
             let elapsed = self.get_calc_time(local_map) as i32;
             if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
@@ -322,11 +323,12 @@ impl SearchService {
             }
 
             local_map.insert(DataMapKey::ForceSkipValidationFlag, false);
-            let turns = if in_check {
-                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map)
+            let mut turns = crate::model::MoveList::new();
+            if in_check {
+                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map, &mut turns);
             } else {
-                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, local_map)
-            };
+                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, local_map, &mut turns);
+            }
 
             if turns.is_empty() {
                 if in_check {
@@ -342,7 +344,7 @@ impl SearchService {
 
             let mut child_pv = [None; 128];
 
-            for capture_turn in &turns {
+            for capture_turn in turns.as_slice() {
                 if stats.calculated_nodes & 1023 == 0 {
                     let elapsed = self.get_calc_time(local_map) as i32;
                     if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
@@ -398,7 +400,8 @@ impl SearchService {
 
         // Standard Search (depth > 0)
         local_map.insert(DataMapKey::ForceSkipValidationFlag, config.skip_strong_validation);
-        let turns = service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map);
+        let mut turns = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, local_map, &mut turns);
 
         let mut eval = if white { i16::MIN } else { i16::MAX };
         let mut best_move: Option<Turn> = None;
@@ -415,7 +418,7 @@ impl SearchService {
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
-        for current_turn in &turns {
+        for current_turn in turns.as_slice() {
             if stats.calculated_nodes & 1023 == 0 {
                 let elapsed = self.get_calc_time(local_map) as i32;
                 if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {

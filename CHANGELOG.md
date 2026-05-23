@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.6.0] - 2026-05-23
+
+### Added
+- Migrated engine to 100% Heap-Free search recursion using stack-allocated MoveList & MoveRawList
+- Refactored move generation signatures to populate stack lists via mutable borrows
+- Optimized double-check and check detection using direct popcnt count_ones on attackers bitboards
+- Added robust capacity safety tests in model.rs with zero compiler warnings
+- Enabled all FIDE-legal pawn promotions (Queen, Rook, Bishop, Knight) in `validate_and_add_promotion_moves` to make the engine 100% rules-compliant
+- Added fully recursive Perft (Performance Test) suite supporting `startpos` and `Kiwipete` benchmarks to mathematically guarantee move generation correctness
+
+### Fixed
+
+
+
 ## [V0.5.3] - 2026-05-22
 
 ### Added

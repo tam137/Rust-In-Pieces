@@ -302,6 +302,75 @@ impl Turn {
 }
 
 
+#[derive(Clone, Copy)]
+pub struct MoveList {
+    pub moves: [Turn; 256],
+    pub len: usize,
+}
+
+impl MoveList {
+    pub fn new() -> Self {
+        Self {
+            moves: [Turn {
+                from: 0,
+                to: 0,
+                capture: 0,
+                promotion: 0,
+                gives_check: false,
+                eval: 0,
+                hash: 0,
+                has_hashed_eval: false,
+                rank: 0,
+            }; 256],
+            len: 0,
+        }
+    }
+
+    pub fn push(&mut self, turn: Turn) {
+        if self.len < 256 {
+            self.moves[self.len] = turn;
+            self.len += 1;
+        }
+    }
+
+    pub fn as_slice(&self) -> &[Turn] {
+        &self.moves[0..self.len]
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct MoveRawList {
+    pub moves: [u8; 256],
+    pub len: usize,
+}
+
+impl MoveRawList {
+    pub fn new() -> Self {
+        Self {
+            moves: [0u8; 256],
+            len: 0,
+        }
+    }
+
+    pub fn push(&mut self, val: i32) {
+        if self.len < 256 {
+            self.moves[self.len] = val as u8;
+            self.len += 1;
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+
+
 
 #[derive(Debug, Copy, Clone)]
 pub struct MoveInformation {
@@ -1311,5 +1380,57 @@ mod tests {
         // rook endgame + 1 light peace each
         let board = fen_service.set_fen("r5k1/2B2pp1/6p1/3p4/3P4/2n5/P4PPP/R5K1 w - - 2 25");
         assert_eq!(30, board._calculate_complexity());
+    }
+
+    #[test]
+    fn move_list_capacity_and_safety_test() {
+        use super::MoveList;
+        use super::Turn;
+
+        let mut list = MoveList::new();
+        assert!(list.is_empty());
+        assert_eq!(list.len, 0);
+
+        let turn = Turn::new(10, 20, 0, 0, false, 0);
+        list.push(turn);
+        assert!(!list.is_empty());
+        assert_eq!(list.len, 1);
+        assert_eq!(list.as_slice()[0].from, 10);
+
+        // Fill up list beyond 256
+        for i in 1..300 {
+            list.push(Turn::new((i % 64) as u8, 20, 0, 0, false, 0));
+        }
+
+        assert_eq!(list.len, 256, "MoveList should cap at 256 turns and not overflow");
+        
+        // Pushing to full list should not panic
+        list.push(Turn::new(1, 1, 0, 0, false, 0));
+        assert_eq!(list.len, 256);
+    }
+
+    #[test]
+    fn move_raw_list_capacity_and_safety_test() {
+        use super::MoveRawList;
+
+        let mut list = MoveRawList::new();
+        assert!(list.is_empty());
+        assert_eq!(list.len, 0);
+
+        list.push(42);
+        assert!(!list.is_empty());
+        assert_eq!(list.len, 1);
+        assert_eq!(list.moves[0], 42);
+
+        // Fill up list beyond 256
+        for i in 1..300 {
+            list.push(i as i32);
+        }
+
+        assert_eq!(list.len, 256, "MoveRawList should cap at 256 elements and not overflow");
+        
+        // Pushing to full list should not panic
+        list.push(99);
+        assert_eq!(list.len, 256);
     }
 }
