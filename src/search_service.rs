@@ -395,7 +395,9 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
-                let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
+                let in_check = service.move_gen.is_in_check(board);
+                let extension = if in_check && ply < 120 { 1 } else { 0 };
+                let min_max_result = self.minimax(board, capture_turn, depth - 1 + extension, !white,
                     alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
                     ply + 1, killer_moves, history_table);
                 let min_max_eval = min_max_result.1;
@@ -479,7 +481,9 @@ impl SearchService {
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(current_turn);
-            let min_max_result = self.minimax(board, current_turn, depth - 1, !white,
+            let in_check = service.move_gen.is_in_check(board);
+            let extension = if in_check && ply < 120 { 1 } else { 0 };
+            let min_max_result = self.minimax(board, current_turn, depth - 1 + extension, !white,
                 alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
                 ply + 1, killer_moves, history_table);
             let min_max_eval = min_max_result.1;
