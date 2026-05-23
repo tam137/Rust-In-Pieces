@@ -17,7 +17,7 @@ echo -e "${CYAN}             SUPRAH AUTOMATED BUILD & RELEASE PIPELINE          
 echo -e "${CYAN}================================================================${NC}"
 
 # Step 1: Run all tests
-echo -e "\n${YELLOW}[1/5] Running tests...${NC}"
+echo -e "\n${YELLOW}[1/6] Running tests...${NC}"
 cargo test
 if [ $? -ne 0 ]; then
     echo -e "\n${RED}Error: Tests failed! Aborting build and release process.${NC}"
@@ -26,7 +26,7 @@ fi
 echo -e "${GREEN}Success: All tests passed!${NC}"
 
 # Step 2: Backup configuration files
-echo -e "\n${YELLOW}[2/5] Creating backups for safe rollback...${NC}"
+echo -e "\n${YELLOW}[2/6] Creating backups for safe rollback...${NC}"
 if [ ! -f "Cargo.toml" ] || [ ! -f "CHANGELOG.md" ]; then
     echo -e "${RED}Error: Cargo.toml or CHANGELOG.md not found!${NC}"
     exit 1
@@ -42,7 +42,7 @@ rollback() {
 }
 
 # Step 3: Parse and bump version in Cargo.toml & update CHANGELOG.md
-echo -e "\n${YELLOW}[3/5] Bumping version and updating CHANGELOG.md...${NC}"
+echo -e "\n${YELLOW}[3/6] Bumping version and updating CHANGELOG.md...${NC}"
 
 # Read current version
 VERSION_LINE=$(grep -E '^version\s*=' Cargo.toml | head -n 1)
@@ -135,7 +135,7 @@ else
 fi
 
 # Step 4: Build release binary
-echo -e "\n${YELLOW}[4/5] Compiling release binary...${NC}"
+echo -e "\n${YELLOW}[4/6] Compiling release binary...${NC}"
 cargo build --release
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: Compilation failed!${NC}"
@@ -145,7 +145,7 @@ fi
 echo -e "${GREEN}Success: Release binary compiled successfully!${NC}"
 
 # Step 5: Copy to Matt-Magie engines folder
-echo -e "\n${YELLOW}[5/5] Deploying release to Matt-Magie engines directory...${NC}"
+echo -e "\n${YELLOW}[5/6] Deploying release to Matt-Magie engines directory...${NC}"
 TARGET_DIR="../matt-magie/engines"
 mkdir -p "$TARGET_DIR"
 
@@ -156,11 +156,76 @@ chmod +x "$COPY_TARGET"
 if [ $? -eq 0 ]; then
     # Clean up backups since build and deploy succeeded
     rm -f Cargo.toml.bak CHANGELOG.md.bak
-    
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
+    
+    # Step 6: Remote ARM Server Compilation & Deployment
+    if [ -z "$EODSERVERIP" ]; then
+        echo -e "\n${YELLOW}Warning: Environment variable EODSERVERIP is not set.${NC}"
+        echo -e "Skipping native compilation and deployment on remote ARM server."
+        echo -e "To deploy to the ARM server, please run: export EODSERVERIP=\"<IP>\" before releasing."
+    else
+        echo -e "\n${YELLOW}[6/6] Starting remote ARM compilation and deployment to ${EODSERVERIP}...${NC}"
+        REMOTE_USER="root"
+        REMOTE_DIR="/root/mattmagie"
+        REMOTE_TMP_DIR="${REMOTE_DIR}/tmp_suprah_build"
+
+        # A. Create remote temporary directory
+        echo -e "${YELLOW}Creating remote temporary directory: ${REMOTE_TMP_DIR}...${NC}"
+        ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR}"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to connect to remote server or create directories via SSH!${NC}"
+            rollback
+            exit 1
+        fi
+
+        # B. Upload source files
+        echo -e "${YELLOW}Uploading Cargo.toml and src directory to remote server...${NC}"
+        scp Cargo.toml ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to upload Cargo.toml!${NC}"
+            rollback
+            exit 1
+        fi
+
+        scp -r src ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to upload src directory!${NC}"
+            rollback
+            exit 1
+        fi
+
+        # C. Compile natively on ARM server
+        echo -e "${YELLOW}Compiling suprah natively on remote ARM server...${NC}"
+        ssh ${REMOTE_USER}@${EODSERVERIP} "source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Remote native compilation failed!${NC}"
+            ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
+            rollback
+            exit 1
+        fi
+
+        # D. Deploy compiled remote binary to remote engine folder
+        echo -e "${YELLOW}Deploying compiled binary to ${REMOTE_DIR}/engines/suprah-${NEW_VERSION}...${NC}"
+        ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_DIR}/engines && cp ${REMOTE_TMP_DIR}/target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION}"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to deploy binary to remote engines directory!${NC}"
+            ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
+            rollback
+            exit 1
+        fi
+
+        # E. Clean up remote temp directory
+        echo -e "${YELLOW}Cleaning up remote temporary directory...${NC}"
+        ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
+        echo -e "${GREEN}Success: Remote compilation and deployment completed successfully!${NC}"
+    fi
+
     echo -e "\n${CYAN}================================================================${NC}"
     echo -e "${GREEN}${BOLD}RELEASE PROCESS COMPLETED SUCCESSFULLY!${NC}"
     echo -e "Engine ${BOLD}suprah-$NEW_VERSION${NC} is now ready for matchups."
+    if [ -n "$EODSERVERIP" ]; then
+        echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/suprah-$NEW_VERSION"
+    fi
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
