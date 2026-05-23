@@ -410,6 +410,7 @@ impl CastleInformation {
 #[derive(Debug, Clone)]
 pub struct Board {
     pub bitboards: [u64; 12],
+    pub mailbox: [u8; 64],
     pub white_pieces: u64,
     pub black_pieces: u64,
     pub occupied: u64,
@@ -447,8 +448,34 @@ impl Board {
                            bitboards[BLACK_BISHOP] | bitboards[BLACK_QUEEN] | bitboards[BLACK_KING];
         let occupied = white_pieces | black_pieces;
 
+        let mut mailbox = [0u8; 64];
+        for i in 0..12 {
+            let mut bb = bitboards[i];
+            let piece = match i {
+                WHITE_PAWN => 10,
+                WHITE_ROOK => 11,
+                WHITE_KNIGHT => 12,
+                WHITE_BISHOP => 13,
+                WHITE_QUEEN => 14,
+                WHITE_KING => 15,
+                BLACK_PAWN => 20,
+                BLACK_ROOK => 21,
+                BLACK_KNIGHT => 22,
+                BLACK_BISHOP => 23,
+                BLACK_QUEEN => 24,
+                BLACK_KING => 25,
+                _ => 0,
+            };
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                mailbox[square] = piece;
+                bb &= bb - 1;
+            }
+        }
+
         Board {
             bitboards,
+            mailbox,
             white_pieces,
             black_pieces,
             occupied,
@@ -485,31 +512,9 @@ impl Board {
         }
     }
 
+    #[inline(always)]
     pub fn get_piece_at(&self, square: u8) -> u8 {
-        let mask = 1u64 << square;
-        if (self.occupied & mask) == 0 {
-            return 0;
-        }
-        for i in 0..12 {
-            if (self.bitboards[i] & mask) != 0 {
-                return match i {
-                    WHITE_PAWN => 10,
-                    WHITE_ROOK => 11,
-                    WHITE_KNIGHT => 12,
-                    WHITE_BISHOP => 13,
-                    WHITE_QUEEN => 14,
-                    WHITE_KING => 15,
-                    BLACK_PAWN => 20,
-                    BLACK_ROOK => 21,
-                    BLACK_KNIGHT => 22,
-                    BLACK_BISHOP => 23,
-                    BLACK_QUEEN => 24,
-                    BLACK_KING => 25,
-                    _ => 0,
-                };
-            }
-        }
-        0
+        self.mailbox[square as usize]
     }
 
     /// return the index of kings (white_king, black_king)
@@ -559,6 +564,14 @@ impl Board {
 
         let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
 
+        // Update mailbox
+        self.mailbox[from as usize] = 0;
+        if turn.is_promotion() {
+            self.mailbox[to as usize] = turn.promotion;
+        } else {
+            self.mailbox[to as usize] = moved_piece;
+        }
+
         // Move the piece
         if turn.is_promotion() {
             self.bitboards[moved_bb_idx] ^= from_mask;
@@ -576,9 +589,11 @@ impl Board {
                 if self.white_to_move {
                     let victim_sq = to - 8;
                     self.bitboards[BLACK_PAWN] &= !(1u64 << victim_sq);
+                    self.mailbox[victim_sq as usize] = 0;
                 } else {
                     let victim_sq = to + 8;
                     self.bitboards[WHITE_PAWN] &= !(1u64 << victim_sq);
+                    self.mailbox[victim_sq as usize] = 0;
                 }
             } else {
                 let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
@@ -593,15 +608,23 @@ impl Board {
                 match to {
                     6 => { // White short
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
+                        self.mailbox[7] = 0;
+                        self.mailbox[5] = 11;
                     }
                     2 => { // White long
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
+                        self.mailbox[0] = 0;
+                        self.mailbox[3] = 11;
                     }
                     62 => { // Black short
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
+                        self.mailbox[63] = 0;
+                        self.mailbox[61] = 21;
                     }
                     58 => { // Black long
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
+                        self.mailbox[56] = 0;
+                        self.mailbox[59] = 21;
                     }
                     _ => {}
                 }
@@ -700,6 +723,10 @@ impl Board {
 
         let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
 
+        // Update mailbox
+        self.mailbox[from as usize] = moved_piece;
+        self.mailbox[to as usize] = 0;
+
         // Undo move
         if turn.is_promotion() {
             let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
@@ -716,13 +743,16 @@ impl Board {
                 if !self.white_to_move { // White played the EP capture
                     let victim_sq = to - 8;
                     self.bitboards[BLACK_PAWN] |= 1u64 << victim_sq;
+                    self.mailbox[victim_sq as usize] = move_information.capture;
                 } else { // Black played the EP capture
                     let victim_sq = to + 8;
                     self.bitboards[WHITE_PAWN] |= 1u64 << victim_sq;
+                    self.mailbox[victim_sq as usize] = move_information.capture;
                 }
             } else {
                 let capture_bb_idx = Board::piece_to_bb_idx(move_information.capture);
                 self.bitboards[capture_bb_idx] |= to_mask;
+                self.mailbox[to as usize] = move_information.capture;
             }
         }
 
@@ -733,15 +763,23 @@ impl Board {
                 match to {
                     6 => { // White short
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
+                        self.mailbox[7] = 11;
+                        self.mailbox[5] = 0;
                     }
                     2 => { // White long
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
+                        self.mailbox[0] = 11;
+                        self.mailbox[3] = 0;
                     }
                     62 => { // Black short
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
+                        self.mailbox[63] = 21;
+                        self.mailbox[61] = 0;
                     }
                     58 => { // Black long
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
+                        self.mailbox[56] = 21;
+                        self.mailbox[59] = 0;
                     }
                     _ => {}
                 }
@@ -1432,5 +1470,105 @@ mod tests {
         // Pushing to full list should not panic
         list.push(99);
         assert_eq!(list.len, 256);
+    }
+
+    #[test]
+    fn mailbox_synchronicity_test() {
+        use super::*;
+        let fen_service = Service::new().fen;
+
+        let verify_mailbox = |board: &Board| {
+            for sq in 0..64 {
+                let mut expected_piece = 0;
+                let mask = 1u64 << sq;
+                for i in 0..12 {
+                    if (board.bitboards[i] & mask) != 0 {
+                        expected_piece = match i {
+                            WHITE_PAWN => 10,
+                            WHITE_ROOK => 11,
+                            WHITE_KNIGHT => 12,
+                            WHITE_BISHOP => 13,
+                            WHITE_QUEEN => 14,
+                            WHITE_KING => 15,
+                            BLACK_PAWN => 20,
+                            BLACK_ROOK => 21,
+                            BLACK_KNIGHT => 22,
+                            BLACK_BISHOP => 23,
+                            BLACK_QUEEN => 24,
+                            BLACK_KING => 25,
+                            _ => 0,
+                        };
+                        break;
+                    }
+                }
+                assert_eq!(
+                    board.mailbox[sq],
+                    expected_piece,
+                    "Mailbox out of sync with bitboards at square {}",
+                    sq
+                );
+            }
+        };
+
+        // 1. Verify initial board
+        let mut board = fen_service.set_init_board();
+        verify_mailbox(&board);
+
+        // 2. Verify KiwiPete board
+        let board_kp = fen_service.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+        verify_mailbox(&board_kp);
+
+        // 3. Verify mailbox updates after normal move and undo
+        let turn_normal = Turn::new(12, 28, 0, 0, false, 0); // e2e4
+        let mi = board.do_move(&turn_normal);
+        verify_mailbox(&board);
+        assert_eq!(board.mailbox[12], 0);
+        assert_eq!(board.mailbox[28], 10);
+
+        board.undo_move(&turn_normal, mi);
+        verify_mailbox(&board);
+        assert_eq!(board.mailbox[12], 10);
+        assert_eq!(board.mailbox[28], 0);
+
+        // 4. Verify castling short move and undo
+        let mut board_castle = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1");
+        board_castle.bitboards[WHITE_KNIGHT] &= !(1u64 << 6);
+        board_castle.bitboards[WHITE_BISHOP] &= !(1u64 << 5);
+        board_castle.mailbox[6] = 0;
+        board_castle.mailbox[5] = 0;
+        board_castle.occupied = (board_castle.white_pieces | board_castle.black_pieces) & !((1u64 << 6) | (1u64 << 5));
+        verify_mailbox(&board_castle);
+
+        let turn_castle = Turn::new(4, 6, 0, 0, false, 0); // O-O
+        let mi_c = board_castle.do_move(&turn_castle);
+        verify_mailbox(&board_castle);
+        assert_eq!(board_castle.mailbox[4], 0);
+        assert_eq!(board_castle.mailbox[6], 15);
+        assert_eq!(board_castle.mailbox[7], 0);
+        assert_eq!(board_castle.mailbox[5], 11);
+
+        board_castle.undo_move(&turn_castle, mi_c);
+        verify_mailbox(&board_castle);
+        assert_eq!(board_castle.mailbox[4], 15);
+        assert_eq!(board_castle.mailbox[6], 0);
+        assert_eq!(board_castle.mailbox[7], 11);
+        assert_eq!(board_castle.mailbox[5], 0);
+
+        // 5. Verify en passant capture and undo
+        let mut board_ep = fen_service.set_fen("rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        verify_mailbox(&board_ep);
+        
+        let turn_ep = Turn::new(36, 43, 20, 0, false, 0); // e5d6 e.p.
+        let mi_ep = board_ep.do_move(&turn_ep);
+        verify_mailbox(&board_ep);
+        assert_eq!(board_ep.mailbox[36], 0);
+        assert_eq!(board_ep.mailbox[43], 10);
+        assert_eq!(board_ep.mailbox[35], 0);
+
+        board_ep.undo_move(&turn_ep, mi_ep);
+        verify_mailbox(&board_ep);
+        assert_eq!(board_ep.mailbox[36], 10);
+        assert_eq!(board_ep.mailbox[43], 0);
+        assert_eq!(board_ep.mailbox[35], 20);
     }
 }

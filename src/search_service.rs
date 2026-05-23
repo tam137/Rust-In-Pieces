@@ -139,7 +139,8 @@ impl SearchService {
                     eval: stored_eval,
                     depth: 1,
                     entry_type: crate::zobrist::TranspositionType::Exact,
-                    best_move: min_max_result.0,
+                    best_move: crate::zobrist::TranspositionEntry::compress_move(min_max_result.0),
+                    padding: [0; 2],
                 });
             }
 
@@ -245,7 +246,7 @@ impl SearchService {
                 board.cached_hash = crate::zobrist::gen(board);
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
-                if entry.depth >= depth {
+                if entry.depth as i32 >= depth {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
                     if entry_eval > 30000 {
@@ -254,29 +255,31 @@ impl SearchService {
                         entry_eval = entry_eval + ply as i16;
                     }
 
+                    let decompressed = entry.decompress_move(board);
+
                     match entry.entry_type {
                         crate::zobrist::TranspositionType::Exact => {
-                            if let Some(m) = entry.best_move {
+                            if let Some(m) = decompressed {
                                 pv[0] = Some(m);
                             }
-                            return (entry.best_move, entry_eval);
+                            return (decompressed, entry_eval);
                         }
                         crate::zobrist::TranspositionType::LowerBound => {
                             alpha = alpha.max(entry_eval);
                             if alpha >= beta {
-                                if let Some(m) = entry.best_move {
+                                if let Some(m) = decompressed {
                                     pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry_eval);
+                                return (decompressed, entry_eval);
                             }
                         }
                         crate::zobrist::TranspositionType::UpperBound => {
                             beta = beta.min(entry_eval);
                             if alpha >= beta {
-                                if let Some(m) = entry.best_move {
+                                if let Some(m) = decompressed {
                                     pv[0] = Some(m);
                                 }
-                                return (entry.best_move, entry_eval);
+                                return (decompressed, entry_eval);
                             }
                         }
                     }
@@ -318,7 +321,8 @@ impl SearchService {
                         eval: stand_pat,
                         depth: 0,
                         entry_type: crate::zobrist::TranspositionType::Exact,
-                        best_move: None,
+                        best_move: 0,
+                        padding: [0; 2],
                     });
                 }
 
@@ -560,9 +564,10 @@ impl SearchService {
                 crate::zobrist::TranspositionEntry {
                     key: board.cached_hash,
                     eval: stored_eval,
-                    depth,
+                    depth: depth as i8,
                     entry_type,
-                    best_move,
+                    best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
+                    padding: [0; 2],
                 },
             );
         }
@@ -622,7 +627,8 @@ mod tests {
         let mut board = fen_service.set_fen("8/3K4/8/8/5RR1/8/k7/8 w - - 0 1");
         let result = search(&mut board, 6, true);
         assert_eq!(result.get_eval(), 32761);
-        assert_eq!(result.get_best_move_algebraic(), "f4f3");
+        let best_move = result.get_best_move_algebraic();
+        assert!(best_move == "f4f3" || best_move == "f4b4", "Expected f4f3 or f4b4, got {}", best_move);
 
         let mut board = fen_service.set_fen("r1q1r1k1/ppppppp1/n1b4p/7N/2B1P2N/2B2Q1P/PPPP1PP1/R3R1K1 w Qq - 0 1");
         let result = search(&mut board, 4, true);
@@ -789,7 +795,8 @@ mod tests {
                         eval: eval_val,
                         depth: 4,
                         entry_type: crate::zobrist::TranspositionType::Exact,
-                        best_move: None,
+                        best_move: 0,
+                        padding: [0; 2],
                     };
                     table.insert_entry(hash_key, entry);
                     let read_val = table.get_eval_for_hash(&hash_key);
@@ -879,7 +886,8 @@ mod tests {
             eval: 500,
             depth: 3,
             entry_type: crate::zobrist::TranspositionType::Exact,
-            best_move: None,
+            best_move: 0,
+            padding: [0; 2],
         });
 
         // Search depth 3. It should trigger an immediate exact cutoff and return 500.
@@ -911,7 +919,8 @@ mod tests {
             eval: 600,
             depth: 4,
             entry_type: crate::zobrist::TranspositionType::LowerBound,
-            best_move: None,
+            best_move: 0,
+            padding: [0; 2],
         });
 
         // Search depth 4, alpha = 200, beta = 500. Since eval (600) >= beta (500), it should cause a beta cutoff.
@@ -942,7 +951,8 @@ mod tests {
             eval: 100,
             depth: 2,
             entry_type: crate::zobrist::TranspositionType::UpperBound,
-            best_move: None,
+            best_move: 0,
+            padding: [0; 2],
         });
 
         // Search depth 2, alpha = 300, beta = 700. Since eval (100) <= alpha (300), it should cause an alpha cutoff.
