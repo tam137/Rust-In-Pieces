@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.7.5] - 2026-05-23
+
+### Added
+- Fix king safety by restricting centering to endgame and revert check extensions
+
+### Fixed
+
+
+
 ## [V0.7.4] - 2026-05-23
 
 ### Added

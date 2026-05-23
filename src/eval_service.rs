@@ -456,10 +456,12 @@ impl EvalService {
         }
 
         // Graduated Center Proximity in Endgame
-        let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
-        let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
-        let dist = rank_dist + file_dist;
-        e_eval -= (dist * 40) as i16;
+        if game_phase < 60 {
+            let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
+            let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
+            let dist = rank_dist + file_dist;
+            e_eval -= (dist * 40) as i16;
+        }
 
         if file > 0 && sq + 7 < 64 && ((1u64 << (sq + 7)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
         if sq + 8 < 64 && ((1u64 << (sq + 8)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
@@ -494,10 +496,12 @@ impl EvalService {
         }
 
         // Graduated Center Proximity in Endgame
-        let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
-        let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
-        let dist = rank_dist + file_dist;
-        e_eval += (dist * 40) as i16;
+        if game_phase < 60 {
+            let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
+            let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
+            let dist = rank_dist + file_dist;
+            e_eval += (dist * 40) as i16;
+        }
 
         if file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
         if sq >= 8 && ((1u64 << (sq - 8)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
