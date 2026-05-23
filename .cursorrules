@@ -24,10 +24,13 @@
 - **Changelog Message:** You can pass an optional description of the functional changes as the first argument, e.g., `./build_and_release.sh "Added new search features"`. If no argument is provided, the script will automatically harvest recent git commit logs as changes.
 - **Pipeline Workflow:**
   1. Executes all cargo unit tests first (`cargo test`).
-  2. Bumps the patch/minor version in `Cargo.toml` automatically (e.g., `0.2.3` -> `0.2.4`) only if all tests are green (exit 0).
+  2. Bumps the patch/minor version in `Cargo.toml` automatically only if all tests are green.
   3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
   4. Compiles the optimized production release binary.
   5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
+- **Release Versioning Classification (Patch vs. Minor):**
+  - **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh "Changelog entry"`.
+  - **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh "Changelog entry"`.
 - **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!
 - **Execution Restriction:** Only execute the build and release script (`./build_and_release.sh`) or compile a new release binary when the USER explicitly requests or triggers a release. Do NOT automatically trigger or run a build/release after implementing changes unless explicitly asked.
 

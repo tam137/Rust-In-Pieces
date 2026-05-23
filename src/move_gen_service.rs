@@ -1495,4 +1495,53 @@ mod tests {
         assert_eq!(perft(&mut board, 3), 97862);
         assert_eq!(perft(&mut board, 4), 4085603);
     }
+
+    #[test]
+    fn underpromotions_config_test() {
+        let service = Service::new();
+        let fen_service = service.fen;
+        let mut board = fen_service.set_fen("7k/P7/8/8/8/8/8/7K w - - 0 1");
+
+        let mut config = Config::for_tests();
+        config.use_underpromotions = true;
+        
+        let local_map = DataMap::new();
+        let zobrist_table = ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+        };
+
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        
+        let mut promotions = vec![];
+        for turn in move_list.as_slice() {
+            if turn.promotion != 0 {
+                promotions.push(turn.promotion);
+            }
+        }
+        promotions.sort();
+        assert_eq!(promotions, vec![11, 12, 13, 14]);
+
+        config.use_underpromotions = false;
+        let mut move_list_disabled = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list_disabled);
+
+        let mut promotions_disabled = vec![];
+        for turn in move_list_disabled.as_slice() {
+            if turn.promotion != 0 {
+                promotions_disabled.push(turn.promotion);
+            }
+        }
+        promotions_disabled.sort();
+        assert_eq!(promotions_disabled, vec![12, 14]);
+    }
 }
+

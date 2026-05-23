@@ -121,3 +121,62 @@ pub fn gen(board: &Board) -> u64 {
     }
     hash
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zobrist_replacement_policy_test() {
+        let table = ZobristTable::with_capacity(2);
+
+        let entry1 = TranspositionEntry {
+            key: 0,
+            eval: 100,
+            depth: 3,
+            entry_type: TranspositionType::Exact,
+            best_move: None,
+        };
+        table.insert_entry(0, entry1);
+        let ret = table.get_entry(&0).unwrap();
+        assert_eq!(ret.eval, 100);
+        assert_eq!(ret.depth, 3);
+
+        let entry2 = TranspositionEntry {
+            key: 2,
+            eval: 200,
+            depth: 5,
+            entry_type: TranspositionType::Exact,
+            best_move: None,
+        };
+        table.insert_entry(2, entry2);
+        assert!(table.get_entry(&0).is_none());
+        let ret2 = table.get_entry(&2).unwrap();
+        assert_eq!(ret2.eval, 200);
+        assert_eq!(ret2.depth, 5);
+
+        let entry3 = TranspositionEntry {
+            key: 4,
+            eval: 400,
+            depth: 2,
+            entry_type: TranspositionType::Exact,
+            best_move: None,
+        };
+        table.insert_entry(4, entry3);
+        assert!(table.get_entry(&4).is_none());
+        let ret_kept = table.get_entry(&2).unwrap();
+        assert_eq!(ret_kept.eval, 200);
+
+        let entry4 = TranspositionEntry {
+            key: 2,
+            eval: 150,
+            depth: 1,
+            entry_type: TranspositionType::Exact,
+            best_move: None,
+        };
+        table.insert_entry(2, entry4);
+        let ret_overwritten = table.get_entry(&2).unwrap();
+        assert_eq!(ret_overwritten.eval, 150);
+        assert_eq!(ret_overwritten.depth, 1);
+    }
+}
