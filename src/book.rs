@@ -10,7 +10,7 @@ pub struct Book {
 impl Book {
     pub fn new() -> Self {
         let mut book_map = HashMap::new();
-        book_map.insert("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", vec!["e2e4", "e2e4", "d2d4", "d2d4", "g1f3", "c2c4"]);
+        book_map.insert("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", vec!["e2e4", "e2e4", "d2d4", "d2d4", "g1f3", "c2c4", "b2b3", "b2b4", "f2f4", "g2g4", "c2c3", "a2a3"]);
 
         let e2e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
         let d2d4 = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1";
@@ -71,7 +71,7 @@ impl Book {
         let d2d4_d7d5_c2c4 = "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2";
 
         book_map.insert(d2d4_d7d6, vec!["c2c4", "e2e4", "e2e3", "g1f3"]);
-        book_map.insert(d2d4_d7d5, vec!["c2c4", "c2c4", "c2c3", "e2e3", "c1f4", "g1f3", "b1c3"]);
+        book_map.insert(d2d4_d7d5, vec!["c2c4", "c2c4", "c2c3", "e2e3", "c1f4", "g1f3", "b1c3", "e2e4"]);
         book_map.insert(d2d4_e7e6, vec!["c2c4", "c2c3", "e2e3", "c1f4", "g1f3", "b1c3", "e2e4"]);
         book_map.insert(d2d4_g8f6, vec!["c2c4", "c2c4", "c1f4", "c1g5", "g1f3", "e2e3"]);
         book_map.insert(d2d4_d7d5_c2c4, vec!["e7e6", "e7e6", "c7c6", "d5c4"]);
@@ -89,6 +89,26 @@ impl Book {
         book_map.insert(g1f3_g8f6_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "b1c3", "c2c3", "g2g3"]);
         book_map.insert(g1f3_c7c5_, vec!["d2d4", "d2d3", "e2e4", "e2e3", "c2c4", "c2c3", "g2g3"]);
         
+        // Dubious / Irregular Openings (Grob, Bird, Larsen, Polish, Saragossa, Anderssen)
+        let b1b3 = "rnbqkbnr/pppppppp/8/8/8/1P6/P1PPPPPP/RNBQKBNR b KQkq - 0 1";
+        let b1b4 = "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq b3 0 1";
+        let f2f4 = "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq f3 0 1";
+        let g2g4 = "rnbqkbnr/pppppppp/8/8/6P1/8/PPPPPP1P/RNBQKBNR b KQkq g3 0 1";
+        let c2c3 = "rnbqkbnr/pppppppp/8/8/8/2P5/PP1PPPPP/RNBQKBNR b KQkq - 0 1";
+        let a2a3 = "rnbqkbnr/pppppppp/8/8/8/P7/1PPPPPPP/RNBQKBNR b KQkq - 0 1";
+
+        book_map.insert(b1b3, vec!["d7d5", "e7e5", "g8f6"]);
+        book_map.insert(b1b4, vec!["d7d5", "e7e5", "g8f6"]);
+        book_map.insert(f2f4, vec!["d7d5", "e7e5"]);
+        book_map.insert(g2g4, vec!["d7d5", "e7e5"]);
+        book_map.insert(c2c3, vec!["d7d5", "e7e5"]);
+        book_map.insert(a2a3, vec!["d7d5", "e7e5"]);
+
+        let g2g4_d7d5 = "rnbqkbnr/ppp1pppp/8/3p4/6P1/8/PPPPPP1P/RNBQKBNR w KQkq d6 0 2";
+        book_map.insert(g2g4_d7d5, vec!["f1g2", "h2h3"]);
+
+        let f2f4_e7e5 = "rnbqkbnr/pppp1ppp/8/4p3/5P2/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 2";
+        book_map.insert(f2f4_e7e5, vec!["f4e5"]);
 
         Book { book_map }
     }
