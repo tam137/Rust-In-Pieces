@@ -81,7 +81,6 @@ pub fn uci_command_processor(
                 }
 
                 else if uci_token.trim() == "go infinite" {
-                    tx_game_command.send("ucinewgame".to_string()).expect("RIP Could not send 'ucinewgame' as internal cmd");
                     tx_game_command.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
                 }
 
