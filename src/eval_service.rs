@@ -163,6 +163,20 @@ impl EvalService {
             e_eval -= config.pawn_double_malus / 2;
         }
 
+        if self.is_white_passed_pawn(sq as u8, board) {
+            let bonus = match rank {
+                1 => 10,
+                2 => 25,
+                3 => 50,
+                4 => 100,
+                5 => 180,
+                6 => 300,
+                _ => 0,
+            };
+            e_eval += bonus;
+            o_eval += bonus / 3;
+        }
+
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         eval + config.piece_eval_pawn
     }
@@ -243,6 +257,20 @@ impl EvalService {
         if has_doubled_pawn {
             o_eval += config.pawn_double_malus;
             e_eval += config.pawn_double_malus / 2;
+        }
+
+        if self.is_black_passed_pawn(sq as u8, board) {
+            let bonus = match moves_until_promote {
+                6 => 10,
+                5 => 25,
+                4 => 50,
+                3 => 100,
+                2 => 180,
+                1 => 300,
+                _ => 0,
+            };
+            e_eval -= bonus;
+            o_eval -= bonus / 3;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -427,9 +455,11 @@ impl EvalService {
             e_eval -= config.king_in_double_check_malus;
         }
 
-        if rank >= 2 && rank <= 5 && file >= 2 && file <= 5 {
-            e_eval += config.king_centered;
-        }
+        // Graduated Center Proximity in Endgame
+        let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
+        let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
+        let dist = rank_dist + file_dist;
+        e_eval -= (dist * 40) as i16;
 
         if file > 0 && sq + 7 < 64 && ((1u64 << (sq + 7)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
         if sq + 8 < 64 && ((1u64 << (sq + 8)) & board.white_pieces) != 0 { o_eval += config.king_shield; }
@@ -463,9 +493,11 @@ impl EvalService {
             e_eval += config.king_in_double_check_malus;
         }
 
-        if rank >= 2 && rank <= 5 && file >= 2 && file <= 5 {
-            e_eval -= config.king_centered;
-        }
+        // Graduated Center Proximity in Endgame
+        let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
+        let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
+        let dist = rank_dist + file_dist;
+        e_eval += (dist * 40) as i16;
 
         if file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
         if sq >= 8 && ((1u64 << (sq - 8)) & board.black_pieces) != 0 { o_eval -= config.king_shield; }
@@ -517,6 +549,44 @@ impl EvalService {
             }
         }
         eval        
+    }
+
+    fn is_white_passed_pawn(&self, sq: u8, board: &Board) -> bool {
+        let file = (sq % 8) as i32;
+        let rank = (sq / 8) as i32;
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        
+        for r in (rank + 1)..8 {
+            if (black_pawns & (1u64 << (r * 8 + file))) != 0 {
+                return false;
+            }
+            if file > 0 && (black_pawns & (1u64 << (r * 8 + file - 1))) != 0 {
+                return false;
+            }
+            if file < 7 && (black_pawns & (1u64 << (r * 8 + file + 1))) != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn is_black_passed_pawn(&self, sq: u8, board: &Board) -> bool {
+        let file = (sq % 8) as i32;
+        let rank = (sq / 8) as i32;
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        
+        for r in 0..rank {
+            if (white_pawns & (1u64 << (r * 8 + file))) != 0 {
+                return false;
+            }
+            if file > 0 && (white_pawns & (1u64 << (r * 8 + file - 1))) != 0 {
+                return false;
+            }
+            if file < 7 && (white_pawns & (1u64 << (r * 8 + file + 1))) != 0 {
+                return false;
+            }
+        }
+        true
     }
 
 }

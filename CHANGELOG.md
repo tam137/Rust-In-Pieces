@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.7.4] - 2026-05-23
+
+### Added
+- Implement Endgame King & Passed Pawn evaluations + Check Extensions
+
+### Fixed
+
+
+
 ## [V0.7.3] - 2026-05-23
 
 ### Added
