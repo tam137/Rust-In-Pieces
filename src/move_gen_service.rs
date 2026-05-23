@@ -1543,5 +1543,34 @@ mod tests {
         promotions_disabled.sort();
         assert_eq!(promotions_disabled, vec![12, 14]);
     }
+
+    #[test]
+    fn obvious_move_early_exit_test() {
+        let service = Service::new();
+        let fen_service = service.fen;
+        let move_gen_service = service.move_gen;
+        let config = Config::for_tests();
+        let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = crate::model::SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+        };
+        let local_map = crate::model::DataMap::new();
+
+        let mut board = fen_service.set_fen("6k1/8/8/2b5/8/8/6PP/5RqK w - - 0 1");
+        
+        let mut move_list = crate::model::MoveList::new();
+        move_gen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+
+        assert_eq!(move_list.len, 1, "Expected exactly 1 legal move in this position!");
+        let mv = move_list.as_slice()[0].to_algebraic();
+        assert_eq!(mv, "f1g1", "Expected the only legal move to be f1g1!");
+    }
 }
 
