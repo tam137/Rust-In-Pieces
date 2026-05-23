@@ -5,13 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.7.1] - 2026-05-23
+
+### Added
+- Expand opening book with Caro-Kann, Sicilian, Spanish, and standard lines
+
+### Fixed
+
+
+
 ## [Unreleased]
 
 ### Added
+
+### Fixed
+
+
+
+## [V0.7.0] - 2026-05-23
+
+### Added
+- O(1) Mailbox Board (`board.mailbox: [u8; 64]`) keeping a direct piece lookup cache on the Board struct, eliminating O(12) bitboard scan loops inside the hot recursive search paths.
+- 128-bit Compact Zobrist Transposition Entries (16-Byte memory footprint) by bit-packing chess moves into a `u16` and depth into an `i8`, maximizing L1/L2 cacheline density (4 entries per cacheline).
 - Flat array Transposition Table (`ZobristTable`) replacing `CHashMap` with depth-preferred replacement policy to eliminate CPU cache misses and lock congestion.
 - Incremental Move Sorting (Selection Sort / Pick Best Move) in standard minimax search loops and quiescence search to completely bypass O(N log N) sorting overhead on early Beta cutoffs.
 - Underpromotions configuration toggle (`use_underpromotions`, default `false` for search, `true` for tests) to skip suboptimal Rook and Bishop promotions during search for additional NPS gains.
 - Dynamic transposition table capacity initialization via configuration.
+
+### Fixed
 
 ## [V0.6.0] - 2026-05-23
 
