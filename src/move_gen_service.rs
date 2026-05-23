@@ -347,28 +347,30 @@ impl MoveGenService {
         }
 
         // Move sorting
-        let slice = &mut valid_moves.moves[0..valid_moves.len];
-        if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
-            slice.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
-        } else {
-            let mut rng = rand::thread_rng();
-            let mut noisy_ranks = [0i32; 256];
-            for idx in 0..valid_moves.len {
-                let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
-                noisy_ranks[idx] = slice[idx].rank as i32 + noise;
+        if config.pre_sort_moves {
+            let slice = &mut valid_moves.moves[0..valid_moves.len];
+            if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
+                slice.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
+            } else {
+                let mut rng = rand::thread_rng();
+                let mut noisy_ranks = [0i32; 256];
+                for idx in 0..valid_moves.len {
+                    let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
+                    noisy_ranks[idx] = slice[idx].rank as i32 + noise;
+                }
+                let mut indices: [usize; 256] = [0; 256];
+                for idx in 0..valid_moves.len {
+                    indices[idx] = idx;
+                }
+                let active_indices = &mut indices[0..valid_moves.len];
+                active_indices.sort_unstable_by(|&a, &b| noisy_ranks[b].cmp(&noisy_ranks[a]));
+                
+                let mut temp_moves = [Turn::new(0, 0, 0, 0, false, 0); 256];
+                for idx in 0..valid_moves.len {
+                    temp_moves[idx] = slice[active_indices[idx]];
+                }
+                slice.copy_from_slice(&temp_moves[0..valid_moves.len]);
             }
-            let mut indices: [usize; 256] = [0; 256];
-            for idx in 0..valid_moves.len {
-                indices[idx] = idx;
-            }
-            let active_indices = &mut indices[0..valid_moves.len];
-            active_indices.sort_unstable_by(|&a, &b| noisy_ranks[b].cmp(&noisy_ranks[a]));
-            
-            let mut temp_moves = [Turn::new(0, 0, 0, 0, false, 0); 256];
-            for idx in 0..valid_moves.len {
-                temp_moves[idx] = slice[active_indices[idx]];
-            }
-            slice.copy_from_slice(&temp_moves[0..valid_moves.len]);
         }
 
         // Check GameStatus
@@ -481,17 +483,30 @@ impl MoveGenService {
         zobrist_table_read: &ZobristTable,
         local_map: &DataMap,
     ) {
-        let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
-        for &promotion in &promotion_types {
-            turn.promotion = promotion;
-            match promotion {
-                11 | 21 => turn.rank += 0, // Rook promotion
-                12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
-                13 | 23 => turn.rank += 0, // Bishop promotion
-                14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
-                _ => panic!("Promotion value not expected: {}", promotion),
+        if config.use_underpromotions {
+            let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
+            for &promotion in &promotion_types {
+                turn.promotion = promotion;
+                match promotion {
+                    11 | 21 => turn.rank += 0, // Rook promotion
+                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
+                    13 | 23 => turn.rank += 0, // Bishop promotion
+                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    _ => panic!("Promotion value not expected: {}", promotion),
+                }
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
             }
-            self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
+        } else {
+            let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
+            for &promotion in &promotion_types {
+                turn.promotion = promotion;
+                match promotion {
+                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
+                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    _ => panic!("Promotion value not expected: {}", promotion),
+                }
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
+            }
         }
     }
 
@@ -930,7 +945,7 @@ mod tests {
         let service = Service::new();
         let local_map = DataMap::new();
         let config = Config::for_tests();
-        let zobrist_table = ZobristTable::new();
+        let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
@@ -951,7 +966,7 @@ mod tests {
         let service = Service::new();
         let local_map = DataMap::new();
         let config = Config::for_tests();
-        let zobrist_table = ZobristTable::new();
+        let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];

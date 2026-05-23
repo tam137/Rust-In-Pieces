@@ -1,5 +1,4 @@
 use rand::{Rng, rngs::StdRng, SeedableRng};
-use chashmap::CHashMap;
 use once_cell::sync::Lazy;
 
 use crate::model::Board;
@@ -34,38 +33,76 @@ pub enum TranspositionType {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TranspositionEntry {
+    pub key: u64, // Full 64-bit Zobrist key to prevent index collisions
     pub eval: i16,
     pub depth: i32,
     pub entry_type: TranspositionType,
     pub best_move: Option<crate::model::Turn>,
 }
 
-#[derive(Debug, Clone)]
+impl Default for TranspositionEntry {
+    fn default() -> Self {
+        Self {
+            key: 0,
+            eval: 0,
+            depth: -1, // -1 signals empty slot
+            entry_type: TranspositionType::Exact,
+            best_move: None,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ZobristTable {
-    pub hash_map: CHashMap<u64, TranspositionEntry>,
+    pub table: std::sync::RwLock<Vec<TranspositionEntry>>,
 }
 
 impl ZobristTable {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
+        Self::with_capacity(10_000_000)
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            hash_map: CHashMap::with_capacity(1000),
+            table: std::sync::RwLock::new(vec![TranspositionEntry::default(); capacity.max(1)]),
         }
     }
 
     pub fn get_entry(&self, hash: &u64) -> Option<TranspositionEntry> {
-        self.hash_map.get(hash).map(|value| *value)
+        let table = self.table.read().unwrap();
+        let index = (*hash as usize) % table.len();
+        let entry = table[index];
+        if entry.depth != -1 && entry.key == *hash {
+            Some(entry)
+        } else {
+            None
+        }
     }
 
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
-        self.hash_map.insert(hash, entry);
+        let mut table = self.table.write().unwrap();
+        let index = (hash as usize) % table.len();
+        let existing = &mut table[index];
+        // Depth-Preferred replacement policy (always overwrite if key is identical)
+        if existing.depth == -1 || existing.key == hash || entry.depth >= existing.depth {
+            *existing = entry;
+        }
     }
 
     pub fn get_eval_for_hash(&self, hash: &u64) -> Option<i16> {
-        self.hash_map.get(hash).map(|value| value.eval)
+        let table = self.table.read().unwrap();
+        let index = (*hash as usize) % table.len();
+        let entry = table[index];
+        if entry.depth != -1 && entry.key == *hash {
+            Some(entry.eval)
+        } else {
+            None
+        }
     }
 
-    pub fn _size(&mut self) -> usize {
-        self.hash_map.len()
+    pub fn _size(&self) -> usize {
+        let table = self.table.read().unwrap();
+        table.iter().filter(|e| e.depth != -1).count()
     }
 }
 
