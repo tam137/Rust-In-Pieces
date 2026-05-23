@@ -74,7 +74,9 @@ pub struct Config {
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
-    pub king_centered: i16
+    pub king_centered: i16,
+    pub pre_sort_moves: bool,
+    pub use_underpromotions: bool
 }
 
 
@@ -152,6 +154,8 @@ impl Config {
             king_in_check_malus: 140,
             king_in_double_check_malus: 350,
             king_centered: 85,
+            pre_sort_moves: true,
+            use_underpromotions: false,
         }
     }
 
@@ -174,6 +178,7 @@ impl Config {
         config.print_info_string_during_search = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
+        config.use_underpromotions = true;
         config
     }
 
@@ -186,6 +191,7 @@ impl Config {
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
         config.queen_in_attack_with_tempo = 0;
+        config.use_underpromotions = true;
         config
     }
 
@@ -203,6 +209,7 @@ impl Config {
         config.search_threads = 4;
         config.write_hash_buffer_size = config.write_hash_buffer_size;
         config.max_zobrist_hash_entries = 10_000_000;
+        config.use_underpromotions = true;
         config
     }
 

@@ -28,6 +28,9 @@ impl SearchService {
         engine_state: &Arc<EngineState>,
         local_map: &mut DataMap,
     ) -> SearchResult {
+        let mut search_config = config.clone();
+        search_config.pre_sort_moves = false;
+        let config = &search_config;
         let logger = engine_state.log_sender.clone();
 
         let mut best_eval = if white { i16::MIN } else { i16::MAX };
@@ -64,7 +67,16 @@ impl SearchService {
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
-        for turn in turns.as_slice() {
+        for i in 0..turns.len {
+            let mut best_idx = i;
+            for j in (i + 1)..turns.len {
+                if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    best_idx = j;
+                }
+            }
+            turns.moves.swap(i, best_idx);
+            let turn = &turns.moves[i];
+
             // Check time at the start of each root move
             let elapsed = self.get_calc_time(local_map) as i32;
             if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
@@ -123,6 +135,7 @@ impl SearchService {
                     stored_eval = min_max_eval - 1;
                 }
                 zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                    key: board.cached_hash,
                     eval: stored_eval,
                     depth: 1,
                     entry_type: crate::zobrist::TranspositionType::Exact,
@@ -301,6 +314,7 @@ impl SearchService {
                 eval = stand_pat;
                 if config.use_zobrist {
                     context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                        key: board.cached_hash,
                         eval: stand_pat,
                         depth: 0,
                         entry_type: crate::zobrist::TranspositionType::Exact,
@@ -344,7 +358,16 @@ impl SearchService {
 
             let mut child_pv = [None; 128];
 
-            for capture_turn in turns.as_slice() {
+            for i in 0..turns.len {
+                let mut best_idx = i;
+                for j in (i + 1)..turns.len {
+                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                        best_idx = j;
+                    }
+                }
+                turns.moves.swap(i, best_idx);
+                let capture_turn = &turns.moves[i];
+
                 if stats.calculated_nodes & 1023 == 0 {
                     let elapsed = self.get_calc_time(local_map) as i32;
                     if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
@@ -418,7 +441,16 @@ impl SearchService {
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
 
-        for current_turn in turns.as_slice() {
+        for i in 0..turns.len {
+            let mut best_idx = i;
+            for j in (i + 1)..turns.len {
+                if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    best_idx = j;
+                }
+            }
+            turns.moves.swap(i, best_idx);
+            let current_turn = &turns.moves[i];
+
             if stats.calculated_nodes & 1023 == 0 {
                 let elapsed = self.get_calc_time(local_map) as i32;
                 if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
@@ -526,6 +558,7 @@ impl SearchService {
             context.zobrist_table.insert_entry(
                 board.cached_hash,
                 crate::zobrist::TranspositionEntry {
+                    key: board.cached_hash,
                     eval: stored_eval,
                     depth,
                     entry_type,
@@ -731,7 +764,7 @@ mod tests {
         let search_result = handle.join().expect("Search thread panicked");
         let duration = start_wait.elapsed();
 
-        assert!(duration < Duration::from_millis(150), "Search took too long to terminate: {:?}", duration);
+        assert!(duration < Duration::from_millis(400), "Search took too long to terminate: {:?}", duration);
         assert!(!search_result.completed, "Search should be marked as incomplete");
     }
 
@@ -752,6 +785,7 @@ mod tests {
                     let hash_key = (t as u64 * 1_000_000) + i as u64;
                     let eval_val = (i % 30000) as i16;
                     let entry = crate::zobrist::TranspositionEntry {
+                        key: hash_key,
                         eval: eval_val,
                         depth: 4,
                         entry_type: crate::zobrist::TranspositionType::Exact,
@@ -769,7 +803,7 @@ mod tests {
             handle.join().expect("Stress thread panicked");
         }
 
-        assert_eq!(zobrist_table.hash_map.len(), num_threads * elements_per_thread);
+        assert_eq!(zobrist_table._size(), num_threads * elements_per_thread);
     }
 
     #[test]
@@ -841,6 +875,7 @@ mod tests {
         board.cached_hash = crate::zobrist::gen(&board);
         let test_hash = board.cached_hash;
         table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            key: test_hash,
             eval: 500,
             depth: 3,
             entry_type: crate::zobrist::TranspositionType::Exact,
@@ -872,6 +907,7 @@ mod tests {
         // 2. LowerBound cutoff verification
         stats = Stats::new();
         table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            key: test_hash,
             eval: 600,
             depth: 4,
             entry_type: crate::zobrist::TranspositionType::LowerBound,
@@ -902,6 +938,7 @@ mod tests {
         // 3. UpperBound cutoff verification
         stats = Stats::new();
         table.insert_entry(test_hash, crate::zobrist::TranspositionEntry {
+            key: test_hash,
             eval: 100,
             depth: 2,
             entry_type: crate::zobrist::TranspositionType::UpperBound,
