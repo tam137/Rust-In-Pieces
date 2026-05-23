@@ -41,3 +41,11 @@
 - **Strict Limit on Git Operations:** The AI must NEVER automatically or preemptively execute `git commit` or `git push` commands.
 - **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
 - **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
+
+## Perft & Benchmark Release Documentation Policy
+- **Mandatory Documentation:** At each release, you must automatically update or create the `perft.md` file in the root workspace directory.
+- **Content Restriction:** `perft.md` must contain ONLY the version header (e.g., `# v0.6.0`) and the markdown table showing the latest performance benchmark results for that release. Do not include any other text, comments, or explanations.
+- **Comparison History:** Prepend or append the new version section to allow easy historical comparison.
+- **Language Policy:** The table headers and all text inside `perft.md` must be written in English.
+- **Table Columns:** The table must have exactly four columns: `Depth`, `Time`, `Nodes`, and `NPS`. The "Comment" or "Bewertung" column must be strictly excluded.
+
