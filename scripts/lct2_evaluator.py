@@ -352,6 +352,8 @@ def run_uci_test(binary_path, positions, timeout):
         current_best = None
         
         # Monitor search
+        bestmove = None
+        engine_stopped_early = False
         while True:
             elapsed = time.time() - start_time
             if elapsed > timeout:
@@ -367,6 +369,14 @@ def run_uci_test(binary_path, positions, timeout):
                     break
 
             for line in lines_read:
+                if line.startswith("bestmove"):
+                    try:
+                        bestmove = line.split()[1]
+                    except IndexError:
+                        pass
+                    engine_stopped_early = True
+                    break
+
                 if line.startswith("info ") and "pv " in line:
                     parts = line.split("pv ")
                     if len(parts) > 1:
@@ -381,21 +391,24 @@ def run_uci_test(binary_path, positions, timeout):
                                 current_best = best_pv_move
                                 first_solve_time = None
 
+            if engine_stopped_early:
+                break
+
             time.sleep(0.01)
 
-        # Stop search and fetch bestmove
-        proc.stdin.write("stop\n")
-        proc.stdin.flush()
-        
-        bestmove = None
-        while True:
-            try:
-                line = out_queue.get(timeout=2)
-                if line.startswith("bestmove"):
-                    bestmove = line.split()[1]
+        if not engine_stopped_early:
+            # Stop search and fetch bestmove
+            proc.stdin.write("stop\n")
+            proc.stdin.flush()
+            
+            while True:
+                try:
+                    line = out_queue.get(timeout=2)
+                    if line.startswith("bestmove"):
+                        bestmove = line.split()[1]
+                        break
+                except (queue.Empty, IndexError):
                     break
-            except (queue.Empty, IndexError):
-                break
 
         try:
             proc.stdin.write("quit\n")
