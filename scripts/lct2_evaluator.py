@@ -344,7 +344,7 @@ def run_uci_test(binary_path, positions, timeout):
 
         # Send position and start search
         proc.stdin.write(f"position fen {fen}\n")
-        proc.stdin.write("go depth 99\n")
+        proc.stdin.write("go infinite\n")
         proc.stdin.flush()
         
         start_time = time.time()
