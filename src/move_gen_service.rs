@@ -152,12 +152,15 @@ impl MoveGenService {
         config: &Config,
         context: &SearchContext,
         local_map: &DataMap,
-    ) -> Vec<Turn> {
+        valid_moves: &mut crate::model::MoveList,
+    ) {
         if board.game_status != GameStatus::Normal {
-            return vec![];
+            return;
         }
-        let move_list = self.generate_moves_list_for_piece(board, 0);
-        let capture_moves: Vec<Turn> = self.get_valid_moves_from_move_list(
+        let mut move_list = crate::model::MoveRawList::new();
+        self.generate_moves_list_for_piece(board, 0, &mut move_list);
+        let start_len = valid_moves.len;
+        self.get_valid_moves_from_move_list(
             &move_list,
             board,
             stats,
@@ -165,10 +168,10 @@ impl MoveGenService {
             true,
             context,
             local_map,
+            valid_moves,
         );
 
-        stats.add_created_capture_nodes(capture_moves.len());
-        capture_moves
+        stats.add_created_capture_nodes(valid_moves.len - start_len);
     }
 
     /// Generates a list of valid moves for a given board state.
@@ -179,11 +182,13 @@ impl MoveGenService {
         config: &Config,
         context: &SearchContext,
         local_map: &DataMap,
-    ) -> Vec<Turn> {
+        valid_moves: &mut crate::model::MoveList,
+    ) {
         if board.game_status != GameStatus::Normal {
-            return vec![];
+            return;
         }
-        let move_list = self.generate_moves_list_for_piece(board, 0);
+        let mut move_list = crate::model::MoveRawList::new();
+        self.generate_moves_list_for_piece(board, 0, &mut move_list);
         self.get_valid_moves_from_move_list(
             &move_list,
             board,
@@ -192,20 +197,21 @@ impl MoveGenService {
             false,
             context,
             local_map,
-        )
+            valid_moves,
+        );
     }
 
     fn get_valid_moves_from_move_list(
         &self,
-        move_list: &[i32],
+        move_list: &crate::model::MoveRawList,
         board: &mut Board,
         stats: &mut Stats,
         config: &Config,
         only_captures: bool,
         context: &SearchContext,
         local_map: &DataMap,
-    ) -> Vec<Turn> {
-        let mut valid_moves = Vec::with_capacity(64);
+        valid_moves: &mut crate::model::MoveList,
+    ) {
         let white_turn = board.white_to_move;
         let king_value = if white_turn { 15 } else { 25 };
 
@@ -233,9 +239,9 @@ impl MoveGenService {
 
         let zobrist_table_read = context.zobrist_table;
 
-        for i in (0..move_list.len()).step_by(2) {
-            let idx0 = move_list[i] as u8;
-            let idx1 = move_list[i + 1] as u8;
+        for i in (0..move_list.len).step_by(2) {
+            let idx0 = move_list.moves[i];
+            let idx1 = move_list.moves[i + 1];
 
             let capture = board.get_piece_at(idx1);
             if capture == 0 && only_captures {
@@ -304,7 +310,7 @@ impl MoveGenService {
                     stats,
                     &mut move_turn,
                     config,
-                    &mut valid_moves,
+                    valid_moves,
                     white_turn,
                     zobrist_table_read,
                     local_map,
@@ -315,7 +321,7 @@ impl MoveGenService {
                     stats,
                     &mut move_turn,
                     config,
-                    &mut valid_moves,
+                    valid_moves,
                     zobrist_table_read,
                     local_map,
                 );
@@ -325,40 +331,49 @@ impl MoveGenService {
         // Add en passant moves
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
-            for mut turn in en_passante_turns {
-                self.validate_and_add_move(
-                    board,
-                    stats,
-                    &mut turn,
-                    config,
-                    &mut valid_moves,
-                    zobrist_table_read,
-                    local_map,
-                );
+            for opt_turn in &en_passante_turns {
+                if let Some(mut turn) = *opt_turn {
+                    self.validate_and_add_move(
+                        board,
+                        stats,
+                        &mut turn,
+                        config,
+                        valid_moves,
+                        zobrist_table_read,
+                        local_map,
+                    );
+                }
             }
         }
 
         // Move sorting
+        let slice = &mut valid_moves.moves[0..valid_moves.len];
         if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
-            valid_moves.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
+            slice.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
         } else {
             let mut rng = rand::thread_rng();
-            let mut noisy_moves: Vec<(Turn, i32)> = valid_moves
-                .into_iter()
-                .map(|mv| {
-                    let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
-                    let rank_with_noise = mv.rank as i32 + noise;
-                    (mv, rank_with_noise)
-                })
-                .collect();
-
-            noisy_moves.sort_unstable_by(|a, b| b.1.cmp(&a.1));
-            valid_moves = noisy_moves.into_iter().map(|(mv, _)| mv).collect();
+            let mut noisy_ranks = [0i32; 256];
+            for idx in 0..valid_moves.len {
+                let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
+                noisy_ranks[idx] = slice[idx].rank as i32 + noise;
+            }
+            let mut indices: [usize; 256] = [0; 256];
+            for idx in 0..valid_moves.len {
+                indices[idx] = idx;
+            }
+            let active_indices = &mut indices[0..valid_moves.len];
+            active_indices.sort_unstable_by(|&a, &b| noisy_ranks[b].cmp(&noisy_ranks[a]));
+            
+            let mut temp_moves = [Turn::new(0, 0, 0, 0, false, 0); 256];
+            for idx in 0..valid_moves.len {
+                temp_moves[idx] = slice[active_indices[idx]];
+            }
+            slice.copy_from_slice(&temp_moves[0..valid_moves.len]);
         }
 
         // Check GameStatus
         if valid_moves.is_empty() && !only_captures {
-            if !self.get_check_idx_list(board, board.white_to_move).is_empty() {
+            if self.is_in_check(board) {
                 board.game_status = if board.white_to_move {
                     GameStatus::BlackWin
                 } else {
@@ -369,13 +384,16 @@ impl MoveGenService {
             }
         }
 
-        stats.add_created_nodes(valid_moves.len());
-        valid_moves.truncate(config.truncate_bad_moves);
-        valid_moves
+        stats.add_created_nodes(valid_moves.len);
+        if valid_moves.len > config.truncate_bad_moves {
+            valid_moves.len = config.truncate_bad_moves;
+        }
     }
 
-    fn get_en_passante_turns(&self, board: &Board, white_turn: bool) -> Vec<Turn> {
-        let mut en_passante_turns = Vec::with_capacity(4);
+    #[allow(unused_assignments)]
+    fn get_en_passante_turns(&self, board: &Board, white_turn: bool) -> [Option<Turn>; 4] {
+        let mut en_passante_turns = [None; 4];
+        let mut idx = 0;
         if board.field_for_en_passante != -1 {
             let target_piece = if white_turn { 20 } else { 10 };
             let ep_sq = board.field_for_en_passante;
@@ -384,26 +402,30 @@ impl MoveGenService {
                 if file > 0 {
                     let from = ep_sq - 9;
                     if (board.bitboards[WHITE_PAWN] & (1u64 << from)) != 0 {
-                        en_passante_turns.push(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        en_passante_turns[idx] = Some(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        idx += 1;
                     }
                 }
                 if file < 7 {
                     let from = ep_sq - 7;
                     if (board.bitboards[WHITE_PAWN] & (1u64 << from)) != 0 {
-                        en_passante_turns.push(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        en_passante_turns[idx] = Some(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        idx += 1;
                     }
                 }
             } else {
                 if file > 0 {
                     let from = ep_sq + 7;
                     if (board.bitboards[BLACK_PAWN] & (1u64 << from)) != 0 {
-                        en_passante_turns.push(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        en_passante_turns[idx] = Some(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        idx += 1;
                     }
                 }
                 if file < 7 {
                     let from = ep_sq + 9;
                     if (board.bitboards[BLACK_PAWN] & (1u64 << from)) != 0 {
-                        en_passante_turns.push(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        en_passante_turns[idx] = Some(Turn::new(from as u8, ep_sq as u8, target_piece, 0, false, 0));
+                        idx += 1;
                     }
                 }
             }
@@ -417,7 +439,7 @@ impl MoveGenService {
         stats: &mut Stats,
         turn: &mut Turn,
         config: &Config,
-        valid_moves: &mut Vec<Turn>,
+        valid_moves: &mut crate::model::MoveList,
         zobrist_table_read: &ZobristTable,
         local_map: &DataMap,
     ) {
@@ -454,36 +476,39 @@ impl MoveGenService {
         stats: &mut Stats,
         turn: &mut Turn,
         config: &Config,
-        valid_moves: &mut Vec<Turn>,
+        valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
         zobrist_table_read: &ZobristTable,
         local_map: &DataMap,
     ) {
-        let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
+        let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
         for &promotion in &promotion_types {
             turn.promotion = promotion;
             match promotion {
+                11 | 21 => turn.rank += 0, // Rook promotion
                 12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
+                13 | 23 => turn.rank += 0, // Bishop promotion
                 14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
-                _ => panic!("Promotion value not expected"),
+                _ => panic!("Promotion value not expected: {}", promotion),
             }
             self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
         }
     }
 
     fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32) -> bool {
-        let check_squares = if white_turn {
-            if target == 6 { vec![5, 6] } else { vec![3, 2] }
+        let check_squares: &[u8] = if white_turn {
+            if target == 6 { &[5, 6] } else { &[3, 2] }
         } else {
-            if target == 62 { vec![61, 62] } else { vec![59, 58] }
+            if target == 62 { &[61, 62] } else { &[59, 58] }
         };
 
-        if !self.get_check_idx_list(board, white_turn).is_empty() {
+        if self.is_in_check(board) {
             return false;
         }
 
-        for &square in &check_squares {
-            if !self.get_attack_idx_list(board, white_turn, square).is_empty() {
+        for &square in check_squares {
+            let attackers = self.get_attackers_mask(board, white_turn, square, board.occupied);
+            if attackers != 0 {
                 return false;
             }
         }
@@ -543,16 +568,24 @@ impl MoveGenService {
         zobrist_table_read.get_eval_for_hash(&board.cached_hash)
     }
 
-    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32) -> Vec<i32> {
+    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32, moves: &mut crate::model::MoveRawList) {
         let white = board.white_to_move;
-        let check_idx_list = self.get_check_idx_list(board, white);
-        let double_check = check_idx_list.len() > 1;
+        let king_sq = if white {
+            board.bitboards[WHITE_KING].trailing_zeros()
+        } else {
+            board.bitboards[BLACK_KING].trailing_zeros()
+        } as u8;
+
+        let double_check = if king_sq < 64 {
+            let attackers_mask = self.get_attackers_mask(board, white, king_sq, board.occupied);
+            attackers_mask.count_ones() > 1
+        } else {
+            false
+        };
 
         let own_pieces = if white { board.white_pieces } else { board.black_pieces };
         let opp_pieces = if white { board.black_pieces } else { board.white_pieces };
         let occupied = board.occupied;
-
-        let mut moves = Vec::with_capacity(64);
 
         let single_sq = if idx > 0 { Some(idx as u8) } else { None };
         let piece_range = if let Some(sq) = single_sq {
@@ -738,7 +771,6 @@ impl MoveGenService {
                 _ => {}
             }
         }
-        moves
     }
 
     fn get_attackers_mask(&self, board: &Board, white: bool, target_idx: u8, occupied: u64) -> u64 {
@@ -910,7 +942,9 @@ mod tests {
             history_table: &history_table,
         };
 
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map)
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        move_list.as_slice().to_vec()
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
@@ -929,7 +963,9 @@ mod tests {
             history_table: &history_table,
         };
 
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map)
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        move_list.as_slice().to_vec()
     }
 
     #[test]
@@ -1024,7 +1060,9 @@ mod tests {
 
         // Test: Standard starting position
         let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
+        let mut raw_moves = crate::model::MoveRawList::new();
+        move_gen_service.generate_moves_list_for_piece(&board, 0, &mut raw_moves);
+        let moves: Vec<i32> = raw_moves.moves[0..raw_moves.len].iter().map(|&x| x as i32).collect();
 
         let expected_moves_mailbox = vec![
             81, 71, 81, 61, 82, 72, 82, 62, 83, 73, 83, 63, 84, 74, 84, 64,
@@ -1041,11 +1079,13 @@ mod tests {
 
         // Test: White in check and only a few moves are available for the king
         let board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
-        let moves = move_gen_service.generate_moves_list_for_piece(&board, 0);
+        let mut raw_moves_in_check = crate::model::MoveRawList::new();
+        move_gen_service.generate_moves_list_for_piece(&board, 0, &mut raw_moves_in_check);
+        let moves_in_check: Vec<i32> = raw_moves_in_check.moves[0..raw_moves_in_check.len].iter().map(|&x| x as i32).collect();
 
         let expected_moves_in_check_mailbox = vec![95, 84, 95, 96];
         let mut expected_moves_in_check: Vec<i32> = expected_moves_in_check_mailbox.into_iter().map(m2l).collect();
-        let mut sorted_moves_in_check = moves.clone();
+        let mut sorted_moves_in_check = moves_in_check.clone();
         sorted_moves_in_check.sort();
         expected_moves_in_check.sort();
         assert_eq!(sorted_moves_in_check, expected_moves_in_check, "Check list is not working");
@@ -1097,7 +1137,7 @@ mod tests {
 
     #[test]
     fn promotion_test() {
-        test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 12, "e7f8q");
+        test_fen_with_move("5n2/4P3/8/2k5/8/8/2K5/8 w - - 0 1", 16, "e7f8q");
 
         let fen_service = Service::new().fen;
 
@@ -1131,22 +1171,22 @@ mod tests {
         assert_eq!(24, board.get_piece_at(m2l(94) as u8));
         assert_eq!(0, board.get_piece_at(m2l(84) as u8));
 
-        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 7, "e7e8n");
+        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 9, "e7e8n");
         assert_eq!(move_list.len(), 8, "Expected 8 moves after knight promotion");
 
-        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 7, "e7e8q");
+        let move_list = test_fen_with_move("8/2k1P3/8/7b/8/4b3/2K3n1/8 w - - 0 1", 9, "e7e8q");
         assert_eq!(move_list.len(), 24, "Expected 24 moves after queen promotion");
 
-        let move_list = test_fen_with_move("5k2/R6P/8/8/8/2K5/8/6r1 w - - 0 1", 23, "h7h8q");
+        let move_list = test_fen_with_move("5k2/R6P/8/8/8/2K5/8/6r1 w - - 0 1", 25, "h7h8q");
         assert_eq!(move_list.len(), 1, "Expected 1 move after queen promotion on h8");
 
-        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 6, "f2f1q");
+        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 8, "f2f1q");
         assert_eq!(move_list.len(), 7, "Expected 7 moves after black queen promotion");
 
-        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 6, "f2f1n");
+        let move_list = test_fen_with_move("8/8/8/8/8/1K6/5p2/4k3 b - - 0 1", 8, "f2f1n");
         assert_eq!(move_list.len(), 8, "Expected 8 moves after black knight promotion");
 
-        let move_list = test_fen_with_move("8/8/3k4/8/8/8/1K5p/8 b - - 0 1", 10, "h2h1q");
+        let move_list = test_fen_with_move("8/8/3k4/8/8/8/1K5p/8 b - - 0 1", 12, "h2h1q");
         assert_eq!(move_list.len(), 5, "Expected 5 moves after black queen promotion on h1");
     }
 
@@ -1289,7 +1329,9 @@ mod tests {
             history_table: &history_table,
         };
 
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map);
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        let turns = move_list.as_slice().to_vec();
         let first_turn = turns.get(0).unwrap();
 
         assert_eq!(m2l(81) as u8, first_turn.from);
@@ -1317,7 +1359,9 @@ mod tests {
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
 
         local_map.insert(DataMapKey::ForceSkipValidationFlag, true);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map);
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map, &mut move_list);
+        let turns = move_list.as_slice().to_vec();
         assert_eq!(38, turns.len());
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/1bB5/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 1");
@@ -1326,7 +1370,9 @@ mod tests {
         assert_eq!(false, board._white_king_on_board);
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::BlackWin, board.game_status);
-        let turns = service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map);
+        let mut move_list = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map, &mut move_list);
+        let turns = move_list.as_slice().to_vec();
         assert_eq!(0, turns.len());
         board.undo_move(&turn, mi);
         assert_eq!(true, board._white_king_on_board);
@@ -1391,5 +1437,47 @@ mod tests {
         board.undo_move(&move_turn, move_info);
         assert_eq!(&board, &board_copy, "Board should be restored after undoing the move");
         opponent_moves
+    }
+
+    fn perft(board: &mut Board, depth: usize) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let mut nodes = 0;
+        let moves = generate_valid_moves_list(board);
+
+        for turn in moves {
+            let mi = board.do_move(&turn);
+            nodes += perft(board, depth - 1);
+            board.undo_move(&turn, mi);
+        }
+
+        nodes
+    }
+
+    #[test]
+    #[ignore]
+    fn perft_startpos_test() {
+        let fen_service = Service::new().fen;
+        let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        assert_eq!(perft(&mut board, 1), 20);
+        assert_eq!(perft(&mut board, 2), 400);
+        assert_eq!(perft(&mut board, 3), 8902);
+        assert_eq!(perft(&mut board, 4), 197281);
+    }
+
+    #[test]
+    #[ignore]
+    fn perft_kiwipete_test() {
+        let fen_service = Service::new().fen;
+        // Position 2: Kiwipete
+        let mut board = fen_service.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+        
+        assert_eq!(perft(&mut board, 1), 48);
+        assert_eq!(perft(&mut board, 2), 2039);
+        assert_eq!(perft(&mut board, 3), 97862);
+        assert_eq!(perft(&mut board, 4), 4085603);
     }
 }
