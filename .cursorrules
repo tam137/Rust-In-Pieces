@@ -35,6 +35,7 @@
 - **Execution Restriction:** Only execute the build and release script (`./build_and_release.sh`) or compile a new release binary when the USER explicitly requests or triggers a release. Do NOT automatically trigger or run a build/release after implementing changes unless explicitly asked.
 
 ## Testing & Verification Policy
+- **Mandatory Feature Tests:** For every new feature, search optimization, or evaluation heuristic implemented in the codebase, you MUST add dedicated automated unit tests to verify its functional correctness, behavioral stability, and regression safety. Never implement a new feature without adding corresponding test coverage.
 - **Simple Implementations:** For standard development and simple implementations, only execute active unit tests (`cargo test`). Do NOT run heavy, ignored tests or the tournament verification script.
 - **Release Verification Requirement:** The heavy verification processes MUST only be executed when a release is explicitly requested by the USER:
   1. Execute deep search/ignored tests: `cargo test -- --ignored` if appropriate.

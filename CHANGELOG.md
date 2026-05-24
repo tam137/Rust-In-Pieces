@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.8.1] - 2026-05-24
+
+### Added
+- Implemented Null Move Pruning (NMP)
+
+### Fixed
+
+
+
 ## [V0.8.0] - 2026-05-24
 
 ### Added
