@@ -287,6 +287,55 @@ impl SearchService {
             }
         }
 
+        // 0. Null Move Pruning (NMP)
+        if config.enable_nmp 
+            && depth >= 3 
+            && !turn.gives_check 
+            && self.has_non_pawn_material(board, board.white_to_move) 
+        {
+            let old_white_to_move = board.white_to_move;
+            let old_field_for_en_passante = board.field_for_en_passante;
+            let old_hash = board.cached_hash;
+
+            // Make Null Move
+            board.white_to_move = !board.white_to_move;
+            board.field_for_en_passante = -1;
+            board.cached_hash = crate::zobrist::gen(board);
+
+            let reduction = 2;
+            let reduced_depth = depth - 1 - reduction;
+            let mut null_pv = [None; 128];
+
+            let null_eval = if white {
+                self.minimax(
+                    board, turn, reduced_depth, false,
+                    beta - 1, beta, stats, config, service, context,
+                    local_map, &mut null_pv, ply + 1, killer_moves, history_table
+                ).1
+            } else {
+                self.minimax(
+                    board, turn, reduced_depth, true,
+                    alpha, alpha + 1, stats, config, service, context,
+                    local_map, &mut null_pv, ply + 1, killer_moves, history_table
+                ).1
+            };
+
+            // Undo Null Move
+            board.white_to_move = old_white_to_move;
+            board.field_for_en_passante = old_field_for_en_passante;
+            board.cached_hash = old_hash;
+
+            if white {
+                if null_eval >= beta {
+                    return (None, beta); // Beta cutoff
+                }
+            } else {
+                if null_eval <= alpha {
+                    return (None, alpha); // Alpha cutoff
+                }
+            }
+        }
+
         // SearchContext for current ply with specific killer moves
         let current_context = SearchContext {
             zobrist_table: context.zobrist_table,
@@ -662,7 +711,20 @@ impl SearchService {
             .elapsed()
             .as_millis()
     }
-    
+
+    fn has_non_pawn_material(&self, board: &Board, white: bool) -> bool {
+        if white {
+            (board.bitboards[crate::model::WHITE_ROOK] |
+             board.bitboards[crate::model::WHITE_KNIGHT] |
+             board.bitboards[crate::model::WHITE_BISHOP] |
+             board.bitboards[crate::model::WHITE_QUEEN]) != 0
+        } else {
+            (board.bitboards[crate::model::BLACK_ROOK] |
+             board.bitboards[crate::model::BLACK_KNIGHT] |
+             board.bitboards[crate::model::BLACK_BISHOP] |
+             board.bitboards[crate::model::BLACK_QUEEN]) != 0
+        }
+    }
 
 }
 
@@ -1159,6 +1221,73 @@ mod tests {
         // PVS & LMR should result in a massive node reduction
         assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes, 
             "Enabled nodes ({}) should be strictly less than disabled nodes ({}) due to PVS and LMR pruning!",
+            stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
+    }
+
+    #[test]
+    fn search_nmp_pruning_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::new()),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        // 1. Search with NMP DISABLED
+        let mut config_disabled = Config::for_tests();
+        config_disabled.enable_nmp = false;
+        
+        let mut stats_disabled = Stats::new();
+        let mut local_map_disabled = DataMap::new();
+        local_map_disabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_disabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_disabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_disabled = service.search.get_moves(
+            &mut board,
+            5,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state,
+            &mut local_map_disabled,
+        );
+
+        // 2. Search with NMP ENABLED
+        let mut config_enabled = Config::for_tests();
+        config_enabled.enable_nmp = true;
+        
+        let mut stats_enabled = Stats::new();
+        let mut local_map_enabled = DataMap::new();
+        local_map_enabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_enabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_enabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_enabled = service.search.get_moves(
+            &mut board,
+            5,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state,
+            &mut local_map_enabled,
+        );
+
+        assert!(result_disabled.completed);
+        assert!(result_enabled.completed);
+        
+        // NMP should result in a massive node reduction at depth 5
+        assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes, 
+            "Enabled NMP nodes ({}) should be strictly less than disabled NMP nodes ({}) due to Null Move Pruning!",
             stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
     }
 

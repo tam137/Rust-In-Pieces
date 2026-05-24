@@ -90,6 +90,7 @@ pub struct Config {
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
     pub enable_lmr: bool,
+    pub enable_nmp: bool,
 }
 
 
@@ -182,6 +183,7 @@ impl Config {
             use_underpromotions: false,
             enable_pvs: true,
             enable_lmr: true,
+            enable_nmp: true,
         }
     }
 
