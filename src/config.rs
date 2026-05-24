@@ -49,6 +49,10 @@ pub struct Config {
     pub piece_eval_bishop: i16,
     pub piece_eval_queen: i16,
     pub piece_eval_king: i16,
+    pub rook_open_file: i16,
+    pub rook_half_open_file: i16,
+    pub bishop_pair_bonus: i16,
+    pub rook_doubled_bonus: i16,
 
     pub pawn_structure: i16,
     pub pawn_supports_knight_outpost: i16,
@@ -71,12 +75,21 @@ pub struct Config {
     pub knight_attacks_rook_tempo: i16,
 
     pub king_shield: i16,
+    pub king_pawn_shield: i16,
+    pub king_piece_shield: i16,
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
     pub king_centered: i16,
+    pub rook_on_seventh: i16,
+    pub pawn_isolated_malus: i16,
+    pub knight_mobility_factor: i16,
+    pub bishop_mobility_factor: i16,
+    pub rook_mobility_factor: i16,
     pub pre_sort_moves: bool,
-    pub use_underpromotions: bool
+    pub use_underpromotions: bool,
+    pub enable_pvs: bool,
+    pub enable_lmr: bool,
 }
 
 
@@ -124,6 +137,10 @@ impl Config {
             piece_eval_bishop: 300,
             piece_eval_queen: 950,
             piece_eval_king: 10000,
+            rook_open_file: 30,
+            rook_half_open_file: 15,
+            bishop_pair_bonus: 40,
+            rook_doubled_bonus: 20,
 
             pawn_structure: 5,
             pawn_supports_knight_outpost: 10,
@@ -150,12 +167,21 @@ impl Config {
             knight_attacks_rook_tempo: 100,
 
             king_shield: 40,
+            king_pawn_shield: 40,
+            king_piece_shield: 15,
             king_trapp_at_baseline_malus: 75,
             king_in_check_malus: 140,
             king_in_double_check_malus: 350,
             king_centered: 85,
+            rook_on_seventh: 20,
+            pawn_isolated_malus: 8,
+            knight_mobility_factor: 2,
+            bishop_mobility_factor: 1,
+            rook_mobility_factor: 1,
             pre_sort_moves: true,
             use_underpromotions: false,
+            enable_pvs: true,
+            enable_lmr: true,
         }
     }
 

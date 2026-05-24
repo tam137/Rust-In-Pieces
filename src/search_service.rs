@@ -479,10 +479,91 @@ impl SearchService {
             turn_counter += 1;
             stats.add_calculated_nodes(1);
             let mi = board.do_move(current_turn);
-            let min_max_result = self.minimax(board, current_turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &current_context, local_map, &mut child_pv,
-                ply + 1, killer_moves, history_table);
-            let min_max_eval = min_max_result.1;
+
+            let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
+            let mut searched = false;
+
+            // 1. Late Move Reductions (LMR)
+            if config.enable_lmr 
+                && depth >= 3 
+                && turn_counter > 3 
+                && current_turn.capture == 0 
+                && current_turn.promotion == 0 
+                && !current_turn.gives_check 
+            {
+                let reduction = 1;
+                let reduced_depth = (depth - 1 - reduction).max(1);
+                
+                if white {
+                    min_max_eval = self.minimax(
+                        board, current_turn, reduced_depth, !white,
+                        alpha, alpha + 1, stats, config, service, &current_context,
+                        local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                    ).1;
+                    if min_max_eval <= alpha {
+                        searched = true;
+                    }
+                } else {
+                    min_max_eval = self.minimax(
+                        board, current_turn, reduced_depth, !white,
+                        beta - 1, beta, stats, config, service, &current_context,
+                        local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                    ).1;
+                    if min_max_eval >= beta {
+                        searched = true;
+                    }
+                }
+            }
+
+            // 2. Principal Variation Search (PVS)
+            if !searched {
+                if config.enable_pvs {
+                    if turn_counter > 1 {
+                        if white {
+                            min_max_eval = self.minimax(
+                                board, current_turn, depth - 1, !white,
+                                alpha, alpha + 1, stats, config, service, &current_context,
+                                local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                            ).1;
+                            
+                            if min_max_eval > alpha && min_max_eval < beta {
+                                min_max_eval = self.minimax(
+                                    board, current_turn, depth - 1, !white,
+                                    alpha, beta, stats, config, service, &current_context,
+                                    local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                                ).1;
+                            }
+                        } else {
+                            min_max_eval = self.minimax(
+                                board, current_turn, depth - 1, !white,
+                                beta - 1, beta, stats, config, service, &current_context,
+                                local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                            ).1;
+                            
+                            if min_max_eval < beta && min_max_eval > alpha {
+                                min_max_eval = self.minimax(
+                                    board, current_turn, depth - 1, !white,
+                                    alpha, beta, stats, config, service, &current_context,
+                                    local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                                ).1;
+                            }
+                        }
+                    } else {
+                        min_max_eval = self.minimax(
+                            board, current_turn, depth - 1, !white,
+                            alpha, beta, stats, config, service, &current_context,
+                            local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                        ).1;
+                    }
+                } else {
+                    min_max_eval = self.minimax(
+                        board, current_turn, depth - 1, !white,
+                        alpha, beta, stats, config, service, &current_context,
+                        local_map, &mut child_pv, ply + 1, killer_moves, history_table
+                    ).1;
+                }
+            }
+
             board.undo_move(current_turn, mi);
 
             if white {
@@ -1010,6 +1091,75 @@ mod tests {
             let elapsed_ms = elapsed.as_millis().max(1);
             println!("Tiefe {}: {} ms (Knoten: {}, nps: {} k)", d, elapsed.as_millis(), stats.calculated_nodes, stats.calculated_nodes / elapsed_ms as usize);
         }
+    }
+
+    #[test]
+    fn search_feature_toggles_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::new()),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        // 1. Search with both PVS and LMR DISABLED
+        let mut config_disabled = Config::for_tests();
+        config_disabled.enable_pvs = false;
+        config_disabled.enable_lmr = false;
+        
+        let mut stats_disabled = Stats::new();
+        let mut local_map_disabled = DataMap::new();
+        local_map_disabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_disabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_disabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_disabled = service.search.get_moves(
+            &mut board,
+            4,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state,
+            &mut local_map_disabled,
+        );
+
+        // 2. Search with both PVS and LMR ENABLED
+        let mut config_enabled = Config::for_tests();
+        config_enabled.enable_pvs = true;
+        config_enabled.enable_lmr = true;
+        
+        let mut stats_enabled = Stats::new();
+        let mut local_map_enabled = DataMap::new();
+        local_map_enabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_enabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_enabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_enabled = service.search.get_moves(
+            &mut board,
+            4,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state,
+            &mut local_map_enabled,
+        );
+
+        assert!(result_disabled.completed);
+        assert!(result_enabled.completed);
+        
+        // PVS & LMR should result in a massive node reduction
+        assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes, 
+            "Enabled nodes ({}) should be strictly less than disabled nodes ({}) due to PVS and LMR pruning!",
+            stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
     }
 
 }
