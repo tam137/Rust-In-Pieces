@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+
+## [V0.8.0] - 2026-05-24
+
+### Added
+- **Principal Variation Search (PVS)**: Transitioned core minimax search to PVS to utilize aggressive zero-window searches `(alpha, alpha + 1)` and `(beta - 1, beta)` on subsequent moves, drastically cutting down the search space.
+- **Late Move Reductions (LMR)**: Enabled 1-ply depth reductions for deep quiet moves (`turn_counter > 3`, `depth >= 3`) that are not captures, promotions, or checks.
+- **Configuration System Expansion**: Added dynamic toggles `enable_pvs` and `enable_lmr` in `src/config.rs`.
+- **Comprehensive Unit Testing**: Added `search_feature_toggles_test` in `src/search_service.rs` to programmatically verify functional correctness and node-pruning.
+- **LCT II Benchmark Achievement**: Achieved **2110 ELO** (+60 Elo increase) by solving new positional and endgame positions (such as `LCTII.POS.13` and `LCTII.END.01`).
+- **NPS & Depth Benchmarks**: Achieved a monumental **19x search speedup** at depth 9 by reducing evaluated nodes from 25.9M to 1.2M (95% search space reduction).
+
+### Fixed
+
+
+
+## [V0.7.10] - 2026-05-23
+
+### Added
+- Added new evaluation heuristics: Rook on 7th rank, Bishop and Knight mobility, Isolated Pawns penalty, and King safety pawn shield
+
+### Fixed
+
+
+
+## [V0.7.10] - 2026-05-23
+
+### Added
+- Added new evaluation heuristics: Rook on 7th rank, Bishop and Knight mobility, Isolated Pawns penalty, and King safety pawn shield
+
+### Fixed
+
+
+
+## [V0.7.9] - 2026-05-23
+
+### Added
+- Implement Magic Bitboards and eliminate evaluation heap allocations
+
+### Fixed
+
+
+
 ## [V0.7.8] - 2026-05-23
 
 ### Added

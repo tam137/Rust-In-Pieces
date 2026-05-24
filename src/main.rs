@@ -13,6 +13,8 @@ mod stdout_wrapper;
 mod threads;
 mod game_handler;
 mod time_check;
+mod magic;
+
 
 use std::sync::Arc;
 use std::thread;

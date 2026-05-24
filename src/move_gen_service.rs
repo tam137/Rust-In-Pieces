@@ -90,58 +90,12 @@ impl MoveGenService {
         KNIGHT_ATTACKS[sq]
     }
 
-    fn get_bishop_attacks(&self, square: usize, occupied: u64) -> u64 {
-        let mut attacks = 0u64;
-        // Positive: NORTH_EAST (4), NORTH_WEST (6)
-        for &dir in &[4, 6] {
-            let ray = RAYS[square][dir];
-            let blockers = ray & occupied;
-            if blockers == 0 {
-                attacks |= ray;
-            } else {
-                let first_blocker = blockers.trailing_zeros() as usize;
-                attacks |= ray & !RAYS[first_blocker][dir];
-            }
-        }
-        // Negative: SOUTH_WEST (5), SOUTH_EAST (7)
-        for &dir in &[5, 7] {
-            let ray = RAYS[square][dir];
-            let blockers = ray & occupied;
-            if blockers == 0 {
-                attacks |= ray;
-            } else {
-                let first_blocker = 63 - blockers.leading_zeros() as usize;
-                attacks |= ray & !RAYS[first_blocker][dir];
-            }
-        }
-        attacks
+    pub fn get_bishop_attacks(&self, square: usize, occupied: u64) -> u64 {
+        crate::magic::get_bishop_attacks(square, occupied)
     }
 
-    fn get_rook_attacks(&self, square: usize, occupied: u64) -> u64 {
-        let mut attacks = 0u64;
-        // Positive: NORTH (0), EAST (2)
-        for &dir in &[0, 2] {
-            let ray = RAYS[square][dir];
-            let blockers = ray & occupied;
-            if blockers == 0 {
-                attacks |= ray;
-            } else {
-                let first_blocker = blockers.trailing_zeros() as usize;
-                attacks |= ray & !RAYS[first_blocker][dir];
-            }
-        }
-        // Negative: SOUTH (1), WEST (3)
-        for &dir in &[1, 3] {
-            let ray = RAYS[square][dir];
-            let blockers = ray & occupied;
-            if blockers == 0 {
-                attacks |= ray;
-            } else {
-                let first_blocker = 63 - blockers.leading_zeros() as usize;
-                attacks |= ray & !RAYS[first_blocker][dir];
-            }
-        }
-        attacks
+    pub fn get_rook_attacks(&self, square: usize, occupied: u64) -> u64 {
+        crate::magic::get_rook_attacks(square, occupied)
     }
 
     /// Generates a list of valid capture moves for a given board state.
@@ -788,7 +742,7 @@ impl MoveGenService {
         }
     }
 
-    fn get_attackers_mask(&self, board: &Board, white: bool, target_idx: u8, occupied: u64) -> u64 {
+    pub fn get_attackers_mask(&self, board: &Board, white: bool, target_idx: u8, occupied: u64) -> u64 {
         let mut attackers = 0u64;
         let opp_pawn = if white { BLACK_PAWN } else { WHITE_PAWN };
         let opp_knight = if white { BLACK_KNIGHT } else { WHITE_KNIGHT };
