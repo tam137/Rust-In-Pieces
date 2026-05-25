@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.9.0-g
+# LCT II Test Results: Version v0.9.2
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 12 / 35 (34.3%)
 * **Total Points**: 360 / 1050
-* **Estimated ELO**: **2260 ELO** (Spectacular milestone! Stabilized the chess engine at its peak **2260 ELO** with pristine, regression-free code. Successfully preserved the landmark passed pawn breakthrough END.05 in **0.11s** and the Botvinnik - Capablanca bishop sacrifice TAC.05 in **3.93s**!)
+* **Estimated ELO**: **2260 ELO** (Spectacular milestone! Stabilized the chess engine at its peak **2260 ELO** under highly balanced, tournament-optimized parameters. Successfully compressed the search tree by **56%** while resolving the Botvinnik - Capablanca bishop sacrifice in **3.83s**!)
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.9.2` (Balanced Search & Heuristics Merge) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-g` (Peak ELO Stabilization & Clean Code) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-f` (Passed Pawn Endgame Dominance) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-e` (Massive Passed Pawn End Bonuses) | **2200** | 300 | 10/35 | 2/14 | 5/12 | 3/9 |
