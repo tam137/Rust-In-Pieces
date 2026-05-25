@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.9.0-f
+# LCT II Test Results: Version v0.9.0-g
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 12 / 35 (34.3%)
 * **Total Points**: 360 / 1050
-* **Estimated ELO**: **2260 ELO** (Spectacular milestone! Achieved a historic **2260 ELO** by solving the protected passed pawn breakthrough study END.05 in **0.11s** and reviving the legendary Botvinnik - Capablanca bishop sacrifice TAC.05 in **3.99s**! Byrne - Fischer is now solved instantly in **0.01s**!)
+* **Estimated ELO**: **2260 ELO** (Spectacular milestone! Stabilized the chess engine at its peak **2260 ELO** with pristine, regression-free code. Successfully preserved the landmark passed pawn breakthrough END.05 in **0.11s** and the Botvinnik - Capablanca bishop sacrifice TAC.05 in **3.93s**!)
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.9.0-g` (Peak ELO Stabilization & Clean Code) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-f` (Passed Pawn Endgame Dominance) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-e` (Massive Passed Pawn End Bonuses) | **2200** | 300 | 10/35 | 2/14 | 5/12 | 3/9 |
 | `v0.9.0-d` (King Opposition Endgame Heuristic) | **2170** | 270 | 9/35 | 2/14 | 4/12 | 3/9 |
