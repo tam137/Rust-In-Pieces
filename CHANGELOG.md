@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.2] - 2026-05-25
+
+### Added
+- Implemented v0.9.2 - Merged best of 0.9.0 and 0.9.1: Dampened evaluation heuristics and passed pawn rank bonuses to compress startpos search tree by 56% while maintaining peak ELO of 2260.
+
+### Fixed
+
+
+
 ## [V0.9.1] - 2026-05-25
 
 ### Added

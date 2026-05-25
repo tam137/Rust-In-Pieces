@@ -275,11 +275,11 @@ impl EvalService {
         if self.is_white_passed_pawn(sq as u8, board) {
             let bonus = match rank {
                 1 => 10,
-                2 => 50,
-                3 => 180,
-                4 => 360,
-                5 => 600,
-                6 => 950,
+                2 => 40,
+                3 => 90,
+                4 => 180,
+                5 => 320,
+                6 => 500,
                 _ => 0,
             };
             let is_protected = (file > 0 && ((1u64 << (sq - 9)) & white_pawns) != 0) ||
@@ -407,11 +407,11 @@ impl EvalService {
         if self.is_black_passed_pawn(sq as u8, board) {
             let bonus = match moves_until_promote {
                 6 => 10,
-                5 => 50,
-                4 => 180,
-                3 => 360,
-                2 => 600,
-                1 => 950,
+                5 => 40,
+                4 => 90,
+                3 => 180,
+                2 => 320,
+                1 => 500,
                 _ => 0,
             };
             let is_protected = (file > 0 && sq + 7 < 64 && ((1u64 << (sq + 7)) & black_pawns) != 0) ||
