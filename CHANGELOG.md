@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.0] - 2026-05-25
+
+### Added
+- Implemented Aspiration Windows and Reverse Futility Pruning (RFP)
+
+### Fixed
+
+
+
 ## [V0.8.1] - 2026-05-24
 
 ### Added

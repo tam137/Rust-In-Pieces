@@ -33,7 +33,9 @@ impl SearchService {
         let config = &search_config;
         let logger = engine_state.log_sender.clone();
 
-        let mut best_eval = if white { i16::MIN } else { i16::MAX };
+        // Always ensure that WhiteGivesCheck and BlackGivesCheck are initialized in local_map
+        local_map.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map.insert(DataMapKey::BlackGivesCheck, false);
 
         let zobrist_table = &engine_state.zobrist_table;
         let stop_flag = &engine_state.stop_flag;
@@ -52,21 +54,8 @@ impl SearchService {
 
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, local_map, &mut turns);
-        let mut search_result: SearchResult = SearchResult::default();
-        search_result.calculated_depth = depth;
-        search_result.is_white_move = white;
-        search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
 
-        let mut alpha: i16 = i16::MIN;
-        let mut beta: i16 = i16::MAX;
-
-        let total_root_moves = turns.len as i32;
-        local_map.insert(DataMapKey::RootMovesTotal, total_root_moves);
-        local_map.insert(DataMapKey::RootMovesSearched, 0);
-
-        let mut turn_counter = 0;
-        let mut child_pv = [None; 128];
-
+        // Sort turns once by rank descending
         for i in 0..turns.len {
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
@@ -75,127 +64,189 @@ impl SearchService {
                 }
             }
             turns.moves.swap(i, best_idx);
-            let turn = &turns.moves[i];
+        }
 
-            // Check time at the start of each root move
-            let elapsed = self.get_calc_time(local_map) as i32;
-            if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
-                let mut dynamic_target = target;
-                if target < i32::MAX - 1000000 {
-                    if total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
-                        dynamic_target = (target * 13) / 10;
-                    }
-                }
-                if elapsed >= dynamic_target {
-                    stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
+        let mut prev_eval = None;
+        if depth > 2 && config.use_zobrist && config.enable_aspiration {
+            if let Some(entry) = zobrist_table.get_entry(&board.cached_hash) {
+                prev_eval = Some(entry.eval);
             }
+        }
 
-            if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                let calc_time_ms = self.get_calc_time(local_map);
-                search_result.stats = stats.clone();
-                search_result.stats.best_turn_nr = turn_counter as i8;
-                search_result.stats.calc_time_ms = calc_time_ms as usize;
-                break;
+        let mut alpha: i16 = i16::MIN;
+        let mut beta: i16 = i16::MAX;
+        let mut delta = 15;
+
+        if let Some(val) = prev_eval {
+            // De-normalize mate score if present
+            let mut val_de = val;
+            if val > 30000 {
+                val_de = 30000;
+            } else if val < -30000 {
+                val_de = -30000;
             }
+            alpha = val_de.saturating_sub(delta);
+            beta = val_de.saturating_add(delta);
+        }
 
-            turn_counter += 1;
-            local_map.insert(DataMapKey::RootMovesSearched, turn_counter - 1);
-            let mi = board.do_move(turn);
+        let mut search_result;
 
-            let child_context = SearchContext {
-                zobrist_table: context.zobrist_table,
-                stop_flag: context.stop_flag,
-                pv_nodes: context.pv_nodes,
-                killer_moves: killer_moves[1],
-                history_table: &history_table,
-            };
+        loop {
+            search_result = SearchResult::default();
+            search_result.calculated_depth = depth;
+            search_result.is_white_move = white;
+            search_result.is_pv_search_result = *local_map.get_data::<bool>(DataMapKey::PvFlag).unwrap_or_else(|| &false);
 
-            let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                alpha, beta, stats, config, service, &child_context, local_map, &mut child_pv,
-                1, &mut killer_moves, &mut history_table);
+            let mut current_alpha = alpha;
+            let mut current_beta = beta;
 
-            if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                board.undo_move(turn, mi);
-                let calc_time_ms = self.get_calc_time(local_map);
-                search_result.stats = stats.clone();
-                search_result.stats.best_turn_nr = turn_counter as i8;
-                search_result.stats.calc_time_ms = calc_time_ms as usize;
-                break;
-            }
+            let mut best_eval = if white { i16::MIN } else { i16::MAX };
+            let total_root_moves = turns.len as i32;
+            local_map.insert(DataMapKey::RootMovesTotal, total_root_moves);
+            local_map.insert(DataMapKey::RootMovesSearched, 0);
 
-            let min_max_eval = min_max_result.1;
+            let mut turn_counter = 0;
+            let mut child_pv = [None; 128];
 
-            // save min max eval in zobrist table for better move sorting, if depth = 2
-            if depth == 2 && config.use_zobrist {
-                let mut stored_eval = min_max_eval;
-                if min_max_eval > 30000 {
-                    stored_eval = min_max_eval + 1;
-                } else if min_max_eval < -30000 {
-                    stored_eval = min_max_eval - 1;
-                }
-                zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                    key: board.cached_hash,
-                    eval: stored_eval,
-                    depth: 1,
-                    entry_type: crate::zobrist::TranspositionType::Exact,
-                    best_move: crate::zobrist::TranspositionEntry::compress_move(min_max_result.0),
-                    padding: [0; 2],
-                });
-            }
+            for i in 0..turns.len {
+                let turn = &turns.moves[i];
 
-            board.undo_move(turn, mi);
-            if white {
-                if min_max_eval > best_eval {
-                    best_eval = min_max_eval;
-                    alpha = min_max_eval;
-                    let mut best_move_row = VecDeque::new();
-                    best_move_row.push_back(Some(*turn));
-                    for mv in child_pv.iter().take_while(|x| x.is_some()) {
-                        best_move_row.push_back(*mv);
-                    }
-                    search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
-                    search_result.is_white_move = white;
-                    search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
-                    stats.best_turn_nr = turn_counter as i8;
-                    let calc_time_ms = self.get_calc_time(local_map);
-                    stats.calc_time_ms = calc_time_ms as usize;
-                    stats.calculate();
-                    if config.print_info_string_during_search {
-                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
-                            logger.send("stdout channel closed during search".to_string())
-                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            break;
+                // Check time at the start of each root move
+                let elapsed = self.get_calc_time(local_map) as i32;
+                if let Some(&target) = local_map.get_data::<i32>(DataMapKey::TargetTime) {
+                    let mut dynamic_target = target;
+                    if target < i32::MAX - 1000000 {
+                        if total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
+                            dynamic_target = (target * 13) / 10;
                         }
                     }
-                }
-            } else {
-                if min_max_eval < best_eval {
-                    best_eval = min_max_eval;
-                    beta = min_max_eval;
-                    let mut best_move_row = VecDeque::new();
-                    best_move_row.push_back(Some(*turn));
-                    for mv in child_pv.iter().take_while(|x| x.is_some()) {
-                        best_move_row.push_back(*mv);
+                    if elapsed >= dynamic_target {
+                        stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
-                    search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
-                    search_result.is_white_move = white;
-                    search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
+                }
+
+                if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    let calc_time_ms = self.get_calc_time(local_map);
+                    search_result.stats = stats.clone();
                     search_result.stats.best_turn_nr = turn_counter as i8;
+                    search_result.stats.calc_time_ms = calc_time_ms as usize;
+                    break;
+                }
+
+                turn_counter += 1;
+                local_map.insert(DataMapKey::RootMovesSearched, turn_counter - 1);
+                let mi = board.do_move(turn);
+
+                let child_context = SearchContext {
+                    zobrist_table: context.zobrist_table,
+                    stop_flag: context.stop_flag,
+                    pv_nodes: context.pv_nodes,
+                    killer_moves: killer_moves[1],
+                    history_table: &history_table,
+                };
+
+                let min_max_result = self.minimax(board, turn, depth - 1, !white,
+                    current_alpha, current_beta, stats, config, service, &child_context, local_map, &mut child_pv,
+                    1, &mut killer_moves, &mut history_table);
+
+                if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    board.undo_move(turn, mi);
                     let calc_time_ms = self.get_calc_time(local_map);
-                    stats.calc_time_ms = calc_time_ms as usize;
-                    stats.calculate();
-                    if config.print_info_string_during_search {
-                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
-                            logger.send("stdout channel closed during search".to_string())
-                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                            break;
+                    search_result.stats = stats.clone();
+                    search_result.stats.best_turn_nr = turn_counter as i8;
+                    search_result.stats.calc_time_ms = calc_time_ms as usize;
+                    break;
+                }
+
+                let min_max_eval = min_max_result.1;
+
+                // save min max eval in zobrist table for better move sorting, if depth = 2
+                if depth == 2 && config.use_zobrist {
+                    let mut stored_eval = min_max_eval;
+                    if min_max_eval > 30000 {
+                        stored_eval = min_max_eval + 1;
+                    } else if min_max_eval < -30000 {
+                        stored_eval = min_max_eval - 1;
+                    }
+                    zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+                        key: board.cached_hash,
+                        eval: stored_eval,
+                        depth: 1,
+                        entry_type: crate::zobrist::TranspositionType::Exact,
+                        best_move: crate::zobrist::TranspositionEntry::compress_move(min_max_result.0),
+                        padding: [0; 2],
+                    });
+                }
+
+                board.undo_move(turn, mi);
+                if white {
+                    if min_max_eval > best_eval {
+                        best_eval = min_max_eval;
+                        current_alpha = current_alpha.max(min_max_eval);
+                        let mut best_move_row = VecDeque::new();
+                        best_move_row.push_back(Some(*turn));
+                        for mv in child_pv.iter().take_while(|x| x.is_some()) {
+                            best_move_row.push_back(*mv);
                         }
-                    } 
+                        search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
+                        search_result.is_white_move = white;
+                        search_result.variants.sort_by(|a, b| b.eval.cmp(&a.eval)); // Highest first for white
+                        stats.best_turn_nr = turn_counter as i8;
+                        let calc_time_ms = self.get_calc_time(local_map);
+                        stats.calc_time_ms = calc_time_ms as usize;
+                        stats.calculate();
+                        if config.print_info_string_during_search {
+                            if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
+                                logger.send("stdout channel closed during search".to_string())
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    if min_max_eval < best_eval {
+                        best_eval = min_max_eval;
+                        current_beta = current_beta.min(min_max_eval);
+                        let mut best_move_row = VecDeque::new();
+                        best_move_row.push_back(Some(*turn));
+                        for mv in child_pv.iter().take_while(|x| x.is_some()) {
+                            best_move_row.push_back(*mv);
+                        }
+                        search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
+                        search_result.is_white_move = white;
+                        search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
+                        search_result.stats.best_turn_nr = turn_counter as i8;
+                        let calc_time_ms = self.get_calc_time(local_map);
+                        stats.calc_time_ms = calc_time_ms as usize;
+                        stats.calculate();
+                        if config.print_info_string_during_search {
+                            if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
+                                logger.send("stdout channel closed during search".to_string())
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                                break;
+                            }
+                        } 
+                    }
                 }
             }
-        }        
-        
+
+            if !config.enable_aspiration || prev_eval.is_none() || stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
+            let best_score = search_result.get_eval();
+
+            // Fail-Low / Fail-High checks
+            if best_score <= alpha || best_score >= beta {
+                alpha = best_score.saturating_sub(delta).max(i16::MIN);
+                beta = best_score.saturating_add(delta).min(i16::MAX);
+                delta = delta.saturating_mul(4);
+                continue;
+            }
+
+            break;
+        }
+
         let calc_time_ms = self.get_calc_time(local_map);
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
@@ -332,6 +383,29 @@ impl SearchService {
             } else {
                 if null_eval <= alpha {
                     return (None, alpha); // Alpha cutoff
+                }
+            }
+        }
+
+        // 0.5. Reverse Futility Pruning (RFP) / Static Null Move Pruning
+        if config.enable_rfp 
+            && depth > 0 
+            && depth <= 3 
+            && !turn.gives_check 
+            && self.has_non_pawn_material(board, board.white_to_move) 
+        {
+            local_map.insert(DataMapKey::WhiteGivesCheck, false);
+            local_map.insert(DataMapKey::BlackGivesCheck, false);
+            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, local_map);
+            let margin = 80 * depth as i16;
+            
+            if white {
+                if static_eval - margin >= beta {
+                    return (None, static_eval - margin); // Beta cutoff
+                }
+            } else {
+                if static_eval + margin <= alpha {
+                    return (None, static_eval + margin); // Alpha cutoff
                 }
             }
         }
@@ -1288,6 +1362,160 @@ mod tests {
         // NMP should result in a massive node reduction at depth 5
         assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes, 
             "Enabled NMP nodes ({}) should be strictly less than disabled NMP nodes ({}) due to Null Move Pruning!",
+            stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
+    }
+
+    #[test]
+    fn search_aspiration_window_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::with_capacity(10000)),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log.clone(),
+        });
+
+        // Search with Aspiration Windows DISABLED
+        let mut config_disabled = Config::for_tests();
+        config_disabled.use_zobrist = true;
+        config_disabled.enable_aspiration = false;
+        
+        let mut stats_disabled = Stats::new();
+        let mut local_map_disabled = DataMap::new();
+        local_map_disabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_disabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_disabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_disabled = service.search.get_moves(
+            &mut board,
+            3,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state,
+            &mut local_map_disabled,
+        );
+
+        // Search with Aspiration Windows ENABLED
+        let mut config_enabled = Config::for_tests();
+        config_enabled.use_zobrist = true;
+        config_enabled.enable_aspiration = true;
+        
+        let table = Arc::new(ZobristTable::with_capacity(10000));
+        table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
+            key: board.cached_hash,
+            eval: result_disabled.get_eval(),
+            depth: 2,
+            entry_type: crate::zobrist::TranspositionType::Exact,
+            best_move: crate::zobrist::TranspositionEntry::compress_move(result_disabled.variants[0].best_move),
+            padding: [0; 2],
+        });
+        
+        let engine_state_enabled = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: table,
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log.clone(),
+        });
+
+        let mut stats_enabled = Stats::new();
+        let mut local_map_enabled = DataMap::new();
+        local_map_enabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_enabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_enabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_enabled = service.search.get_moves(
+            &mut board,
+            3,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state_enabled,
+            &mut local_map_enabled,
+        );
+
+        assert!(result_disabled.completed);
+        assert!(result_enabled.completed);
+        assert_eq!(result_disabled.get_eval(), result_enabled.get_eval());
+    }
+
+    #[test]
+    fn search_rfp_pruning_test() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: Arc::new(ZobristTable::with_capacity(10000)),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        // 1. Search with RFP DISABLED
+        let mut config_disabled = Config::for_tests();
+        config_disabled.use_zobrist = true;
+        config_disabled.enable_rfp = false;
+        
+        let mut stats_disabled = Stats::new();
+        let mut local_map_disabled = DataMap::new();
+        local_map_disabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_disabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_disabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_disabled = service.search.get_moves(
+            &mut board,
+            3,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state,
+            &mut local_map_disabled,
+        );
+
+        // 2. Search with RFP ENABLED
+        let mut config_enabled = Config::for_tests();
+        config_enabled.use_zobrist = true;
+        config_enabled.enable_rfp = true;
+        
+        let mut stats_enabled = Stats::new();
+        let mut local_map_enabled = DataMap::new();
+        local_map_enabled.insert(DataMapKey::CalcTime, Instant::now());
+        local_map_enabled.insert(DataMapKey::WhiteGivesCheck, false);
+        local_map_enabled.insert(DataMapKey::BlackGivesCheck, false);
+        
+        let result_enabled = service.search.get_moves(
+            &mut board,
+            3,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state,
+            &mut local_map_enabled,
+        );
+
+        assert!(result_disabled.completed);
+        assert!(result_enabled.completed);
+        
+        // RFP should prune branches and reduce nodes
+        assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes, 
+            "Enabled RFP nodes ({}) should be strictly less than disabled RFP nodes ({}) due to Reverse Futility Pruning!",
             stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
     }
 

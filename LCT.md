@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.8.1
+# LCT II Test Results: Version v0.9.0
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 7 / 35 (20.0%)
 * **Total Points**: 210 / 1050
-* **Estimated ELO**: **2110 ELO** (Matching `v0.8.0` but with a further **2.3x search speedup** on top of it, and a **43.5x total search speedup** over `v0.7.10`!)
+* **Estimated ELO**: **2110 ELO** (Maintaining the strong ELO rating while achieving a phenomenal **3.1x node reduction** and **4.2x search speedup** at depth 9 over `v0.8.1`!)
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.9.0` (Aspiration Windows & RFP) | **2110** | 210 | 7/35 | 1/14 | 3/12 | 3/9 |
 | `v0.8.1` (Null Move Pruning - NMP) | **2110** | 210 | 7/35 | 1/14 | 3/12 | 3/9 |
 | `v0.8.0` (PVS & LMR Search Upgrades) | **2110** | 210 | 7/35 | 2/14 | 2/12 | 3/9 |
 | `v0.7.10` (Final Eval Tuning Release) | **2050** | 150 | 5/35 | 1/14 | 2/12 | 2/9 |

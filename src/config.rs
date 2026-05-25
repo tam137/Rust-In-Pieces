@@ -91,6 +91,8 @@ pub struct Config {
     pub enable_pvs: bool,
     pub enable_lmr: bool,
     pub enable_nmp: bool,
+    pub enable_aspiration: bool,
+    pub enable_rfp: bool,
 }
 
 
@@ -184,6 +186,8 @@ impl Config {
             enable_pvs: true,
             enable_lmr: true,
             enable_nmp: true,
+            enable_aspiration: true,
+            enable_rfp: true,
         }
     }
 
