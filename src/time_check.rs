@@ -46,6 +46,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
         pv_nodes: &engine_state.pv_nodes,
         killer_moves: [None; 2],
         history_table: &history_table,
+        counter_move: None,
     };
 
     println!("expected <10µs");

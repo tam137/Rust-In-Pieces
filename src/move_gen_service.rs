@@ -216,9 +216,13 @@ impl MoveGenService {
 
             if move_turn.capture == 0 {
                 if Some(move_turn) == context.killer_moves[0] {
-                    move_turn.rank = move_turn.rank.max(20000);
+                    move_turn.rank = move_turn.rank.max(config.killer_move_1_rank_bonus);
                 } else if Some(move_turn) == context.killer_moves[1] {
-                    move_turn.rank = move_turn.rank.max(10000);
+                    move_turn.rank = move_turn.rank.max(config.killer_move_2_rank_bonus);
+                }
+
+                if Some(move_turn) == context.counter_move {
+                    move_turn.rank = move_turn.rank.max(config.counter_move_rank_bonus);
                 }
 
                 let from = move_turn.from as usize;
@@ -909,6 +913,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -930,6 +935,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1296,6 +1302,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1323,6 +1330,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
@@ -1470,6 +1478,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1514,6 +1523,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
         let local_map = crate::model::DataMap::new();
 

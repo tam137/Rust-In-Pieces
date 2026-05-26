@@ -11,6 +11,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.9.3` (Search Optimization Configs) | **2170** | 270 | 9/35 | 2/14 | 3/12 | 4/9 |
 | `v0.9.2` (Balanced Search & Heuristics Merge) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-g` (Peak ELO Stabilization & Clean Code) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
 | `v0.9.0-f` (Passed Pawn Endgame Dominance) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |

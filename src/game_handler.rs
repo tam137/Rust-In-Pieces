@@ -121,6 +121,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             pv_nodes: &engine_state.pv_nodes,
                             killer_moves: [None; 2],
                             history_table: &history_table,
+                            counter_move: None,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
                         service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);
@@ -217,6 +218,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],
                                 history_table: &history_table,
+                                counter_move: None,
                             };
                             let mut valid_moves = crate::model::MoveList::new();
                             service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);

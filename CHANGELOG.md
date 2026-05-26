@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.3] - 2026-05-26
+
+### Added
+- **Centralized Search Configuration System**: Moved previously hardcoded search and move-ordering parameters to `src/config.rs`, making the search engine fully tunable.
+  - Added fields for `killer_move_1_rank_bonus` and `killer_move_2_rank_bonus` to configure quiet killer move prioritization.
+  - Added `counter_move_rank_bonus` to tune the weight of refutation responses dynamically.
+  - Added `history_max_threshold` to parameterize the halving limit of the history table.
+  - Added `lmr_depth_threshold`, `lmr_move_threshold`, and `lmr_reduction` to configure Late Move Reductions.
+  - Added `nmp_depth_threshold` and `nmp_reduction` to parameterize Null Move Pruning.
+- **Counter-Moves Heuristic (Refutation Moves)**: Implemented counter-move tracking to store and prioritize successful quiet response moves to the opponent's previous moves, improving cutoff efficiency in deep search paths.
+- **Delta Pruning in Quiescence Search**: Integrated dynamic capture pruning in leaf-node searches using `enable_delta_pruning` and `delta_pruning_margin` to skip futile captures (disabled by default to prevent tactical sacrifice regressions).
+- **History Malus Heuristic**: Implemented penalization of quiet moves that failed to produce cutoffs by subtracting `depth * depth` from their history rating (disabled by default to preserve move-sorting stability).
+
+### Fixed
+- Fixed hardcoded limits and magic numbers across `src/search_service.rs` and `src/move_gen_service.rs`.
+- Resolved search tree expansion issues by safely disabling regression-prone heuristics (Delta Pruning and History Malus) by default while keeping them fully toggleable in the configuration.
+
+
+
 ## [V0.9.2] - 2026-05-25
 
 ### Added

@@ -102,6 +102,19 @@ pub struct Config {
     pub enable_nmp: bool,
     pub enable_aspiration: bool,
     pub enable_rfp: bool,
+    pub enable_delta_pruning: bool,
+    pub delta_pruning_margin: i16,
+    pub enable_counter_moves: bool,
+    pub enable_history_malus: bool,
+    pub killer_move_1_rank_bonus: i32,
+    pub killer_move_2_rank_bonus: i32,
+    pub counter_move_rank_bonus: i32,
+    pub history_max_threshold: u32,
+    pub lmr_depth_threshold: i32,
+    pub lmr_move_threshold: i32,
+    pub lmr_reduction: i32,
+    pub nmp_depth_threshold: i32,
+    pub nmp_reduction: i32,
 }
 
 
@@ -206,6 +219,19 @@ impl Config {
             enable_nmp: true,
             enable_aspiration: true,
             enable_rfp: true,
+            enable_delta_pruning: false,
+            delta_pruning_margin: 300,
+            enable_counter_moves: true,
+            enable_history_malus: false,
+            killer_move_1_rank_bonus: 20000,
+            killer_move_2_rank_bonus: 10000,
+            counter_move_rank_bonus: 15000,
+            history_max_threshold: 9000,
+            lmr_depth_threshold: 3,
+            lmr_move_threshold: 3,
+            lmr_reduction: 1,
+            nmp_depth_threshold: 3,
+            nmp_reduction: 2,
         }
     }
 

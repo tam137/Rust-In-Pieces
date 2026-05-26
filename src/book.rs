@@ -148,6 +148,7 @@ mod tests {
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
+            counter_move: None,
         };
 
         for (fen, moves) in book.book_map.iter() {
