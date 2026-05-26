@@ -33,7 +33,6 @@ pub enum TranspositionType {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
 pub struct TranspositionEntry {
     pub key: u64, // Full 64-bit Zobrist key to prevent index collisions
     pub eval: i16,
@@ -57,6 +56,39 @@ impl Default for TranspositionEntry {
 }
 
 impl TranspositionEntry {
+    pub fn pack(self) -> u64 {
+        let mut val = 0u64;
+        val |= (self.eval as u16 as u64) & 0xFFFF;
+        val |= ((self.best_move as u64) & 0xFFFF) << 16;
+        val |= ((self.depth as u8 as u64) & 0xFF) << 32;
+        let type_val = match self.entry_type {
+            TranspositionType::Exact => 0,
+            TranspositionType::LowerBound => 1,
+            TranspositionType::UpperBound => 2,
+        } as u64;
+        val |= (type_val & 0xFF) << 40;
+        val
+    }
+
+    pub fn unpack(key: u64, data: u64) -> Self {
+        let eval = (data & 0xFFFF) as u16 as i16;
+        let best_move = ((data >> 16) & 0xFFFF) as u16;
+        let depth = ((data >> 32) & 0xFF) as u8 as i8;
+        let entry_type = match (data >> 40) & 0xFF {
+            1 => TranspositionType::LowerBound,
+            2 => TranspositionType::UpperBound,
+            _ => TranspositionType::Exact,
+        };
+        Self {
+            key,
+            eval,
+            best_move,
+            depth,
+            entry_type,
+            padding: [0; 2],
+        }
+    }
+
     pub fn compress_move(turn: Option<crate::model::Turn>) -> u16 {
         if let Some(t) = turn {
             let from = t.from as u16;
@@ -125,53 +157,79 @@ impl TranspositionEntry {
 }
 
 #[derive(Debug)]
+pub struct AtomicEntry {
+    pub key: std::sync::atomic::AtomicU64,
+    pub data: std::sync::atomic::AtomicU64,
+}
+
+#[derive(Debug)]
 pub struct ZobristTable {
-    pub table: std::sync::RwLock<Vec<TranspositionEntry>>,
+    pub table: Vec<AtomicEntry>,
 }
 
 impl ZobristTable {
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            table: std::sync::RwLock::new(vec![TranspositionEntry::default(); capacity.max(1)]),
+        let mut table = Vec::with_capacity(capacity.max(1));
+        let default_entry = TranspositionEntry::default();
+        let default_key = default_entry.key;
+        let default_data = default_entry.pack();
+        for _ in 0..capacity.max(1) {
+            table.push(AtomicEntry {
+                key: std::sync::atomic::AtomicU64::new(default_key),
+                data: std::sync::atomic::AtomicU64::new(default_data),
+            });
         }
+        Self { table }
     }
 
     pub fn get_entry(&self, hash: &u64) -> Option<TranspositionEntry> {
-        let table = self.table.read().unwrap();
-        let index = (*hash as usize) % table.len();
-        let entry = table[index];
-        if entry.depth != -1 && entry.key == *hash {
-            Some(entry)
-        } else {
-            None
+        let index = (*hash as usize) % self.table.len();
+        let slot = &self.table[index];
+
+        let key1 = slot.key.load(std::sync::atomic::Ordering::Acquire);
+        if key1 != *hash {
+            return None;
         }
+        let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+        let key2 = slot.key.load(std::sync::atomic::Ordering::Acquire);
+
+        if key1 == key2 {
+            let entry = TranspositionEntry::unpack(key1, data);
+            if entry.depth != -1 {
+                return Some(entry);
+            }
+        }
+        None
     }
 
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
-        let mut table = self.table.write().unwrap();
-        let index = (hash as usize) % table.len();
-        let existing = &mut table[index];
-        // Depth-Preferred replacement policy (always overwrite if key is identical)
+        let index = (hash as usize) % self.table.len();
+        let slot = &self.table[index];
+
+        let key1 = slot.key.load(std::sync::atomic::Ordering::Relaxed);
+        let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+        let existing = TranspositionEntry::unpack(key1, data1);
+
         if existing.depth == -1 || existing.key == hash || entry.depth >= existing.depth {
-            *existing = entry;
+            slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
+            slot.key.store(hash, std::sync::atomic::Ordering::Release);
         }
     }
 
     pub fn get_eval_for_hash(&self, hash: &u64) -> Option<i16> {
-        let table = self.table.read().unwrap();
-        let index = (*hash as usize) % table.len();
-        let entry = table[index];
-        if entry.depth != -1 && entry.key == *hash {
-            Some(entry.eval)
-        } else {
-            None
-        }
+        self.get_entry(hash).map(|e| e.eval)
     }
 
     pub fn _size(&self) -> usize {
-        let table = self.table.read().unwrap();
-        table.iter().filter(|e| e.depth != -1).count()
+        self.table.iter()
+            .map(|slot| {
+                let key = slot.key.load(std::sync::atomic::Ordering::Relaxed);
+                let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+                TranspositionEntry::unpack(key, data)
+            })
+            .filter(|e| e.depth != -1)
+            .count()
     }
 }
 
@@ -352,4 +410,40 @@ mod tests {
         };
         assert!(entry_none.decompress_move(&board).is_none());
     }
+
+    #[test]
+    fn zobrist_lock_free_concurrency_test() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let table = Arc::new(ZobristTable::with_capacity(100));
+        let mut handles = vec![];
+
+        for _ in 0..8 {
+            let table_clone = Arc::clone(&table);
+            handles.push(thread::spawn(move || {
+                for i in 0..1000 {
+                    let key = (i % 10) as u64;
+                    let depth = (i % 10) as i8;
+                    let entry = TranspositionEntry {
+                        key,
+                        eval: i as i16,
+                        best_move: 0,
+                        depth,
+                        entry_type: TranspositionType::Exact,
+                        padding: [0; 2],
+                    };
+                    table_clone.insert_entry(key, entry);
+                    if let Some(ret) = table_clone.get_entry(&key) {
+                        assert_eq!(ret.key, key);
+                    }
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
 }
+

@@ -1,5 +1,12 @@
 use crate::model::QuiescenceSearchMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aggressiveness {
+    Normal,
+    Aggressive,
+    HighAggressive,
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub version: String,
@@ -24,6 +31,7 @@ pub struct Config {
     pub smp_thread_eval_noise: i16,
     pub skip_strong_validation: bool,
     pub max_eval_mult: f32,
+    pub aggressiveness: Aggressiveness,
 
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
@@ -32,7 +40,6 @@ pub struct Config {
     pub give_promotion_rank_bonus_knight: i32,
 
     pub your_turn_bonus: i16,
-    pub gives_check_bonus: i16,
 
     pub undeveloped_knight_malus: i16,
     pub undeveloped_bishop_malus: i16,
@@ -145,6 +152,7 @@ impl Config {
             smp_thread_eval_noise: 0,
             skip_strong_validation: false,
             max_eval_mult: 2.0,
+            aggressiveness: Aggressiveness::Normal,
 
             is_hashed_rank_bonus: 3,
             give_check_rank_bonus: 5,
@@ -153,7 +161,6 @@ impl Config {
             give_promotion_rank_bonus_knight: 6,
 
             your_turn_bonus: 20,
-            gives_check_bonus: 30,
 
             undeveloped_knight_malus: 42,
             undeveloped_bishop_malus: 30,

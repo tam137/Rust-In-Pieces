@@ -103,7 +103,34 @@ impl EvalService {
         ];
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, white_gives_check: bool, black_gives_check: bool) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
+        let mut scaled_config = config.clone();
+        match config.aggressiveness {
+            crate::config::Aggressiveness::Normal => {}
+            crate::config::Aggressiveness::Aggressive => {
+                scaled_config.king_ring_attack_knight = (config.king_ring_attack_knight * 15) / 10;
+                scaled_config.king_ring_attack_bishop = (config.king_ring_attack_bishop * 15) / 10;
+                scaled_config.king_ring_attack_rook = (config.king_ring_attack_rook * 15) / 10;
+                scaled_config.king_ring_attack_queen = (config.king_ring_attack_queen * 15) / 10;
+                scaled_config.queen_in_attack = (config.queen_in_attack * 13) / 10;
+                scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 13) / 10;
+                scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 12) / 10;
+                scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 12) / 10;
+                scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 12) / 10;
+            }
+            crate::config::Aggressiveness::HighAggressive => {
+                scaled_config.king_ring_attack_knight = config.king_ring_attack_knight * 2;
+                scaled_config.king_ring_attack_bishop = config.king_ring_attack_bishop * 2;
+                scaled_config.king_ring_attack_rook = config.king_ring_attack_rook * 2;
+                scaled_config.king_ring_attack_queen = config.king_ring_attack_queen * 2;
+                scaled_config.queen_in_attack = (config.queen_in_attack * 16) / 10;
+                scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 16) / 10;
+                scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 14) / 10;
+                scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 14) / 10;
+                scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 14) / 10;
+            }
+        }
+        let config = &scaled_config;
         let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
 
@@ -150,15 +177,7 @@ impl EvalService {
         }
         eval += self.calculate_weighted_eval(o_bishop_pair, e_bishop_pair, game_phase);
 
-        // TODO Tests
 
-        let gives_chess_eval = if white_gives_check {
-            config.gives_check_bonus
-        } else if black_gives_check {
-            -config.gives_check_bonus
-        } else { 0 };
-
-        eval += self.calculate_weighted_eval(gives_chess_eval, 0, game_phase);
 
         // Opposition in Endgames
         if game_phase < 40 {
@@ -1033,22 +1052,7 @@ mod tests {
     use crate::service::Service;
     use crate::config::Config;
 
-    #[test]
-    fn test_gives_check_evaluation_bonus() {
-        let service = Service::new();
-        let config = Config::new();
-        let board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        
-        let base_eval = service.eval.calc_eval(&board, &config, &service.move_gen, false, false);
-        let white_check_eval = service.eval.calc_eval(&board, &config, &service.move_gen, true, false);
-        let black_check_eval = service.eval.calc_eval(&board, &config, &service.move_gen, false, true);
-        
-        let game_phase = service.eval.get_game_phase(&board);
-        let expected_bonus = ((config.gives_check_bonus as i32 * game_phase as i32) / 256) as i16;
-        
-        assert_eq!(white_check_eval, base_eval + expected_bonus);
-        assert_eq!(black_check_eval, base_eval - expected_bonus);
-    }
+
 
     #[test]
     fn get_eval_even_test() {
@@ -1108,16 +1112,16 @@ mod tests {
         let config = &Config::new();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval1 = eval_service.calc_eval(&board, config, movegen, false, false);
+        let eval1 = eval_service.calc_eval(&board, config, movegen);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
-        let eval2 = eval_service.calc_eval(&board, config, movegen, false, false);
+        let eval2 = eval_service.calc_eval(&board, config, movegen);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval3 = eval_service.calc_eval(&board, config, movegen, false, false);
+        let eval3 = eval_service.calc_eval(&board, config, movegen);
 
         let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
-        let eval4 = eval_service.calc_eval(&board, config, movegen, false, false);
+        let eval4 = eval_service.calc_eval(&board, config, movegen);
 
         println!("{}", eval1);
         println!("{}", eval2);
@@ -1231,8 +1235,8 @@ mod tests {
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
-        let eval1 = eval.calc_eval(&board1, &config, &movegen, false, false);
-        let eval2 = eval.calc_eval(&board2, &config, &movegen, false, false);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen);
 
         println!("FIB: eval1={} eval2={} diff={} | fen1='{}' fen2='{}'", eval1, eval2, eval1 - eval2, fen1, fen2);
 
@@ -1250,7 +1254,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, false, false);
+        let eval = eval_service.calc_eval(board, config, &movegen);
         assert!(eval.abs() <= 10, "Eval {} is not close to 0", eval);
     }
 
@@ -1262,7 +1266,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, false, false);
+        let eval = eval_service.calc_eval(board, config, &movegen);
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
@@ -1276,7 +1280,7 @@ mod tests {
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();
         config.print_eval_per_figure = true;
-        eval_service.calc_eval(board, &config, &movegen, false, false);
+        eval_service.calc_eval(board, &config, &movegen);
         println!("------------");
     }
 }
