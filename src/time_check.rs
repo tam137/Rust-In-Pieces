@@ -47,7 +47,11 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
         killer_moves: [None; 2],
         history_table: &history_table,
         counter_move: None,
-    };
+    start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
     println!("expected <10µs");
     let mut board = time_it!(service.fen.set_fen("r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8"));
@@ -72,20 +76,20 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
 
     println!("\nexpected ~60µs");
     let mut move_list = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, &local_map, &mut move_list));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, true, false, &mut move_list));
 
     println!("\nexpected ~45µs (Skip Validation)");
-    local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, true);
+    
     let mut move_list2 = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, &local_map, &mut move_list2));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, true, true, &mut move_list2));
 
     println!("\nexpected <10µs");
-    local_map.insert(crate::model::DataMapKey::ForceSkipValidationFlag, false);
+    
     let mut move_list3 = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, &local_map, &mut move_list3));
+    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, true, false, &mut move_list3));
 
     println!("\nexpected ~2.5µs");
-    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen, local_map));
+    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen, false, false));
 
     println!("\nexpected <1000ns");
     let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");
@@ -101,11 +105,11 @@ pub fn run_time_check(engine_state: &Arc<EngineState>, mut local_map: &mut DataM
     
     println!("\nexpected ~310ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, engine_state, &mut local_map));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None));
     
     println!("\nexpected ~250");
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, engine_state, &mut local_map));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None));
 
     println!("\nexpected ~500");
     println!("Benchmark Value: {}\n", calculate_benchmark(engine_state, &mut local_map));
@@ -196,7 +200,7 @@ pub fn count_and_print_nodes(
 
     for fen in fen_list {
         let board = &mut service.fen.set_fen(&fen);
-        service.search.get_moves(board, 4, board.white_to_move, &mut stats, &config, &service, engine_state, &mut local_map);
+        service.search.get_moves(board, 4, board.white_to_move, &mut stats, &config, &service, engine_state, std::time::Instant::now(), None);
         node_count = node_count + stats.calculated_nodes;
         stats = Stats::new();
     }
@@ -209,6 +213,6 @@ pub fn calculate_benchmark(engine_state: &Arc<EngineState>, mut local_map: &mut 
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::for_tests();
-    let duration = get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), &config, &service, engine_state, &mut local_map));
+    let duration = get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), &config, &service, engine_state, std::time::Instant::now(), None));
     10000 / duration.max(1)
 }

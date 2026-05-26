@@ -36,8 +36,8 @@ fn main() {
 
     let mut local_map = DataMap::new();
     local_map.insert(DataMapKey::CalcTime, Instant::now());
-    local_map.insert(DataMapKey::WhiteGivesCheck, false);
-    local_map.insert(DataMapKey::BlackGivesCheck, false);
+    
+    
 
 
 

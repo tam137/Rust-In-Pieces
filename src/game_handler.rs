@@ -71,16 +71,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         let is_white = game.board.white_to_move;
                         let mut stats = Stats::default();
-                        let search_result = service.search.get_moves(
-                            &mut game.board,
-                            depth,
-                            is_white,
-                            &mut stats,
-                            &config,
-                            &service,
-                            &engine_state,
-                            &mut local_map,
-                        );
+                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &config, &service, &engine_state, std::time::Instant::now(), None);
 
                         if search_result.completed {
                             best_result = Some(search_result.clone());
@@ -109,8 +100,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     if book_move.is_empty() || !config.use_book {
                         let mut local_map = local_map.clone();
                         local_map.insert(DataMapKey::CalcTime, Instant::now());
-                        local_map.insert(DataMapKey::WhiteGivesCheck, false);
-                        local_map.insert(DataMapKey::BlackGivesCheck, false);
+                        
+                        
 
                         // Eindeutige Züge (Obvious Moves / Early Exit)
                         let mut stats = Stats::default();
@@ -122,9 +113,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             killer_moves: [None; 2],
                             history_table: &history_table,
                             counter_move: None,
+                        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
-                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);
+                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, true, false, &mut valid_moves);
 
                         if valid_moves.len == 1 {
                             let mv_str = valid_moves.moves[0].to_algebraic();
@@ -168,7 +163,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 &config,
                                 &service,
                                 &engine_state,
-                                &mut local_map,
+                                std::time::Instant::now(),
+                                None,
                             );
 
                             if search_result.completed {
@@ -219,9 +215,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 killer_moves: [None; 2],
                                 history_table: &history_table,
                                 counter_move: None,
-                            };
+                            start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
                             let mut valid_moves = crate::model::MoveList::new();
-                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, &local_map, &mut valid_moves);
+                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, true, false, &mut valid_moves);
                             if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));

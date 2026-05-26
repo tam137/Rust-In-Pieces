@@ -115,6 +115,8 @@ pub struct Config {
     pub lmr_reduction: i32,
     pub nmp_depth_threshold: i32,
     pub nmp_reduction: i32,
+    pub nmp_verification_threshold: i32,
+    pub nmp_dynamic_divisor: i32,
 }
 
 
@@ -232,6 +234,8 @@ impl Config {
             lmr_reduction: 1,
             nmp_depth_threshold: 3,
             nmp_reduction: 2,
+            nmp_verification_threshold: 6,
+            nmp_dynamic_divisor: 6,
         }
     }
 

@@ -105,7 +105,8 @@ impl MoveGenService {
         stats: &mut Stats,
         config: &Config,
         context: &SearchContext,
-        local_map: &DataMap,
+        do_move_ordering: bool,
+        force_skip_validation: bool,
         valid_moves: &mut crate::model::MoveList,
     ) {
         if board.game_status != GameStatus::Normal {
@@ -114,16 +115,7 @@ impl MoveGenService {
         let mut move_list = crate::model::MoveRawList::new();
         self.generate_moves_list_for_piece(board, 0, &mut move_list);
         let start_len = valid_moves.len;
-        self.get_valid_moves_from_move_list(
-            &move_list,
-            board,
-            stats,
-            config,
-            true,
-            context,
-            local_map,
-            valid_moves,
-        );
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, true, context, do_move_ordering, force_skip_validation, valid_moves);
 
         stats.add_created_capture_nodes(valid_moves.len - start_len);
     }
@@ -135,7 +127,8 @@ impl MoveGenService {
         stats: &mut Stats,
         config: &Config,
         context: &SearchContext,
-        local_map: &DataMap,
+        do_move_ordering: bool,
+        force_skip_validation: bool,
         valid_moves: &mut crate::model::MoveList,
     ) {
         if board.game_status != GameStatus::Normal {
@@ -143,16 +136,7 @@ impl MoveGenService {
         }
         let mut move_list = crate::model::MoveRawList::new();
         self.generate_moves_list_for_piece(board, 0, &mut move_list);
-        self.get_valid_moves_from_move_list(
-            &move_list,
-            board,
-            stats,
-            config,
-            false,
-            context,
-            local_map,
-            valid_moves,
-        );
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, context, do_move_ordering, force_skip_validation, valid_moves);
     }
 
     fn get_valid_moves_from_move_list(
@@ -163,7 +147,8 @@ impl MoveGenService {
         config: &Config,
         only_captures: bool,
         context: &SearchContext,
-        local_map: &DataMap,
+        do_move_ordering: bool,
+        force_skip_validation: bool,
         valid_moves: &mut crate::model::MoveList,
     ) {
         let white_turn = board.white_to_move;
@@ -271,7 +256,8 @@ impl MoveGenService {
                     valid_moves,
                     white_turn,
                     zobrist_table_read,
-                    local_map,
+                    do_move_ordering,
+                    force_skip_validation,
                 );
             } else {
                 self.validate_and_add_move(
@@ -281,7 +267,8 @@ impl MoveGenService {
                     config,
                     valid_moves,
                     zobrist_table_read,
-                    local_map,
+                    do_move_ordering,
+                    force_skip_validation,
                 );
             }
         }
@@ -298,7 +285,8 @@ impl MoveGenService {
                         config,
                         valid_moves,
                         zobrist_table_read,
-                        local_map,
+                        do_move_ordering,
+                        force_skip_validation,
                     );
                 }
             }
@@ -307,7 +295,7 @@ impl MoveGenService {
         // Move sorting
         if config.pre_sort_moves {
             let slice = &mut valid_moves.moves[0..valid_moves.len];
-            if *local_map.get_data::<bool>(DataMapKey::MoveOrderingFlag).unwrap_or(&true) {
+            if do_move_ordering {
                 slice.sort_unstable_by(|a, b| b.rank.cmp(&a.rank));
             } else {
                 let mut rng = rand::thread_rng();
@@ -401,12 +389,13 @@ impl MoveGenService {
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
         zobrist_table_read: &ZobristTable,
-        local_map: &DataMap,
+        do_move_ordering: bool,
+        force_skip_validation: bool,
     ) {
         let move_info = board.do_move(turn);
         let mut valid = true;
 
-        if !*local_map.get_data::<bool>(DataMapKey::ForceSkipValidationFlag).unwrap_or(&false) {
+        if !force_skip_validation {
             if self.gives_check(board) {
                 valid = false;
             }
@@ -439,7 +428,8 @@ impl MoveGenService {
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
         zobrist_table_read: &ZobristTable,
-        local_map: &DataMap,
+        do_move_ordering: bool,
+        force_skip_validation: bool,
     ) {
         if config.use_underpromotions {
             let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
@@ -452,7 +442,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, do_move_ordering, force_skip_validation);
             }
         } else {
             let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
@@ -463,7 +453,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, local_map);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, do_move_ordering, force_skip_validation);
             }
         }
     }
@@ -901,8 +891,7 @@ mod tests {
 
     fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
-        let local_map = DataMap::new();
-        let config = Config::for_tests();
+                let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
@@ -914,17 +903,20 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         move_list.as_slice().to_vec()
     }
 
     fn generate_valid_moves_list_capture(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
-        let local_map = DataMap::new();
-        let config = Config::for_tests();
+                let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
@@ -936,10 +928,14 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         move_list.as_slice().to_vec()
     }
 
@@ -1275,8 +1271,7 @@ mod tests {
     fn move_ordering_with_pv_nodes_test() {
         let service = Service::new();
         let config = Config::for_tests();
-        let local_map = DataMap::new();
-
+        
         let board = &mut service.fen.set_init_board();
 
         let mut move_row = Vec::default();
@@ -1303,10 +1298,14 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         let first_turn = turns.get(0).unwrap();
 
@@ -1318,8 +1317,7 @@ mod tests {
     fn skip_validation_and_check_game_end_test() {
         let service = Service::new();
         let config = Config::for_tests();
-        let mut local_map = DataMap::new();
-
+        
         let zobrist_table = ZobristTable::new();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
@@ -1331,13 +1329,17 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
 
-        local_map.insert(DataMapKey::ForceSkipValidationFlag, true);
+        
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         assert_eq!(38, turns.len());
 
@@ -1348,7 +1350,7 @@ mod tests {
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::BlackWin, board.game_status);
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, &mut local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         assert_eq!(0, turns.len());
         board.undo_move(&turn, mi);
@@ -1467,8 +1469,7 @@ mod tests {
         let mut config = Config::for_tests();
         config.use_underpromotions = true;
         
-        let local_map = DataMap::new();
-        let zobrist_table = ZobristTable::with_capacity(1);
+                let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
@@ -1479,10 +1480,14 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
         
         let mut promotions = vec![];
         for turn in move_list.as_slice() {
@@ -1495,7 +1500,7 @@ mod tests {
 
         config.use_underpromotions = false;
         let mut move_list_disabled = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list_disabled);
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list_disabled);
 
         let mut promotions_disabled = vec![];
         for turn in move_list_disabled.as_slice() {
@@ -1524,13 +1529,17 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
-        let local_map = crate::model::DataMap::new();
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
+        
 
         let mut board = fen_service.set_fen("6k1/8/8/2b5/8/8/6PP/5RqK w - - 0 1");
         
         let mut move_list = crate::model::MoveList::new();
-        move_gen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+        move_gen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
 
         assert_eq!(move_list.len, 1, "Expected exactly 1 legal move in this position!");
         let mv = move_list.as_slice()[0].to_algebraic();
