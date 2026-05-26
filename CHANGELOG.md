@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.2] - 2026-05-26
+
+### Added
+- **Rust Edition 2024 Upgrade**:
+  - Upgraded the package edition from `2021` to `2024` in `Cargo.toml`.
+  - Updated coding standards in `agents.md` to specify Rust Edition 2024.
+  - Updated technical introduction in `README.md` to state `written in Rust (Edition 2024)`.
+- **Keyword `gen` Conflict Resolution**:
+  - Renamed custom Zobrist hashing generator function `zobrist::gen` to `zobrist::gen_hash` to resolve compilation conflict with the new `gen` keyword reserved in Rust 2024.
+  - Refactored random `StdRng` generation in `src/zobrist.rs` from `.gen()` to `.next_u64()` using `rand::RngCore`, keeping the seeded sequence 100% identical and maintaining identical playing strength.
+- **Unsafe Function Safety Defaults (`unsafe_op_in_unsafe_fn`)**:
+  - Wrapped mutable static mutations (`BISHOP_MAGICS`, `BISHOP_TABLE`, `ROOK_MAGICS`, `ROOK_TABLE`) inside `unsafe fn initialize_magics` inside `src/magic.rs` in an internal `unsafe { ... }` block, satisfying safe-by-default unsafe function bodies in Rust 2024.
+
+### Fixed
+- **Compiler Dead Code Warnings**: Suppressed dead code warning on unused field `padding` in `TranspositionEntry` using the standard `#[allow(dead_code)]` attribute, achieving a 100% warning-free compilation.
+
+
+
+## [V0.10.1] - 2026-05-26
+
+### Added
+- **Technical Search Reference Documentation (`README.md`)**:
+  - Enriched `README.md` with a comprehensive technical table and overview of all minimax search features and selective pruning heuristics implemented in SupraH.
+  - Provided concise technical definitions and direct hyperlinks to the English-language [Chess Programming Wiki (CPW)](https://www.chessprogramming.org) for:
+    - Alpha-Beta Pruning
+    - Principal Variation Search (PVS)
+    - Late Move Reductions (LMR)
+    - Null Move Pruning (NMP)
+    - Aspiration Windows
+    - Iterative Deepening
+    - Quiescence Search (Q-Search)
+    - Transposition Tables (TT)
+    - Static Exchange Evaluation (SEE)
+    - Killer Moves & History Heuristic
+
+
+
 ## [V0.10.0] - 2026-05-26
 
 ### Added
