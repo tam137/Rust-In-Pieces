@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, RIP_MISSED_DM_KEY};
+use crate::model::Board;
 use crate::move_gen_service::MoveGenService;
 
 const PAWN_PST: [i16; 64] = [
@@ -117,13 +117,13 @@ impl EvalService {
             let sq = temp.trailing_zeros() as u8;
             let piece = board.get_piece_at(sq);
             let eval_for_piece: i16 = match piece {
-                10 => self.white_pawn(sq, board, config, game_phase, movegen),
+                10 => self.white_pawn(sq, board, config, game_phase),
                 11 => self.white_rook(sq, board, config, game_phase, movegen, black_king_ring),
                 12 => self.white_knight(sq, board, config, game_phase, movegen, black_king_ring),
                 13 => self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring),
                 14 => self.white_queen(sq, board, config, game_phase, movegen, black_king_ring),
                 15 => self.white_king(sq, board, config, game_phase, movegen),
-                20 => self.black_pawn(sq, board, config, game_phase, movegen),
+                20 => self.black_pawn(sq, board, config, game_phase),
                 21 => self.black_rook(sq, board, config, game_phase, movegen, white_king_ring),
                 22 => self.black_knight(sq, board, config, game_phase, movegen, white_king_ring),
                 23 => self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring),
@@ -190,7 +190,7 @@ impl EvalService {
         eval
     }
 
-    fn white_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn white_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -323,7 +323,7 @@ impl EvalService {
         eval + config.piece_eval_pawn
     }
 
-    fn black_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> i16 {
+    fn black_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> i16 {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1030,7 +1030,6 @@ impl EvalService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::service::Service;
     use crate::config::Config;
 
@@ -1049,5 +1048,235 @@ mod tests {
         
         assert_eq!(white_check_eval, base_eval + expected_bonus);
         assert_eq!(black_check_eval, base_eval - expected_bonus);
+    }
+
+    #[test]
+    fn get_eval_even_test() {
+        equal_eval("rnbqk1nr/2p2pp1/1p2p3/8/8/1P2P3/2P2PP1/RNBQK1NR w KQkq - 0 1");
+        equal_eval("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        equal_eval("rnbqkbnr/1ppp1pp1/8/8/8/8/1PPP1PP1/RNBQKBNR w KQkq - 0 1");
+        equal_eval("rnbqk1n1/pppp1ppp/4p3/8/8/4P3/PPPP1PPP/RNBQK1N1 w HQhq - 0 1");
+        equal_eval("rnk2bnr/pppppppp/8/8/8/8/PPPPPPPP/RNK2BNR w KQkq - 0 1");
+        equal_eval("3qk1r1/ppppp1pp/3bbp1n/8/r7/R2BBP1N/PPPPP1PP/3QK1R1 w Kk - 0 1");
+        equal_eval("r1b1k2r/ppp1p1p1/5P1p/2npN1B1/2NPn1b1/5p1P/PPP1P1P1/R1B1K2R w Qq - 0 1");
+        equal_eval("8/8/8/8/2k5/4K3/8/8 w - - 0 1");
+        equal_eval("rn2k2r/p2ppppp/4b3/8/8/4B3/P2PPPPP/RN2K2R w KQkq - 0 1");
+        equal_eval("rnbqkb1r/pppppppp/8/5n2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("rnbqkbnr/p6p/1p4p1/2pPPp2/2PppP2/1P4P1/P6P/RNBQKBNR w KQkq - 0 1");
+        equal_eval("1k6/3p4/4P3/8/8/4p3/3P4/1K6 w - - 0 1");
+        equal_eval("rnbqkb1r/ppppp1pp/6n1/6P1/6p1/6N1/PPPPP1PP/RNBQKB1R w KQkq - 0 1");
+        equal_eval("3k4/8/p1p5/1p2ppp1/1P2PPP1/P1P5/8/3K4 w - - 0 1");
+        equal_eval("6k1/5ppp/8/8/8/8/5PPP/6K1 w - - 0 1");
+        equal_eval("7k/5ppp/8/8/8/8/5PPP/7K w - - 0 1");
+    }
+
+    #[test]
+    fn eval_fig_value_test() {
+        // Figure values test for white
+        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 80, 190);
+        eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 300, 450);
+        eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 600, 750);
+        eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 850, 1100);
+        eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 1800, 2000);
+        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 3000, 3300);
+
+        // Figure values test for black
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1", -150, 50);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKB1R b KQkq - 0 1", -450, -350);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RN1QKB1R b KQkq - 0 1", -800, -600);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1200, -850);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -2300, -1800);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -3300, -2900);
+    }
+
+    #[test]
+    fn position_unequel_test() {
+        // position unequel
+        eval_between("rnbqkb1r/pppppppp/8/5n2/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1", -50, -10);
+        eval_between("rnbqkb1r/pppppppp/5n2/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", 10, 50);
+        eval_between("1k6/8/8/4P3/8/4p3/8/1K6 w - - 0 1", -700, -100);
+        eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -200, -10);
+        eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -200, -10);
+    }
+
+    #[test]
+    fn compare_eval_test() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let config = &Config::new();
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
+        let eval1 = eval_service.calc_eval(&board, config, movegen, false, false);
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
+        let eval2 = eval_service.calc_eval(&board, config, movegen, false, false);
+
+        let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
+        let eval3 = eval_service.calc_eval(&board, config, movegen, false, false);
+
+        let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
+        let eval4 = eval_service.calc_eval(&board, config, movegen, false, false);
+
+        println!("{}", eval1);
+        println!("{}", eval2);
+        println!("{}", eval3);
+        println!("{}", eval4);
+    }
+
+    #[test]
+    fn unequal_position_test() {
+        eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
+    }
+
+    #[test]
+    fn knight_position_test() {
+        fib("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1", "rnbqkbnr/pppppppp/8/8/8/7N/PPPPPPPP/RNBQKB1R b KQkq - 1 1");
+        fib("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "r1bqkbnr/pppppppp/n7/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/pppppppp/8/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppppp1p/8/6p1/5NP1/8/PPPPPP1P/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/pppp1ppp/4p3/8/5N2/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/pppp1ppp/4p3/8/4N3/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
+        fib("rnbqkbnr/ppppp1pp/8/5p2/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", "rnbqkbnr/ppppp1pp/8/5p2/8/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 1");
+
+        // special position to find bug
+        fib("rnbqkbnr/1p3ppp/p7/2p5/1P1p4/N4N2/P2PPPPP/R1BQKB1R b KQkq - 1 7", "rnbqkbnr/1p3ppp/8/1pp5/PP1p4/5N2/3PPPPP/R1BQKB1R w KQkq - 0 8");
+    }
+
+    #[test]
+    fn advance_pawn_eval_test() {
+        fib("8/1k6/8/4P3/8/8/1K6/8 w - - 0 1", "8/1k6/8/8/4P3/8/1K6/8 w - - 0 1");
+        fib("8/1k6/4P3/8/8/8/1K6/8 w - - 0 1", "8/1k6/8/4P3/8/8/1K6/8 w - - 0 1");
+        fib("8/1k2P3/8/8/8/8/1K6/8 w - - 0 1", "8/1k6/4P3/8/8/8/1K6/8 w - - 0 1");
+
+        fib("8/1k6/8/4p3/8/8/1K6/8 b - - 0 1", "8/1k6/8/8/4p3/8/1K6/8 b - - 0 1");
+        fib("8/1k6/8/8/4p3/8/1K6/8 b - - 0 1", "8/1k6/8/8/8/4p3/1K6/8 b - - 0 1");
+        fib("8/1k6/8/8/8/4p3/1K6/8 b - - 0 1", "8/1k6/8/8/8/8/1K2p3/8 b - - 0 1");
+    }
+
+    #[test]
+    fn knight_attack_test() {
+        // white knight attacks
+        fib("8/1k6/4b3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4b3/8/5N2/1K6/8/8 b - - 0 1");
+        fib("8/1k6/4r3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4r3/8/5N2/1K6/8/8 b - - 0 1");
+        fib("8/1k6/4q3/8/5N2/1K6/8/8 w - - 0 1", "8/1k6/4q3/8/5N2/1K6/8/8 b - - 0 1");
+
+        // black knight attacks
+        fib("8/1k6/5n2/8/4B3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4B3/1K6/8/8 b - - 0 1");
+        fib("8/1k6/5n2/8/4R3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4R3/1K6/8/8 b - - 0 1");
+        fib("8/1k6/5n2/8/4Q3/1K6/8/8 w - - 0 1", "8/1k6/5n2/8/4Q3/1K6/8/8 b - - 0 1");
+    }
+
+    #[test]
+    fn bishop_position_test() {
+        // white bishop trapped at rim
+        fib("r3k2r/pp1n2p1/2p3p1/5p2/3PnB2/2P3P1/PP2B1PP/R4RK1 b kq - 4 18", "r3k2r/pp1n2p1/2p3p1/5p2/3Pn2B/2P3P1/PP2B1PP/R4RK1 b kq - 4 18");
+    }
+
+    #[test]
+    fn game_phase_test() {
+        let fen = Service::new().fen;
+        let eval = Service::new().eval;
+
+        // init board
+        let board = fen.set_init_board();
+        assert!(eval.get_game_phase(&board) > 254);
+        assert!(eval.get_game_phase(&board) < 256);
+
+        // 7 pieces board
+        let board = fen.set_fen("8/8/2kq4/3ppp2/8/8/5N2/4K3 w - - 0 1");
+        assert!(eval.get_game_phase(&board) > 8);
+        assert!(eval.get_game_phase(&board) < 14);
+
+        // 6 pieces board
+        let board = fen.set_fen("8/8/2kq4/4pp2/8/8/5N2/4K3 w - - 0 1");
+        assert_eq!(0, eval.get_game_phase(&board));
+
+        // 3 pieces board
+        let board = fen.set_fen("8/8/2k5/8/8/8/5N2/4K3 w - - 0 1");
+        assert_eq!(0, eval.get_game_phase(&board));
+    }
+
+    #[test]
+    pub fn double_pawn_test() {
+        equal_eval("2k5/3p1p2/3p4/5p2/5P2/3P4/3P1P2/2K5 w - - 0 1");
+        eval_between("2k5/5p2/5p2/8/8/8/4PP2/2K5 w - - 0 1", 0, 60);
+        eval_between("2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1", -60, 0);
+        fib("2k5/4pp2/8/8/8/4P3/5P2/2K5 w - - 0 1", "2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1");
+        fib("2k5/5p2/4p3/8/8/8/4PP2/2K5 w - - 0 1", "2k5/5p2/4p3/8/5P2/8/5P2/2K5 w - - 0 1");
+    }
+
+    #[test]
+    pub fn print_eval_for_fig_test() {
+        _print_eval_for_fig("8/5Bp1/4P3/6p1/1b1k1P2/5K2/8/8 w - - 0 1");
+    }
+
+    #[test]
+    pub fn adjust_eval_test() {
+        let eval_service = Service::new().eval;
+        let config = &Config::new();
+
+        println!("{}", eval_service.adjust_eval(0, 255, config));
+        println!("{}", eval_service.adjust_eval(0, 100, config));
+        println!("{}", eval_service.adjust_eval(200, 160, config));
+        println!("{}", eval_service.adjust_eval(200, 100, config));
+        println!("{}", eval_service.adjust_eval(200, 90, config));
+        println!("{}", eval_service.adjust_eval(200, 50, config));
+    }
+
+    fn fib(fen1: &str, fen2: &str) {
+        let fen = Service::new().fen;
+        let eval = Service::new().eval;
+        let movegen = Service::new().move_gen;
+        let config = Config::for_tests();
+
+        let board1 = fen.set_fen(fen1);
+        let board2 = fen.set_fen(fen2);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen, false, false);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen, false, false);
+
+        println!("FIB: eval1={} eval2={} diff={} | fen1='{}' fen2='{}'", eval1, eval2, eval1 - eval2, fen1, fen2);
+
+        if !(eval1 > eval2) {
+            println!("-->> eval is not gt: {}", eval1 - eval2);
+            assert!(false);
+        }
+    }
+
+    fn equal_eval(fen: &str) {
+        let fen_service = Service::new().fen;
+        let mut eval_service = Service::new().eval;
+        eval_service._set_custom_config(&Config::_for_evel_equal_tests());
+        let movegen = Service::new().move_gen;
+
+        let config = &Config::_for_evel_equal_tests();
+        let board = &fen_service.set_fen(fen);
+        let eval = eval_service.calc_eval(board, config, &movegen, false, false);
+        assert!(eval.abs() <= 10, "Eval {} is not close to 0", eval);
+    }
+
+    fn eval_between(fen: &str, lower: i16, higher: i16) {
+        print!("Test: {} | ", fen);
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = Service::new().move_gen;
+
+        let config = &Config::_for_evel_equal_tests();
+        let board = &fen_service.set_fen(fen);
+        let eval = eval_service.calc_eval(board, config, &movegen, false, false);
+        println!("Eval: {}", eval);
+        assert!(eval >= lower);
+        assert!(eval <= higher);
+    }
+
+    fn _print_eval_for_fig(fen: &str) {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = Service::new().move_gen;
+
+        let board = &fen_service.set_fen(fen);
+        let mut config = Config::new();
+        config.print_eval_per_figure = true;
+        eval_service.calc_eval(board, &config, &movegen, false, false);
+        println!("------------");
     }
 }

@@ -11,7 +11,7 @@ use chrono::Local;
 
 use crate::{time_check, Config};
 use crate::service::Service;
-use crate::model::{EngineState, DataMap, DataMapKey};
+use crate::model::EngineState;
 
 use crate::model::RIP_COULDN_SEND_TO_GAME_CMD_QUEUE;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
@@ -44,12 +44,9 @@ pub fn uci_command_processor(
     rx_std_in: Receiver<String>,
     tx_game_command: mpsc::Sender<String>,
 ) {
-    let mut local_map = DataMap::new();
-    local_map.insert(DataMapKey::CalcTime, std::time::Instant::now());
-
     let stdout = Service::new().stdout;
     let uci_parser = Service::new().uci_parser;
-    let benchmark_value = time_check::calculate_benchmark(&engine_state, &mut local_map);
+    let benchmark_value = time_check::calculate_benchmark(&engine_state);
 
     loop {
         match rx_std_in.recv() {
@@ -89,7 +86,7 @@ pub fn uci_command_processor(
                 }
 
                 else if uci_token.trim().starts_with("test") {
-                    time_check::run_time_check(&engine_state, &mut local_map);
+                    time_check::run_time_check(&engine_state);
                 }
 
                 else if uci_token.trim().starts_with("debug") {
