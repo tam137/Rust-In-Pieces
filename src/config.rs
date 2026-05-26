@@ -15,7 +15,6 @@ pub struct Config {
     pub log_to_console: bool,
     pub quiescence_search_mode: QuiescenceSearchMode,
     pub print_info_string_during_search: bool,
-    pub write_hash_buffer_size: usize,
     #[allow(dead_code)]
     pub search_threads: i32,
     pub use_pv_nodes: bool,
@@ -83,13 +82,13 @@ pub struct Config {
     pub knight_attacks_bishop_tempo: i16,
     pub knight_attacks_rook_tempo: i16,
 
-    pub king_shield: i16,
+
     pub king_pawn_shield: i16,
     pub king_piece_shield: i16,
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
-    pub king_centered: i16,
+
     pub rook_on_seventh: i16,
     pub pawn_isolated_malus: i16,
     pub knight_mobility_factor: i16,
@@ -112,11 +111,7 @@ pub struct Config {
     pub history_max_threshold: u32,
     pub lmr_depth_threshold: i32,
     pub lmr_move_threshold: i32,
-    /// Base divisor controlling Late Move Reduction (LMR) aggressiveness.
-    /// Lower values (e.g. 1.75) make reductions more aggressive (reducing quiet moves more heavily).
-    /// Higher values (e.g. 2.25) make reductions more conservative.
-    /// Stockfish/Ethereal typically use values between 1.8 and 2.3. Default is 1.95.
-    pub lmr_base_divisor: f64,
+
     /// Precalculated logarithmic LMR reduction lookup table indexed by [depth][move_index].
     pub lmr_table: [[i16; 64]; 64],
     pub nmp_depth_threshold: i32,
@@ -142,7 +137,7 @@ impl Config {
             log_to_console: false,
             quiescence_search_mode: QuiescenceSearchMode::Alpha2,
             print_info_string_during_search: false,
-            write_hash_buffer_size: 10,
+
             search_threads: 2,
             use_pv_nodes: true,
             min_thinking_time: 2,
@@ -208,13 +203,13 @@ impl Config {
             knight_attacks_bishop_tempo: 10,
             knight_attacks_rook_tempo: 100,
 
-            king_shield: 40,
+
             king_pawn_shield: 40,
             king_piece_shield: 15,
             king_trapp_at_baseline_malus: 75,
             king_in_check_malus: 140,
             king_in_double_check_malus: 350,
-            king_centered: 85,
+
             rook_on_seventh: 25,
             pawn_isolated_malus: 8,
             knight_mobility_factor: 2,
@@ -237,7 +232,7 @@ impl Config {
             history_max_threshold: 9000,
             lmr_depth_threshold: 3,
             lmr_move_threshold: 3,
-            lmr_base_divisor: 1.95,
+
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
                 let divisor = 1.95;
@@ -306,7 +301,6 @@ impl Config {
         config.print_info_string_during_search = false;
         config.use_book = false;
         config.search_threads = 4;
-        config.write_hash_buffer_size = config.write_hash_buffer_size;
         config.max_zobrist_hash_entries = 10_000_000;
         config.use_underpromotions = true;
         config

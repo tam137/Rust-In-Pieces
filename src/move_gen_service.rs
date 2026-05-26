@@ -4,37 +4,12 @@ use once_cell::sync::Lazy;
 use crate::zobrist;
 use crate::config::Config;
 use crate::model::{
-    Board, DataMapKey, GameStatus, Stats, Turn, SearchContext,
+    Board, GameStatus, Stats, Turn, SearchContext,
     WHITE_PAWN, WHITE_ROOK, WHITE_KNIGHT, WHITE_BISHOP, WHITE_QUEEN, WHITE_KING,
     BLACK_PAWN, BLACK_ROOK, BLACK_KNIGHT, BLACK_BISHOP, BLACK_QUEEN, BLACK_KING,
 };
 use crate::zobrist::ZobristTable;
-use crate::DataMap;
 
-static RAYS: Lazy<[[u64; 8]; 64]> = Lazy::new(|| {
-    let mut rays = [[0u64; 8]; 64];
-    let dxs = [0, 0, 1, -1, 1, -1, -1, 1]; // NORTH, SOUTH, EAST, WEST, NORTH_EAST, SOUTH_WEST, NORTH_WEST, SOUTH_EAST
-    let dys = [1, -1, 0, 0, 1, -1, 1, -1];
-    for sq in 0..64 {
-        let file = (sq % 8) as i32;
-        let rank = (sq / 8) as i32;
-        for dir in 0..8 {
-            let dx = dxs[dir];
-            let dy = dys[dir];
-            let mut f = file + dx;
-            let mut r = rank + dy;
-            let mut mask = 0u64;
-            while f >= 0 && f < 8 && r >= 0 && r < 8 {
-                let s = r * 8 + f;
-                mask |= 1u64 << s;
-                f += dx;
-                r += dy;
-            }
-            rays[sq][dir] = mask;
-        }
-    }
-    rays
-});
 
 static KNIGHT_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
     let mut attacks = [0u64; 64];
@@ -256,7 +231,6 @@ impl MoveGenService {
                     valid_moves,
                     white_turn,
                     zobrist_table_read,
-                    do_move_ordering,
                     force_skip_validation,
                 );
             } else {
@@ -267,7 +241,6 @@ impl MoveGenService {
                     config,
                     valid_moves,
                     zobrist_table_read,
-                    do_move_ordering,
                     force_skip_validation,
                 );
             }
@@ -285,7 +258,6 @@ impl MoveGenService {
                         config,
                         valid_moves,
                         zobrist_table_read,
-                        do_move_ordering,
                         force_skip_validation,
                     );
                 }
@@ -389,7 +361,6 @@ impl MoveGenService {
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
         zobrist_table_read: &ZobristTable,
-        do_move_ordering: bool,
         force_skip_validation: bool,
     ) {
         let move_info = board.do_move(turn);
@@ -428,7 +399,6 @@ impl MoveGenService {
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
         zobrist_table_read: &ZobristTable,
-        do_move_ordering: bool,
         force_skip_validation: bool,
     ) {
         if config.use_underpromotions {
@@ -442,7 +412,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, do_move_ordering, force_skip_validation);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, force_skip_validation);
             }
         } else {
             let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
@@ -453,7 +423,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, do_move_ordering, force_skip_validation);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, force_skip_validation);
             }
         }
     }
@@ -1288,7 +1258,7 @@ mod tests {
         *board = old_board;
         let pv_nodes = Mutex::new(pv_nodes_map);
 
-        let zobrist_table = ZobristTable::new();
+        let zobrist_table = ZobristTable::with_capacity(1_000);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
@@ -1318,7 +1288,7 @@ mod tests {
         let service = Service::new();
         let config = Config::for_tests();
         
-        let zobrist_table = ZobristTable::new();
+        let zobrist_table = ZobristTable::with_capacity(1_000);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];

@@ -130,9 +130,6 @@ pub struct ZobristTable {
 }
 
 impl ZobristTable {
-    pub fn new() -> Self {
-        Self::with_capacity(10_000_000)
-    }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {

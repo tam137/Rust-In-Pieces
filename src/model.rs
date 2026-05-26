@@ -1,6 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::AtomicBool;
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
 
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
@@ -11,104 +10,7 @@ pub const RIP_COULDN_LOCK_MUTEX: &str = "RIP Could not lock mutex";
 
 pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands to game command queue";
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
-pub const RIP_MISSED_DM_KEY: &str = "RIP Missed Data Map key";
 pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
-
-#[derive(Clone)]
-pub enum ValueType {
-    Integer(i32),
-    Bool(bool),
-    Instant(Instant),
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum DataMapKey {
-    CalcTime,
-    MoveOrderingFlag,
-    ForceSkipValidationFlag,
-    WhiteGivesCheck,
-    BlackGivesCheck,
-    PvFlag,
-    TargetTime,
-    RootMovesTotal,
-    RootMovesSearched,
-}
-
-#[derive(Clone)]
-pub struct DataMap {
-    data_map: HashMap<DataMapKey, ValueType>,
-}
-
-impl DataMap {
-    pub fn new() -> Self {
-        DataMap {
-            data_map: HashMap::new(),
-        }
-    }
-
-    pub fn insert<T>(&mut self, key: DataMapKey, value: T)
-    where
-        DataMapKey: KeyToType<T>,
-    {
-        let data_value = key.create_value(value);
-        self.data_map.insert(key, data_value);
-    }
-
-    pub fn get_data<'a, T>(&'a self, key: DataMapKey) -> Option<&'a T>
-    where
-        DataMapKey: KeyToType<T>,
-    {
-        self.data_map.get(&key).and_then(|value| key.get_value(value))
-    }
-}
-
-pub trait KeyToType<T> {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a T>;
-    fn create_value(&self, value: T) -> ValueType;
-}
-
-
-impl KeyToType<bool> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a bool> {
-        match (self, value) {
-            (DataMapKey::PvFlag, ValueType::Bool(i)) |
-            (DataMapKey::MoveOrderingFlag, ValueType::Bool(i)) |
-            (DataMapKey::ForceSkipValidationFlag, ValueType::Bool(i)) |
-            (DataMapKey::WhiteGivesCheck, ValueType::Bool(i)) |
-            (DataMapKey::BlackGivesCheck, ValueType::Bool(i)) => Some(i),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: bool) -> ValueType {
-        ValueType::Bool(value)
-    }
-}
-
-impl KeyToType<Instant> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a Instant> {
-        match (self, value) {
-            (DataMapKey::CalcTime, ValueType::Instant(a)) => Some(a),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: Instant) -> ValueType {
-        ValueType::Instant(value)
-    }
-}
-
-impl KeyToType<i32> for DataMapKey {
-    fn get_value<'a>(&self, value: &'a ValueType) -> Option<&'a i32> {
-        match (self, value) {
-            (DataMapKey::TargetTime, ValueType::Integer(i)) |
-            (DataMapKey::RootMovesTotal, ValueType::Integer(i)) |
-            (DataMapKey::RootMovesSearched, ValueType::Integer(i)) => Some(i),
-            _ => None,
-        }
-    }
-    fn create_value(&self, value: i32) -> ValueType {
-        ValueType::Integer(value)
-    }
-}
 
 pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,

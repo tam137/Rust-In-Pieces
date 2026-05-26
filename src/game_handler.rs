@@ -1,11 +1,8 @@
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 
-use crate::DataMap;
-use crate::DataMapKey;
 use crate::Config;
 use crate::model::{EngineState, TimeInfo, TimeMode, SearchResult, UciGame, Stats};
 use crate::service::Service;
@@ -23,8 +20,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let book = Book::new();
     let logger = engine_state.log_sender.clone();
 
-    let mut local_map = DataMap::new();
-    local_map.insert(DataMapKey::CalcTime, Instant::now());
+
 
 
 
@@ -58,8 +54,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                 else if command == "infinite" {
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
-                    let mut local_map = local_map.clone();
-                    local_map.insert(DataMapKey::CalcTime, Instant::now());
+
                     
                     let mut best_result: Option<SearchResult> = None;
                     for depth in 2..100 {
@@ -98,8 +93,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() || !config.use_book {
-                        let mut local_map = local_map.clone();
-                        local_map.insert(DataMapKey::CalcTime, Instant::now());
+
                         
                         
 
@@ -135,7 +129,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         } else {
                             calculate_thinking_time(&time_info, white, game.board.move_count, &config)
                         };
-                        local_map.insert(DataMapKey::TargetTime, my_thinking_time as i32);
+
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).ok();
 
                         // Clear old PV data

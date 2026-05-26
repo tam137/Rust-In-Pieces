@@ -1,13 +1,9 @@
 use std::collections::VecDeque;
-use std::time::Instant;
 use std::sync::Arc;
-
 use crate::config::Config;
-use crate::model::{Board, DataMap, DataMapKey, GameStatus, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
+use crate::model::{Board, GameStatus, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
 use crate::move_gen_service::MoveGenService;
-
-use crate::model::RIP_MISSED_DM_KEY;
 
 
 pub struct SearchService;
@@ -286,7 +282,7 @@ impl SearchService {
         }
     }
 
-    fn get_least_valuable_attacker(&self, board: &Board, target_idx: u8, white: bool, occupied: u64, config: &Config, movegen: &MoveGenService) -> Option<(u8, u8)> {
+    fn get_least_valuable_attacker(&self, board: &Board, target_idx: u8, white: bool, occupied: u64, movegen: &MoveGenService) -> Option<(u8, u8)> {
         let attackers_mask = movegen.get_attackers_mask(board, !white, target_idx, occupied);
         let active_attackers = attackers_mask & occupied;
         if active_attackers == 0 {
@@ -342,7 +338,7 @@ impl SearchService {
         let mut white_to_move = !board.white_to_move;
 
         loop {
-            if let Some((attacker_sq, attacker_piece)) = self.get_least_valuable_attacker(board, to as u8, white_to_move, occupied, config, movegen) {
+            if let Some((attacker_sq, attacker_piece)) = self.get_least_valuable_attacker(board, to as u8, white_to_move, occupied, movegen) {
                 if depth >= 31 {
                     break;
                 }
@@ -1025,10 +1021,9 @@ impl SearchService {
 mod tests {
     use crate::config::Config;
     use crate::service::Service;
-    use crate::model::{Board, SearchResult, EngineState, Stats, SearchContext, Turn};
+    use crate::model::{EngineState, Stats, Turn};
     use crate::zobrist::ZobristTable;
     use std::sync::Arc;
-    use std::time::Instant;
 
     #[test]
     fn test_dynamic_nmp_verification_search() {
@@ -1040,7 +1035,7 @@ mod tests {
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: Arc::new(ZobristTable::new()),
+            zobrist_table: Arc::new(ZobristTable::with_capacity(100_000)),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
@@ -1106,9 +1101,7 @@ mod tests {
         // ln(16) * ln(16) / 1.95 = 2.77258 * 2.77258 / 1.95 = 7.687 / 1.95 = 3.94 -> 3
         assert_eq!(config.lmr_table[16][16], 3);
         
-        // Assert that a higher divisor scales reductions down, making LMR more conservative
         let mut config_conservative = Config::new();
-        config_conservative.lmr_base_divisor = 2.5;
         config_conservative.lmr_table = {
             let mut table = [[0i16; 64]; 64];
             let divisor = 2.5;

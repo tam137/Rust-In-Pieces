@@ -19,23 +19,17 @@ mod magic;
 use std::sync::Arc;
 use std::thread;
 use std::sync::mpsc;
-use std::time::Instant;
 
 use crate::config::Config;
-use crate::model::DataMap;
 use crate::game_handler::game_loop;
 use crate::threads::std_reader;
 use crate::threads::uci_command_processor;
 use crate::threads::logger_buffer_thread;
 
-use model::DataMapKey;
 use model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
-
-    let mut local_map = DataMap::new();
-    local_map.insert(DataMapKey::CalcTime, Instant::now());
     
     
 

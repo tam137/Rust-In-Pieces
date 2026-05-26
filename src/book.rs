@@ -128,7 +128,7 @@ mod tests {
     use super::*;
     use crate::service::Service;
     use crate::config::Config;
-    use crate::model::{MoveList, DataMap, SearchContext, Stats};
+    use crate::model::{MoveList, SearchContext, Stats};
     use crate::zobrist::ZobristTable;
 
     #[test]
@@ -160,7 +160,7 @@ mod tests {
             let mut board = fen_service.set_fen(fen);
             
             // Generate all legal moves for the current active player.
-            let local_map = DataMap::new();
+
             let mut move_list = MoveList::new();
             service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
 
