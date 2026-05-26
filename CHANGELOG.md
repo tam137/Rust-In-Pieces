@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.9] - 2026-05-26
+
+### Added
+- **Restoration of Check-Giving Heuristic (gives_check_bonus)**:
+  - Re-established the positional check-giving bonus (`gives_check_bonus = 30` centipawns) in the minimax search and Quiescence Search.
+  - Dynamically resolved check-giving states directly on the stack by inspecting the last played move (`turn.gives_check`) and the side to move (`board.white_to_move`), achieving a zero-overhead, completely allocation-free integration.
+  - Resolved a silent evaluation regression present since version `v0.9.4` (where the gives-check bonus was bypassed with static `false, false` arguments to `calc_eval` after the removal of `DataMap`), fully restoring the engine's tactical aggressiveness, forcing moves, and Matt-net tracking capabilities.
+- **Unit Verification Suite**:
+  - Implemented `test_gives_check_evaluation_bonus` in `src/eval_service.rs` to mathematically verify check-giving bonuses under the engine's game phase scaling system (`gives_check_bonus * game_phase / 256`).
+
+### Fixed
+
+
+
 ## [V0.9.8] - 2026-05-26
+
+> [!WARNING]
+> **AFFECTED BY EVAL REGRESSION**: This version suffers from a silent evaluation regression where the check-giving bonus (`gives_check_bonus = 30`) was bypassed by passing static `false, false` arguments to `calc_eval` in search loops. This causes the engine to play much more passively and miss forcing moves.
 
 ### Added
 - **Static Exchange Evaluation (SEE) Engine Heuristic**:
@@ -31,6 +48,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.9.7] - 2026-05-26
 
+> [!WARNING]
+> **AFFECTED BY EVAL REGRESSION**: This version suffers from a silent evaluation regression where the check-giving bonus (`gives_check_bonus = 30`) was bypassed by passing static `false, false` arguments to `calc_eval` in search loops. This causes the engine to play much more passively and miss forcing moves.
+
 ### Added
 - **Logarithmic LMR Table Heuristic**: Replaced the static, 1-ply quiet move search reduction with a precalculated logarithmic LMR table indexed by `[depth][move_index]` to achieve aggressive, mathematically scaled search tree compression.
 - **Dynamic Reduction Discounts & Metadata Coupling**:
@@ -46,6 +66,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.9.6] - 2026-05-26
 
+> [!WARNING]
+> **AFFECTED BY EVAL REGRESSION**: This version suffers from a silent evaluation regression where the check-giving bonus (`gives_check_bonus = 30`) was bypassed by passing static `false, false` arguments to `calc_eval` in search loops. This causes the engine to play much more passively and miss forcing moves.
+
 ### Added
 - **Reactivated thinking time checks**: Correctly passed `go_start_time` (the start of the `go` command) instead of a fresh `std::time::Instant::now()` in each depth iteration of iterative deepening inside `src/game_handler.rs`.
 - **Cumulative Time Budget Fix**: Previously, each depth iteration reset the search start time to `Instant::now()`, making the time-checking mechanism inside `minimax` evaluate thinking time relative only to the *start of that specific depth* rather than the *start of the entire move*. This allowed the engine to repeatedly spend its budget at each search depth, exceeding its time target by 2x to 3x, and eventually losing by timeout under rapid time controls (e.g. 9s + 105ms). Passing the single `go_start_time` across all search depths enforces a strict cumulative time ceiling, preventing flagging.
@@ -54,10 +77,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Tournament Timeout Bug**: Resolved the critical time management defect present in V0.9.4 and V0.9.5 that caused the engine to ignore clock commands and forfeit games on move 2 or 3.
 
-## [V0.9.5] - 2026-05-26 [BUGGY - CRITICAL TIME MANAGEMENT BUG]
+## [V0.9.5] - 2026-05-26 [BUGGY - CRITICAL TIME MANAGEMENT & EVAL REGRESSION BUGS]
 
 > [!WARNING]
-> **BUGGY VERSION (CRITICAL)**: This release suffers from a critical time-management bug where `target_time` in `src/game_handler.rs` was hardcoded to `None`. This bypassed all time-allocation checks inside the search loop, causing the engine to search indefinitely until flagging, resulting in a severe tournament Elo drop to 1349.
+> **BUGGY VERSION (CRITICAL)**: This release suffers from two critical defects:
+> 1. **Time Management Bug**: `target_time` in `src/game_handler.rs` was hardcoded to `None`, causing immediate tournament timeouts.
+> 2. **Check Evaluation Regression**: The check-giving bonus (`gives_check_bonus = 30`) was bypassed by passing static `false, false` arguments to `calc_eval` in search loops, causing passive play.
 
 ### Fixed
 - **Nested NMP Recursion Bug**: Resolved a critical search logic bug where the `skip_null_move` boolean argument was ignored in the Null Move Pruning (NMP) trigger condition inside `src/search_service.rs`. This omission caused NMP to be executed redundantly within recursive null-searches and verification searches where NMP should have been strictly disabled.
@@ -66,12 +91,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Depth 8** nodes searched dropped by **10%** (from 203,596 down to 182,680).
 - **Extreme NPS Boost**: By eliminating redundant and heavily nested null-move cycles, the search engine throughput reached a new record-breaking peak of **13.75 MNPS** (Million Nodes Per Second) at depth 9 search on startpos, completing the search in just **49 ms**!
 
-## [V0.9.4] - 2026-05-26 [BUGGY - CRITICAL TIME MANAGEMENT & NMP RECURSION BUGS]
+## [V0.9.4] - 2026-05-26 [BUGGY - CRITICAL TIME MANAGEMENT, NMP RECURSION & EVAL REGRESSION BUGS]
 
 > [!WARNING]
-> **BUGGY VERSION (CRITICAL)**: This release is highly unstable and suffers from two major defects:
-> 1. **Time Management Bug**: `target_time` was hardcoded to `None`, bypassing the thinking time threshold and causing immediate tournament timeouts (Elo collapse to 1290).
-> 2. **Nested NMP Recursion Bug**: Omission of the `!skip_null_move` check allowed recursive NMP cycles inside null-searches, bloating the search tree by up to 34% and slowing down searching speeds.
+> **BUGGY VERSION (CRITICAL)**: This release is highly unstable and suffers from three major defects:
+> 1. **Time Management Bug**: `target_time` was hardcoded to `None`, causing immediate tournament timeouts.
+> 2. **Nested NMP Recursion Bug**: Omission of the `!skip_null_move` check allowed recursive NMP cycles, bloating the search tree.
+> 3. **Check Evaluation Regression**: Introduction of stack-allocated `SearchContext` silently bypassed the check-giving bonus (`gives_check_bonus = 30`) by passing static `false, false` arguments to `calc_eval`, causing passive play.
 - **Dynamic Null Move Pruning (NMP) with Verification Search**: Implemented a mathematically robust NMP system. Replaced static depth reductions with dynamically scaling reductions `config.nmp_reduction + (depth / config.nmp_dynamic_divisor)`. Integrated a Verification Search at high depths (`depth >= config.nmp_verification_threshold`) to mathematically secure Zugzwang-vulnerable endgames, drastically reducing endgame blunders while maintaining tree compression.
 - **SearchContext Architecture**: Fully removed the expensive, heap-allocated `DataMap` parameter-passing system. Replaced it with a zero-cost stack-allocated `SearchContext` struct passed by reference, unlocking major Multi-Threading stability and doubling raw NPS (Nodes Per Second) speed by eliminating dynamic borrow-checking overhead.
 - **Stateless Evaluation Service**: Re-architected `eval_service.rs` to process check-states and evaluate board features procedurally using strict boolean flags instead of dynamic hash-map lookups, heavily optimizing leaf-node evaluation cycles.
