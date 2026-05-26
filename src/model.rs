@@ -125,6 +125,7 @@ pub struct SearchContext<'a> {
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
     pub history_table: *const [[u32; 64]; 64],
+    pub counter_move: Option<Turn>,
 }
 
 

@@ -226,6 +226,7 @@ if [ $? -eq 0 ]; then
     if [ -n "$EODSERVERIP" ]; then
         echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/suprah-$NEW_VERSION"
     fi
+    echo -e "\n${YELLOW}Reminder: Please open CHANGELOG.md and manually enrich the release notes with detailed explanations of changes.${NC}"
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
