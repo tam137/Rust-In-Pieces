@@ -8,18 +8,32 @@ SupraH is engineered for maximum computational speed, zero-allocation safety dur
 
 ## 🚀 Key Features & Architecture
 
-### 1. Search & Pruning Upgrades
-*   **Principal Variation Search (PVS)**: Zero-window search for non-PV nodes to aggressively compress search branches.
-*   **Late Move Reductions (LMR)**: Dynamically reduces quiet moves further down the move list in deep sub-trees, fully configurable via LMR parameters.
-*   **Null Move Pruning (NMP)**: Bypasses branches early if the position is so strong that passing the turn still yields a beta-cutoff, protected by robust non-pawn material checks to prevent Zugzwang blunders.
-*   **Reverse Futility Pruning (RFP)**: Also known as Static Null Move Pruning, immediately crops futile leaf nodes at shallow depths.
-*   **Aspiration Windows**: Restricts search bounds at the root, widening bounds progressively if scores fail low or high.
+SupraH utilizes a state-of-the-art **Minimax Search with Alpha-Beta Pruning** and highly selective pruning algorithms to search millions of positions efficiently. Below is a comprehensive reference of all search features and move-sorting heuristics implemented in the engine, complete with technical definitions and direct links to the English-language [Chess Programming Wiki (CPW)](https://www.chessprogramming.org).
+
+### 1. Core Search & Selective Pruning
+
+| Feature | Technical Description | Wiki Reference |
+| :--- | :--- | :--- |
+| **Alpha-Beta Pruning** | The core recursive search algorithm, pruning branches that are mathematically proven to be worse than previously evaluated moves. | [Alpha-Beta](https://www.chessprogramming.org/Alpha-Beta) |
+| **Principal Variation Search (PVS)** | A highly selective search method utilizing zero-width window searches `[alpha, alpha+1]` on non-PV nodes to aggressively prove that sub-trees cannot improve alpha. | [Principal Variation Search](https://www.chessprogramming.org/Principal_Variation_Search) |
+| **Late Move Reductions (LMR)** | Reduces quiet moves searched further down the move list in deep sub-trees, dynamically adjusting reductions based on PV-node state, history heuristics, and killer moves. | [Late Move Reductions](https://www.chessprogramming.org/Late_Move_Reductions) |
+| **Null Move Pruning (NMP)** | Bypasses standard search branches early by giving the opponent a free double move ("passing the turn"). If the search still yields a beta cutoff, the branch is safely pruned. Integrated with a deep **Verification Search** to avoid Zugzwang blunders. | [Null Move Pruning](https://www.chessprogramming.org/Null_Move_Pruning) |
+| **Reverse Futility Pruning (RFP)** | Also known as Static Null Move Pruning; immediately prunes leaf nodes at shallow depths when the static evaluation (minus a depth-scaled margin) is greater than or equal to beta. | [Reverse Futility Pruning](https://www.chessprogramming.org/Reverse_Futility_Pruning) |
+| **Aspiration Windows** | Bounds the initial search using a narrow window centered on the previous iteration's score, dynamically widening the window if search scores fail low or high. | [Aspiration Windows](https://www.chessprogramming.org/Aspiration_Windows) |
+| **Quiescence Search (Q-Search)** | Extends leaf nodes recursively by searching only captures and promotions until a tactically stable position ("stand-pat") is reached, completely resolving the horizon effect. | [Quiescence Search](https://www.chessprogramming.org/Quiescence_Search) |
+| **Static Exchange Evaluation (SEE)** | Evaluates the material balance of capture sequences on a single target square. Used to prune losing quiet captures in Quiescence Search (`SEE < 0`) and demote blunder captures below quiet moves in standard search move ordering. | [Static Exchange Evaluation](https://www.chessprogramming.org/Static_Exchange_Evaluation) |
 
 ### 2. Move Ordering Heuristics
-*   **Transposition Table (TT)**: Zobrist hash-keyed transposition table with smart replacement policies to instantly retrieve exact, lower-bound, and upper-bound scores.
-*   **Killer Moves**: Prioritizes successful threat-refuting quiet moves at each ply.
-*   **Counter-Moves Heuristic**: Tracks and ranks the best quiet response moves to specific opponent quiet moves.
-*   **History Heuristic & Ageing**: Rewards quiet moves that cause beta cutoffs, with built-in aging protection to keep table sorting highly responsive.
+
+Optimal move ordering is crucial for triggering Alpha-Beta cutoffs as early as possible. SupraH achieves highly efficient sorting using these combined techniques:
+
+| Heuristic | Technical Description | Wiki Reference |
+| :--- | :--- | :--- |
+| **Transposition Table (TT)** | A 100% lock-free table using Zobrist hashing and a double-check portable load/store mechanism. Instantly stores and retrieves exact, lower-bound, and upper-bound search evaluations to reuse search results and sort the best move at the absolute top. | [Transposition Table](https://www.chessprogramming.org/Transposition_Table) <br> [Zobrist Hashing](https://www.chessprogramming.org/Zobrist_Hashing) |
+| **Killer Moves** | Tracks the two most recent quiet moves that caused a beta cutoff at each ply, prioritizing them immediately after captures. | [Killer Move](https://www.chessprogramming.org/Killer_Move) |
+| **Countermove Heuristic** | Stores and ranks the best quiet response move that previously refuted the opponent's previous quiet move, providing context-aware sorting. | [Countermove Heuristic](https://www.chessprogramming.org/Countermove_Heuristic) |
+| **History Heuristic & Aging** | Dynamically increments a weight table for quiet moves causing beta cutoffs (scaled by `depth * depth`), with built-in aging processes to keep sorting highly responsive to recent positions. | [History Heuristic](https://www.chessprogramming.org/History_Heuristic) |
+| **Mate Distance Pruning** | Bounds alpha-beta thresholds based on the maximum possible distance to a checkmate, avoiding redundant calculations when a quicker mate has already been discovered. | [Mate Distance Pruning](https://www.chessprogramming.org/Mate_Distance_Pruning) |
 
 ### 3. Hand-Crafted Evaluation (HCE)
 *   **Passed Pawn Dominance**: Detailed endgame bonuses for passed pawn advancement, protected passed pawn coordination, and rooks standing directly behind passed pawns.
