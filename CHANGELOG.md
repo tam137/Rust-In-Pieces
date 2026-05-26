@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.0] - 2026-05-26
+
+### Added
+- **Safe & Portable Lock-Free Transposition Table (`src/zobrist.rs`)**:
+  - Re-architected `ZobristTable` from an `RwLock<Vec<TranspositionEntry>>` to a completely lock-free array of `AtomicEntry` structs.
+  - Utilized a standard, portable **Double-Check Atomic load/store sequence** indexed with `AtomicU64` key/data pairs to completely eliminate write races and dynamic lock contention.
+  - Designed bit-packing routines (`pack()` and `unpack()`) to compress `eval` (16 bits), `best_move` (16 bits), `depth` (8 bits), and `entry_type` (8 bits) into a single `u64` data payload.
+  - Implemented the depth-preferred replacement policy in `insert_entry` with a safe read-update sequence, ensuring no torn entries can ever corrupt search results.
+  - Wrote a massive multithreaded stress test (`zobrist_lock_free_concurrency_test`) utilizing 8 parallel threads concurrently accessing and mutating the transposition table to verify thread-safety under heavy contention.
+- **Static Exchange Evaluation (SEE) in Move Ordering (`src/search_service.rs`)**:
+  - Integrated the Static Exchange Evaluation (SEE) pruning heuristic into both the recursive search `minimax` (depth > 0) and the root search `get_moves` move sorting phases.
+  - Automatically filters and demotes capture moves that statically lose material (`SEE < 0`), moving them below all quiet moves while preserving their relative MVV-LVA ordering.
+  - Excluded PV/TT moves from demotion to guarantee that the previous best-path candidates are always searched first.
+  - **Search Tree Compression**: Compresses the search tree by **29.4%** at depth 9 (from 357,072 nodes down to 252,146 nodes on startpos), reducing search time by 5.4% while maintaining the exact same search path.
+- **Configurable UCI Aggressiveness Control (`src/config.rs`, `src/threads.rs`, `src/game_handler.rs`)**:
+  - Defined the `Aggressiveness` enum (Normal, Aggressive, HighAggressive) and integrated the field into the engine's `Config`.
+  - Added UCI engine settings parsing support via `setoption name Aggressiveness value <mode>`.
+  - Dynamically clones configuration into `active_config` inside the `game_loop` and updates it upon command, passing it down to all subsequent search layers.
+  - Scales positional weights dynamically inside `calc_eval`: King Ring Attacks are scaled by `1.5x` (Aggressive) and `2.0x` (HighAggressive), Queen Attacks by `1.3x` / `1.6x`, and mobility bonuses by `1.2x` / `1.4x`, with `Normal` remaining perfectly matched to our baseline.
+- **Gives-Check Bonus Elimination (`src/config.rs`, `src/eval_service.rs`, `src/search_service.rs`, `src/time_check.rs`)**:
+  - Deleted the static positional `gives_check_bonus` (+30 cp) from evaluation to eliminate "patzer-checks" that statically inflated positions but worsened engine play. Deep forcing checks are still found dynamically.
+
+### Fixed
+- **Compiler Dead Code Warnings**: Resolved unused variant warnings for `Aggressive` and `HighAggressive` by actively routing them through the UCI command channel processor.
+
+
+
 ## [V0.9.9] - 2026-05-26
 
 ### Added
