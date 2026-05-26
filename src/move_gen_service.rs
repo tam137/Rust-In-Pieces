@@ -133,7 +133,7 @@ impl MoveGenService {
         let mut pv_node = None;
         if !only_captures && config.use_pv_nodes {
             if board.cached_hash == 0 {
-                board.cached_hash = zobrist::gen(board);
+                board.cached_hash = zobrist::gen_hash(board);
             }
             let pv_nodes_guard = context.pv_nodes.lock().expect(crate::model::RIP_COULDN_LOCK_MUTEX);
             if let Some(pv_node_result) = pv_nodes_guard.get(&board.cached_hash) {
@@ -144,7 +144,7 @@ impl MoveGenService {
         let mut tt_best_move = None;
         if !only_captures && config.use_zobrist {
             if board.cached_hash == 0 {
-                board.cached_hash = zobrist::gen(board);
+                board.cached_hash = zobrist::gen_hash(board);
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
                 tt_best_move = entry.decompress_move(board);
@@ -1251,7 +1251,7 @@ mod tests {
         let mut pv_nodes_map = HashMap::new();
         let old_board = board.clone();
         for turn in &move_row {
-            let hash = zobrist::gen(board);
+            let hash = zobrist::gen_hash(board);
             pv_nodes_map.insert(hash, *turn);
             board.do_move(turn);
         }

@@ -1,6 +1,6 @@
 # SupraH (Rust Chess Engine)
 
-SupraH is a highly optimized, high-performance chess engine written in **Rust** (Edition 2021). It features a micro-optimized search tree, highly selective pruning, state-of-the-art hand-crafted evaluation (HCE), and full multi-platform capability (Ubuntu, Windows, and native ARM64 compilation).
+SupraH is a highly optimized, high-performance chess engine written in **Rust** (Edition 2024). It features a micro-optimized search tree, highly selective pruning, state-of-the-art hand-crafted evaluation (HCE), and full multi-platform capability (Ubuntu, Windows, and native ARM64 compilation).
 
 SupraH is engineered for maximum computational speed, zero-allocation safety during search paths, and robust tactical accuracy, stabilizing at its peak playing strength of **2260 ELO** on the Louguet Chess Test II (LCT II) benchmark.
 
