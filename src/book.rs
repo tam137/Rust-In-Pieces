@@ -149,7 +149,11 @@ mod tests {
             killer_moves: [None; 2],
             history_table: &history_table,
             counter_move: None,
-        };
+        start_time: std::time::Instant::now(),
+                            target_time: None,
+                            root_moves_total: 0,
+                            root_moves_searched: 0,
+                        };
 
         for (fen, moves) in book.book_map.iter() {
             // Load the FEN onto a board. If it is invalid, this will panic.
@@ -158,7 +162,7 @@ mod tests {
             // Generate all legal moves for the current active player.
             let local_map = DataMap::new();
             let mut move_list = MoveList::new();
-            service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, &local_map, &mut move_list);
+            service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
 
             // Convert all generated moves to algebraic strings.
             let mut legal_moves = Vec::new();

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
@@ -121,11 +122,15 @@ pub struct EngineState {
 
 pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
-    pub stop_flag: &'a std::sync::atomic::AtomicBool,
+    pub stop_flag: &'a AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
     pub history_table: *const [[u32; 64]; 64],
     pub counter_move: Option<Turn>,
+    pub start_time: std::time::Instant,
+    pub target_time: Option<i32>,
+    pub root_moves_total: i32,
+    pub root_moves_searched: i32,
 }
 
 
