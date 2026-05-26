@@ -9,7 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.9.6] - 2026-05-26
 
 ### Added
-- **Reactivated thinking time checks**: Correctly passed `Some(my_thinking_time as i32)` instead of `None` into the search service within `src/game_handler.rs`. This restores the engine's ability to monitor elapsed time during searches and abort searching when the calculated time target is reached, preventing the engine from losing games by timeout (flagging).
+- **Reactivated thinking time checks**: Correctly passed `go_start_time` (the start of the `go` command) instead of a fresh `std::time::Instant::now()` in each depth iteration of iterative deepening inside `src/game_handler.rs`.
+- **Cumulative Time Budget Fix**: Previously, each depth iteration reset the search start time to `Instant::now()`, making the time-checking mechanism inside `minimax` evaluate thinking time relative only to the *start of that specific depth* rather than the *start of the entire move*. This allowed the engine to repeatedly spend its budget at each search depth, exceeding its time target by 2x to 3x, and eventually losing by timeout under rapid time controls (e.g. 9s + 105ms). Passing the single `go_start_time` across all search depths enforces a strict cumulative time ceiling, preventing flagging.
 - **Time Control Compliance**: Fully verified in remote bullet tournament settings (8000ms + 110ms increment), ensuring the engine successfully finishes searches and makes moves within constraints, reclaiming its peak playing strength.
 
 ### Fixed

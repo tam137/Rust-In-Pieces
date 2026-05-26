@@ -142,6 +142,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         engine_state.pv_nodes.lock().unwrap().clear();
                         engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
 
+                        let go_start_time = std::time::Instant::now();
                         let mut best_result: Option<SearchResult> = None;
                         let max_depth = config.max_depth;
 
@@ -163,7 +164,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 &config,
                                 &service,
                                 &engine_state,
-                                std::time::Instant::now(),
+                                go_start_time,
                                 Some(my_thinking_time as i32),
                             );
 
