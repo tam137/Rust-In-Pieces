@@ -133,7 +133,9 @@ pub fn uci_command_processor(
 
                 else if uci_token.trim().starts_with("setoption") {
                     let token_lower = uci_token.to_lowercase();
-                    if token_lower.contains("name threads") && token_lower.contains("value") {
+                    if token_lower.contains("name aggressiveness") {
+                        tx_game_command.send(uci_token.clone()).ok();
+                    } else if token_lower.contains("name threads") && token_lower.contains("value") {
                         let parts: Vec<&str> = uci_token.split_whitespace().collect();
                         if let Some(val_str) = parts.last() {
                             if let Ok(threads) = val_str.parse::<i32>() {

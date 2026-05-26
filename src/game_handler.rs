@@ -19,10 +19,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let mut game = UciGame::new(service.fen.set_init_board());
     let book = Book::new();
     let logger = engine_state.log_sender.clone();
-
-
-
-
+    let mut active_config = config.clone();
 
     loop {
         match rx_game_command.recv() {
@@ -34,6 +31,20 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
                     logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     continue;
+                }
+
+                else if command.starts_with("setoption") {
+                    let cmd_lower = command.to_lowercase();
+                    if cmd_lower.contains("name aggressiveness") {
+                        if cmd_lower.contains("value aggressive") {
+                            active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
+                        } else if cmd_lower.contains("value highaggressive") {
+                            active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+                        } else {
+                            active_config.aggressiveness = crate::config::Aggressiveness::Normal;
+                        }
+                        logger.send(format!("Aggressiveness option updated to {:?}", active_config.aggressiveness)).ok();
+                    }
                 }
 
                 else if command.starts_with("board") {
@@ -55,7 +66,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 else if command == "infinite" {
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
 
-                    
                     let mut best_result: Option<SearchResult> = None;
                     for depth in 2..100 {
                         if engine_state.stop_flag.load(Ordering::SeqCst) {
@@ -66,7 +76,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         let is_white = game.board.white_to_move;
                         let mut stats = Stats::default();
-                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &config, &service, &engine_state, std::time::Instant::now(), None);
+                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &active_config, &service, &engine_state, std::time::Instant::now(), None);
 
                         if search_result.completed {
                             best_result = Some(search_result.clone());
@@ -86,18 +96,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
                     
-                    // try to find book move
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);
                     let time_info = uci_parser.parse_go(command.as_str());
 
-                    if book_move.is_empty() || !config.use_book {
+                    if book_move.is_empty() || !active_config.use_book {
 
-                        
-                        
-
-                        // Eindeutige Züge (Obvious Moves / Early Exit)
                         let mut stats = Stats::default();
                         let history_table = [[0u32; 64]; 64];
                         let context = crate::model::SearchContext {
@@ -107,13 +112,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             killer_moves: [None; 2],
                             history_table: &history_table,
                             counter_move: None,
-                        start_time: std::time::Instant::now(),
+                            start_time: std::time::Instant::now(),
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
-                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, true, false, &mut valid_moves);
+                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
 
                         if valid_moves.len == 1 {
                             let mv_str = valid_moves.moves[0].to_algebraic();
@@ -123,22 +128,20 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             continue;
                         }
 
-                        // Calculate and store the target time in local_map
                         let my_thinking_time = if time_info.time_mode == TimeMode::None || time_info.time_mode == TimeMode::Depth {
                             i32::MAX as u64
                         } else {
-                            calculate_thinking_time(&time_info, white, game.board.move_count, &config)
+                            calculate_thinking_time(&time_info, white, game.board.move_count, &active_config)
                         };
 
                         logger.send(format!("My thinking time is: {}", my_thinking_time)).ok();
 
-                        // Clear old PV data
                         engine_state.pv_nodes.lock().unwrap().clear();
                         engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
 
                         let go_start_time = std::time::Instant::now();
                         let mut best_result: Option<SearchResult> = None;
-                        let max_depth = config.max_depth;
+                        let max_depth = active_config.max_depth;
 
                         for depth in 2..=max_depth {
                             if engine_state.stop_flag.load(Ordering::SeqCst) {
@@ -155,7 +158,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 depth,
                                 is_white,
                                 &mut stats,
-                                &config,
+                                &active_config,
                                 &service,
                                 &engine_state,
                                 go_start_time,
@@ -166,7 +169,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 best_result = Some(search_result.clone());
                                 service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
 
-                                // Update PV nodes in EngineState
                                 let mut pv_guard = engine_state.pv_nodes.lock().unwrap();
                                 pv_guard.clear();
                                 let mut old_board = game.board.clone();
@@ -178,12 +180,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
                             }
 
-                            // If depth limit is hit, break
                             if time_info.time_mode == TimeMode::Depth && depth >= time_info.depth {
                                 break;
                             }
 
-                            // Break early if we found mate
                             if let Some(ref res) = best_result {
                                 if res.get_eval().abs() > 32000 {
                                     logger.send("found mate. stopping search".to_string()).ok();
@@ -192,15 +192,12 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             }
                         }
 
-                        // Print the best move
                         if let Some(res) = best_result {
                             stdout.write(&format!("bestmove {}", res.get_best_move_algebraic()));
                             game.do_move(&res.get_best_move_algebraic());
                             logger.send(format!("final move: bestmove {}", res.get_best_move_algebraic())).ok();
 
-
                         } else {
-                            // Fallback if search was immediately aborted
                             let mut stats = Stats::default();
                             let history_table = [[0u32; 64]; 64];
                             let context = crate::model::SearchContext {
@@ -210,13 +207,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 killer_moves: [None; 2],
                                 history_table: &history_table,
                                 counter_move: None,
-                            start_time: std::time::Instant::now(),
-                            target_time: None,
-                            root_moves_total: 0,
-                            root_moves_searched: 0,
-                        };
+                                start_time: std::time::Instant::now(),
+                                target_time: None,
+                                root_moves_total: 0,
+                                root_moves_searched: 0,
+                            };
                             let mut valid_moves = crate::model::MoveList::new();
-                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &config, &context, true, false, &mut valid_moves);
+                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
                             if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));
@@ -225,7 +222,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 stdout.write("bestmove 0000");
                             }
                         }
-                    } else { // do book move
+                    } else {
                         logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         game.do_move(book_move);

@@ -88,7 +88,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
     time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, true, false, &mut move_list3));
 
     println!("\nexpected ~2.5µs");
-    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen, false, false));
+    time_it!(service.eval.calc_eval(&board, &config, &service.move_gen));
 
     println!("\nexpected <1000ns");
     let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");

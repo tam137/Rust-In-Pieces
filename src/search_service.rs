@@ -57,6 +57,16 @@ impl SearchService {
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, false, &mut turns);
 
+        // Adjust ranks using SEE for captures (excluding PV/TT moves)
+        for i in 0..turns.len {
+            let turn = &mut turns.moves[i];
+            if turn.capture != 0 && turn.rank < 100000 {
+                if !self.see_ge(board, turn, 0, config, &service.move_gen) {
+                    turn.rank -= 100000;
+                }
+            }
+        }
+
         // Sort turns once by rank descending
         for i in 0..turns.len {
             let mut best_idx = i;
@@ -375,9 +385,7 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64])
         -> (Option<Turn>, i16) {
 
-        let last_move_gave_check = turn.gives_check;
-        let white_gives_check = !board.white_to_move && last_move_gave_check;
-        let black_gives_check = board.white_to_move && last_move_gave_check;
+
 
         for slot in pv.iter_mut() {
             *slot = None;
@@ -523,7 +531,7 @@ impl SearchService {
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, white_gives_check, black_gives_check);
+            let static_eval = service.eval.calc_eval(board, config, &service.move_gen);
             let margin = 80 * depth as i16;
             
             if white {
@@ -570,7 +578,7 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, white_gives_check, black_gives_check);
+                stand_pat = service.eval.calc_eval(board, config, &service.move_gen);
                 eval = stand_pat;
                 if config.use_zobrist {
                     context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
@@ -725,6 +733,16 @@ impl SearchService {
                 GameStatus::Draw => (None, 0),
                 _ => panic!("RIP no defined game end"),
             };
+        }
+
+        // Adjust ranks using SEE for captures (excluding PV/TT moves)
+        for i in 0..turns.len {
+            let turn = &mut turns.moves[i];
+            if turn.capture != 0 && turn.rank < 100000 {
+                if !self.see_ge(board, turn, 0, config, &service.move_gen) {
+                    turn.rank -= 100000;
+                }
+            }
         }
 
         let mut turn_counter = 0;
