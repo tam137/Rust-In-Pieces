@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.7] - 2026-05-26
+
+### Added
+- **Logarithmic LMR Table Heuristic**: Replaced the static, 1-ply quiet move search reduction with a precalculated logarithmic LMR table indexed by `[depth][move_index]` to achieve aggressive, mathematically scaled search tree compression.
+- **Dynamic Reduction Discounts & Metadata Coupling**:
+  - Decreased LMR reduction by `1` ply for PV nodes, Killer moves, and Counter-moves (leveraging `context.counter_move`) to protect promising paths.
+  - Dynamically coupled LMR with History Heuristics: reduced LMR by `1` ply for quiet moves with high history scores (`> 4000`) and increased LMR by `1` ply for historically weak quiet moves (`< 500`) to prune poor branches earlier.
+- **LMR Safety Clamping**: Quiet moves that receive substantial discounts can decrease the calculated LMR reduction to `0` or less; in such cases, the search safely skips LMR entirely and executes a full search. Clamped all valid reductions to a safe range of `[1..=depth-2]` to avoid reducing below the Horizon depth.
+- **Divisor Configuration for Aggressiveness**: Centralized `lmr_base_divisor: f64` (default `1.95`) in `src/config.rs` with extensive explanatory documentation comments.
+- **Unit Verification Suite**: Implemented robust automated unit test `test_logarithmic_lmr_table` to mathematically verify table computations, boundary limits, and conservative divisor changes.
+
+### Fixed
+
+
+
 ## [V0.9.6] - 2026-05-26
 
 ### Added

@@ -679,26 +679,58 @@ impl SearchService {
                 && current_turn.promotion == 0 
                 && !current_turn.gives_check 
             {
-                let reduction = config.lmr_reduction;
-                let reduced_depth = (depth - 1 - reduction).max(1);
-                
-                if white {
-                    min_max_eval = self.minimax(
-                        board, current_turn, reduced_depth, !white,
-                        alpha, alpha + 1, stats, config, service, &current_context,
-                        true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                    ).1;
-                    if min_max_eval <= alpha {
-                        searched = true;
-                    }
-                } else {
-                    min_max_eval = self.minimax(
-                        board, current_turn, reduced_depth, !white,
-                        beta - 1, beta, stats, config, service, &current_context,
-                        true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                    ).1;
-                    if min_max_eval >= beta {
-                        searched = true;
+                let d_idx = (depth as usize).min(63);
+                let m_idx = (turn_counter as usize).min(63);
+                let mut reduction = config.lmr_table[d_idx][m_idx] as i32;
+
+                // PV-Knoten vorsichtiger reduzieren (Dämpfung um 1)
+                if is_pv {
+                    reduction = reduction.saturating_sub(1);
+                }
+
+                // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
+                let is_killer = Some(*current_turn) == killer_moves[ply as usize][0]
+                    || Some(*current_turn) == killer_moves[ply as usize][1];
+                if is_killer {
+                    reduction = reduction.saturating_sub(1);
+                }
+
+                // Counter-Moves weniger stark reduzieren (Dämpfung um 1)
+                let is_counter = Some(*current_turn) == current_context.counter_move;
+                if is_counter {
+                    reduction = reduction.saturating_sub(1);
+                }
+
+                // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
+                let hist_val = history_table[current_turn.from as usize][current_turn.to as usize];
+                if hist_val > 4000 {
+                    reduction = reduction.saturating_sub(1);
+                } else if hist_val < 500 {
+                    reduction = reduction.saturating_add(1);
+                }
+
+                if reduction > 0 {
+                    let clamped_reduction = reduction.clamp(1, depth - 2);
+                    let reduced_depth = depth - 1 - clamped_reduction;
+                    
+                    if white {
+                        min_max_eval = self.minimax(
+                            board, current_turn, reduced_depth, !white,
+                            alpha, alpha + 1, stats, config, service, &current_context,
+                            true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        ).1;
+                        if min_max_eval <= alpha {
+                            searched = true;
+                        }
+                    } else {
+                        min_max_eval = self.minimax(
+                            board, current_turn, reduced_depth, !white,
+                            beta - 1, beta, stats, config, service, &current_context,
+                            true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        ).1;
+                        if min_max_eval >= beta {
+                            searched = true;
+                        }
                     }
                 }
             }
@@ -951,5 +983,41 @@ mod tests {
         assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes,
             "Enabled NMP nodes ({}) should be strictly less than disabled NMP nodes ({})!",
             stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
+    }
+
+    #[test]
+    fn test_logarithmic_lmr_table() {
+        let config = Config::new();
+        
+        // Assert 0 reduction at boundary depths or move indexes
+        assert_eq!(config.lmr_table[1][12], 0);
+        assert_eq!(config.lmr_table[8][1], 0);
+        
+        // Assert precalculated values for normal search depth/move counts
+        // ln(8) * ln(12) / 1.95 = 2.07944 * 2.4849 / 1.95 = 2.649 -> 2
+        assert_eq!(config.lmr_table[8][12], 2);
+        
+        // ln(16) * ln(16) / 1.95 = 2.77258 * 2.77258 / 1.95 = 7.687 / 1.95 = 3.94 -> 3
+        assert_eq!(config.lmr_table[16][16], 3);
+        
+        // Assert that a higher divisor scales reductions down, making LMR more conservative
+        let mut config_conservative = Config::new();
+        config_conservative.lmr_base_divisor = 2.5;
+        config_conservative.lmr_table = {
+            let mut table = [[0i16; 64]; 64];
+            let divisor = 2.5;
+            for depth in 1..64 {
+                for move_idx in 1..64 {
+                    let d = depth as f64;
+                    let m = move_idx as f64;
+                    let reduction = (d.ln() * m.ln() / divisor) as i16;
+                    table[depth][move_idx] = reduction.max(0);
+                }
+            }
+            table
+        };
+        
+        // ln(16) * ln(16) / 2.5 = 7.687 / 2.5 = 3.07 -> 3
+        assert_eq!(config_conservative.lmr_table[16][16], 3);
     }
 }

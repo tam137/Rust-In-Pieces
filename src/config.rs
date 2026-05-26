@@ -112,7 +112,13 @@ pub struct Config {
     pub history_max_threshold: u32,
     pub lmr_depth_threshold: i32,
     pub lmr_move_threshold: i32,
-    pub lmr_reduction: i32,
+    /// Base divisor controlling Late Move Reduction (LMR) aggressiveness.
+    /// Lower values (e.g. 1.75) make reductions more aggressive (reducing quiet moves more heavily).
+    /// Higher values (e.g. 2.25) make reductions more conservative.
+    /// Stockfish/Ethereal typically use values between 1.8 and 2.3. Default is 1.95.
+    pub lmr_base_divisor: f64,
+    /// Precalculated logarithmic LMR reduction lookup table indexed by [depth][move_index].
+    pub lmr_table: [[i16; 64]; 64],
     pub nmp_depth_threshold: i32,
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
@@ -231,7 +237,20 @@ impl Config {
             history_max_threshold: 9000,
             lmr_depth_threshold: 3,
             lmr_move_threshold: 3,
-            lmr_reduction: 1,
+            lmr_base_divisor: 1.95,
+            lmr_table: {
+                let mut table = [[0i16; 64]; 64];
+                let divisor = 1.95;
+                for depth in 1..64 {
+                    for move_idx in 1..64 {
+                        let d = depth as f64;
+                        let m = move_idx as f64;
+                        let reduction = (d.ln() * m.ln() / divisor) as i16;
+                        table[depth][move_idx] = reduction.max(0);
+                    }
+                }
+                table
+            },
             nmp_depth_threshold: 3,
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
