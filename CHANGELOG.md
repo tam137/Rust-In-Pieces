@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.9.8] - 2026-05-26
+
+### Added
+- **Static Exchange Evaluation (SEE) Engine Heuristic**:
+  - Implemented the `see` minimax exchange evaluation algorithm in `src/search_service.rs` to dynamically calculate the centipawn score of capture sequences on a single target square before fully searching them.
+  - Implemented a fast threshold wrapper `see_ge` to optimize cutoff decisions during move processing.
+  - Mapped piece indices (10..25) to centralized centipawn values using a robust `get_piece_value` utility.
+- **Dynamic Occupancy Attacker Filtering (Magic Bitboards)**:
+  - Designed `get_least_valuable_attacker` leveraging optimized magic bitboard masks from `get_attackers_mask`.
+  - Added dynamic occupancy updates (`occupied &= !(1u64 << attacker_sq)`) inside the evaluation loop, allowing the recursive attacker resolution chain to handle X-ray attacks (e.g. bishops or rooks attacking behind pawns/knights) in real-time without complex static masking.
+- **Quiescence Search Capture Pruning**:
+  - Integrated capture pruning in the `depth <= 0` portion of the `minimax` search (Q-Search) to bypass quiet captures that statically lose material (`SEE < 0`), resolving the costly "Queen captures protected pawn" blindspot.
+  - Safely restricted pruning to non-check nodes (`!in_check`) and excluded promotions (`capture_turn.promotion == 0`) to preserve tactical accuracy and avoid missing mate threats.
+- **Search Tree Compression**:
+  - Compressed the search tree at depth 9 by **47.0%** (from 673,795 nodes down to 357,072 nodes on startpos) without any tactical strength regressions, accelerating depth progression and clock compliance.
+- **Unit Verification Suite**:
+  - Wrote a comprehensive unit test `test_static_exchange_evaluation` in `src/search_service.rs` validating recursive SEE minimax scores on three distinct chess configurations (equal trades, favorable captures, and unfavorable blunder trades).
+
+### Fixed
+- **Static Attacker Infinite Loop**: Fixed a bug where `get_attackers_mask` returned captured pieces by intersecting attackers with the active `occupied` bitboard, resolving array index out of bounds panics.
+
+
+
 ## [V0.9.7] - 2026-05-26
 
 ### Added

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::model::{Board, DataMap, DataMapKey, GameStatus, SearchResult, Stats, Turn, Variant, SearchContext, EngineState, RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE};
 use crate::service::Service;
+use crate::move_gen_service::MoveGenService;
 
 use crate::model::RIP_MISSED_DM_KEY;
 
@@ -272,6 +273,100 @@ impl SearchService {
         search_result
     }
     
+
+    fn get_piece_value(&self, piece: u8, config: &Config) -> i16 {
+        match piece {
+            10 | 20 => config.piece_eval_pawn,
+            11 | 21 => config.piece_eval_rook,
+            12 | 22 => config.piece_eval_knight,
+            13 | 23 => config.piece_eval_bishop,
+            14 | 24 => config.piece_eval_queen,
+            15 | 25 => 20000, // King has "infinite" value proxy
+            _ => 0,
+        }
+    }
+
+    fn get_least_valuable_attacker(&self, board: &Board, target_idx: u8, white: bool, occupied: u64, config: &Config, movegen: &MoveGenService) -> Option<(u8, u8)> {
+        let attackers_mask = movegen.get_attackers_mask(board, !white, target_idx, occupied);
+        let active_attackers = attackers_mask & occupied;
+        if active_attackers == 0 {
+            return None;
+        }
+
+        let piece_order = if white {
+            [
+                (10, crate::model::WHITE_PAWN),
+                (12, crate::model::WHITE_KNIGHT),
+                (13, crate::model::WHITE_BISHOP),
+                (11, crate::model::WHITE_ROOK),
+                (14, crate::model::WHITE_QUEEN),
+                (15, crate::model::WHITE_KING),
+            ]
+        } else {
+            [
+                (20, crate::model::BLACK_PAWN),
+                (22, crate::model::BLACK_KNIGHT),
+                (23, crate::model::BLACK_BISHOP),
+                (21, crate::model::BLACK_ROOK),
+                (24, crate::model::BLACK_QUEEN),
+                (25, crate::model::BLACK_KING),
+            ]
+        };
+
+        for &(piece_val, bb_idx) in &piece_order {
+            let intersect = board.bitboards[bb_idx] & active_attackers;
+            if intersect != 0 {
+                let attacker_sq = intersect.trailing_zeros() as u8;
+                return Some((attacker_sq, piece_val));
+            }
+        }
+
+        None
+    }
+
+    pub fn see(&self, board: &Board, mv: &Turn, config: &Config, movegen: &MoveGenService) -> i16 {
+        let from = mv.from as usize;
+        let to = mv.to as usize;
+
+        let mut gain = [0i16; 32];
+        let mut depth = 0;
+
+        let victim = board.get_piece_at(mv.to);
+        gain[0] = self.get_piece_value(victim, config);
+
+        let mut current_attacker = board.get_piece_at(mv.from);
+
+        let mut occupied = board.occupied;
+        occupied &= !(1u64 << from);
+
+        let mut white_to_move = !board.white_to_move;
+
+        loop {
+            if let Some((attacker_sq, attacker_piece)) = self.get_least_valuable_attacker(board, to as u8, white_to_move, occupied, config, movegen) {
+                if depth >= 31 {
+                    break;
+                }
+                depth += 1;
+                gain[depth] = self.get_piece_value(current_attacker, config);
+                current_attacker = attacker_piece;
+                occupied &= !(1u64 << attacker_sq);
+                white_to_move = !white_to_move;
+            } else {
+                break;
+            }
+        }
+
+        while depth > 0 {
+            gain[depth - 1] = gain[depth - 1] - gain[depth].max(0);
+            depth -= 1;
+        }
+
+        gain[0]
+    }
+
+    pub fn see_ge(&self, board: &Board, mv: &Turn, threshold: i16, config: &Config, movegen: &MoveGenService) -> bool {
+        self.see(board, mv, config, movegen) >= threshold
+    }
 
     fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
@@ -553,6 +648,13 @@ impl SearchService {
                         if stand_pat - gain - delta_margin > beta {
                             continue;
                         }
+                    }
+                }
+
+                // SEE Pruning: Skip capture moves that lose material (SEE < 0)
+                if !in_check && capture_turn.promotion == 0 {
+                    if !self.see_ge(board, capture_turn, 0, config, &service.move_gen) {
+                        continue;
                     }
                 }
 
@@ -1019,5 +1121,64 @@ mod tests {
         
         // ln(16) * ln(16) / 2.5 = 7.687 / 2.5 = 3.07 -> 3
         assert_eq!(config_conservative.lmr_table[16][16], 3);
+    }
+
+    #[test]
+    fn test_static_exchange_evaluation() {
+        let service = Service::new();
+        let config = Config::new();
+        
+        // 1. Equal trade case (e4 Pawn captures on d5, which is protected by Black's c6 Pawn)
+        let fen = "rnbqkbnr/pp1ppppp/2p5/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+        let board = service.fen.set_fen(fen);
+        assert_eq!(board.get_piece_at(35), 20); // Black Pawn
+        assert_eq!(board.get_piece_at(42), 20); // Black Pawn
+        let mv = Turn {
+            from: 28, // e4
+            to: 35,   // d5
+            capture: 20, // Black Pawn
+            promotion: 0,
+            rank: 0,
+            gives_check: false,
+            eval: 0,
+            hash: 0,
+            has_hashed_eval: false,
+        };
+        let see_val = service.search.see(&board, &mv, &config, &service.move_gen);
+        assert_eq!(see_val, 0);
+        
+        // 2. Favorable trade (White Bishop e2 captures undefended Black Pawn d3)
+        let fen2 = "rnbqkbnr/ppp1pppp/8/8/8/3p4/PPPPBPPP/RNBQK1NR w KQkq - 0 1";
+        let board2 = service.fen.set_fen(fen2);
+        let mv2 = Turn {
+            from: 12, // e2
+            to: 19,   // d3
+            capture: 20,
+            promotion: 0,
+            rank: 0,
+            gives_check: false,
+            eval: 0,
+            hash: 0,
+            has_hashed_eval: false,
+        };
+        let see_val2 = service.search.see(&board2, &mv2, &config, &service.move_gen);
+        assert_eq!(see_val2, config.piece_eval_pawn);
+        
+        // 3. Unfavorable blunder (White Queen d1 captures Black Pawn d5 protected by Knight c6)
+        let fen3 = "r1bqkbnr/ppp1pppp/2n5/3p4/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let board3 = service.fen.set_fen(fen3);
+        let mv3 = Turn {
+            from: 3,  // d1
+            to: 35,  // d5
+            capture: 20,
+            promotion: 0,
+            rank: 0,
+            gives_check: false,
+            eval: 0,
+            hash: 0,
+            has_hashed_eval: false,
+        };
+        let see_val3 = service.search.see(&board3, &mv3, &config, &service.move_gen);
+        assert_eq!(see_val3, config.piece_eval_pawn - config.piece_eval_queen);
     }
 }
