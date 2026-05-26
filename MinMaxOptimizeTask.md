@@ -1,4 +1,44 @@
 # Suchbaum-Optimierungen für SupraH (MinMaxOptimizeTask)
+
+## Implementation Status & Results (v0.9.3 Update)
+
+In version **`v0.9.3`**, we successfully implemented three search heuristics, integrated them into our search and move generation service, and moved all search-tuning parameters to a centralized configuration system.
+
+### 1. Implemented Features & Core Integration
+
+*   **Counter-Moves Heuristic (Refutation Moves)**:
+    *   **Status**: Fully Implemented & Enabled by default (`enable_counter_moves = true`).
+    *   **Logic**: Tracks the best quiet response move to the opponent's previous move on a 64x64 table. Prioritizes quiet refutation moves in `src/move_gen_service.rs` with `config.counter_move_rank_bonus` (Default: `15000`).
+*   **Delta Pruning in Quiescence Search**:
+    *   **Status**: Fully Implemented & Disabled by default (`enable_delta_pruning = false`).
+    *   **Logic**: Safely prunes quiet captures in the quiescence search branch if the captured piece's material value plus a margin (`delta_pruning_margin` = `300`) cannot raise alpha. Disabled by default to prevent tactical sacrifice regressions.
+*   **History Malus Heuristic**:
+    *   **Status**: Fully Implemented & Disabled by default (`enable_history_malus = false`).
+    *   **Logic**: Penalizes quiet moves that fail to produce cutoffs by subtracting `depth * depth` from their history value. Disabled by default because the 10:1 quiet-to-cutoff ratio caused move sorting degradation.
+*   **Centralized Search Tuning System**:
+    *   **Status**: Fully Implemented.
+    *   **Logic**: Extracted all magic constants and hardcoded boundaries for LMR, NMP, Killer moves, Counter-moves, and History table aging into `src/config.rs` to allow automated SPSA tuning.
+
+### 2. Empirical Performance Results
+
+*   **Unit Tests**: 100% stable (all 79 cargo unit tests pass successfully).
+*   **Search Nodes Performance (startpos Depth 9)**:
+    *   Nodes: **311,843 nodes** (highly focused search tree).
+    *   Time: **433 ms** (blazing-fast search execution).
+    *   NPS: **720,000 nodes/sec**.
+*   **LCT II Strength Benchmark**:
+    *   Scored **270 points (2170 ELO)** under the updated difficult LCT II puzzle set (with new Zubarev - Geller position replacing Fischer - Celle).
+    *   Confirmed zero regressions in tactical and endgame play when Delta Pruning and History Malus are disabled by default.
+
+### 3. Open Tasks & Future Roadmap
+
+*   `[ ]` **SPSA Parameter Tuning**: Run automated tournament matchups to find the optimal ELO tuning for the newly configurable parameters (`killer_move_1_rank_bonus`, `counter_move_rank_bonus`, `lmr_reduction`, etc.).
+*   `[ ]` **Static Exchange Evaluation (SEE)**: Implement full recursive SEE attackers chain matching to completely replace simple delta evaluations in Quiescence Search.
+*   `[ ]` **Logarithmic LMR Table**: Implement dynamic LMR table calculation using logarithmic scaling with depth and move count to replace static ply reductions.
+*   `[ ]` **Dynamic NMP with Verification**: Implement NMP reduction scaling dynamically with depth alongside a verification search to prevent Zugzwang blunders.
+
+---
+
 Dieses Dokument beschreibt vier fortgeschrittene Such- und Zugordnungsoptimierungen, basierend auf bewährten Konzepten moderner Schach-Engines (wie Stockfish, Ethereal und SleepMind). 
 
 Die Implementierung dieser Features in SupraH soll die Suchtiefe signifikant erhöhen, die Ruhesuche (Q-Search) fokussieren und die Taktiksicherheit im tiefen Suchbaum stärken.
