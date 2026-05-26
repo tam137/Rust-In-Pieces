@@ -1030,4 +1030,24 @@ impl EvalService {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::service::Service;
+    use crate::config::Config;
+
+    #[test]
+    fn test_gives_check_evaluation_bonus() {
+        let service = Service::new();
+        let config = Config::new();
+        let board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        
+        let base_eval = service.eval.calc_eval(&board, &config, &service.move_gen, false, false);
+        let white_check_eval = service.eval.calc_eval(&board, &config, &service.move_gen, true, false);
+        let black_check_eval = service.eval.calc_eval(&board, &config, &service.move_gen, false, true);
+        
+        let game_phase = service.eval.get_game_phase(&board);
+        let expected_bonus = ((config.gives_check_bonus as i32 * game_phase as i32) / 256) as i16;
+        
+        assert_eq!(white_check_eval, base_eval + expected_bonus);
+        assert_eq!(black_check_eval, base_eval - expected_bonus);
+    }
 }

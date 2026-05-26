@@ -379,6 +379,10 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64])
         -> (Option<Turn>, i16) {
 
+        let last_move_gave_check = turn.gives_check;
+        let white_gives_check = !board.white_to_move && last_move_gave_check;
+        let black_gives_check = board.white_to_move && last_move_gave_check;
+
         for slot in pv.iter_mut() {
             *slot = None;
         }
@@ -523,7 +527,7 @@ impl SearchService {
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, false, false);
+            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, white_gives_check, black_gives_check);
             let margin = 80 * depth as i16;
             
             if white {
@@ -570,7 +574,7 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, false, false);
+                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, white_gives_check, black_gives_check);
                 eval = stand_pat;
                 if config.use_zobrist {
                     context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
