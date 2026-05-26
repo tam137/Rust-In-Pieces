@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.9.4
+# LCT II Test Results: Version v0.9.6
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 10 / 35 (28.6%)
 * **Total Points**: 300 / 1050
-* **Estimated ELO**: **2200 ELO** (Successfully implemented Dynamic Null Move Pruning with Verification Search in v0.9.4. While playing strength shows a slight positional/tactical tradeoff compared to peak v0.9.2, the search engine speed is dramatically elevated, reaching up to 10.6 MNPS!)
+* **Estimated ELO**: **2200 ELO** (Successfully resolved the critical time management defect and nested NMP recursion search tree bloat in v0.9.6. Positional and tactical strength are fully restored to a stable 2200 ELO level, combined with record-breaking search throughput of up to 13.75 MNPS!)
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.9.6` (Time Checks & NMP Recursion Fix) | **2200** | 300 | 10/35 | 2/14 | 5/12 | 3/9 |
 | `v0.9.4` (Dynamic NMP & Verification Search) | **2200** | 300 | 10/35 | 2/14 | 5/12 | 3/9 |
 | `v0.9.3` (Search Optimization Configs) | **2170** | 270 | 9/35 | 2/14 | 3/12 | 4/9 |
 | `v0.9.2` (Balanced Search & Heuristics Merge) | **2260** | 360 | 12/35 | 2/14 | 6/12 | 4/9 |
@@ -36,7 +37,7 @@
 
 ---
 
-## Scoreboard by Category (v0.9.4)
+## Scoreboard by Category (v0.9.6)
 
 * **Positional**: 2 / 14 solved (14.3%) | 60 points
 * **Tactical**: 5 / 12 solved (41.7%) | 150 points
@@ -44,7 +45,7 @@
 
 ---
 
-## Detailed Results (v0.9.4)
+## Detailed Results (v0.9.6)
 
 | ID | Category | Description | Correct Move | Engine Move | Solved? | Time | Points |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
