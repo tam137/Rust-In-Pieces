@@ -753,7 +753,7 @@ impl Board {
 
     /// Zobrist-Hash function for the board (used for 3-move repetition and Zobrist-Hash Table)
     pub fn hash(&self) -> u64 {
-        zobrist::gen(&self)
+        zobrist::gen_hash(&self)
     }
 
     pub fn _get_piece_idx(&self) -> Vec<usize> {

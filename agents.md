@@ -23,7 +23,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Exception:** Only communicate in German within the chat window if the user speaks in German. Everything written into project files must be English.
 
 ## Rust Coding Standards
-- **Edition:** Rust Edition 2021.
+- **Edition:** Rust Edition 2024.
 - **Formatting:** Adhere to standard Rust formatting conventions.
 - **Documentation:** Write all docstrings and code comments in clear, technical English.
 

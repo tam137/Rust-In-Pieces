@@ -173,7 +173,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 pv_guard.clear();
                                 let mut old_board = game.board.clone();
                                 for turn in search_result.get_pv_move_row() {
-                                    let hash = zobrist::gen(&old_board);
+                                    let hash = zobrist::gen_hash(&old_board);
                                     pv_guard.insert(hash, turn.clone());
                                     old_board.do_move(&turn);
                                 }

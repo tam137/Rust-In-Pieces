@@ -415,7 +415,7 @@ impl SearchService {
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
             if board.cached_hash == 0 {
-                board.cached_hash = crate::zobrist::gen(board);
+                board.cached_hash = crate::zobrist::gen_hash(board);
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
                 if entry.depth as i32 >= depth {
@@ -473,7 +473,7 @@ impl SearchService {
             // Make Null Move
             board.white_to_move = !board.white_to_move;
             board.field_for_en_passante = -1;
-            board.cached_hash = crate::zobrist::gen(board);
+            board.cached_hash = crate::zobrist::gen_hash(board);
 
             let dynamic_divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
             let reduction = config.nmp_reduction + (depth / dynamic_divisor);

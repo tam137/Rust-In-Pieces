@@ -42,66 +42,68 @@ pub fn get_rook_attacks(square: usize, occupied: u64) -> u64 {
 }
 
 unsafe fn initialize_magics() {
-    let mut prng = Prng::new(1804289383);
-    
-    // 1. Initialize Bishop Magics & Table
-    let mut bishop_offset = 0;
-    for sq in 0..64 {
-        let mask = bishop_mask(sq);
-        let num_bits = mask.count_ones();
-        let num_configs = 1 << num_bits;
-        let shift = (64 - num_bits) as u8;
+    unsafe {
+        let mut prng = Prng::new(1804289383);
         
-        let mut occupancies = vec![0u64; num_configs];
-        let mut attacks = vec![0u64; num_configs];
-        for i in 0..num_configs {
-            occupancies[i] = index_to_occupancy(i, num_bits, mask);
-            attacks[i] = classical_bishop_attacks(sq, occupancies[i]);
+        // 1. Initialize Bishop Magics & Table
+        let mut bishop_offset = 0;
+        for sq in 0..64 {
+            let mask = bishop_mask(sq);
+            let num_bits = mask.count_ones();
+            let num_configs = 1 << num_bits;
+            let shift = (64 - num_bits) as u8;
+            
+            let mut occupancies = vec![0u64; num_configs];
+            let mut attacks = vec![0u64; num_configs];
+            for i in 0..num_configs {
+                occupancies[i] = index_to_occupancy(i, num_bits, mask);
+                attacks[i] = classical_bishop_attacks(sq, occupancies[i]);
+            }
+            
+            let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
+            BISHOP_MAGICS[sq] = Magic {
+                mask,
+                magic: magic_val,
+                shift,
+                offset: bishop_offset,
+            };
+            
+            for i in 0..num_configs {
+                let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
+                BISHOP_TABLE[bishop_offset + idx] = attacks[i];
+            }
+            bishop_offset += num_configs;
         }
         
-        let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
-        BISHOP_MAGICS[sq] = Magic {
-            mask,
-            magic: magic_val,
-            shift,
-            offset: bishop_offset,
-        };
-        
-        for i in 0..num_configs {
-            let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
-            BISHOP_TABLE[bishop_offset + idx] = attacks[i];
+        // 2. Initialize Rook Magics & Table
+        let mut rook_offset = 0;
+        for sq in 0..64 {
+            let mask = rook_mask(sq);
+            let num_bits = mask.count_ones();
+            let num_configs = 1 << num_bits;
+            let shift = (64 - num_bits) as u8;
+            
+            let mut occupancies = vec![0u64; num_configs];
+            let mut attacks = vec![0u64; num_configs];
+            for i in 0..num_configs {
+                occupancies[i] = index_to_occupancy(i, num_bits, mask);
+                attacks[i] = classical_rook_attacks(sq, occupancies[i]);
+            }
+            
+            let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
+            ROOK_MAGICS[sq] = Magic {
+                mask,
+                magic: magic_val,
+                shift,
+                offset: rook_offset,
+            };
+            
+            for i in 0..num_configs {
+                let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
+                ROOK_TABLE[rook_offset + idx] = attacks[i];
+            }
+            rook_offset += num_configs;
         }
-        bishop_offset += num_configs;
-    }
-    
-    // 2. Initialize Rook Magics & Table
-    let mut rook_offset = 0;
-    for sq in 0..64 {
-        let mask = rook_mask(sq);
-        let num_bits = mask.count_ones();
-        let num_configs = 1 << num_bits;
-        let shift = (64 - num_bits) as u8;
-        
-        let mut occupancies = vec![0u64; num_configs];
-        let mut attacks = vec![0u64; num_configs];
-        for i in 0..num_configs {
-            occupancies[i] = index_to_occupancy(i, num_bits, mask);
-            attacks[i] = classical_rook_attacks(sq, occupancies[i]);
-        }
-        
-        let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
-        ROOK_MAGICS[sq] = Magic {
-            mask,
-            magic: magic_val,
-            shift,
-            offset: rook_offset,
-        };
-        
-        for i in 0..num_configs {
-            let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
-            ROOK_TABLE[rook_offset + idx] = attacks[i];
-        }
-        rook_offset += num_configs;
     }
 }
 

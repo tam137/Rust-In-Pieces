@@ -1,4 +1,4 @@
-use rand::{Rng, rngs::StdRng, SeedableRng};
+use rand::{RngCore, rngs::StdRng, SeedableRng};
 use once_cell::sync::Lazy;
 
 use crate::model::Board;
@@ -12,11 +12,11 @@ static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(||
 
     for i in 0..BOARD_SIZE {
         for piece_index in 0..NUM_PIECES {
-            table[i][piece_index] = rng.gen();
+            table[i][piece_index] = rng.next_u64();
         }
     }
 
-    let white_to_move = rng.gen();
+    let white_to_move = rng.next_u64();
 
     (table, white_to_move)
 });
@@ -39,6 +39,7 @@ pub struct TranspositionEntry {
     pub best_move: u16,
     pub depth: i8,
     pub entry_type: TranspositionType,
+    #[allow(dead_code)]
     pub padding: [u8; 2],
 }
 
@@ -233,7 +234,7 @@ impl ZobristTable {
     }
 }
 
-pub fn gen(board: &Board) -> u64 {
+pub fn gen_hash(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
         hash ^= *WHITE_TO_MOVE;
