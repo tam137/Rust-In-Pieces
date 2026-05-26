@@ -164,7 +164,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 &service,
                                 &engine_state,
                                 std::time::Instant::now(),
-                                None,
+                                Some(my_thinking_time as i32),
                             );
 
                             if search_result.completed {
