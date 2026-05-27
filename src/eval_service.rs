@@ -226,7 +226,15 @@ impl EvalService {
                 crate::config::Aggressiveness::HighAggressive => 400,
             };
 
-            let capped_positional = positional_eval.clamp(-cap, cap);
+            let capped_positional = if positional_eval.abs() <= cap {
+                positional_eval
+            } else {
+                let excess = positional_eval.abs() - cap;
+                let damping = if config.positional_cap_damping > 0 { config.positional_cap_damping } else { 1 };
+                let capped_excess = excess / damping; // soft compression on excess positional values to avoid Saturation Blindness
+                let sign = if positional_eval >= 0 { 1 } else { -1 };
+                sign * (cap + capped_excess)
+            };
             eval = material_eval + capped_positional;
         }
 
@@ -1326,20 +1334,23 @@ mod tests {
         config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
         let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen);
-        assert_eq!(eval_normal, 150, "Normal aggressiveness eval should be capped at 150");
+        // Soft cap calculation: 150 + (1000 - 150) / 5 = 150 + 170 = 320
+        assert_eq!(eval_normal, 320, "Normal aggressiveness eval should be soft capped at 320");
 
         // 2. Aggressive Test (Cap = 250)
         let mut config_aggressive = Config::new();
         config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
         config_aggressive.your_turn_bonus = 1000;
         let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen);
-        assert_eq!(eval_aggressive, 250, "Aggressive eval should be capped at 250");
+        // Soft cap calculation: 250 + (1000 - 250) / 5 = 250 + 150 = 400
+        assert_eq!(eval_aggressive, 400, "Aggressive eval should be soft capped at 400");
 
         // 3. HighAggressive Test (Cap = 400)
         let mut config_high = Config::new();
         config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
         config_high.your_turn_bonus = 1000;
         let eval_high = eval_service.calc_eval(&board, &config_high, movegen);
-        assert_eq!(eval_high, 400, "High aggressive eval should be capped at 400");
+        // Soft cap calculation: 400 + (1000 - 400) / 5 = 400 + 120 = 520
+        assert_eq!(eval_high, 520, "High aggressive eval should be soft capped at 520");
     }
 }

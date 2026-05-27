@@ -44,6 +44,21 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             active_config.aggressiveness = crate::config::Aggressiveness::Normal;
                         }
                         logger.send(format!("Aggressiveness option updated to {:?}", active_config.aggressiveness)).ok();
+                    } else if cmd_lower.contains("name positionalcapdamping") || cmd_lower.contains("name positional_cap_damping") {
+                        let parts: Vec<&str> = command.split_whitespace().collect();
+                        if let Some(val_str) = parts.last() {
+                            if let Ok(damping) = val_str.parse::<i16>() {
+                                active_config.positional_cap_damping = damping;
+                                logger.send(format!("PositionalCapDamping option updated to {}", active_config.positional_cap_damping)).ok();
+                            }
+                        }
+                    } else if cmd_lower.contains("name enablepositionalcap") || cmd_lower.contains("name enable_positional_cap") {
+                        if cmd_lower.contains("value true") {
+                            active_config.enable_positional_cap = true;
+                        } else if cmd_lower.contains("value false") {
+                            active_config.enable_positional_cap = false;
+                        }
+                        logger.send(format!("EnablePositionalCap option updated to {}", active_config.enable_positional_cap)).ok();
                     }
                 }
 

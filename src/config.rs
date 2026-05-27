@@ -33,6 +33,7 @@ pub struct Config {
     pub max_eval_mult: f32,
     pub aggressiveness: Aggressiveness,
     pub enable_positional_cap: bool,
+    pub positional_cap_damping: i16,
 
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
@@ -155,6 +156,7 @@ impl Config {
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
+            positional_cap_damping: 5,
 
             is_hashed_rank_bonus: 3,
             give_check_rank_bonus: 5,
