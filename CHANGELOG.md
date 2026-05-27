@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.3] - 2026-05-27
+
+### Added
+- **Configurable HCE Positional Evaluation Capping**:
+  - Implemented positional evaluation capping to prevent material/positional asymmetry blunders, making the cap tier based on `config.aggressiveness` (Normal = 150 cp, Aggressive = 250 cp, HighAggressive = 400 cp).
+  - Used an elegant piecewise soft-capping function to compress excess positional evaluations by a configurable damping factor, preventing "Saturation Blindness" (flat evaluation landscapes).
+  - Added configurable parameters `enable_positional_cap: bool` and `positional_cap_damping: i16` (defaulting to 5x damping instead of 16x) to the `Config` struct in `src/config.rs`.
+  - Added UCI engine settings parsing support via `setoption name PositionalCapDamping value <val>` and `setoption name EnablePositionalCap value <val>`.
+  - Added the unit test `test_positional_evaluation_capping` in `src/eval_service.rs` to verify correct soft-capped values.
+
+### Fixed
+- **Improved Aggressiveness Options & Damping Tuning**: Tuned the positional evaluation capping damping to 5x to ensure optimal tactical search performance and prevent overly aggressive pruning of positional advantages.
+
+
+
 ## [V0.10.2] - 2026-05-26
 
 ### Added
