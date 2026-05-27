@@ -201,6 +201,35 @@ impl EvalService {
         }
 
         eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
+
+        if config.enable_positional_cap {
+            let mut material_eval: i16 = 0;
+            material_eval += (board.bitboards[crate::model::WHITE_PAWN].count_ones() as i16) * config.piece_eval_pawn;
+            material_eval += (board.bitboards[crate::model::WHITE_ROOK].count_ones() as i16) * config.piece_eval_rook;
+            material_eval += (board.bitboards[crate::model::WHITE_KNIGHT].count_ones() as i16) * config.piece_eval_knight;
+            material_eval += (board.bitboards[crate::model::WHITE_BISHOP].count_ones() as i16) * config.piece_eval_bishop;
+            material_eval += (board.bitboards[crate::model::WHITE_QUEEN].count_ones() as i16) * config.piece_eval_queen;
+            material_eval += (board.bitboards[crate::model::WHITE_KING].count_ones() as i16) * config.piece_eval_king;
+
+            material_eval -= (board.bitboards[crate::model::BLACK_PAWN].count_ones() as i16) * config.piece_eval_pawn;
+            material_eval -= (board.bitboards[crate::model::BLACK_ROOK].count_ones() as i16) * config.piece_eval_rook;
+            material_eval -= (board.bitboards[crate::model::BLACK_KNIGHT].count_ones() as i16) * config.piece_eval_knight;
+            material_eval -= (board.bitboards[crate::model::BLACK_BISHOP].count_ones() as i16) * config.piece_eval_bishop;
+            material_eval -= (board.bitboards[crate::model::BLACK_QUEEN].count_ones() as i16) * config.piece_eval_queen;
+            material_eval -= (board.bitboards[crate::model::BLACK_KING].count_ones() as i16) * config.piece_eval_king;
+
+            let positional_eval = eval - material_eval;
+
+            let cap = match config.aggressiveness {
+                crate::config::Aggressiveness::Normal => 150,
+                crate::config::Aggressiveness::Aggressive => 250,
+                crate::config::Aggressiveness::HighAggressive => 400,
+            };
+
+            let capped_positional = positional_eval.clamp(-cap, cap);
+            eval = material_eval + capped_positional;
+        }
+
         eval = self.adjust_eval(eval, game_phase, config);
 
         if config.print_eval_per_figure {
@@ -1282,5 +1311,35 @@ mod tests {
         config.print_eval_per_figure = true;
         eval_service.calc_eval(board, &config, &movegen);
         println!("------------");
+    }
+
+    #[test]
+    fn test_positional_evaluation_capping() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        
+        let board = fen_service.set_init_board();
+        
+        // 1. Normal Aggressiveness Test (Cap = 150)
+        let mut config_normal = Config::new();
+        config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
+        config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
+        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen);
+        assert_eq!(eval_normal, 150, "Normal aggressiveness eval should be capped at 150");
+
+        // 2. Aggressive Test (Cap = 250)
+        let mut config_aggressive = Config::new();
+        config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
+        config_aggressive.your_turn_bonus = 1000;
+        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen);
+        assert_eq!(eval_aggressive, 250, "Aggressive eval should be capped at 250");
+
+        // 3. HighAggressive Test (Cap = 400)
+        let mut config_high = Config::new();
+        config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+        config_high.your_turn_bonus = 1000;
+        let eval_high = eval_service.calc_eval(&board, &config_high, movegen);
+        assert_eq!(eval_high, 400, "High aggressive eval should be capped at 400");
     }
 }

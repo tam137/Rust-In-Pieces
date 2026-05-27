@@ -32,6 +32,7 @@ pub struct Config {
     pub skip_strong_validation: bool,
     pub max_eval_mult: f32,
     pub aggressiveness: Aggressiveness,
+    pub enable_positional_cap: bool,
 
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
@@ -153,6 +154,7 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
+            enable_positional_cap: true,
 
             is_hashed_rank_bonus: 3,
             give_check_rank_bonus: 5,
@@ -263,6 +265,8 @@ impl Config {
     /// Sets turn_bonus and all tempo attack boni at 0
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
+        config.aggressiveness = Aggressiveness::Normal;
+        config.enable_positional_cap = false;
         config.your_turn_bonus = 0;
         config.pawn_attacks_opponent_fig_with_tempo = 0;
         config.queen_in_attack_with_tempo = 0;
@@ -288,6 +292,8 @@ impl Config {
     /// Also ZOBRIST hash is disabled
     pub fn for_tests() -> Self {
         let mut config = Config::new();
+        config.aggressiveness = Aggressiveness::Normal;
+        config.enable_positional_cap = false;
         config.print_info_string_during_search = false;
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
