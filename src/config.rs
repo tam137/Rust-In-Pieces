@@ -206,13 +206,13 @@ impl Config {
             bishop_trapped_at_rim_malus: 50,
 
             pawn_attacks_opponent_fig: 35,
-            pawn_attacks_opponent_fig_with_tempo: 150,
+            pawn_attacks_opponent_fig_with_tempo: 15,
             queen_in_attack: 60,
-            queen_in_attack_with_tempo: 700,
+            queen_in_attack_with_tempo: 30,
             knight_attacks_bishop: 5,
             knight_attacks_rook: 15,
             knight_attacks_bishop_tempo: 10,
-            knight_attacks_rook_tempo: 100,
+            knight_attacks_rook_tempo: 10,
 
 
             king_pawn_shield: 40,
