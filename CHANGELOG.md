@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.5] - 2026-05-28
+
+### Added
+- **Asymmetric Positional Soft-Capping Restoration (V0.10.3 Baseline)**:
+  - Reverted the overfitted symmetric, piece-count-based capping from `v0.10.4` back to the successful `v0.10.3` asymmetric soft-capping limits (Normal = 150 cp, Aggressive = 250 cp, HighAggressive = 400 cp).
+  - Retained `positional_cap_damping: 5` as the default damping factor.
+  - This preserves vital endgame positional coordination (such as king centralization and rook activity) and completely eliminates the "saturation blindness" that plagued `v0.10.4`.
+
+### Fixed
+- **Bishop Rim-Trapping Check Bug**:
+  - Resolved a long-standing rank-independent evaluation bug where healthy, highly active bishops on `a2`/`h2` (White) and `a7`/`h7` (Black) were penalized by **-50 cp** whenever their baseline squares (`b1`/`g1` or `b8`/`g8`) were occupied.
+  - Restricted the White bishop rim-trapping check strictly to the 7th rank (`rank == 6`, i.e., `a7` and `h7`).
+  - Restricted the Black bishop rim-trapping check strictly to the 2nd rank (`rank == 1`, i.e., `a2` and `h2`).
+- **De-escalation of Static Tempo Bonuses (Patzer Threat Elimination)**:
+  - Scaled down redundant static threat bonuses to minor guiding values, allowing the search tree to resolve tactical threats dynamically.
+  - Reduced `pawn_attacks_opponent_fig_with_tempo` from `150` to `15` cp, eliminating short-term weakening pawn pushes (`g3g4` in `LCTII.POS.01`).
+  - Reduced `queen_in_attack_with_tempo` from `700` to `30` cp, resolving queen-exchange "shadowboxing" (`f2h4` instead of positional `f2c5` in `LCTII.POS.03`).
+  - Reduced `knight_attacks_rook_tempo` from `100` to `10` cp.
+
+
+
+## [V0.10.4] - 2026-05-27
+
+> [!WARNING]
+> **REGRESSION WARNING**: This version introduces a severe playing-strength regression in practical tournament play, dropping approximately 225 Elo compared to the highly successful V0.10.3 release (scoring only 47.7% in head-to-head matchups). The strictly symmetric, piece-count-based capping logic was overfitted to the static LCT II benchmark suite. By capping pure pawn endgames too tightly (30 cp), it completely blinded the engine to vital positional principles such as king centralization and rook activity. **This version is deprecated. Please use V0.10.3 for practical play.**
+
+### Added
+- **Piece-Based Dynamic Positional Evaluation Capping (Overfitted / Regressive)**:
+  - Dynamically scaled the positional evaluation cap based on the number of non-pawn pieces: capping pure pawn endgames strictly at 30 cp, while scaling up to 830+ cp in piece-heavy middlegames.
+  - While this overfitted design allowed the engine to resolve specific static puzzles in the LCT II benchmark (solving the `f6f3` Queen sacrifice in `LCTII.TAC.03` and estimating 2200 Elo), it crippled long-term positional coordination in actual tournament play.
+
+
+
 ## [V0.10.3] - 2026-05-27
 
 ### Added

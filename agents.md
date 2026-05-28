@@ -10,10 +10,11 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 
 
 ## Superpowers & Implementation Workflow
-- **Development Directive:** You are now operating with Superpowers. Before any implementation, you must:
+- **Development Directive:** You are now operating with Superpowers. Before any implementation or modification, you must:
   1. **Brainstorm Options:** Analyze different architectural and technical paths.
-  2. **Create a Detailed Plan:** Draft a structured plan with precise file paths.
+  2. **Create a Detailed Plan / Release Plan:** Draft a structured plan with precise file paths, release classifications, and steps.
   3. **Use TDD (Test-Driven Development):** Write tests for every task.
+- **Mandatory Release Plan:** For **EVERY single change or edit** in the workspace, you MUST zwingend create a Release/Implementation Plan beforehand. This strict rule applies without exception to **all code changes** as well as **non-code files** (such as `agents.md`, `README.md`, or other markdown/documentation/config files).
 - **Strict Rule:** Never skip a phase.
 
 ## Strict English Policy
@@ -31,6 +32,13 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Build Directive:** Standard manual compilation commands like `cargo build` or `cargo build --release` are strictly forbidden for releasing the engine.
 - **Mandatory Script:** You MUST compile, version-bump, and deploy the engine solely using the automated pipeline script: `./build_and_release.sh`.
 - **Changelog Message:** You can pass an optional description of the functional changes as the first argument, e.g., `./build_and_release.sh "Added new search features"`. If no argument is provided, the script will automatically harvest recent git commit logs as changes.
+- **Mandatory Release Sequence & Procedure:** Whenever a release is explicitly requested by the USER (applicable for both **Patch** and **Minor** releases), the AI MUST execute the following steps in this exact chronological order:
+  1. **Run Unit Tests:** Execute the active unit tests first: `cargo test`.
+  2. **Run Performance Tests (Perft):** ONLY if all unit tests are 100% successful (green), you MUST execute the performance/ignored tests: `cargo test -- --ignored` (or specifically `cargo test -- --ignored perft`).
+  3. **Compare Performance & Document in perft.md:** Compare the search results (Nodes, Time, NPS) with the previous version. To gather these search benchmark results correctly, you MUST bypass the opening book by loading a slightly modified FEN of the starting position with the move counter set to 5 or higher (e.g., `position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 5`), run `go depth <N>` (up to depth 9 or 10), and document the actual search tree results in `perft.md`.
+  4. **Run LCT (Louguet Chess Test II) Tests:** ONLY if the performance/perft tests delivered good results in comparison to the previous version, you MUST run the LCT chess tests by executing: `python3 scripts/lct2_evaluator.py` (or `./scripts/lct2_evaluator.py`).
+  5. **Document LCT Results in LCT.md:** You MUST document the LCT test results (Estimated ELO, solved positions, and scoreboard) in `LCT.md` by updating/prepending the results for the new version.
+  6. **Run Build & Release Pipeline:** ONLY if both the Perft tests and LCT tests have been successfully executed, compared, and documented in their respective markdown files (`perft.md` and `LCT.md`), you may proceed to execute the release script: `./build_and_release.sh "Changelog entry"`.
 - **Pipeline Workflow:**
   1. Executes all cargo unit tests first (`cargo test`).
   2. Bumps the patch/minor version in `Cargo.toml` automatically only if all tests are green.
@@ -48,7 +56,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Mandatory Feature Tests:** For every new feature, search optimization, or evaluation heuristic implemented in the codebase, you MUST add dedicated automated unit tests to verify its functional correctness, behavioral stability, and regression safety. Never implement a new feature without adding corresponding test coverage.
 - **Simple Implementations:** For standard development and simple implementations, only execute active unit tests (`cargo test`). Do NOT run heavy, ignored tests or the tournament verification script.
 - **Release Verification Requirement:** The heavy verification processes MUST only be executed when a release is explicitly requested by the USER:
-  1. Execute deep search/ignored tests: `cargo test -- --ignored` if appropriate.
+  1. Execute deep search/ignored tests (including `perft` tests) as step 2 of the Mandatory Release Sequence: `cargo test -- --ignored`.
   2. Execute the live tournament verification matchup (`./run_verify.sh` in the `matt-magie` repository) ONLY if the USER explicitly requests or mentions it. Do NOT run the tournament verification script by default during a release unless explicitly asked.
 
 ## Git & Version Control Policy
@@ -56,10 +64,12 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
 - **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
 
-## Perft & Benchmark Release Documentation Policy
-- **Mandatory Documentation:** At each release, you must automatically update or create the `perft.md` file in the root workspace directory.
-- **Content Restriction:** `perft.md` must contain ONLY the version header (e.g., `# v0.6.0`) and the markdown table showing the latest performance benchmark results for that release. Do not include any other text, comments, or explanations.
-- **Comparison History:** Prepend or append the new version section to allow easy historical comparison.
-- **Language Policy:** The table headers and all text inside `perft.md` must be written in English.
-- **Table Columns:** The table must have exactly four columns: `Depth`, `Time`, `Nodes`, and `NPS`. The "Comment" or "Bewertung" column must be strictly excluded.
+## Perft & LCT Release Documentation Policy
+- **Mandatory Documentation:** For every release (both Patch and Minor), the AI MUST run and document the performance benchmark results in `perft.md` and the LCT chess test results in `LCT.md`.
+- **Perft Benchmarking Procedure (Bypassing Opening Book):** To prevent triggering predefined opening book moves during the search benchmark, the AI MUST load a slightly modified FEN of the starting position where the move counter is set to **5 or higher** (e.g., `position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 5`), and execute `go depth 9` or `go depth 10` to trigger a genuine search tree traversal for `perft.md`.
+- **Perft Content Restriction:** `perft.md` must contain ONLY the version header (e.g., `# v0.6.0`) and the markdown table showing the latest performance benchmark results for that release. Do not include any other text, comments, or explanations.
+- **LCT Content Restriction:** `LCT.md` must contain the updated version results (estimated ELO, solved positions, detailed results per category) and prepended or updated in the Historical Comparison table.
+- **Comparison History:** In both `perft.md` and `LCT.md`, prepend or append the new version section to allow easy historical comparison.
+- **Language Policy:** The table headers and all text inside both `perft.md` and `LCT.md` must be written in English.
+- **Perft Table Columns:** The table in `perft.md` must have exactly four columns: `Depth`, `Time`, `Nodes`, and `NPS`. The "Comment" or "Bewertung" column must be strictly excluded.
 

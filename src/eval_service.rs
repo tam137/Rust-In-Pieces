@@ -772,10 +772,10 @@ impl EvalService {
             o_eval = o_eval - config.undeveloped_bishop_malus;
         }
 
-        if file == 7 && sq >= 9 && ((1u64 << (sq - 9)) & board.occupied) != 0 {
+        if rank == 6 && file == 7 && ((1u64 << (sq - 9)) & board.occupied) != 0 {
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
-        if file == 0 && sq >= 7 && ((1u64 << (sq - 7)) & board.occupied) != 0 {
+        if rank == 6 && file == 0 && ((1u64 << (sq - 7)) & board.occupied) != 0 {
             o_eval = o_eval - config.bishop_trapped_at_rim_malus;
         }
 
@@ -798,6 +798,7 @@ impl EvalService {
         let mut e_eval = 0;
         let sq = sq as i32;
         let file = sq % 8;
+        let rank = sq / 8;
         
         let pst_val = BISHOP_PST[sq as usize] * 8 / 10;
         o_eval -= pst_val;
@@ -807,10 +808,10 @@ impl EvalService {
             o_eval = o_eval + config.undeveloped_bishop_malus;
         }
 
-        if file == 7 && sq + 7 < 64 && ((1u64 << (sq + 7)) & board.occupied) != 0 {
+        if rank == 1 && file == 7 && ((1u64 << (sq + 7)) & board.occupied) != 0 {
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
-        if file == 0 && sq + 9 < 64 && ((1u64 << (sq + 9)) & board.occupied) != 0 {
+        if rank == 1 && file == 0 && ((1u64 << (sq + 9)) & board.occupied) != 0 {
             o_eval = o_eval + config.bishop_trapped_at_rim_malus;
         }
 
