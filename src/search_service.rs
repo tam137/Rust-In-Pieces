@@ -57,26 +57,7 @@ impl SearchService {
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, false, &mut turns);
 
-        // Adjust ranks using SEE for captures (excluding PV/TT moves)
-        for i in 0..turns.len {
-            let turn = &mut turns.moves[i];
-            if turn.capture != 0 && turn.rank < 100000 {
-                if !self.see_ge(board, turn, 0, config, &service.move_gen) {
-                    turn.rank -= 100000;
-                }
-            }
-        }
-
-        // Sort turns once by rank descending
-        for i in 0..turns.len {
-            let mut best_idx = i;
-            for j in (i + 1)..turns.len {
-                if turns.moves[j].rank > turns.moves[best_idx].rank {
-                    best_idx = j;
-                }
-            }
-            turns.moves.swap(i, best_idx);
-        }
+        // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
         let mut prev_eval = None;
         if depth > 2 && config.use_zobrist && config.enable_aspiration {
@@ -120,7 +101,23 @@ impl SearchService {
             let mut turn_counter = 0;
             let mut child_pv = [None; 128];
 
-            for i in 0..turns.len {
+            let mut i = 0;
+            while i < turns.len {
+                let mut best_idx = i;
+                for j in (i + 1)..turns.len {
+                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                        best_idx = j;
+                    }
+                }
+                turns.moves.swap(i, best_idx);
+
+                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
+                    if !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                        turns.moves[i].rank -= 100000;
+                        continue; // rank decreased, re-evaluate this index to find the next best move
+                    }
+                }
+
                 let turn = &turns.moves[i];
 
                 // Check time at the start of each root move
@@ -249,6 +246,7 @@ impl SearchService {
                         } 
                     }
                 }
+                i += 1;
             }
 
             if !config.enable_aspiration || prev_eval.is_none() || stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -735,22 +733,15 @@ impl SearchService {
             };
         }
 
-        // Adjust ranks using SEE for captures (excluding PV/TT moves)
-        for i in 0..turns.len {
-            let turn = &mut turns.moves[i];
-            if turn.capture != 0 && turn.rank < 100000 {
-                if !self.see_ge(board, turn, 0, config, &service.move_gen) {
-                    turn.rank -= 100000;
-                }
-            }
-        }
+        // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
         let mut turn_counter = 0;
         let mut child_pv = [None; 128];
         let mut searched_quiet_moves = [None; 64];
         let mut quiet_count = 0;
 
-        for i in 0..turns.len {
+        let mut i = 0;
+        while i < turns.len {
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
                 if turns.moves[j].rank > turns.moves[best_idx].rank {
@@ -758,6 +749,14 @@ impl SearchService {
                 }
             }
             turns.moves.swap(i, best_idx);
+
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
+                if !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                    turns.moves[i].rank -= 100000;
+                    continue; // rank decreased, re-evaluate this index
+                }
+            }
+
             let current_turn = &turns.moves[i];
 
             if stats.calculated_nodes & 1023 == 0 {
@@ -979,6 +978,7 @@ impl SearchService {
                 }
                 break;
             }
+            i += 1;
         }
 
         // Transposition Table Write
