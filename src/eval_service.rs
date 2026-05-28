@@ -68,7 +68,81 @@ const ADJACENT_FILES_MASK: [u64; 8] = [
     0x4040404040404040u64,
 ];
 
+const KING_RING_MASKS: [u64; 64] = {
+    let mut masks = [0; 64];
+    let mut sq = 0;
+    while sq < 64 {
+        let file = sq % 8;
+        let rank = sq / 8;
+        let mut mask = 0u64;
+        let mut df = -1;
+        while df <= 1 {
+            let mut dr = -1;
+            while dr <= 1 {
+                if !(df == 0 && dr == 0) {
+                    let f = file + df;
+                    let r = rank + dr;
+                    if f >= 0 && f < 8 && r >= 0 && r < 8 {
+                        mask |= 1u64 << (r * 8 + f);
+                    }
+                }
+                dr += 1;
+            }
+            df += 1;
+        }
+        masks[sq as usize] = mask;
+        sq += 1;
+    }
+    masks
+};
 
+const WHITE_PASSED_PAWN_MASKS: [u64; 64] = {
+    let mut masks = [0; 64];
+    let mut sq = 0;
+    while sq < 64 {
+        let file = sq % 8;
+        let rank = sq / 8;
+        let mut mask = 0u64;
+        let mut r = rank + 1;
+        while r < 8 {
+            mask |= 1u64 << (r * 8 + file);
+            if file > 0 {
+                mask |= 1u64 << (r * 8 + file - 1);
+            }
+            if file < 7 {
+                mask |= 1u64 << (r * 8 + file + 1);
+            }
+            r += 1;
+        }
+        masks[sq as usize] = mask;
+        sq += 1;
+    }
+    masks
+};
+
+const BLACK_PASSED_PAWN_MASKS: [u64; 64] = {
+    let mut masks = [0; 64];
+    let mut sq = 0;
+    while sq < 64 {
+        let file = sq % 8;
+        let rank = sq / 8;
+        let mut mask = 0u64;
+        let mut r = 0;
+        while r < rank {
+            mask |= 1u64 << (r * 8 + file);
+            if file > 0 {
+                mask |= 1u64 << (r * 8 + file - 1);
+            }
+            if file < 7 {
+                mask |= 1u64 << (r * 8 + file + 1);
+            }
+            r += 1;
+        }
+        masks[sq as usize] = mask;
+        sq += 1;
+    }
+    masks
+};
 
 pub struct EvalService {
     _knight_moves: [i16; 8],
@@ -1025,61 +1099,19 @@ impl EvalService {
         eval        
     }
 
+    #[inline(always)]
     fn is_white_passed_pawn(&self, sq: u8, board: &Board) -> bool {
-        let file = (sq % 8) as i32;
-        let rank = (sq / 8) as i32;
-        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
-        
-        for r in (rank + 1)..8 {
-            if (black_pawns & (1u64 << (r * 8 + file))) != 0 {
-                return false;
-            }
-            if file > 0 && (black_pawns & (1u64 << (r * 8 + file - 1))) != 0 {
-                return false;
-            }
-            if file < 7 && (black_pawns & (1u64 << (r * 8 + file + 1))) != 0 {
-                return false;
-            }
-        }
-        true
+        (board.bitboards[crate::model::BLACK_PAWN] & WHITE_PASSED_PAWN_MASKS[sq as usize]) == 0
     }
 
+    #[inline(always)]
     fn is_black_passed_pawn(&self, sq: u8, board: &Board) -> bool {
-        let file = (sq % 8) as i32;
-        let rank = (sq / 8) as i32;
-        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
-        
-        for r in 0..rank {
-            if (white_pawns & (1u64 << (r * 8 + file))) != 0 {
-                return false;
-            }
-            if file > 0 && (white_pawns & (1u64 << (r * 8 + file - 1))) != 0 {
-                return false;
-            }
-            if file < 7 && (white_pawns & (1u64 << (r * 8 + file + 1))) != 0 {
-                return false;
-            }
-        }
-        true
+        (board.bitboards[crate::model::WHITE_PAWN] & BLACK_PASSED_PAWN_MASKS[sq as usize]) == 0
     }
 
+    #[inline(always)]
     fn get_king_ring(&self, king_sq: u8) -> u64 {
-        let file = (king_sq % 8) as i32;
-        let rank = (king_sq / 8) as i32;
-        let mut mask = 0u64;
-        for df in -1..=1 {
-            for dr in -1..=1 {
-                if df == 0 && dr == 0 {
-                    continue;
-                }
-                let f = file + df;
-                let r = rank + dr;
-                if f >= 0 && f < 8 && r >= 0 && r < 8 {
-                    mask |= 1u64 << (r * 8 + f);
-                }
-            }
-        }
-        mask
+        KING_RING_MASKS[king_sq as usize]
     }
 
 }
