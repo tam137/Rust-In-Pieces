@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.11.0
+# LCT II Test Results: Version v0.11.2
 
 * **Engine Binary**: `target/release/suprah`
-* **Positions Solved**: 8 / 35 (22.9%)
-* **Total Points**: 240 / 1050
-* **Estimated ELO**: **2140 ELO** (O(1) Incremental Evaluation for PSTs and Material)
+* **Positions Solved**: 7 / 35 (20.0%)
+* **Total Points**: 210 / 1050
+* **Estimated ELO**: **2110 ELO** (King Safety & Threat Matrix heuristics)
 
 ---
 
@@ -13,6 +13,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.11.2` (King Safety & Threat Matrix) | **2110** | 210 | 7/35 | 2/14 | 2/12 | 3/9 |
 | `v0.11.0` (O(1) Incremental Evaluation) | **2140** | 240 | 8/35 | 3/14 | 2/12 | 3/9 |
 | `v0.10.12` (PST, Phase Calc, King Danger) | **2080** | 180 | 6/35 | 2/14 | 2/12 | 2/9 |
 | `v0.10.11` (Pawn eval changes) | **2020** | 120 | 4/35 | 2/14 | 1/12 | 1/9 |
@@ -49,15 +50,15 @@
 
 ---
 
-## Scoreboard by Category (v0.10.12)
+## Scoreboard by Category (v0.11.2)
 
 * **Positional**: 2 / 14 solved (14.3%) | 60 points
 * **Tactical**: 2 / 12 solved (16.7%) | 60 points
-* **Endgame**: 2 / 9 solved (22.2%) | 60 points
+* **Endgame**: 3 / 9 solved (33.3%) | 90 points
 
 ---
 
-## Detailed Results (v0.10.12)
+## Detailed Results (v0.11.2)
 
 | ID | Category | Description | Correct Move | Engine Move | Solved? | Time | Points |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |

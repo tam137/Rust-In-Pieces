@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.3] - 2026-05-29
+
+### Added
+
+- Evaluation: Open/Half-Open file maluses for the King (`KingOpenFileMalus`, `KingHalfOpenFileMalus`).
+- Evaluation: Defended King Ring heuristic to reduce danger based on defending pieces (`KingRingDefenderValue`).
+- Evaluation: Generalized Threat Matrix (Rook attacking Queen, Minor attacking Rook/Queen) via `ThreatMinorAttacksRook`, `ThreatMinorAttacksQueen`, `ThreatRookAttacksQueen`.
+- UCI configuration options for all 6 new evaluation parameters.
+- Debugging: Added `engine_position_debugging.md` skill documentation.
+- Tuning: Added SPSA harvest results skill document, parameter update skill document, and tuning script with workers argument.
+
+### Fixed
+
+
+
 ## [V0.11.2] - 2026-05-29
 
 ### Added

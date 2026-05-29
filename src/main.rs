@@ -240,3 +240,4 @@ mod tests {
         env._uci_command_processor.join().expect(rip_err);
     }
 }
+
