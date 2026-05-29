@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.10.6
+# LCT II Test Results: Version v0.10.8
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 7 / 35 (20.0%)
 * **Total Points**: 205 / 1050
-* **Estimated ELO**: **2105 ELO** (Lazy Move Picker, Lazy SEE optimization, Precalculated Eval Masks.)
+* **Estimated ELO**: **2105 ELO** (Dynamic UCI Hash Option)
 
 ---
 
@@ -11,6 +11,8 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.10.8` (Dynamic UCI Hash Option) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |
+| `v0.10.7` (UCI Move Overhead) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.10.6` (Lazy SEE & Fast Masks) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.10.5` (Bishop bugfix & Tempo de-escalation) | **2080** | 180 | 6/35 | 2/14 | 2/12 | 2/9 |
 | `v0.10.4` (Piece-Based Dynamic Positional Cap) | **2200** | 300 | 10/35 | 2/14 | 6/12 | 2/9 |
@@ -42,7 +44,7 @@
 
 ---
 
-## Scoreboard by Category (v0.10.6)
+## Scoreboard by Category (v0.10.8)
 
 * **Positional**: 3 / 14 solved (21.4%) | 90 points
 * **Tactical**: 2 / 12 solved (16.7%) | 60 points
@@ -50,7 +52,7 @@
 
 ---
 
-## Detailed Results (v0.10.6)
+## Detailed Results (v0.10.8)
 
 | ID | Category | Description | Correct Move | Engine Move | Solved? | Time | Points |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |

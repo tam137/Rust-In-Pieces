@@ -59,6 +59,14 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             active_config.enable_positional_cap = false;
                         }
                         logger.send(format!("EnablePositionalCap option updated to {}", active_config.enable_positional_cap)).ok();
+                    } else if cmd_lower.contains("name move overhead") {
+                        let parts: Vec<&str> = command.split_whitespace().collect();
+                        if let Some(val_str) = parts.last() {
+                            if let Ok(overhead) = val_str.parse::<u64>() {
+                                active_config.move_overhead = overhead;
+                                logger.send(format!("Move Overhead option updated to {}", active_config.move_overhead)).ok();
+                            }
+                        }
                     }
                 }
 
@@ -120,8 +128,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         let mut stats = Stats::default();
                         let history_table = [[0u32; 64]; 64];
+                        let current_zobrist_table_1 = engine_state.zobrist_table.read().unwrap().clone();
                         let context = crate::model::SearchContext {
-                            zobrist_table: &engine_state.zobrist_table,
+                            zobrist_table: &*current_zobrist_table_1,
                             stop_flag: &engine_state.stop_flag,
                             pv_nodes: &engine_state.pv_nodes,
                             killer_moves: [None; 2],
@@ -215,8 +224,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         } else {
                             let mut stats = Stats::default();
                             let history_table = [[0u32; 64]; 64];
+                            let current_zobrist_table_2 = engine_state.zobrist_table.read().unwrap().clone();
                             let context = crate::model::SearchContext {
-                                zobrist_table: &engine_state.zobrist_table,
+                                zobrist_table: &*current_zobrist_table_2,
                                 stop_flag: &engine_state.stop_flag,
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],
@@ -254,18 +264,18 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 }
 
 
-/// calculates the time {white} is thinking until the stop flag is set
 fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, config: &Config) -> u64 {
+    let mut my_time = if white { time_info.wtime } else { time_info.btime };
+    my_time = my_time.saturating_sub(config.move_overhead as i32);
+
     let thinking_time = match time_info.time_mode {
         TimeMode::None => 2000,
         
         TimeMode::Movetime => {
-            let my_time = if white { time_info.wtime } else { time_info.btime };
             (my_time - 50).max(10)
         }
         
         TimeMode::MoveToGo => {
-            let my_time = if white { time_info.wtime } else { time_info.btime };
             let my_thinking_time = (my_time / (time_info.moves_to_go + 1)) + (if white { time_info.winc } else { time_info.binc });
             
             if my_thinking_time > my_time { // when increment is bigger then current time left
@@ -276,8 +286,6 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, c
         }
         
         TimeMode::HourGlas => {
-            let my_time = if white { time_info.wtime } else { time_info.btime };
-            
             let my_thinking_time = if move_count < 40 {
                 (my_time as f64 * (0.02 + (move_count as f64 / 1000.0))) as i32
             } else {

@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.10] - 2026-05-28
+
+### Added
+- **Refactoring of Time Benchmark Suite (`src/time_check.rs`)**:
+  - Fully removed deprecated `DataMap` parameter-passing and manual `local_map` cloning across all timing benchmarks and performance testing threads, aligning them with the stateless, stack-allocated `SearchContext` architecture.
+  - Simplified the signatures of `run_time_check` and `calculate_benchmark` to no longer require `mut local_map: &mut DataMap`.
+  - Refactored internal `generate_valid_moves_list`, `generate_valid_moves_list_capture`, and `calc_eval` timing loops to use explicit stateless boolean parameters instead of dynamic map insertions.
+- **Deployment Enhancements (`matt-magie/deploy.sh`)**:
+  - Updated the deployment payload inside `deploy.sh` in the Matt-Magie wrapper to automatically bundle and copy all `.trn` tournament configuration files (such as `test_gauntlet.trn`) to the remote server, enabling full tournament setups out-of-the-box.
+
+### Fixed
+- **Symbolic Link Resolution on Remote ARM Server**:
+  - Re-created the missing `/home/mattmagie/mattmagie/` target directory on the remote server to fully resolve the broken symbolical link `/root/mattmagie`, ensuring completely warning-free native compilation and deployments.
+
+
+
+## [V0.10.9] - 2026-05-28
+
+### Added
+- Functional cleanup in time_check
+
+### Fixed
+
+
+
+## [V0.10.8] - 2026-05-28
+
+### Added
+
+- **Dynamic UCI Hash Option (`src/threads.rs`, `src/model.rs`, `src/search_service.rs`, `src/time_check.rs`, `src/game_handler.rs`)**:
+  - Implemented the `Hash` UCI protocol option (default `10` MB, max `1000` MB) to allow external platforms (like Lichess or GUI interfaces) to configure the transposition table size.
+  - Dynamically reallocates the `ZobristTable` behind an `RwLock` ensuring safe resizing without invalidating references during ongoing searches.
+  - Ensures robust integration by calculating max entries based on the memory limit rather than static capacities.
+
+### Fixed
+
+
+
+## [V0.10.7] - 2026-05-28
+
+### Added
+- **UCI Move Overhead Configuration (`src/config.rs`, `src/game_handler.rs`, `src/threads.rs`)**:
+  - Implemented the `Move Overhead` UCI protocol option (default `0` ms, max `5000` ms) to allow external platforms (like Lichess or GUI interfaces) to compensate for network latency and inter-process communication delays.
+  - Dynamically subtracted the overhead parameter directly from the available thinking time budget (`wtime` / `btime`) prior to algorithmic time allocation in `calculate_thinking_time`.
+  - Ensures robust time management that strictly prevents the engine from dropping on time (flagging) during fast bullet or blitz time controls on external servers.
+
+### Fixed
+
+
+
 ## [V0.10.6] - 2026-05-28
 
 ### Added
