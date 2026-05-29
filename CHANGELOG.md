@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.11] - 2026-05-29
+
+### Added
+- **Pawn Undeveloped Malus Fix (`src/eval_service.rs`)**:
+  - Restored protective pawn shields in front of the castled king by restricting the "Undeveloped Malus" strictly to the `d` and `e` center files. Pawns on `a, b, c` and `f, g, h` no longer receive artificial pressure to move in the early game.
+- **Advanced Pawn Structure Evaluation (`src/config.rs`, `src/eval_service.rs`)**:
+  - **Backward Pawns**: Added mathematical detection of structurally backward pawns (pawns that are not isolated but lack friendly pawns on adjacent files on the same rank or behind them). Introduced `pawn_backward_malus` to penalize this weakness.
+  - **Doubled Pawns (Bitboard Full Scan)**: Replaced the hardcoded, localized (up to 3 squares ahead) doubled pawn checks with a robust, complete file bitboard intersection mask `(0x0101010101010101u64 << file)`, correctly identifying doubled pawns anywhere on the entire file.
+
+### Fixed
+
+
+
 ## [V0.10.10] - 2026-05-28
 
 ### Added
