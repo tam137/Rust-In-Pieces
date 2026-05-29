@@ -80,6 +80,15 @@ Use the syntax: `setoption name <param_name> value <param_value>` (case-insensit
 - **Tempo & Attacks:** `your_turn_bonus`, `pawn_attacks_opponent_fig`, `pawn_attacks_opponent_fig_with_tempo`, `queen_in_attack`, `queen_in_attack_with_tempo`, `knight_attacks_bishop`, `knight_attacks_rook`, `knight_attacks_bishop_tempo`, `knight_attacks_rook_tempo`, `positional_cap_damping`
 - **Misc:** `delta_pruning_margin`
 
+### Automated SPSA Tuning
+SupraH provides a Python-based SPSA (Simultaneous Perturbation Stochastic Approximation) tuner to automatically optimize these parameters by playing iterative batches of test matches. 
+
+To start a tuning run locally:
+```bash
+python3 tuning/spsa_tuner.py --engine ./target/release/suprah --mm /path/to/match_runner --games 250
+```
+This orchestrates 250 games per iteration using the specified match runner (e.g., Matt-Magie or FastChess), calculates the win rate, and estimates gradient adjustments across all active parameters. State and iteration logs are saved automatically to `tuning/spsa_state.json` and `tuning/spsa_history.csv` to allow graceful interruptions and resumability.
+
 ---
 
 ## 🛠️ Build & Compilation Instructions
