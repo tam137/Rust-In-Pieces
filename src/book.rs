@@ -110,6 +110,19 @@ impl Book {
         let f2f4_e7e5 = "rnbqkbnr/pppp1ppp/8/4p3/5P2/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 2";
         book_map.insert(f2f4_e7e5, vec!["f4e5"]);
 
+        // Extended deeper lines
+        let e2e4_e7e5_g1f3_b8c6_f1b5 = "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 3";
+        let e2e4_c7c5_g1f3_d7d6_d2d4_c5d4_f3d4_g8f6_b1c3 = "rnbqkb1r/pp2pppp/3p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 0 5";
+        let e2e4_e7e6_d2d4_d7d5_b1c3 = "rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3";
+        let e2e4_c7c6_d2d4_d7d5_b1c3 = "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3";
+        let d2d4_d7d5_c2c4_e7e6_b1c3_g8f6 = "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4";
+
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5, vec!["a7a6", "g8f6", "d7d6", "f8c5"]);
+        book_map.insert(e2e4_c7c5_g1f3_d7d6_d2d4_c5d4_f3d4_g8f6_b1c3, vec!["a7a6", "g7g6", "e7e6"]);
+        book_map.insert(e2e4_e7e6_d2d4_d7d5_b1c3, vec!["g8f6", "f8b4", "d5e4"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3, vec!["d5e4"]);
+        book_map.insert(d2d4_d7d5_c2c4_e7e6_b1c3_g8f6, vec!["c1g5", "g1f3", "c4d5"]);
+
         Book { book_map }
     }
 
