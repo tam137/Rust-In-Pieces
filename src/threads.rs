@@ -63,6 +63,12 @@ pub fn uci_command_processor(
                     stdout.write("option name Aggressiveness type string default Normal");
                     stdout.write("option name EnablePositionalCap type check default true");
                     stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");
+                    stdout.write("option name KingOpenFileMalus type spin default 40 min 0 max 500");
+                    stdout.write("option name KingHalfOpenFileMalus type spin default 20 min 0 max 500");
+                    stdout.write("option name KingRingDefenderValue type spin default 1 min 0 max 10");
+                    stdout.write("option name ThreatMinorAttacksRook type spin default 15 min 0 max 200");
+                    stdout.write("option name ThreatMinorAttacksQueen type spin default 30 min 0 max 200");
+                    stdout.write("option name ThreatRookAttacksQueen type spin default 20 min 0 max 200");
                     stdout.write("uciok");
                 }
 
@@ -146,6 +152,12 @@ pub fn uci_command_processor(
                         || token_lower.contains("name enablepositionalcap")
                         || token_lower.contains("name enable_positional_cap")
                         || token_lower.contains("name move overhead")
+                        || token_lower.contains("name kingopenfilemalus")
+                        || token_lower.contains("name kinghalfopenfilemalus")
+                        || token_lower.contains("name kingringdefendervalue")
+                        || token_lower.contains("name threatminorattacksrook")
+                        || token_lower.contains("name threatminorattacksqueen")
+                        || token_lower.contains("name threatrookattacksqueen")
                     {
                         tx_game_command.send(uci_token.clone()).ok();
                     } else if token_lower.contains("name threads") && token_lower.contains("value") {

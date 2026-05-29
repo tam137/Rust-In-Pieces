@@ -201,12 +201,37 @@ impl EvalService {
         // 0 -> 0%, 1 -> 10%, 2 -> 50%, 3 -> 100%, 4 -> 150%, 5+ -> 200%
         let danger_weights = [0, 10, 50, 100, 150, 200];
         
+        let mut white_defenders = 0;
+        let mut black_defenders = 0;
+        
+        if white_attackers > 0 || black_attackers > 0 {
+            let mut temp = board.bitboards[crate::model::WHITE_KNIGHT] | board.bitboards[crate::model::WHITE_BISHOP];
+            while temp != 0 {
+                let sq = temp.trailing_zeros() as usize;
+                let piece = board.get_piece_at(sq as u8);
+                let attacks = if piece == 12 { movegen.get_knight_attacks(sq) } else { movegen.get_bishop_attacks(sq, board.occupied) };
+                if (attacks & white_king_ring) != 0 { white_defenders += 1; }
+                temp &= temp - 1;
+            }
+            
+            let mut temp = board.bitboards[crate::model::BLACK_KNIGHT] | board.bitboards[crate::model::BLACK_BISHOP];
+            while temp != 0 {
+                let sq = temp.trailing_zeros() as usize;
+                let piece = board.get_piece_at(sq as u8);
+                let attacks = if piece == 22 { movegen.get_knight_attacks(sq) } else { movegen.get_bishop_attacks(sq, board.occupied) };
+                if (attacks & black_king_ring) != 0 { black_defenders += 1; }
+                temp &= temp - 1;
+            }
+        }
+
         if white_attackers > 0 {
-            let idx = std::cmp::min(white_attackers as usize, 5);
+            let effective_attackers = (white_attackers as i16 - (black_defenders as i16 * config.king_ring_defender_value)).max(0) as usize;
+            let idx = std::cmp::min(effective_attackers, 5);
             eval += (white_king_danger * danger_weights[idx]) / 100;
         }
         if black_attackers > 0 {
-            let idx = std::cmp::min(black_attackers as usize, 5);
+            let effective_attackers = (black_attackers as i16 - (white_defenders as i16 * config.king_ring_defender_value)).max(0) as usize;
+            let idx = std::cmp::min(effective_attackers, 5);
             eval -= (black_king_danger * danger_weights[idx]) / 100;
         }
 
@@ -614,6 +639,10 @@ impl EvalService {
 
         // Rook mobility
         let attacks = movegen.get_rook_attacks(sq as usize, board.occupied);
+        
+        // Threat Matrix: Rook attacks Queen
+        let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
+        o_eval += attacked_black_queens * config.threat_rook_attacks_queen;
         let mobility = attacks.count_ones() as i16;
         o_eval += mobility * config.rook_mobility_factor;
         e_eval += mobility * (config.rook_mobility_factor + 3);
@@ -685,6 +714,10 @@ impl EvalService {
 
         // Rook mobility
         let attacks = movegen.get_rook_attacks(sq as usize, board.occupied);
+        
+        // Threat Matrix: Rook attacks Queen
+        let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
+        o_eval -= attacked_white_queens * config.threat_rook_attacks_queen;
         let mobility = attacks.count_ones() as i16;
         o_eval -= mobility * config.rook_mobility_factor;
         e_eval -= mobility * (config.rook_mobility_factor + 3);
@@ -718,6 +751,10 @@ impl EvalService {
 
         // Evaluate knight attacks on other pieces
         let attacks = movegen.get_knight_attacks(sq as usize);
+        
+        // Threat Matrix: Knight attacks Queen
+        let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
+        o_eval += attacked_black_queens * config.threat_minor_attacks_queen;
         for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_white {
             let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
             let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
@@ -773,6 +810,10 @@ impl EvalService {
     
         // Evaluate knight attacks on other pieces
         let attacks = movegen.get_knight_attacks(sq as usize);
+        
+        // Threat Matrix: Knight attacks Queen
+        let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
+        o_eval -= attacked_white_queens * config.threat_minor_attacks_queen;
         for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_black {
             let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
             let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
@@ -831,6 +872,12 @@ impl EvalService {
 
         // Bishop mobility
         let attacks = movegen.get_bishop_attacks(sq as usize, board.occupied);
+        
+        // Threat Matrix: Bishop attacks Rook/Queen
+        let attacked_black_rooks = (attacks & board.bitboards[crate::model::BLACK_ROOK]).count_ones() as i16;
+        let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
+        o_eval += attacked_black_rooks * config.threat_minor_attacks_rook;
+        o_eval += attacked_black_queens * config.threat_minor_attacks_queen;
         let mobility = attacks.count_ones() as i16;
         o_eval += mobility * config.bishop_mobility_factor;
         e_eval += mobility * config.bishop_mobility_factor;
@@ -865,6 +912,12 @@ impl EvalService {
 
         // Bishop mobility
         let attacks = movegen.get_bishop_attacks(sq as usize, board.occupied);
+        
+        // Threat Matrix: Bishop attacks Rook/Queen
+        let attacked_white_rooks = (attacks & board.bitboards[crate::model::WHITE_ROOK]).count_ones() as i16;
+        let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
+        o_eval -= attacked_white_rooks * config.threat_minor_attacks_rook;
+        o_eval -= attacked_white_queens * config.threat_minor_attacks_queen;
         let mobility = attacks.count_ones() as i16;
         o_eval -= mobility * config.bishop_mobility_factor;
         e_eval -= mobility * config.bishop_mobility_factor;
@@ -954,6 +1007,15 @@ impl EvalService {
         }
 
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        let file_mask = 0x0101010101010101u64 << file;
+        if (file_mask & white_pawns) == 0 {
+            if (file_mask & black_pawns) == 0 {
+                o_eval -= config.king_open_file_malus;
+            } else {
+                o_eval -= config.king_half_open_file_malus;
+            }
+        }
         if file > 0 && sq + 7 < 64 {
             let bit = 1u64 << (sq + 7);
             if (bit & white_pawns) != 0 { o_eval += config.king_pawn_shield; }
@@ -1011,6 +1073,15 @@ impl EvalService {
         }
 
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        let file_mask = 0x0101010101010101u64 << file;
+        if (file_mask & black_pawns) == 0 {
+            if (file_mask & white_pawns) == 0 {
+                o_eval += config.king_open_file_malus;
+            } else {
+                o_eval += config.king_half_open_file_malus;
+            }
+        }
         if file > 0 && sq >= 9 {
             let bit = 1u64 << (sq - 9);
             if (bit & black_pawns) != 0 { o_eval -= config.king_pawn_shield; }

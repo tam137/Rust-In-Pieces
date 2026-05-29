@@ -1515,5 +1515,17 @@ mod tests {
         let mv = move_list.as_slice()[0].to_algebraic();
         assert_eq!(mv, "f1g1", "Expected the only legal move to be f1g1!");
     }
+    #[test]
+    fn test_my_bug_fen() {
+        // e4h4 should be generated
+        let mut board = test_fen("r1b1k2r/ppp1b1pp/2p5/4N3/3PR3/6Pq/PPP4P/R1BQ2K1 w kq - 1 15", 38);
+        let moves = generate_valid_moves_list(&mut board);
+        let mut found = false;
+        for m in moves {
+            if m.to_algebraic() == "e4h4" {
+                found = true;
+            }
+        }
+        assert!(found, "e4h4 is not generated");
+    }
 }
-

@@ -66,6 +66,9 @@ pub struct Config {
     pub protected_passed_pawn_middlegame: i16,
     pub protected_passed_pawn_endgame: i16,
     pub king_opposition_bonus: i16,
+    pub king_open_file_malus: i16,
+    pub king_half_open_file_malus: i16,
+    pub king_ring_defender_value: i16,
 
     pub pawn_structure: i16,
     pub pawn_supports_knight_outpost: i16,
@@ -86,6 +89,9 @@ pub struct Config {
     pub knight_attacks_rook: i16,
     pub knight_attacks_bishop_tempo: i16,
     pub knight_attacks_rook_tempo: i16,
+    pub threat_minor_attacks_rook: i16,
+    pub threat_minor_attacks_queen: i16,
+    pub threat_rook_attacks_queen: i16,
 
 
     pub king_pawn_shield: i16,
@@ -182,6 +188,9 @@ impl Config {
             protected_passed_pawn_middlegame: 12,
             protected_passed_pawn_endgame: 24,
             king_opposition_bonus: 12,
+            king_open_file_malus: 40,
+            king_half_open_file_malus: 20,
+            king_ring_defender_value: 1,
 
             pawn_structure: 5,
             pawn_supports_knight_outpost: 12,
@@ -206,6 +215,9 @@ impl Config {
             knight_attacks_rook: 15,
             knight_attacks_bishop_tempo: 10,
             knight_attacks_rook_tempo: 10,
+            threat_minor_attacks_rook: 15,
+            threat_minor_attacks_queen: 30,
+            threat_rook_attacks_queen: 20,
 
 
             king_pawn_shield: 40,
@@ -269,6 +281,11 @@ impl Config {
         config.queen_in_attack_with_tempo = 0;
         config.knight_attacks_rook_tempo = 0;
         config.knight_attacks_bishop_tempo = 0;
+        config.threat_minor_attacks_rook = 0;
+        config.threat_minor_attacks_queen = 0;
+        config.threat_rook_attacks_queen = 0;
+        config.king_open_file_malus = 0;
+        config.king_half_open_file_malus = 0;
         config
     }
 

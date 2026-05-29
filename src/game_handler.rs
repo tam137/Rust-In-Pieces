@@ -70,7 +70,27 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "give_promotion_rank_bonus_knight" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_knight = v; },
                                     "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
-                                    "positional_cap_damping" => if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; },
+                                    "aggressiveness" => match val_str.as_str() {
+                                        "Normal" => active_config.aggressiveness = crate::config::Aggressiveness::Normal,
+                                        "Aggressive" => active_config.aggressiveness = crate::config::Aggressiveness::Aggressive,
+                                        "HighAggressive" => active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive,
+                                        _ => {}
+                                    },
+                                    "enablepositionalcap" | "enable_positional_cap" => {
+                                        active_config.enable_positional_cap = val_str == "true";
+                                    },
+                                    "positionalcapdamping" | "positional_cap_damping" => {
+                                        if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; }
+                                    },
+                                    "moveoverhead" | "move_overhead" => {
+                                        if let Ok(v) = val_str.parse::<u64>() { active_config.move_overhead = v; }
+                                    },
+                                    "kingopenfilemalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_malus = v; },
+                                    "kinghalfopenfilemalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_half_open_file_malus = v; },
+                                    "kingringdefendervalue" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_defender_value = v; },
+                                    "threatminorattacksrook" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_rook = v; },
+                                    "threatminorattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
+                                    "threatrookattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
