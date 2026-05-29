@@ -6,15 +6,17 @@ import time
 import csv
 import argparse
 import concurrent.futures
+import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
         self.engine_path = engine_path
         self.mm_path = mm_path
         self.games_per_iter = games_per_iter
+        self.workers = workers
         
         # SPSA Constants (Standard values)
         self.a = 2.0     # Base learning rate (depends on gradient magnitude)
@@ -100,9 +102,22 @@ class SPSATuner:
         losses = 0
         draws = 0
         
+        completed_games = 0
+        lock = threading.Lock()
+        
+        def run_single_game_wrapper(i):
+            res = run_single_game(i)
+            with lock:
+                nonlocal completed_games
+                completed_games += 1
+                percent = (completed_games / self.games_per_iter) * 100
+                print(f"\rProgress: {percent:.1f}% ({completed_games}/{self.games_per_iter})", end="", flush=True)
+            return res
+
         # Run in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            pgn_files = list(executor.map(run_single_game, range(self.games_per_iter)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+            pgn_files = list(executor.map(run_single_game_wrapper, range(self.games_per_iter)))
+        print("") # newline after progress bar
             
         # Aggregate results
         for pf in pgn_files:
@@ -166,6 +181,7 @@ if __name__ == "__main__":
     parser.add_argument("--engine", required=True)
     parser.add_argument("--mm", required=True)
     parser.add_argument("--games", type=int, default=250)
+    parser.add_argument("--workers", type=int, default=8, help="Number of parallel games to run simultaneously")
     args = parser.parse_args()
     
     tuner = SPSATuner(
@@ -174,7 +190,8 @@ if __name__ == "__main__":
         history_file="tuning/spsa_history.csv",
         engine_path=args.engine,
         mm_path=args.mm,
-        games_per_iter=args.games
+        games_per_iter=args.games,
+        workers=args.workers
     )
     
     # Run 100 iterations as a test
