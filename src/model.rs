@@ -959,7 +959,7 @@ impl SearchResult {
         self.variants.get(0)
             .and_then(|variant| variant.best_move.as_ref())
             .map(|best_move| best_move.to_algebraic())
-            .unwrap_or_else(|| "N/A".to_string())
+            .unwrap_or_else(|| "0000".to_string())
     }
 
     pub fn get_best_move_row(&self) -> String {
@@ -976,15 +976,14 @@ impl SearchResult {
     }
 
     pub fn get_pv_move_row(&self) -> Vec<Turn> {
-        self.variants
-            .get(0)
-            .expect("RIP Found no PV move row")
-            .move_row
-            .iter()
-            .map(|turn_option| {
-                turn_option.clone().expect("RIP no turn in move row")
-            })
-            .collect()
+        if let Some(variant) = self.variants.get(0) {
+            variant.move_row
+                .iter()
+                .filter_map(|turn_option| turn_option.clone())
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
 }

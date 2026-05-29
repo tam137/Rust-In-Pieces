@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.10.12] - 2026-05-29
+
+### Added
+
+- Release v0.10.11: Pawn eval context restrictions and structure masks
+- Release v0.10.10: Dynamic UCI Hash, Overhead, and Time Check Refactoring
+- Release v0.10.6: Lazy SEE, Lazy Move Picker, Precalculated Evaluation Masks
+- docs: add eval_task.md with evaluation tasks and optimizations
+- docs: Update and correct historical perft.md benchmarks for v0.10.0 to v0.10.4
+
+### Fixed
+
+
+
+## [V0.10.12] - 2026-05-29
+
+### Added
+- **PST (Piece-Square Tables) for Queen and Rook (`src/eval_service.rs`)**:
+  - Implemented position-dependent evaluations for queens and rooks using `ROOK_PST` and `QUEEN_PST` to improve centralization evaluation.
+- **Accurate Game-Phase Calculation (`src/eval_service.rs`)**:
+  - Refactored `get_game_phase` to only count major and minor pieces (knights, bishops, rooks, queens) weighted by material value, ensuring pure pawn endgames are correctly classified as endgames.
+- **King Danger / Attacker Count Weighting (`src/eval_service.rs`)**:
+  - Implemented an advanced King Danger concept. Attackers on the king-ring are no longer just linearly summed. The evaluation now takes the total number of attacking pieces into account and applies exponential weights based on attacker counts.
+
+### Fixed
+
+
+
 ## [V0.10.11] - 2026-05-29
 
 ### Added
