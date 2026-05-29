@@ -61,6 +61,25 @@ SupraH fully adheres to the standard Universal Chess Interface (UCI) protocol, e
 | **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name Move Overhead value 100` |
 | **`test`** | None | Triggers internal diagnostic checks, speed performance tests, and timing benchmarks. | `test` |
 
+### Engine Tuning Options (SPSA)
+SupraH exposes over 50 internal parameters dynamically via UCI `setoption` commands to allow automated SPSA (Simultaneous Perturbation Stochastic Approximation) tuning. 
+Use the syntax: `setoption name <param_name> value <param_value>` (case-insensitive for the name).
+
+**Search & Pruning (i32/u32):**
+- **NMP:** `nmp_depth_threshold`, `nmp_reduction`, `nmp_verification_threshold`, `nmp_dynamic_divisor`
+- **LMR:** `lmr_depth_threshold`, `lmr_move_threshold`
+- **Move Ordering:** `killer_move_1_rank_bonus`, `killer_move_2_rank_bonus`, `counter_move_rank_bonus`, `history_max_threshold`
+- **Misc:** `is_hashed_rank_bonus`, `give_check_rank_bonus`, `is_pv_node_rank_bonus`, `give_promotion_rank_bonus_queen`, `give_promotion_rank_bonus_knight`
+
+**Positional Evaluation (i16):**
+- **Pawns:** `pawn_structure`, `pawn_supports_knight_outpost`, `pawn_centered`, `pawn_undeveloped_malus`, `pawn_on_last_rank_bonus`, `pawn_on_before_last_rank_bonus`, `pawn_on_before_before_last_rank_bonus`, `pawn_defends_bishop`, `pawn_double_malus`, `pawn_isolated_malus`, `pawn_backward_malus`, `protected_passed_pawn_middlegame`, `protected_passed_pawn_endgame`
+- **Knights:** `undeveloped_knight_malus`, `knight_on_rim_malus`, `knight_centered`, `knight_blockes_pawn`, `knight_mobility_factor`
+- **Bishops:** `undeveloped_bishop_malus`, `bishop_pair_bonus`, `bishop_trapped_at_rim_malus`, `bishop_mobility_factor`
+- **Rooks:** `rook_open_file`, `rook_half_open_file`, `rook_doubled_bonus`, `rook_behind_passed_pawn_middlegame`, `rook_behind_passed_pawn_endgame`, `rook_on_seventh`, `rook_mobility_factor`
+- **King Safety:** `undeveloped_king_malus`, `king_ring_attack_knight`, `king_ring_attack_bishop`, `king_ring_attack_rook`, `king_ring_attack_queen`, `king_opposition_bonus`, `king_pawn_shield`, `king_piece_shield`, `king_trapp_at_baseline_malus`, `king_in_check_malus`, `king_in_double_check_malus`
+- **Tempo & Attacks:** `your_turn_bonus`, `pawn_attacks_opponent_fig`, `pawn_attacks_opponent_fig_with_tempo`, `queen_in_attack`, `queen_in_attack_with_tempo`, `knight_attacks_bishop`, `knight_attacks_rook`, `knight_attacks_bishop_tempo`, `knight_attacks_rook_tempo`, `positional_cap_damping`
+- **Misc:** `delta_pruning_margin`
+
 ---
 
 ## 🛠️ Build & Compilation Instructions

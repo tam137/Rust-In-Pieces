@@ -34,38 +34,96 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command.starts_with("setoption") {
-                    let cmd_lower = command.to_lowercase();
-                    if cmd_lower.contains("name aggressiveness") {
-                        if cmd_lower.contains("value aggressive") {
-                            active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
-                        } else if cmd_lower.contains("value highaggressive") {
-                            active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive;
-                        } else {
-                            active_config.aggressiveness = crate::config::Aggressiveness::Normal;
-                        }
-                        logger.send(format!("Aggressiveness option updated to {:?}", active_config.aggressiveness)).ok();
-                    } else if cmd_lower.contains("name positionalcapdamping") || cmd_lower.contains("name positional_cap_damping") {
-                        let parts: Vec<&str> = command.split_whitespace().collect();
-                        if let Some(val_str) = parts.last() {
-                            if let Ok(damping) = val_str.parse::<i16>() {
-                                active_config.positional_cap_damping = damping;
-                                logger.send(format!("PositionalCapDamping option updated to {}", active_config.positional_cap_damping)).ok();
+                    let parts: Vec<&str> = command.split_whitespace().collect();
+                    if let Some(name_idx) = parts.iter().position(|&r| r.to_lowercase() == "name") {
+                        if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
+                            let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase().replace("enablepositionalcap", "enable_positional_cap").replace("positionalcapdamping", "positional_cap_damping");
+                            let val_str = parts[val_idx+1..].join(" ");
+
+                            if param_name == "aggressiveness" {
+                                if val_str.to_lowercase().contains("high") {
+                                    active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+                                } else if val_str.to_lowercase().contains("aggressive") {
+                                    active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
+                                } else {
+                                    active_config.aggressiveness = crate::config::Aggressiveness::Normal;
+                                }
+                            } else if param_name == "enable_positional_cap" {
+                                active_config.enable_positional_cap = val_str.to_lowercase() == "true";
+                            } else if param_name == "move_overhead" {
+                                if let Ok(overhead) = val_str.parse::<u64>() { active_config.move_overhead = overhead; }
+                            } else {
+                                match param_name.as_str() {
+                                    "nmp_depth_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_depth_threshold = v; },
+                                    "nmp_reduction" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_reduction = v; },
+                                    "nmp_verification_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_verification_threshold = v; },
+                                    "nmp_dynamic_divisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_dynamic_divisor = v; },
+                                    "lmr_depth_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_depth_threshold = v; },
+                                    "lmr_move_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_move_threshold = v; },
+                                    "killer_move_1_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_1_rank_bonus = v; },
+                                    "killer_move_2_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_2_rank_bonus = v; },
+                                    "counter_move_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.counter_move_rank_bonus = v; },
+                                    "is_hashed_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.is_hashed_rank_bonus = v; },
+                                    "give_check_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_check_rank_bonus = v; },
+                                    "is_pv_node_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.is_pv_node_rank_bonus = v; },
+                                    "give_promotion_rank_bonus_queen" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_queen = v; },
+                                    "give_promotion_rank_bonus_knight" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_knight = v; },
+                                    "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
+                                    "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
+                                    "positional_cap_damping" => if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; },
+                                    "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
+                                    "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
+                                    "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
+                                    "pawn_undeveloped_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_undeveloped_malus = v; },
+                                    "pawn_on_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_last_rank_bonus = v; },
+                                    "pawn_on_before_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_before_last_rank_bonus = v; },
+                                    "pawn_on_before_before_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_before_before_last_rank_bonus = v; },
+                                    "pawn_defends_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_defends_bishop = v; },
+                                    "pawn_double_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_double_malus = v; },
+                                    "pawn_isolated_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_isolated_malus = v; },
+                                    "pawn_backward_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_backward_malus = v; },
+                                    "protected_passed_pawn_middlegame" => if let Ok(v) = val_str.parse::<i16>() { active_config.protected_passed_pawn_middlegame = v; },
+                                    "protected_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.protected_passed_pawn_endgame = v; },
+                                    "undeveloped_knight_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_knight_malus = v; },
+                                    "knight_on_rim_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_on_rim_malus = v; },
+                                    "knight_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_centered = v; },
+                                    "knight_blockes_pawn" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_blockes_pawn = v; },
+                                    "knight_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_mobility_factor = v; },
+                                    "undeveloped_bishop_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_bishop_malus = v; },
+                                    "bishop_pair_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_pair_bonus = v; },
+                                    "bishop_trapped_at_rim_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_trapped_at_rim_malus = v; },
+                                    "bishop_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_mobility_factor = v; },
+                                    "rook_open_file" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file = v; },
+                                    "rook_half_open_file" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_half_open_file = v; },
+                                    "rook_doubled_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_doubled_bonus = v; },
+                                    "rook_behind_passed_pawn_middlegame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_middlegame = v; },
+                                    "rook_behind_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_endgame = v; },
+                                    "rook_on_seventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh = v; },
+                                    "rook_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_mobility_factor = v; },
+                                    "undeveloped_king_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_king_malus = v; },
+                                    "king_ring_attack_knight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_knight = v; },
+                                    "king_ring_attack_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_bishop = v; },
+                                    "king_ring_attack_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_rook = v; },
+                                    "king_ring_attack_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_queen = v; },
+                                    "king_opposition_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_opposition_bonus = v; },
+                                    "king_pawn_shield" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_pawn_shield = v; },
+                                    "king_piece_shield" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_piece_shield = v; },
+                                    "king_trapp_at_baseline_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_trapp_at_baseline_malus = v; },
+                                    "king_in_check_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_in_check_malus = v; },
+                                    "king_in_double_check_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_in_double_check_malus = v; },
+                                    "pawn_attacks_opponent_fig" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_attacks_opponent_fig = v; },
+                                    "pawn_attacks_opponent_fig_with_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_attacks_opponent_fig_with_tempo = v; },
+                                    "queen_in_attack" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_in_attack = v; },
+                                    "queen_in_attack_with_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_in_attack_with_tempo = v; },
+                                    "knight_attacks_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop = v; },
+                                    "knight_attacks_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook = v; },
+                                    "knight_attacks_bishop_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop_tempo = v; },
+                                    "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
+                                    "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
+                                    _ => {}
+                                }
                             }
-                        }
-                    } else if cmd_lower.contains("name enablepositionalcap") || cmd_lower.contains("name enable_positional_cap") {
-                        if cmd_lower.contains("value true") {
-                            active_config.enable_positional_cap = true;
-                        } else if cmd_lower.contains("value false") {
-                            active_config.enable_positional_cap = false;
-                        }
-                        logger.send(format!("EnablePositionalCap option updated to {}", active_config.enable_positional_cap)).ok();
-                    } else if cmd_lower.contains("name move overhead") {
-                        let parts: Vec<&str> = command.split_whitespace().collect();
-                        if let Some(val_str) = parts.last() {
-                            if let Ok(overhead) = val_str.parse::<u64>() {
-                                active_config.move_overhead = overhead;
-                                logger.send(format!("Move Overhead option updated to {}", active_config.move_overhead)).ok();
-                            }
+                            logger.send(format!("setoption: {} updated to {}", param_name, val_str)).ok();
                         }
                     }
                 }
