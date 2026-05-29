@@ -1,9 +1,9 @@
-# LCT II Test Results: Version v0.10.12
+# LCT II Test Results: Version v0.11.0
 
 * **Engine Binary**: `target/release/suprah`
-* **Positions Solved**: 6 / 35 (17.1%)
-* **Total Points**: 180 / 1050
-* **Estimated ELO**: **2080 ELO** (PST for Queen/Rook, Accurate Game Phase, King Danger Weighting)
+* **Positions Solved**: 8 / 35 (22.9%)
+* **Total Points**: 240 / 1050
+* **Estimated ELO**: **2140 ELO** (O(1) Incremental Evaluation for PSTs and Material)
 
 ---
 
@@ -13,6 +13,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.11.0` (O(1) Incremental Evaluation) | **2140** | 240 | 8/35 | 3/14 | 2/12 | 3/9 |
 | `v0.10.12` (PST, Phase Calc, King Danger) | **2080** | 180 | 6/35 | 2/14 | 2/12 | 2/9 |
 | `v0.10.11` (Pawn eval changes) | **2020** | 120 | 4/35 | 2/14 | 1/12 | 1/9 |
 | `v0.10.8` (Dynamic UCI Hash Option) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |

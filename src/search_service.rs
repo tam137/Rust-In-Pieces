@@ -281,11 +281,11 @@ impl SearchService {
 
     fn get_piece_value(&self, piece: u8, config: &Config) -> i16 {
         match piece {
-            10 | 20 => config.piece_eval_pawn,
-            11 | 21 => config.piece_eval_rook,
-            12 | 22 => config.piece_eval_knight,
-            13 | 23 => config.piece_eval_bishop,
-            14 | 24 => config.piece_eval_queen,
+            10 | 20 => crate::pst::PIECE_EVAL_PAWN,
+            11 | 21 => crate::pst::PIECE_EVAL_ROOK,
+            12 | 22 => crate::pst::PIECE_EVAL_KNIGHT,
+            13 | 23 => crate::pst::PIECE_EVAL_BISHOP,
+            14 | 24 => crate::pst::PIECE_EVAL_QUEEN,
             15 | 25 => 20000, // King has "infinite" value proxy
             _ => 0,
         }
@@ -638,12 +638,12 @@ impl SearchService {
 
                 if config.enable_delta_pruning && !in_check && capture_turn.promotion == 0 {
                     let gain = match capture_turn.capture {
-                        10 | 20 => config.piece_eval_pawn,
-                        11 | 21 => config.piece_eval_rook,
-                        12 | 22 => config.piece_eval_knight,
-                        13 | 23 => config.piece_eval_bishop,
-                        14 | 24 => config.piece_eval_queen,
-                        15 | 25 => config.piece_eval_king,
+                        10 | 20 => crate::pst::PIECE_EVAL_PAWN,
+                        11 | 21 => crate::pst::PIECE_EVAL_ROOK,
+                        12 | 22 => crate::pst::PIECE_EVAL_KNIGHT,
+                        13 | 23 => crate::pst::PIECE_EVAL_BISHOP,
+                        14 | 24 => crate::pst::PIECE_EVAL_QUEEN,
+                        15 | 25 => crate::pst::PIECE_EVAL_KING,
                         _ => 0,
                     };
                     let delta_margin = config.delta_pruning_margin;
@@ -1178,7 +1178,7 @@ mod tests {
             has_hashed_eval: false,
         };
         let see_val2 = service.search.see(&board2, &mv2, &config, &service.move_gen);
-        assert_eq!(see_val2, config.piece_eval_pawn);
+        assert_eq!(see_val2, crate::pst::PIECE_EVAL_PAWN);
         
         // 3. Unfavorable blunder (White Queen d1 captures Black Pawn d5 protected by Knight c6)
         let fen3 = "r1bqkbnr/ppp1pppp/2n5/3p4/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -1195,6 +1195,6 @@ mod tests {
             has_hashed_eval: false,
         };
         let see_val3 = service.search.see(&board3, &mv3, &config, &service.move_gen);
-        assert_eq!(see_val3, config.piece_eval_pawn - config.piece_eval_queen);
+        assert_eq!(see_val3, crate::pst::PIECE_EVAL_PAWN - crate::pst::PIECE_EVAL_QUEEN);
     }
 }
