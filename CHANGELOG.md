@@ -9,20 +9,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.10.12] - 2026-05-29
 
 ### Added
-
-- Release v0.10.11: Pawn eval context restrictions and structure masks
-- Release v0.10.10: Dynamic UCI Hash, Overhead, and Time Check Refactoring
-- Release v0.10.6: Lazy SEE, Lazy Move Picker, Precalculated Evaluation Masks
-- docs: add eval_task.md with evaluation tasks and optimizations
-- docs: Update and correct historical perft.md benchmarks for v0.10.0 to v0.10.4
-
-### Fixed
-
-
-
-## [V0.10.12] - 2026-05-29
-
-### Added
 - **PST (Piece-Square Tables) for Queen and Rook (`src/eval_service.rs`)**:
   - Implemented position-dependent evaluations for queens and rooks using `ROOK_PST` and `QUEEN_PST` to improve centralization evaluation.
 - **Accurate Game-Phase Calculation (`src/eval_service.rs`)**:
@@ -31,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Implemented an advanced King Danger concept. Attackers on the king-ring are no longer just linearly summed. The evaluation now takes the total number of attacking pieces into account and applies exponential weights based on attacker counts.
 
 ### Fixed
+- **Engine Panic on Game Over / Zero Legal Moves (`src/model.rs`, `src/game_handler.rs`)**:
+  - Fixed a critical panic (`RIP Found no PV move row`) that occurred when the engine was asked to search a position with no legal moves (e.g. checkmate/stalemate delivered by the opponent). The `get_pv_move_row` function now safely handles empty variants instead of panicking.
+  - Implemented an early exit in `game_handler.rs` at the root node. If 0 legal moves are found, it immediately outputs `bestmove 0000` instead of attempting an illegal search. This prevents the `lichess-bot` from waiting indefinitely for a move and causing Lichess timeouts.
+  - Aligned `get_best_move_algebraic` to return the UCI standard `"0000"` (null move) instead of `"N/A"` for empty variant lists.
 
 
 
