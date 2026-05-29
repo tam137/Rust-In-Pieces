@@ -144,6 +144,12 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let mut valid_moves = crate::model::MoveList::new();
                         service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
 
+                        if valid_moves.len == 0 {
+                            logger.send("No valid moves found at root! Game over.".to_string()).ok();
+                            stdout.write("bestmove 0000");
+                            continue;
+                        }
+
                         if valid_moves.len == 1 {
                             let mv_str = valid_moves.moves[0].to_algebraic();
                             stdout.write(&format!("bestmove {}", mv_str));
