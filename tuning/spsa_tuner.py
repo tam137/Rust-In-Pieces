@@ -13,6 +13,7 @@ class SPSATuner:
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
+        self.engine_path = engine_path
         self.mm_path = mm_path
         self.games_per_iter = games_per_iter
         self.workers = workers
