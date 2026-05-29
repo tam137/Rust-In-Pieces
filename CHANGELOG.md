@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.4] - 2026-05-29
+
+### Added
+
+- improve agent commands and clean up
+- Release v0.11.3: Add King Safety and Threat Matrix evaluation heuristics
+- Add SPSA harvest results skill document
+- Add SPSA parameter update skill document
+
+### Fixed
+
+
+
 ## [V0.11.3] - 2026-05-29
 
 ### Added

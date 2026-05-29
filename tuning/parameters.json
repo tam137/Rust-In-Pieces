@@ -278,5 +278,35 @@
         "value": 3,
         "min": 0,
         "max": 103
+    },
+    "king_open_file_malus": {
+        "value": 40.0,
+        "min": 0.0,
+        "max": 100.0
+    },
+    "king_half_open_file_malus": {
+        "value": 20.0,
+        "min": 0.0,
+        "max": 60.0
+    },
+    "king_ring_defender_value": {
+        "value": 1.0,
+        "min": 0.0,
+        "max": 10.0
+    },
+    "threat_minor_attacks_rook": {
+        "value": 15.0,
+        "min": 0.0,
+        "max": 60.0
+    },
+    "threat_minor_attacks_queen": {
+        "value": 30.0,
+        "min": 0.0,
+        "max": 100.0
+    },
+    "threat_rook_attacks_queen": {
+        "value": 20.0,
+        "min": 0.0,
+        "max": 80.0
     }
 }

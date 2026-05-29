@@ -9,14 +9,16 @@ import concurrent.futures
 import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
-        self.engine_path = engine_path
         self.mm_path = mm_path
         self.games_per_iter = games_per_iter
         self.workers = workers
+        self.time_ms = time_ms
+        self.inc_ms = inc_ms
+        self.mutate_pct = mutate_pct
         
         # SPSA Constants (Standard values)
         self.a = 2.0     # Base learning rate (depends on gradient magnitude)
@@ -88,8 +90,8 @@ class SPSATuner:
                 "SPSA_Tuning",
                 "Local",
                 str(i),
-                "2000",   # 2 seconds
-                "100",    # 100 ms
+                str(self.time_ms),
+                str(self.inc_ms),
                 "log_off",
                 "debug_off",
                 opts_plus,
@@ -140,24 +142,28 @@ class SPSATuner:
         return (wins + 0.5 * draws) / total
 
     def step(self):
-        c_k = self._get_c_k()
         a_k = self._get_a_k()
         
         # Bernoulli +-1
         delta = {k: random.choice([-1, 1]) for k in self.param_names}
         
-        theta_plus = {k: self.theta[k] + c_k * delta[k] for k in self.param_names}
-        theta_minus = {k: self.theta[k] - c_k * delta[k] for k in self.param_names}
+        # Calculate integer perturbation steps based on percentage
+        step_sizes = {}
+        for k in self.param_names:
+            base_val = abs(self.theta[k])
+            step = max(1.0, round(base_val * (self.mutate_pct / 100.0)))
+            step_sizes[k] = step
+
+        theta_plus = {k: self.theta[k] + step_sizes[k] * delta[k] for k in self.param_names}
+        theta_minus = {k: self.theta[k] - step_sizes[k] * delta[k] for k in self.param_names}
         
         score = self.run_match_batch(theta_plus, theta_minus)
         
-        # Gradient estimation: (L(theta_plus) - L(theta_minus)) / (2 * c_k * delta_k)
-        # We can map score [0, 1] to E_plus. E_minus = 1 - score.
-        # Diff = score - (1 - score) = 2*score - 1
+        # Gradient estimation
         diff = 2.0 * score - 1.0
         
         for k in self.param_names:
-            g_k = diff / (2.0 * c_k * delta[k])
+            g_k = diff / (2.0 * step_sizes[k] * delta[k])
             self.theta[k] += a_k * g_k
             
             # Apply bounds
@@ -182,6 +188,9 @@ if __name__ == "__main__":
     parser.add_argument("--mm", required=True)
     parser.add_argument("--games", type=int, default=250)
     parser.add_argument("--workers", type=int, default=8, help="Number of parallel games to run simultaneously")
+    parser.add_argument("--time", type=int, default=2, help="Time per game in seconds")
+    parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
+    parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%)")
     args = parser.parse_args()
     
     tuner = SPSATuner(
@@ -191,7 +200,10 @@ if __name__ == "__main__":
         engine_path=args.engine,
         mm_path=args.mm,
         games_per_iter=args.games,
-        workers=args.workers
+        workers=args.workers,
+        time_ms=args.time * 1000,
+        inc_ms=args.inc,
+        mutate_pct=args.mutate
     )
     
     # Run 100 iterations as a test
