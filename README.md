@@ -58,7 +58,7 @@ SupraH fully adheres to the standard Universal Chess Interface (UCI) protocol, e
 | **`stop`** | None | Immediately halts the search thread and returns the best move found. | `stop` |
 | **`quit`** | None | Safely terminates the engine execution. | `quit` |
 | **`debug`** | `[on \| off]` | Toggles verbose engine logging. Writes log files to `rust-in-piece-<version>.log`. | `debug on` |
-| **`setoption`** | `name Threads value <n>` | Configure option variables. *(Note: Threads config is supported and prints single-threaded capability warnings)*. | `setoption name Threads value 1` |
+| **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name Move Overhead value 100` |
 | **`test`** | None | Triggers internal diagnostic checks, speed performance tests, and timing benchmarks. | `test` |
 
 ---

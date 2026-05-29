@@ -33,7 +33,8 @@ impl SearchService {
 
         // Always ensure that WhiteGivesCheck and BlackGivesCheck are initialized in local_map
                 
-        let zobrist_table = &engine_state.zobrist_table;
+        let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
+        let zobrist_table = &*current_zobrist_table;
         let stop_flag = &engine_state.stop_flag;
         let pv_nodes = &engine_state.pv_nodes;
 
@@ -1053,7 +1054,7 @@ mod tests {
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: Arc::new(ZobristTable::with_capacity(100_000)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),

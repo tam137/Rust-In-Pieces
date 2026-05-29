@@ -34,6 +34,7 @@ pub struct Config {
     pub aggressiveness: Aggressiveness,
     pub enable_positional_cap: bool,
     pub positional_cap_damping: i16,
+    pub move_overhead: u64,
 
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
@@ -157,6 +158,7 @@ impl Config {
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
             positional_cap_damping: 5,
+            move_overhead: 0,
 
             is_hashed_rank_bonus: 3,
             give_check_rank_bonus: 5,
@@ -269,6 +271,7 @@ impl Config {
         let mut config = Config::new();
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
+        config.move_overhead = 0;
         config.your_turn_bonus = 0;
         config.pawn_attacks_opponent_fig_with_tempo = 0;
         config.queen_in_attack_with_tempo = 0;
@@ -286,6 +289,7 @@ impl Config {
         config.quiescence_search_mode = QuiescenceSearchMode::Alpha2;
         config.use_zobrist = false;
         config.use_underpromotions = true;
+        config.move_overhead = 0;
         config
     }
 
@@ -301,6 +305,7 @@ impl Config {
         config.use_zobrist = false;
         config.queen_in_attack_with_tempo = 0;
         config.use_underpromotions = true;
+        config.move_overhead = 0;
         config
     }
 
@@ -318,6 +323,7 @@ impl Config {
         config.search_threads = 4;
         config.max_zobrist_hash_entries = 10_000_000;
         config.use_underpromotions = true;
+        config.move_overhead = 0;
         config
     }
 

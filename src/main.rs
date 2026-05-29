@@ -43,7 +43,7 @@ fn main() {
     let engine_state = Arc::new(crate::model::EngineState {
         stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        zobrist_table: Arc::new(crate::zobrist::ZobristTable::with_capacity(Config::new().max_zobrist_hash_entries)),
+        zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(Config::new().max_zobrist_hash_entries))),
         pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
         logger: Arc::new(std::sync::RwLock::new(initial_logger)),
@@ -110,7 +110,7 @@ mod tests {
         let engine_state = Arc::new(crate::model::EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: Arc::new(crate::zobrist::ZobristTable::with_capacity(config.max_zobrist_hash_entries)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(config.max_zobrist_hash_entries))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(initial_logger)),

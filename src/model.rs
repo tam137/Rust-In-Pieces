@@ -15,7 +15,7 @@ pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    pub zobrist_table: std::sync::Arc<ZobristTable>,
+    pub zobrist_table: std::sync::RwLock<std::sync::Arc<ZobristTable>>,
     pub pv_nodes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Turn>>>,
     pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
     pub logger: std::sync::Arc<std::sync::RwLock<std::sync::Arc<dyn Fn(String) + Send + Sync>>>,

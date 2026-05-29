@@ -56,6 +56,13 @@ pub fn uci_command_processor(
                 if uci_token.trim() == "uci" {
                     stdout.write(&format!("id name Rust-In-Pieces {}", config.version));
                     stdout.write("id author Jan Lange");
+                    stdout.write("option name Hash type spin default 128 min 1 max 1024");
+                    stdout.write("option name Threads type spin default 1 min 1 max 8");
+                    stdout.write("option name Move Overhead type spin default 0 min 0 max 5000");
+                    stdout.write("option name SyzygyPath type string default <empty>");
+                    stdout.write("option name Aggressiveness type string default Normal");
+                    stdout.write("option name EnablePositionalCap type check default true");
+                    stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");
                     stdout.write("uciok");
                 }
 
@@ -138,6 +145,7 @@ pub fn uci_command_processor(
                         || token_lower.contains("name positional_cap_damping")
                         || token_lower.contains("name enablepositionalcap")
                         || token_lower.contains("name enable_positional_cap")
+                        || token_lower.contains("name move overhead")
                     {
                         tx_game_command.send(uci_token.clone()).ok();
                     } else if token_lower.contains("name threads") && token_lower.contains("value") {
@@ -148,6 +156,16 @@ pub fn uci_command_processor(
                                     logger.send(format!("Single-threaded engine. Ignoring setoption threads to {}", threads))
                                         .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                                 }
+                            }
+                        }
+                    } else if token_lower.contains("name hash") && token_lower.contains("value") {
+                        let parts: Vec<&str> = uci_token.split_whitespace().collect();
+                        if let Some(val_str) = parts.last() {
+                            if let Ok(hash_size_mb) = val_str.parse::<i32>() {
+                                let entries = (hash_size_mb as usize * 1024 * 1024) / 16;
+                                *engine_state.zobrist_table.write().unwrap() = std::sync::Arc::new(crate::zobrist::ZobristTable::with_capacity(entries));
+                                logger.send(format!("Hash size dynamically set to {} MB ({} entries)", hash_size_mb, entries))
+                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             }
                         }
                     }

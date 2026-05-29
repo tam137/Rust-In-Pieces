@@ -1,0 +1,10 @@
+info depth 2 score cp 20 time 0 nodes 422 nps 422 pv b1c3 b8c6
+info depth 3 score cp 88 time 1 nodes 3283 nps 1641 pv b1c3 b8c6 g1f3
+info depth 4 score cp 20 time 2 nodes 3321 nps 1107 pv b1c3 b8c6 g1f3 g8f6
+info depth 5 score cp 1 time 7 nodes 10946 nps 1368 pv e2e4 b8c6 b1c3 g8f6 g1e2
+info depth 6 score cp 20 time 18 nodes 36176 nps 1904 pv e2e4 b8c6 b1c3 g8f6 g1f3 d7d5
+info depth 7 score cp 34 time 55 nodes 80600 nps 1439 pv b1c3 g8f6 g1f3 b8c6 e2e4 e7e5 f1e2
+info depth 8 score cp 20 time 104 nodes 355098 nps 3381 pv b1c3 g8f6 g1f3 b8c6 d2d4 d7d5 c1d2 c8d7
+info depth 10 score cp 56 time 569 nodes 1115668 nps 1957 pv g1f3 b8c6 b1c3 g8f6 e2e3 d7d5 f1b5 a7a6 b5c6 b7c6
+info depth 11 score cp 20 time 1273 nodes 2506855 nps 1967 pv g1f3 b8c6 b1c3 g8f6 d2d4 d7d5 f3e5 c8d7 c1e3 c6e5 d4e5
+bestmove g1f3
