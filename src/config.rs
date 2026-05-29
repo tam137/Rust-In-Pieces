@@ -52,12 +52,7 @@ pub struct Config {
     pub pawn_on_before_before_last_rank_bonus: i16,
     pub pawn_defends_bishop: i16,
 
-    pub piece_eval_pawn: i16,
-    pub piece_eval_rook: i16,
-    pub piece_eval_knight: i16,
-    pub piece_eval_bishop: i16,
-    pub piece_eval_queen: i16,
-    pub piece_eval_king: i16,
+
     pub rook_open_file: i16,
     pub rook_half_open_file: i16,
     pub bishop_pair_bonus: i16,
@@ -173,12 +168,7 @@ impl Config {
             undeveloped_bishop_malus: 30,
             undeveloped_king_malus: 55,
 
-            piece_eval_pawn: 100,
-            piece_eval_rook: 500,
-            piece_eval_knight: 300, // TODO knights a stronger pairwise
-            piece_eval_bishop: 300,
-            piece_eval_queen: 950,
-            piece_eval_king: 10000,
+
             rook_open_file: 35,
             rook_half_open_file: 18,
             bishop_pair_bonus: 40,

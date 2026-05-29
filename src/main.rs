@@ -14,6 +14,7 @@ mod threads;
 mod game_handler;
 mod time_check;
 mod magic;
+mod pst;
 
 
 use std::sync::Arc;

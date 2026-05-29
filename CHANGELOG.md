@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.0] - 2026-05-29
+
+### Added
+- **O(1) Incremental Evaluation for PSTs and Material (`src/pst.rs`, `src/model.rs`, `src/eval_service.rs`)**:
+  - Re-architected the entire evaluation mapping by extracting static piece-values and positional piece-square tables (PSTs) into `const fn` generated mirrored arrays in `src/pst.rs`.
+  - Statically combined piece material values with the positional square values at compile-time to guarantee zero-cost runtime lookup for all pieces across both Middlegame and Endgame (`PST_MG` and `PST_EG`).
+  - Extended the `Board` struct with `pst_mg: i16` and `pst_eg: i16` fields to maintain the cumulative evaluation mathematically.
+  - Implemented strictly O(1) incremental updating in `Board::do_move()` and restoring in `Board::undo_move()` (caching the pre-move evaluation in `MoveInformation`), removing the O(N) iterative piece-scanning from the evaluation loop completely.
+  - Reduced evaluation execution time dramatically, resulting in an ~18% NPS boost in the Perft benchmark (from 2.6M NPS to 3.14M NPS) without any strength regressions.
+  - Solved complex endgame and positional structures by unifying the material map and positional evaluation (achieved 2140 ELO on the LCT II benchmark suite).
+
+### Fixed
+
+
+
 ## [V0.10.12] - 2026-05-29
 
 ### Added

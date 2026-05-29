@@ -2,82 +2,6 @@ use crate::config::Config;
 use crate::model::Board;
 use crate::move_gen_service::MoveGenService;
 
-const PAWN_PST: [i16; 64] = [
-     0,  0,  0,  0,  0,  0,  0,  0,
-    50, 50, 50, 50, 50, 50, 50, 50,
-    10, 10, 20, 30, 30, 20, 10, 10,
-     5,  5, 10, 25, 25, 10,  5,  5,
-     0,  0,  0, 20, 20,  0,  0,  0,
-     5, -5,-10,  0,  0,-10, -5,  5,
-     5, 10, 10,-20,-20, 10, 10,  5,
-     0,  0,  0,  0,  0,  0,  0,  0
-];
-
-const KNIGHT_PST: [i16; 64] = [
-    -50,-40,-30,-30,-30,-30,-40,-50,
-    -40,-20,  0,  0,  0,  0,-20,-40,
-    -30,  0, 10, 15, 15, 10,  0,-30,
-    -30,  5, 15, 20, 20, 15,  5,-30,
-    -30,  0, 15, 20, 20, 15,  0,-30,
-    -30,  5, 10, 15, 15, 10,  5,-30,
-    -40,-20,  0,  5,  5,  0,-20,-40,
-    -50,-40,-30,-30,-30,-30,-40,-50
-];
-
-const BISHOP_PST: [i16; 64] = [
-    -20,-10,-10,-10,-10,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5, 10, 10,  5,  0,-10,
-    -10,  5,  5, 10, 10,  5,  5,-10,
-    -10,  0, 10, 10, 10, 10,  0,-10,
-    -10, 10, 10, 10, 10, 10, 10,-10,
-    -10,  5,  0,  0,  0,  0,  5,-10,
-    -20,-10,-10,-10,-10,-10,-10,-20
-];
-
-const ROOK_PST: [i16; 64] = [
-      0,  0,  0,  0,  0,  0,  0,  0,
-      5, 10, 10, 10, 10, 10, 10,  5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-      0,  0,  0,  5,  5,  0,  0,  0
-];
-
-const QUEEN_PST: [i16; 64] = [
-    -20,-10,-10, -5, -5,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5,  5,  5,  5,  0,-10,
-     -5,  0,  5,  5,  5,  5,  0, -5,
-      0,  0,  5,  5,  5,  5,  0, -5,
-    -10,  5,  5,  5,  5,  5,  0,-10,
-    -10,  0,  5,  0,  0,  0,  0,-10,
-    -20,-10,-10, -5, -5,-10,-10,-20
-];
-
-const KING_MIDDLEGAME_PST: [i16; 64] = [
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -20,-30,-30,-40,-40,-30,-30,-20,
-    -10,-20,-20,-20,-20,-20,-20,-10,
-     20, 20,  0,  0,  0,  0, 20, 20,
-     20, 30, 10,  0,  0, 10, 30, 20
-];
-
-const KING_ENDGAME_PST: [i16; 64] = [
-    -50,-40,-30,-20,-20,-30,-40,-50,
-    -30,-20,-10,  0,  0,-10,-20,-30,
-    -30,-10, 20, 30, 30, 20,-10,-30,
-    -30,-10, 30, 40, 40, 30,-10,-30,
-    -30,-10, 30, 40, 40, 30,-10,-30,
-    -30,-10, 20, 30, 30, 20,-10,-30,
-    -30,-30,  0,  0,  0,  0,-30,-30,
-    -50,-30,-30,-30,-30,-30,-30,-50
-];
 
 const ADJACENT_FILES_MASK: [u64; 8] = [
     0x0202020202020202u64,
@@ -227,8 +151,8 @@ impl EvalService {
             }
         }
         let config = &scaled_config;
-        let mut eval: i16 = 0;
         let game_phase = self.get_game_phase(board) as i16;
+        let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
         let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
         let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
@@ -325,19 +249,19 @@ impl EvalService {
 
         if config.enable_positional_cap {
             let mut material_eval: i16 = 0;
-            material_eval += (board.bitboards[crate::model::WHITE_PAWN].count_ones() as i16) * config.piece_eval_pawn;
-            material_eval += (board.bitboards[crate::model::WHITE_ROOK].count_ones() as i16) * config.piece_eval_rook;
-            material_eval += (board.bitboards[crate::model::WHITE_KNIGHT].count_ones() as i16) * config.piece_eval_knight;
-            material_eval += (board.bitboards[crate::model::WHITE_BISHOP].count_ones() as i16) * config.piece_eval_bishop;
-            material_eval += (board.bitboards[crate::model::WHITE_QUEEN].count_ones() as i16) * config.piece_eval_queen;
-            material_eval += (board.bitboards[crate::model::WHITE_KING].count_ones() as i16) * config.piece_eval_king;
+            material_eval += (board.bitboards[crate::model::WHITE_PAWN].count_ones() as i16) * crate::pst::PIECE_EVAL_PAWN;
+            material_eval += (board.bitboards[crate::model::WHITE_ROOK].count_ones() as i16) * crate::pst::PIECE_EVAL_ROOK;
+            material_eval += (board.bitboards[crate::model::WHITE_KNIGHT].count_ones() as i16) * crate::pst::PIECE_EVAL_KNIGHT;
+            material_eval += (board.bitboards[crate::model::WHITE_BISHOP].count_ones() as i16) * crate::pst::PIECE_EVAL_BISHOP;
+            material_eval += (board.bitboards[crate::model::WHITE_QUEEN].count_ones() as i16) * crate::pst::PIECE_EVAL_QUEEN;
+            material_eval += (board.bitboards[crate::model::WHITE_KING].count_ones() as i16) * crate::pst::PIECE_EVAL_KING;
 
-            material_eval -= (board.bitboards[crate::model::BLACK_PAWN].count_ones() as i16) * config.piece_eval_pawn;
-            material_eval -= (board.bitboards[crate::model::BLACK_ROOK].count_ones() as i16) * config.piece_eval_rook;
-            material_eval -= (board.bitboards[crate::model::BLACK_KNIGHT].count_ones() as i16) * config.piece_eval_knight;
-            material_eval -= (board.bitboards[crate::model::BLACK_BISHOP].count_ones() as i16) * config.piece_eval_bishop;
-            material_eval -= (board.bitboards[crate::model::BLACK_QUEEN].count_ones() as i16) * config.piece_eval_queen;
-            material_eval -= (board.bitboards[crate::model::BLACK_KING].count_ones() as i16) * config.piece_eval_king;
+            material_eval -= (board.bitboards[crate::model::BLACK_PAWN].count_ones() as i16) * crate::pst::PIECE_EVAL_PAWN;
+            material_eval -= (board.bitboards[crate::model::BLACK_ROOK].count_ones() as i16) * crate::pst::PIECE_EVAL_ROOK;
+            material_eval -= (board.bitboards[crate::model::BLACK_KNIGHT].count_ones() as i16) * crate::pst::PIECE_EVAL_KNIGHT;
+            material_eval -= (board.bitboards[crate::model::BLACK_BISHOP].count_ones() as i16) * crate::pst::PIECE_EVAL_BISHOP;
+            material_eval -= (board.bitboards[crate::model::BLACK_QUEEN].count_ones() as i16) * crate::pst::PIECE_EVAL_QUEEN;
+            material_eval -= (board.bitboards[crate::model::BLACK_KING].count_ones() as i16) * crate::pst::PIECE_EVAL_KING;
 
             let positional_eval = eval - material_eval;
 
@@ -374,9 +298,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = PAWN_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        o_eval += pst_val;
-        e_eval += pst_val;
         let moves_until_promote = 7 - rank;
         let on_rank = rank + 1;
 
@@ -503,7 +424,7 @@ impl EvalService {
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_pawn, 0, 0)
+        (eval, 0, 0)
     }
 
     fn black_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> (i16, u8, i16) {
@@ -513,9 +434,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = PAWN_PST[sq as usize] * 8 / 10;
-        o_eval -= pst_val;
-        e_eval -= pst_val;
         let moves_until_promote = rank;
 
         if (rank >= 3) && (rank <= 5) {
@@ -641,7 +559,7 @@ impl EvalService {
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_pawn, 0, 0)
+        (eval, 0, 0)
     }
 
     fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -651,9 +569,6 @@ impl EvalService {
         let file = sq % 8;
         let file_mask = 0x0101010101010101u64 << file;
         
-        let pst_val = ROOK_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        o_eval += pst_val;
-        e_eval += pst_val;
 
         let has_white_pawns = (board.bitboards[crate::model::WHITE_PAWN] & file_mask) != 0;
         let has_black_pawns = (board.bitboards[crate::model::BLACK_PAWN] & file_mask) != 0;
@@ -715,7 +630,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_rook;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_rook, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn black_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -725,9 +640,6 @@ impl EvalService {
         let file = sq % 8;
         let file_mask = 0x0101010101010101u64 << file;
         
-        let pst_val = ROOK_PST[sq as usize] * 8 / 10;
-        o_eval -= pst_val;
-        e_eval -= pst_val;
 
         let has_white_pawns = (board.bitboards[crate::model::WHITE_PAWN] & file_mask) != 0;
         let has_black_pawns = (board.bitboards[crate::model::BLACK_PAWN] & file_mask) != 0;
@@ -789,7 +701,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_rook;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_rook, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -799,9 +711,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = KNIGHT_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        o_eval += pst_val;
-        e_eval += pst_val;
     
         if rank == 0 || rank == 7 || file == 0 || file == 7 {
             o_eval -= config.knight_on_rim_malus;
@@ -847,7 +756,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_knight;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_knight, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -857,9 +766,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = KNIGHT_PST[sq as usize] * 8 / 10;
-        o_eval -= pst_val;
-        e_eval -= pst_val;
     
         if rank == 0 || rank == 7 || file == 0 || file == 7 {
             o_eval += config.knight_on_rim_malus;
@@ -901,7 +807,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_knight;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_knight, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -911,9 +817,6 @@ impl EvalService {
         let file = sq % 8;
         let rank = sq / 8;
         
-        let pst_val = BISHOP_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        o_eval += pst_val;
-        e_eval += pst_val;
 
         if sq == 2 || sq == 5 {
             o_eval = o_eval - config.undeveloped_bishop_malus;
@@ -938,7 +841,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_bishop;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_bishop, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -948,9 +851,6 @@ impl EvalService {
         let file = sq % 8;
         let rank = sq / 8;
         
-        let pst_val = BISHOP_PST[sq as usize] * 8 / 10;
-        o_eval -= pst_val;
-        e_eval -= pst_val;
 
         if sq == 58 || sq == 61 {
             o_eval = o_eval + config.undeveloped_bishop_malus;
@@ -975,7 +875,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_bishop;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_bishop, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -984,9 +884,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = QUEEN_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        o_eval += pst_val;
-        e_eval += pst_val;
 
         let attackers_mask = movegen.get_attackers_mask(board, true, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -1001,7 +898,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_queen, attackers, danger)
+        (eval, attackers, danger)
     }
 
     fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -1010,9 +907,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        let pst_val = QUEEN_PST[sq as usize] * 8 / 10;
-        o_eval -= pst_val;
-        e_eval -= pst_val;
 
         let attackers_mask = movegen.get_attackers_mask(board, false, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -1027,7 +921,7 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_queen, attackers, danger)
+        (eval, attackers, danger)
     }
  
     fn white_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> (i16, u8, i16) {
@@ -1037,8 +931,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        o_eval += KING_MIDDLEGAME_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
-        e_eval += KING_ENDGAME_PST[((7 - rank) * 8 + file) as usize] * 8 / 10;
 
         if sq == 3 || sq == 4 || sq == 5 || sq == 11 || sq == 12 || sq == 13 {
             o_eval -= config.undeveloped_king_malus
@@ -1086,7 +978,7 @@ impl EvalService {
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval + config.piece_eval_king, 0, 0)
+        (eval, 0, 0)
     }
 
     fn black_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> (i16, u8, i16) {
@@ -1096,8 +988,6 @@ impl EvalService {
         let rank = sq / 8;
         let file = sq % 8;
         
-        o_eval -= KING_MIDDLEGAME_PST[sq as usize] * 8 / 10;
-        e_eval -= KING_ENDGAME_PST[sq as usize] * 8 / 10;
 
         if sq == 59 || sq == 60 || sq == 61 || sq == 51 || sq == 52 || sq == 53 {
             o_eval += config.undeveloped_king_malus
@@ -1145,7 +1035,7 @@ impl EvalService {
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval - config.piece_eval_king, 0, 0)
+        (eval, 0, 0)
     }
 
     fn calculate_weighted_eval(&self, o_eval: i16, e_eval: i16, game_phase: i16) -> i16 {

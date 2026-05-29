@@ -287,17 +287,21 @@ pub struct MoveInformation {
     pub en_passante: i8,
     pub capture: u8,
     pub moved_piece: u8,
+    pub old_pst_mg: i16,
+    pub old_pst_eg: i16,
 }
 
 impl MoveInformation {
     // Constructor
-    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i8, capture: u8, moved_piece: u8) -> Self {
+    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16) -> Self {
         MoveInformation {
             castle_information,
             hash,
             en_passante,
             capture,
             moved_piece,
+            old_pst_mg,
+            old_pst_eg,
         }
     }
 }
@@ -332,6 +336,8 @@ pub struct Board {
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
     pub cached_hash: u64,
+    pub pst_mg: i16,
+    pub pst_eg: i16,
     pub _white_king_on_board: bool,
     pub _black_king_on_board: bool,
 }
@@ -381,6 +387,18 @@ impl Board {
             }
         }
 
+        let mut pst_mg: i16 = 0;
+        let mut pst_eg: i16 = 0;
+        for i in 0..12 {
+            let mut bb = bitboards[i];
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                pst_mg += crate::pst::PST_MG[i][square];
+                pst_eg += crate::pst::PST_EG[i][square];
+                bb &= bb - 1;
+            }
+        }
+
         Board {
             bitboards,
             mailbox,
@@ -397,6 +415,8 @@ impl Board {
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
             cached_hash: 0,
+            pst_mg,
+            pst_eg,
             _white_king_on_board,
             _black_king_on_board,
         }
@@ -450,6 +470,8 @@ impl Board {
 
         let old_castle_information = self.get_castle_information();
         let old_field_for_en_passante = self.field_for_en_passante;
+        let old_pst_mg = self.pst_mg;
+        let old_pst_eg = self.pst_eg;
 
         let mut actual_capture = turn.capture;
         if actual_capture == 0 {
@@ -472,6 +494,19 @@ impl Board {
 
         let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
 
+        // Incremental PST updates
+        self.pst_mg -= crate::pst::PST_MG[moved_bb_idx][from as usize];
+        self.pst_eg -= crate::pst::PST_EG[moved_bb_idx][from as usize];
+
+        if turn.is_promotion() {
+            let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
+            self.pst_mg += crate::pst::PST_MG[promo_bb_idx][to as usize];
+            self.pst_eg += crate::pst::PST_EG[promo_bb_idx][to as usize];
+        } else {
+            self.pst_mg += crate::pst::PST_MG[moved_bb_idx][to as usize];
+            self.pst_eg += crate::pst::PST_EG[moved_bb_idx][to as usize];
+        }
+
         // Update mailbox
         self.mailbox[from as usize] = 0;
         if turn.is_promotion() {
@@ -493,18 +528,22 @@ impl Board {
         if actual_capture != 0 {
             // Check if it was an en passant capture
             let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante);
+            let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
             if is_en_passant {
+                let victim_sq = if self.white_to_move { to - 8 } else { to + 8 };
+                self.pst_mg -= crate::pst::PST_MG[capture_bb_idx][victim_sq as usize];
+                self.pst_eg -= crate::pst::PST_EG[capture_bb_idx][victim_sq as usize];
+                
                 if self.white_to_move {
-                    let victim_sq = to - 8;
                     self.bitboards[BLACK_PAWN] &= !(1u64 << victim_sq);
                     self.mailbox[victim_sq as usize] = 0;
                 } else {
-                    let victim_sq = to + 8;
                     self.bitboards[WHITE_PAWN] &= !(1u64 << victim_sq);
                     self.mailbox[victim_sq as usize] = 0;
                 }
             } else {
-                let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
+                self.pst_mg -= crate::pst::PST_MG[capture_bb_idx][to as usize];
+                self.pst_eg -= crate::pst::PST_EG[capture_bb_idx][to as usize];
                 self.bitboards[capture_bb_idx] &= !to_mask;
             }
         }
@@ -515,21 +554,37 @@ impl Board {
             if is_castling {
                 match to {
                     6 => { // White short
+                        self.pst_mg -= crate::pst::PST_MG[WHITE_ROOK][7];
+                        self.pst_eg -= crate::pst::PST_EG[WHITE_ROOK][7];
+                        self.pst_mg += crate::pst::PST_MG[WHITE_ROOK][5];
+                        self.pst_eg += crate::pst::PST_EG[WHITE_ROOK][5];
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
                         self.mailbox[7] = 0;
                         self.mailbox[5] = 11;
                     }
                     2 => { // White long
+                        self.pst_mg -= crate::pst::PST_MG[WHITE_ROOK][0];
+                        self.pst_eg -= crate::pst::PST_EG[WHITE_ROOK][0];
+                        self.pst_mg += crate::pst::PST_MG[WHITE_ROOK][3];
+                        self.pst_eg += crate::pst::PST_EG[WHITE_ROOK][3];
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
                         self.mailbox[0] = 0;
                         self.mailbox[3] = 11;
                     }
                     62 => { // Black short
+                        self.pst_mg -= crate::pst::PST_MG[BLACK_ROOK][63];
+                        self.pst_eg -= crate::pst::PST_EG[BLACK_ROOK][63];
+                        self.pst_mg += crate::pst::PST_MG[BLACK_ROOK][61];
+                        self.pst_eg += crate::pst::PST_EG[BLACK_ROOK][61];
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
                         self.mailbox[63] = 0;
                         self.mailbox[61] = 21;
                     }
                     58 => { // Black long
+                        self.pst_mg -= crate::pst::PST_MG[BLACK_ROOK][56];
+                        self.pst_eg -= crate::pst::PST_EG[BLACK_ROOK][56];
+                        self.pst_mg += crate::pst::PST_MG[BLACK_ROOK][59];
+                        self.pst_eg += crate::pst::PST_EG[BLACK_ROOK][59];
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
                         self.mailbox[56] = 0;
                         self.mailbox[59] = 21;
@@ -602,12 +657,14 @@ impl Board {
                 self.game_status = GameStatus::Draw;
             }
         }
-        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante, actual_capture, moved_piece)
+        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
         self.cached_hash = 0;
+        self.pst_mg = move_information.old_pst_mg;
+        self.pst_eg = move_information.old_pst_eg;
 
         let from = turn.from;
         let to = turn.to;
