@@ -123,6 +123,97 @@ impl Book {
         book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3, vec!["d5e4"]);
         book_map.insert(d2d4_d7d5_c2c4_e7e6_b1c3_g8f6, vec!["c1g5", "g1f3", "c4d5"]);
 
+        // --- NEW VARIATIONS START ---
+
+        // Italian Game (Giuoco Piano) & Two Knights Defense
+        let e2e4_e7e5_g1f3_b8c6_f1c4_f8c5 = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4";
+        let e2e4_e7e5_g1f3_b8c6_f1c4_g8f6 = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4";
+
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1c4_f8c5, vec!["c2c3", "d2d3", "e1g1"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1c4_g8f6, vec!["d2d3", "d2d4", "f3g5"]);
+
+        // Ruy Lopez (Spanish Opening)
+        let e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4 = "r1bqkbnr/1ppp1ppp/p1n5/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 4";
+        let e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4_g8f6_e1g1 = "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 0 5";
+        let e2e4_e7e5_g1f3_b8c6_f1b5_g8f6 = "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4";
+
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4, vec!["g8f6", "g8f6", "d7d6"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4_g8f6_e1g1, vec!["f8e7", "f6e4"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_g8f6, vec!["e1g1", "d2d3"]);
+
+        // Sicilian Defense (Alapin, Closed, Sveshnikov/Classical, French)
+        let e2e4_c7c5_c2c3 = "rnbqkbnr/pp1ppppp/8/2p5/4P3/2P5/PP1P1PPP/RNBQKBNR b KQkq - 0 2";
+        let e2e4_c7c5_b1c3 = "rnbqkbnr/pp1ppppp/8/2p5/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq - 0 2";
+        let e2e4_c7c5_g1f3_b8c6 = "r1bqkbnr/pp1ppppp/2n5/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3";
+        let e2e4_c7c5_g1f3_e7e6 = "rnbqkbnr/pp1p1ppp/4p3/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3";
+
+        book_map.insert(e2e4_c7c5_c2c3, vec!["d7d5", "g8f6"]);
+        book_map.insert(e2e4_c7c5_b1c3, vec!["b8c6", "g7g6", "d7d6"]);
+        book_map.insert(e2e4_c7c5_g1f3_b8c6, vec!["d2d4", "b1c3", "f1b5"]);
+        book_map.insert(e2e4_c7c5_g1f3_e7e6, vec!["d2d4", "c2c3", "b1c3"]);
+
+        // French Defense (Advance & Exchange)
+        let e2e4_e7e6_d2d4_d7d5_e4e5 = "rnbqkbnr/ppp2ppp/4p3/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3";
+        let e2e4_e7e6_d2d4_d7d5_e4d5 = "rnbqkbnr/ppp2ppp/4p3/3P4/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3";
+
+        book_map.insert(e2e4_e7e6_d2d4_d7d5_e4e5, vec!["c7c5"]);
+        book_map.insert(e2e4_e7e6_d2d4_d7d5_e4d5, vec!["e6d5"]);
+
+        // Caro-Kann Defense (Advance & Exchange)
+        let e2e4_c7c6_d2d4_d7d5_e4e5 = "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3";
+        let e2e4_c7c6_d2d4_d7d5_e4d5 = "rnbqkbnr/pp2pppp/2p5/3P4/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3";
+
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_e4e5, vec!["c8f5", "c6c5"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_e4d5, vec!["c6d5"]);
+
+        // Queen's Gambit (Declined & Accepted) & Slav Defense
+        let d2d4_d7d5_c2c4_e7e6_b1c3 = "rnbqkbnr/ppp2ppp/4p3/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR b KQkq - 0 3";
+        let d2d4_d7d5_c2c4_c7c6 = "rnbqkbnr/pp2pppp/2p5/3p4/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3";
+        let d2d4_d7d5_c2c4_d5c4 = "rnbqkbnr/ppp1pppp/8/8/2pP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3";
+
+        book_map.insert(d2d4_d7d5_c2c4_e7e6_b1c3, vec!["g8f6", "c7c6"]);
+        book_map.insert(d2d4_d7d5_c2c4_c7c6, vec!["g1f3", "b1c3"]);
+        book_map.insert(d2d4_d7d5_c2c4_d5c4, vec!["g1f3", "e2e3", "e2e4"]);
+
+        // Indian Defenses (King's Indian & Grünfeld)
+        let d2d4_g8f6_c2c4_g7g6 = "rnbqkb1r/pppppp1p/5np1/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3";
+        let d2d4_g8f6_c2c4_g7g6_b1c3_f8g7 = "rnbqk2r/ppppppbp/5np1/8/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4";
+        let d2d4_g8f6_c2c4_g7g6_b1c3_d7d5 = "rnbqkb1r/ppp1pp1p/5np1/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq d6 0 4";
+
+        book_map.insert(d2d4_g8f6_c2c4_g7g6, vec!["b1c3", "g1f3"]);
+        book_map.insert(d2d4_g8f6_c2c4_g7g6_b1c3_f8g7, vec!["e2e4"]);
+        book_map.insert(d2d4_g8f6_c2c4_g7g6_b1c3_d7d5, vec!["c4d5", "g1f3"]);
+
+        // Nimzo-Indian Defense & Playable Exotic Openings (Budapest, Benoni)
+        let d2d4_g8f6_c2c4 = "rnbqkb1r/pppppppp/5n2/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2";
+        let d2d4_g8f6_c2c4_e7e6 = "rnbqkb1r/pppp1ppp/4pn2/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3";
+        let d2d4_g8f6_c2c4_e7e5 = "rnbqkb1r/pppp1ppp/5n2/4p3/2PP4/8/PP2PPPP/RNBQKBNR w KQkq e6 0 3";
+        let d2d4_g8f6_c2c4_c7c5 = "rnbqkb1r/pp1ppppp/5n2/2p5/2PP4/8/PP2PPPP/RNBQKBNR w KQkq c6 0 3";
+        let d2d4_g8f6_c2c4_e7e6_b1c3 = "rnbqkb1r/pppp1ppp/4pn2/8/2PP4/2N5/PP2PPPP/R1BQKBNR b KQkq - 0 3";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_e2e3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N1P3/PP3PPP/R1BQKBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1c2 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PPQ1PPPP/R1B1KBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_g1f3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N2N2/PP2PPPP/R1BQKB1R b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1b3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/1QN5/PP2PPPP/R1B1KBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_c1g5 = "rnbqk2r/pppp1ppp/4pn2/6B1/1bPP4/2N5/PP2PPPP/R2QKBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/P1N5/1P2PPPP/R1BQKBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3_b4c3_b2c3 = "rnbqk2r/pppp1ppp/4pn2/8/2PP4/P1P5/4PPPP/R1BQKBNR b KQkq - 0 5";
+
+        book_map.insert(d2d4_g8f6_c2c4, vec!["e7e6", "g7g6", "e7e5", "c7c5"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6, vec!["b1c3", "g1f3", "g2g3"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e5, vec!["d4e5"]);
+        book_map.insert(d2d4_g8f6_c2c4_c7c5, vec!["d4d5"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3, vec!["f8b4"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4, vec!["e2e3", "d1c2", "g1f3", "d1b3", "c1g5", "a2a3"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_e2e3, vec!["e8g8", "c7c5", "b7b6"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1c2, vec!["e8g8", "d7d5", "c7c5"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_g1f3, vec!["c7c5", "b7b6", "e8g8"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1b3, vec!["c7c5"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_c1g5, vec!["h7h6", "c7c5"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3, vec!["b4c3"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3_b4c3_b2c3, vec!["c7c5", "b7b6", "e8g8"]);
+
+        // --- NEW VARIATIONS END ---
         Book { book_map }
     }
 
@@ -195,4 +286,5 @@ mod tests {
             }
         }
     }
+
 }
