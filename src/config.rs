@@ -101,6 +101,7 @@ pub struct Config {
 
     pub rook_on_seventh: i16,
     pub pawn_isolated_malus: i16,
+    pub pawn_backward_malus: i16,
     pub knight_mobility_factor: i16,
     pub bishop_mobility_factor: i16,
     pub rook_mobility_factor: i16,
@@ -225,6 +226,7 @@ impl Config {
 
             rook_on_seventh: 25,
             pawn_isolated_malus: 8,
+            pawn_backward_malus: 14,
             knight_mobility_factor: 2,
             bishop_mobility_factor: 1,
             rook_mobility_factor: 1,

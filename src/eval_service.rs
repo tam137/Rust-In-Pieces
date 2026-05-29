@@ -373,7 +373,7 @@ impl EvalService {
             e_eval = e_eval + config.pawn_defends_bishop;
         }
 
-        if moves_until_promote >= 5 {
+        if moves_until_promote >= 5 && (file == 3 || file == 4) {
             o_eval = o_eval - config.pawn_undeveloped_malus;
         }
 
@@ -394,10 +394,8 @@ impl EvalService {
             e_eval += config.pawn_attacks_opponent_fig / 2;
         }
 
-        let has_doubled_pawn =
-            (sq + 8 < 64 && ((1u64 << (sq + 8)) & white_pawns) != 0) ||
-            (sq + 16 < 64 && ((1u64 << (sq + 16)) & white_pawns) != 0) ||
-            (sq + 24 < 64 && ((1u64 << (sq + 24)) & white_pawns) != 0);
+        let front_mask = (0x0101010101010101u64 << file) & !((1u64 << (sq + 1)) - 1);
+        let has_doubled_pawn = (white_pawns & front_mask) != 0;
         if has_doubled_pawn {
             o_eval -= config.pawn_double_malus;
             e_eval -= config.pawn_double_malus;
@@ -443,10 +441,18 @@ impl EvalService {
             o_eval += bonus / 3;
         }
 
-        let is_isolated = (white_pawns & ADJACENT_FILES_MASK[file as usize]) == 0;
+        let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+        let is_isolated = (white_pawns & adjacent_files) == 0;
         if is_isolated {
             o_eval -= config.pawn_isolated_malus;
             e_eval -= config.pawn_isolated_malus + 15;
+        }
+        
+        let behind_and_same_rank_mask = (1u64 << (rank * 8 + 8)) - 1;
+        let is_backward = !is_isolated && (white_pawns & adjacent_files & behind_and_same_rank_mask) == 0;
+        if is_backward {
+            o_eval -= config.pawn_backward_malus;
+            e_eval -= config.pawn_backward_malus + 10;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -505,7 +511,7 @@ impl EvalService {
             e_eval = e_eval - config.pawn_defends_bishop;
         }
 
-        if moves_until_promote >= 5 {
+        if moves_until_promote >= 5 && (file == 3 || file == 4) {
             o_eval = o_eval + config.pawn_undeveloped_malus;
         }
 
@@ -526,10 +532,8 @@ impl EvalService {
             e_eval -= config.pawn_attacks_opponent_fig / 2;
         }
 
-        let has_doubled_pawn =
-            (sq >= 8 && ((1u64 << (sq - 8)) & black_pawns) != 0) ||
-            (sq >= 16 && ((1u64 << (sq - 16)) & black_pawns) != 0) ||
-            (sq >= 24 && ((1u64 << (sq - 24)) & black_pawns) != 0);
+        let back_mask = (0x0101010101010101u64 << file) & ((1u64 << sq) - 1);
+        let has_doubled_pawn = (black_pawns & back_mask) != 0;
         if has_doubled_pawn {
             o_eval += config.pawn_double_malus;
             e_eval += config.pawn_double_malus;
@@ -575,10 +579,18 @@ impl EvalService {
             o_eval -= bonus / 3;
         }
 
-        let is_isolated = (black_pawns & ADJACENT_FILES_MASK[file as usize]) == 0;
+        let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+        let is_isolated = (black_pawns & adjacent_files) == 0;
         if is_isolated {
             o_eval += config.pawn_isolated_malus;
             e_eval += config.pawn_isolated_malus + 15;
+        }
+
+        let behind_and_same_rank_mask = !((1u64 << (rank * 8)) - 1);
+        let is_backward = !is_isolated && (black_pawns & adjacent_files & behind_and_same_rank_mask) == 0;
+        if is_backward {
+            o_eval += config.pawn_backward_malus;
+            e_eval += config.pawn_backward_malus + 10;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);

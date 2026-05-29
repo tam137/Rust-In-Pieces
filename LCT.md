@@ -1,16 +1,19 @@
-# LCT II Test Results: Version v0.10.8
+# LCT II Test Results: Version v0.10.11
 
 * **Engine Binary**: `target/release/suprah`
-* **Positions Solved**: 7 / 35 (20.0%)
-* **Total Points**: 205 / 1050
-* **Estimated ELO**: **2105 ELO** (Dynamic UCI Hash Option)
+* **Positions Solved**: 4 / 35 (11.4%)
+* **Total Points**: 120 / 1050
+* **Estimated ELO**: **2020 ELO** (Undeveloped Pawn Malus restricted to center, Backward pawns detection)
 
 ---
+
+# LCT II Test Results: Version v0.10.8
 
 ## Historical Comparison
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.10.11` (Pawn eval changes) | **2020** | 120 | 4/35 | 2/14 | 1/12 | 1/9 |
 | `v0.10.8` (Dynamic UCI Hash Option) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.10.7` (UCI Move Overhead) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.10.6` (Lazy SEE & Fast Masks) | **2105** | 205 | 7/35 | 3/14 | 2/12 | 2/9 |

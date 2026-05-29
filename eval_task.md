@@ -12,20 +12,12 @@
 - **Solution**: In `get_game_phase`, only minor and major pieces (knights, bishops, rooks, queens) should be counted, ideally weighted by their material value.
 - **Complexity**: Low
 
-### 1.3 Pawn Undeveloped Malus (Punishing the Starting Position)
-- **Problem**: Pawns on the 2nd rank (White) or 7th rank (Black) receive an incorrect malus (`moves_until_promote >= 5`). This often ruins the protective pawn structure in front of the castled king, as the engine wants to "develop" these pawns.
-- **Solution**: Remove the blanket malus for undeveloped pawns or make it highly context-dependent (e.g., only for center pawns d2/e2).
-- **Complexity**: Low
 
 ### 1.4 Missing King Safety Concept (Attacker Count Weighting)
 - **Problem**: Attacks on the king-ring are only added linearly. In reality, two attackers are far more than twice as dangerous as a single attacker.
 - **Solution**: Introduce a "King Danger" score that takes the number of attacking pieces (Attacker Count) into account and weights them exponentially/quadratically, rather than just summing the attacks linearly.
 - **Complexity**: Medium
 
-### 1.5 Pawn Structure: Doubled and Backward Pawns
-- **Problem**: The doubled pawn detection only hardcodes checks for 1, 2, or 3 squares ahead. Backward pawns are not detected at all.
-- **Solution**: Check for doubled pawns over the entire file using a bitboard mask (`file_mask`). Introduce logic to detect backward pawns.
-- **Complexity**: Medium
 
 ---
 
