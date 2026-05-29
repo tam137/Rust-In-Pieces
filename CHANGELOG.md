@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.5] - 2026-05-29
+
+### Added
+- **Expanded Classical Opening Book: The Nimzo-Indian Family (`src/book.rs`)**:
+  - Implemented comprehensive opening support for the **Nimzo-Indian Defense** (`1. d4 Nf6 2. c4 e6 3. Nc3 Bb4`) at White's 4th move options:
+    - **Rubinstein Variation (`4. e3`)**: Built-in support for Black's top positional replies: Castling (`e8g8`), `c7c5`, and `b7b6`.
+    - **Classical / Capablanca Variation (`4. Qc2`)**: Fully integrated positional Queen moves, supporting `e8g8`, `d7d5`, and `c7c5` responses.
+    - **Kasparov Variation (`4. Nf3`)**: Added transition paths into typical Queen's Indian / Bogo-Indian lines.
+    - **Sämisch Variation (`4. a3`)**: Forces the highly tactical double-pawn structure exchange (`4... Bxc3+ 5. bxc3`), complete with the crucial follow-up strategic lines (`c7c5`, `b7b6`, `e8g8`).
+    - **Leningrad Variation (`4. Bg5`)**: Exposed this sharp, tactical pin-based exotic setup to the book map.
+    - **Spielmann Variation (`4. Qb3`)**: Added this rarer but fully playable queen-pressure line.
+  - **Dynamic & Playable Exotic Openings**:
+    - **Budapest Gambit (`1. d4 Nf6 2. c4 e5 3. dxe5 Ng4`)**: Enabled this highly aggressive, tactical, and entertaining pawn sacrifice.
+    - **Benoni Defense (`1. d4 Nf6 2. c4 c5 3. d5`)**: Fully integrated this highly dynamic and asymmetric defense to counter closed center games.
+- **Engine-Powered FEN & Legality Verification**:
+  - Employed the engine's internal move execution logic (`UciGame::do_move`) to programmatically simulate all 32 opening lines from standard starting positions.
+  - Used `FenService` to export the FEN states directly, guaranteeing 100% exact castling rights and en passant coordinates.
+  - Ran the full test suite (`cargo test`) to execute `book::tests::test_all_book_moves_are_legal`, verifying that every single suggested book move is legal in its corresponding position.
+
+### Fixed
+- **Caro-Kann Advance Move Typo (`src/book.rs`)**: Fixed an illegal book move typo in the Caro-Kann Advance variation. Corrected the recommended pawn advance from `c7c5` to `c6c5` (the black pawn is already pushed to `c6` in move 1). This ensures 100% legal play and warning-free test execution.
+
+
+
 ## [V0.11.4] - 2026-05-29
 
 ### Added
