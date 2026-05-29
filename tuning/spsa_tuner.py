@@ -81,7 +81,7 @@ class SPSATuner:
         print(f"Iter {self.k}: Running {self.games_per_iter} games...")
         
         def run_single_game(i):
-            tmp_pgn = f"tuning/tmp_{self.k}_{i}.pgn"
+            tmp_pgn = f"tmp_{self.k}_{i}.pgn"
             cmd = [
                 self.mm_path,
                 self.engine_path,
@@ -195,9 +195,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     tuner = SPSATuner(
-        params_file="tuning/parameters.json",
-        state_file="tuning/spsa_state.json",
-        history_file="tuning/spsa_history.csv",
+        params_file="parameters.json",
+        state_file="spsa_state.json",
+        history_file="spsa_history.csv",
         engine_path=args.engine,
         mm_path=args.mm,
         games_per_iter=args.games,
