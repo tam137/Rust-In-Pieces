@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.2] - 2026-05-29
+
+### Added
+- Added common opening variations to book.rs
+
+### Fixed
+
+
+
 ## [V0.11.1] - 2026-05-29
 
 ### Added
