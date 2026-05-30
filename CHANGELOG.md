@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.6] - 2026-05-30
+
+### Added
+- Update config based on remote SPSA tuning results
+
+### Fixed
+
+
+
 ## [V0.11.5] - 2026-05-29
 
 ### Added
