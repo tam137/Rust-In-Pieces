@@ -165,7 +165,10 @@ class SPSATuner:
         
         for k in self.param_names:
             g_k = diff / (2.0 * step_sizes[k] * delta[k])
-            self.theta[k] += a_k * g_k
+            # Scale learning rate by the parameter's magnitude to prevent throttling
+            param_scale = max(1.0, abs(self.param_defs[k]["value"]))
+            a_k_scaled = a_k * param_scale
+            self.theta[k] += a_k_scaled * g_k
             
             # Apply bounds
             _min = self.param_defs[k]["min"]
