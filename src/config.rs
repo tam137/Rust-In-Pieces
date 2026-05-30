@@ -170,7 +170,7 @@ impl Config {
 
             your_turn_bonus: 20,
 
-            undeveloped_knight_malus: 42,
+            undeveloped_knight_malus: 43,
             undeveloped_bishop_malus: 30,
             undeveloped_king_malus: 55,
 
