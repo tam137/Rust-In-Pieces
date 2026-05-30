@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.11.7] - 2026-05-30
+
+### Added
+- Fix Pinned Piece Illusion in SEE and queen threat evaluation. Add LCT II and Perft verification tests.
+
+### Fixed
+
+
+
 ## [V0.11.6] - 2026-05-30
 
 ### Added
