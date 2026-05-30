@@ -706,6 +706,53 @@ impl MoveGenService {
         }
     }
 
+    pub fn is_pinned_away_from_target(&self, board: &Board, sq: u8, target_idx: u8, white: bool) -> bool {
+        let king_bb = if white {
+            board.bitboards[WHITE_KING]
+        } else {
+            board.bitboards[BLACK_KING]
+        };
+        let king_sq = king_bb.trailing_zeros() as u8;
+        if king_sq >= 64 {
+            return false;
+        }
+
+        let opp_bishop = if white { BLACK_BISHOP } else { WHITE_BISHOP };
+        let opp_rook = if white { BLACK_ROOK } else { WHITE_ROOK };
+        let opp_queen = if white { BLACK_QUEEN } else { WHITE_QUEEN };
+
+        // 1. Check diagonal pins
+        let original_diag_attacks = self.get_bishop_attacks(king_sq as usize, board.occupied);
+        let original_diag_attackers = original_diag_attacks & (board.bitboards[opp_bishop] | board.bitboards[opp_queen]);
+        
+        let occupied_without_sq = board.occupied & !(1u64 << sq);
+        let diag_attacks = self.get_bishop_attacks(king_sq as usize, occupied_without_sq);
+        let diag_attackers = diag_attacks & (board.bitboards[opp_bishop] | board.bitboards[opp_queen]);
+        
+        if original_diag_attackers == 0 && diag_attackers != 0 {
+            let target_mask = 1u64 << target_idx;
+            if (diag_attacks & target_mask) == 0 {
+                return true; // Absolutely pinned away from target
+            }
+        }
+
+        // 2. Check straight pins
+        let original_straight_attacks = self.get_rook_attacks(king_sq as usize, board.occupied);
+        let original_straight_attackers = original_straight_attacks & (board.bitboards[opp_rook] | board.bitboards[opp_queen]);
+        
+        let straight_attacks = self.get_rook_attacks(king_sq as usize, occupied_without_sq);
+        let straight_attackers = straight_attacks & (board.bitboards[opp_rook] | board.bitboards[opp_queen]);
+        
+        if original_straight_attackers == 0 && straight_attackers != 0 {
+            let target_mask = 1u64 << target_idx;
+            if (straight_attacks & target_mask) == 0 {
+                return true; // Absolutely pinned away from target
+            }
+        }
+
+        false
+    }
+
     pub fn get_attackers_mask(&self, board: &Board, white: bool, target_idx: u8, occupied: u64) -> u64 {
         let mut attackers = 0u64;
         let opp_pawn = if white { BLACK_PAWN } else { WHITE_PAWN };
@@ -760,6 +807,93 @@ impl MoveGenService {
         // Rook / Queen straights
         let straight_attacks = self.get_rook_attacks(target_idx as usize, occupied);
         attackers |= straight_attacks & (board.bitboards[opp_rook] | board.bitboards[opp_queen]);
+
+        attackers
+    }
+
+    pub fn get_attackers_mask_for_see(&self, board: &Board, white: bool, target_idx: u8, occupied: u64) -> u64 {
+        let mut attackers = 0u64;
+        let opp_pawn = if white { BLACK_PAWN } else { WHITE_PAWN };
+        let opp_knight = if white { BLACK_KNIGHT } else { WHITE_KNIGHT };
+        let opp_bishop = if white { BLACK_BISHOP } else { WHITE_BISHOP };
+        let opp_rook = if white { BLACK_ROOK } else { WHITE_ROOK };
+        let opp_queen = if white { BLACK_QUEEN } else { WHITE_QUEEN };
+        let opp_king = if white { BLACK_KING } else { WHITE_KING };
+
+        // Pawns
+        let file = target_idx % 8;
+        if white {
+            if file > 0 && target_idx <= 56 {
+                let sq = target_idx + 7;
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
+                    if !self.is_pinned_away_from_target(board, sq, target_idx, false) {
+                        attackers |= 1u64 << sq;
+                    }
+                }
+            }
+            if file < 7 && target_idx <= 54 {
+                let sq = target_idx + 9;
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
+                    if !self.is_pinned_away_from_target(board, sq, target_idx, false) {
+                        attackers |= 1u64 << sq;
+                    }
+                }
+            }
+        } else {
+            if file > 0 && target_idx >= 9 {
+                let sq = target_idx - 9;
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
+                    if !self.is_pinned_away_from_target(board, sq, target_idx, true) {
+                        attackers |= 1u64 << sq;
+                    }
+                }
+            }
+            if file < 7 && target_idx >= 7 {
+                let sq = target_idx - 7;
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
+                    if !self.is_pinned_away_from_target(board, sq, target_idx, true) {
+                        attackers |= 1u64 << sq;
+                    }
+                }
+            }
+        }
+
+        // Knights
+        let knight_attacks = KNIGHT_ATTACKS[target_idx as usize];
+        let mut knights = knight_attacks & board.bitboards[opp_knight];
+        while knights != 0 {
+            let sq = knights.trailing_zeros() as u8;
+            if !self.is_pinned_away_from_target(board, sq, target_idx, !white) {
+                attackers |= 1u64 << sq;
+            }
+            knights &= knights - 1;
+        }
+
+        // King
+        let king_attacks = KING_ATTACKS[target_idx as usize];
+        attackers |= king_attacks & board.bitboards[opp_king];
+
+        // Bishop / Queen diagonals
+        let diag_attacks = self.get_bishop_attacks(target_idx as usize, occupied);
+        let mut bishops = diag_attacks & (board.bitboards[opp_bishop] | board.bitboards[opp_queen]);
+        while bishops != 0 {
+            let sq = bishops.trailing_zeros() as u8;
+            if !self.is_pinned_away_from_target(board, sq, target_idx, !white) {
+                attackers |= 1u64 << sq;
+            }
+            bishops &= bishops - 1;
+        }
+
+        // Rook / Queen straights
+        let straight_attacks = self.get_rook_attacks(target_idx as usize, occupied);
+        let mut rooks = straight_attacks & (board.bitboards[opp_rook] | board.bitboards[opp_queen]);
+        while rooks != 0 {
+            let sq = rooks.trailing_zeros() as u8;
+            if !self.is_pinned_away_from_target(board, sq, target_idx, !white) {
+                attackers |= 1u64 << sq;
+            }
+            rooks &= rooks - 1;
+        }
 
         attackers
     }

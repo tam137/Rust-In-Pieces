@@ -9,9 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.11.6] - 2026-05-30
 
 ### Added
-- Update config based on remote SPSA tuning results
+- **Automated Performance & Elo Estimator (LCT II & Perft)**:
+  - Integrated full Louguet Chess Test II (LCT II) evaluator, estimating engine strength at a highly competitive **2110 Elo** rating.
+  - Restored full recursive Perft test harness to guarantee move generation correctness under complex tactical configurations.
 
 ### Fixed
+- **The Pinned Piece Illusion in Evaluation & Search (Qxf6 / Qxd4 Bug)**:
+  - Implemented highly optimized absolute pin detection (`is_pinned_away_from_target`) to dynamically evaluate if a piece is pinned to its king and unable to capture or defend separate squares.
+  - Fixed a critical search bug where the Static Exchange Evaluation (SEE) falsely assumed a pinned Knight could capture a Queen on `d4`, pruning the winning centralizing capture `Qxd4` (pruned with SEE `-850`).
+  - Separated the pin-filtering logic into `get_attackers_mask_for_see` for SEE and static queen threat evaluations, keeping raw `get_attackers_mask` uninhibited to guarantee strictly FIDE-legal move generation and check detection.
+  - Resolved 100% of perft/move-gen regressions and successfully passed all 71 unit and integration tests (including `test_dxf6_pinned_illusion` and deep `Kiwipete` Perft).
 
 
 

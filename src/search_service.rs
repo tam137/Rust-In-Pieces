@@ -292,7 +292,7 @@ impl SearchService {
     }
 
     fn get_least_valuable_attacker(&self, board: &Board, target_idx: u8, white: bool, occupied: u64, movegen: &MoveGenService) -> Option<(u8, u8)> {
-        let attackers_mask = movegen.get_attackers_mask(board, !white, target_idx, occupied);
+        let attackers_mask = movegen.get_attackers_mask_for_see(board, !white, target_idx, occupied);
         let active_attackers = attackers_mask & occupied;
         if active_attackers == 0 {
             return None;
@@ -1196,5 +1196,56 @@ mod tests {
         };
         let see_val3 = service.search.see(&board3, &mv3, &config, &service.move_gen);
         assert_eq!(see_val3, crate::pst::PIECE_EVAL_PAWN - crate::pst::PIECE_EVAL_QUEEN);
+    }
+
+    #[test]
+    fn test_dxf6_pinned_illusion() {
+        let fen = "r1bqkb1r/ppp2ppp/2np1B2/1B6/3pP3/2N5/PPP2PPP/R2QK1NR b KQkq - 0 6";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config = Config::new();
+        config.print_info_string_during_search = false;
+        let mut stats = Stats::new();
+
+        // 1. Black search from the starting FEN
+        let result = service.search.get_moves(
+            &mut board,
+            6,
+            false, // Black to move
+            &mut stats,
+            &config,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        // 2. Play the moves: d8f6, c3d5, f6d8
+        let t1 = crate::notation_util::NotationUtil::get_turn_from_notation("d8f6");
+        let _mi1 = board.do_move(&t1);
+        let t2 = crate::notation_util::NotationUtil::get_turn_from_notation("c3d5");
+        let _mi2 = board.do_move(&t2);
+        let t3 = crate::notation_util::NotationUtil::get_turn_from_notation("f6d8");
+        let _mi3 = board.do_move(&t3);
+
+        // 3. Verify absolute pin detection and positive SEE
+        let is_pinned = service.move_gen.is_pinned_away_from_target(&board, 42, 27, false);
+        assert!(is_pinned, "Knight on c6 must be absolutely pinned away from d4!");
+
+        let d1d4 = crate::notation_util::NotationUtil::get_turn_from_notation("d1d4");
+        let see_d1d4 = service.search.see(&board, &d1d4, &config, &service.move_gen);
+        assert!(see_d1d4 > 0, "SEE of Qxd4 should be positive (reclaiming pawn)!");
     }
 }

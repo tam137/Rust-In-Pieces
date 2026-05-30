@@ -938,7 +938,7 @@ impl EvalService {
         let file = sq % 8;
         
 
-        let attackers_mask = movegen.get_attackers_mask(board, true, sq, board.occupied);
+        let attackers_mask = movegen.get_attackers_mask_for_see(board, true, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
         if num_attackers > 0 {
             o_eval -= (config.queen_in_attack * num_attackers) + if !board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
@@ -961,7 +961,7 @@ impl EvalService {
         let file = sq % 8;
         
 
-        let attackers_mask = movegen.get_attackers_mask(board, false, sq, board.occupied);
+        let attackers_mask = movegen.get_attackers_mask_for_see(board, false, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
         if num_attackers > 0 {
             o_eval += (config.queen_in_attack * num_attackers) + if board.white_to_move { config.queen_in_attack_with_tempo } else { 0 };
