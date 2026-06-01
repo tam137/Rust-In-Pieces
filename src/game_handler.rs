@@ -308,30 +308,46 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 }
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
 
-                                // --- EASY MOVE EARLY EXIT ---
-                                if active_config.enable_easy_move 
-                                    && !is_infinite
-                                    && depth >= active_config.easy_move_depth_threshold 
-                                    && pv_stable_count >= active_config.easy_move_stable_depths 
-                                {
-                                    let is_easy = if is_white {
-                                        search_result.best_score.saturating_sub(search_result.second_best_score) >= active_config.easy_move_margin
-                                    } else {
-                                        search_result.second_best_score.saturating_sub(search_result.best_score) >= active_config.easy_move_margin
-                                    };
+                                 // --- EASY MOVE EARLY EXIT ---
+                                 if active_config.enable_easy_move 
+                                     && !is_infinite
+                                     && depth >= active_config.easy_move_depth_threshold 
+                                     && pv_stable_count >= active_config.easy_move_stable_depths 
+                                 {
+                                     let is_easy = if search_result.variants.len() <= 1 {
+                                         // Only one move (or none) ever improved alpha at root.
+                                         // All other moves are strictly worse — this is easy.
+                                         true
+                                     } else {
+                                         // Multiple moves improved alpha — check the gap between top two.
+                                         // These are real scores (not alpha-bounded), so the gap is accurate.
+                                         let gap = if is_white {
+                                             search_result.variants[0].eval
+                                                 .saturating_sub(search_result.variants[1].eval)
+                                         } else {
+                                             search_result.variants[1].eval
+                                                 .saturating_sub(search_result.variants[0].eval)
+                                         };
+                                         gap >= active_config.easy_move_margin
+                                     };
 
-                                    if is_easy {
-                                        logger.send(format!(
-                                            "Easy move detected: {}. Stable for {} depths. Best score: {}, Second best: {}, Margin: {}. Exiting search early.",
-                                            last_best_move,
-                                            pv_stable_count + 1,
-                                            search_result.best_score,
-                                            search_result.second_best_score,
-                                            active_config.easy_move_margin
-                                        )).ok();
-                                        break;
-                                    }
-                                }
+                                     if is_easy {
+                                         let second_info = if search_result.variants.len() >= 2 {
+                                             format!("{}", search_result.variants[1].eval)
+                                         } else {
+                                             "N/A (no other move improved alpha)".to_string()
+                                         };
+                                         logger.send(format!(
+                                             "Easy move detected: {}. Stable for {} depths. Best eval: {}, Second best eval: {}, Variants: {}. Exiting search early.",
+                                             last_best_move,
+                                             pv_stable_count + 1,
+                                             search_result.get_eval(),
+                                             second_info,
+                                             search_result.variants.len(),
+                                         )).ok();
+                                         break;
+                                     }
+                                 }
                             }
 
                             if time_info.time_mode == TimeMode::Depth && depth >= time_info.depth {

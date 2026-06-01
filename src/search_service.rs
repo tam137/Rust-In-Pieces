@@ -1266,4 +1266,55 @@ mod tests {
         let see_d1d4 = service.search.see(&board, &d1d4, &config, &service.move_gen);
         assert!(see_d1d4 > 0, "SEE of Qxd4 should be positive (reclaiming pawn)!");
     }
+
+    #[test]
+    fn test_easy_move_failing() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(
+            "r2q1knr/p1pb2p1/2pb1pp1/3p2BQ/3P4/8/PPP2PPP/RN3RK1 w - - 0 12"
+        );
+        let mut config = Config::new();
+        config.search_depth = 7;
+        config.enable_easy_move = true;
+
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let search_result = service.search.get_moves(
+            &mut board,
+            config.search_depth,
+            true, // white
+            &mut Stats::new(),
+            &config,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        println!("Depth {}: variants.len()={}, best_move={:?}, eval={}",
+            config.search_depth,
+            search_result.variants.len(),
+            search_result.get_best_move_algebraic(),
+            search_result.get_eval(),
+        );
+
+        // In this position mechanical move order or search might have multiple options initially,
+        // but at depth 7, Qxh8 is overwhelmingly the only PV-improving move at root.
+        assert_eq!(search_result.variants.len(), 1,
+            "Expected only 1 variant (the dominating move), got {}",
+            search_result.variants.len());
+        assert_eq!(search_result.get_best_move_algebraic(), "h5h8");
+    }
 }
+
+
+
