@@ -27,6 +27,7 @@ This document outlines the systematic approach for debugging a chess engine when
 * Generate the FEN of the position at the end of your engine's Principal Variation.
 * Have the reference engine evaluate this end position (Leaf Node).
 * **Diagnosing a Horizon Effect / Eval Bug:** If your engine evaluates this leaf node highly positively (e.g., +2.50), but Stockfish evaluates it negatively or neutrally (e.g., -0.50), the error lies in the **static evaluation function**. The engine is overvaluing material or positional factors (e.g., a rook on the 7th rank) while missing long-term problems (king safety, opponent's initiative).
+* **Diagnosing Positional/Activity Bias (Overvaluation of Activity):** Pay special attention when your engine suggests a piece sacrifice or evaluates a position with a material deficit as nearly equal (e.g. down a piece for 2 pawns, but evaluated as +0.26). Frequently, the engine's static evaluation is overvaluing piece activity (e.g., an active central knight or queen mobility) and severely undervaluing raw material. Evaluating the Leaf Node FEN with Stockfish is **strictly mandatory** in these scenarios to verify whether the sacrifice is objectively sound or a tactical blunder caused by an evaluation bug.
 
 ## 5. Rule Out Search and Pruning Bugs
 * If your engine correctly evaluates the leaf node but fails to calculate the *objectively best move* (the one Stockfish found) in the first place, the bug is likely in the search algorithm.
