@@ -1,6 +1,6 @@
 {
     "is_hashed_rank_bonus": {
-        "value": 3,
+        "value": 4,
         "min": 0,
         "max": 103
     },
@@ -10,12 +10,12 @@
         "max": 105
     },
     "is_pv_node_rank_bonus": {
-        "value": 15,
+        "value": 17,
         "min": 0,
         "max": 115
     },
     "give_promotion_rank_bonus_queen": {
-        "value": 15,
+        "value": 18,
         "min": 0,
         "max": 115
     },
@@ -25,52 +25,52 @@
         "max": 106
     },
     "your_turn_bonus": {
-        "value": 20,
+        "value": 21,
         "min": 0,
         "max": 120
     },
     "undeveloped_knight_malus": {
-        "value": 43,
+        "value": 31,
         "min": 0,
         "max": 142
     },
     "undeveloped_bishop_malus": {
-        "value": 30,
+        "value": 34,
         "min": 0,
         "max": 130
     },
     "undeveloped_king_malus": {
-        "value": 55,
+        "value": 54,
         "min": 0,
         "max": 155
     },
     "rook_open_file": {
-        "value": 35,
+        "value": 26,
         "min": 0,
         "max": 135
     },
     "rook_half_open_file": {
-        "value": 18,
+        "value": 22,
         "min": 0,
         "max": 118
     },
     "bishop_pair_bonus": {
-        "value": 40,
+        "value": 46,
         "min": 0,
         "max": 140
     },
     "rook_doubled_bonus": {
-        "value": 20,
+        "value": 25,
         "min": 0,
         "max": 120
     },
     "rook_behind_passed_pawn_middlegame": {
-        "value": 15,
+        "value": 13,
         "min": 0,
         "max": 115
     },
     "rook_behind_passed_pawn_endgame": {
-        "value": 30,
+        "value": 36,
         "min": 0,
         "max": 130
     },
@@ -100,7 +100,7 @@
         "max": 112
     },
     "protected_passed_pawn_endgame": {
-        "value": 24,
+        "value": 26,
         "min": 0,
         "max": 124
     },
@@ -115,82 +115,82 @@
         "max": 105
     },
     "pawn_supports_knight_outpost": {
-        "value": 12,
+        "value": 10,
         "min": 0,
         "max": 112
     },
     "pawn_centered": {
-        "value": 12,
+        "value": 14,
         "min": 0,
         "max": 112
     },
     "pawn_undeveloped_malus": {
-        "value": 12,
+        "value": 15,
         "min": 0,
         "max": 112
     },
     "pawn_on_last_rank_bonus": {
-        "value": 180,
+        "value": 178,
         "min": 80,
         "max": 280
     },
     "pawn_on_before_last_rank_bonus": {
-        "value": 110,
+        "value": 105,
         "min": 10,
         "max": 210
     },
     "pawn_on_before_before_last_rank_bonus": {
-        "value": 40,
+        "value": 47,
         "min": 0,
         "max": 140
     },
     "pawn_defends_bishop": {
-        "value": 20,
+        "value": 23,
         "min": 0,
         "max": 120
     },
     "pawn_double_malus": {
-        "value": 16,
+        "value": 14,
         "min": 0,
         "max": 116
     },
     "knight_on_rim_malus": {
-        "value": 16,
+        "value": 17,
         "min": 0,
         "max": 116
     },
     "knight_centered": {
-        "value": 20,
+        "value": 22,
         "min": 0,
         "max": 120
     },
     "knight_blockes_pawn": {
-        "value": 24,
+        "value": 27,
         "min": 0,
         "max": 124
     },
     "bishop_trapped_at_rim_malus": {
-        "value": 50,
+        "value": 57,
         "min": 0,
         "max": 150
     },
     "pawn_attacks_opponent_fig": {
-        "value": 35,
+        "value": 34,
         "min": 0,
         "max": 135
     },
     "pawn_attacks_opponent_fig_with_tempo": {
-        "value": 15,
+        "value": 18,
         "min": 0,
         "max": 115
     },
     "queen_in_attack": {
-        "value": 60,
+        "value": 53,
         "min": 0,
         "max": 160
     },
     "queen_in_attack_with_tempo": {
-        "value": 30,
+        "value": 29,
         "min": 0,
         "max": 130
     },
@@ -200,57 +200,57 @@
         "max": 105
     },
     "knight_attacks_rook": {
-        "value": 15,
+        "value": 17,
         "min": 0,
         "max": 115
     },
     "knight_attacks_bishop_tempo": {
-        "value": 10,
+        "value": 9,
         "min": 0,
         "max": 110
     },
     "knight_attacks_rook_tempo": {
-        "value": 10,
+        "value": 13,
         "min": 0,
         "max": 110
     },
     "king_pawn_shield": {
-        "value": 40,
+        "value": 39,
         "min": 0,
         "max": 140
     },
     "king_piece_shield": {
-        "value": 15,
+        "value": 16,
         "min": 0,
         "max": 115
     },
     "king_trapp_at_baseline_malus": {
-        "value": 75,
+        "value": 72,
         "min": 0,
         "max": 175
     },
     "king_in_check_malus": {
-        "value": 140,
+        "value": 136,
         "min": 40,
         "max": 240
     },
     "king_in_double_check_malus": {
-        "value": 350,
+        "value": 343,
         "min": 250,
         "max": 450
     },
     "rook_on_seventh": {
-        "value": 25,
+        "value": 32,
         "min": 0,
         "max": 125
     },
     "pawn_isolated_malus": {
-        "value": 8,
+        "value": 9,
         "min": 0,
         "max": 108
     },
     "pawn_backward_malus": {
-        "value": 14,
+        "value": 12,
         "min": 0,
         "max": 114
     },
@@ -280,7 +280,7 @@
         "max": 103
     },
     "king_open_file_malus": {
-        "value": 40,
+        "value": 38,
         "min": 0.0,
         "max": 100.0
     },
@@ -295,17 +295,17 @@
         "max": 10.0
     },
     "threat_minor_attacks_rook": {
-        "value": 15,
+        "value": 13,
         "min": 0.0,
         "max": 60.0
     },
     "threat_minor_attacks_queen": {
-        "value": 30,
+        "value": 25,
         "min": 0.0,
         "max": 100.0
     },
     "threat_rook_attacks_queen": {
-        "value": 20,
+        "value": 19,
         "min": 0.0,
         "max": 80.0
     }

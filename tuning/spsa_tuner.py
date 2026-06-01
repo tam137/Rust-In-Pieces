@@ -9,7 +9,7 @@ import concurrent.futures
 import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -22,7 +22,7 @@ class SPSATuner:
         self.mutate_pct = mutate_pct
         
         # SPSA Constants (Standard values)
-        self.a = 2.0     # Base learning rate (depends on gradient magnitude)
+        self.a = lr     # Base learning rate (depends on gradient magnitude)
         self.c = 3.0     # Base perturbation size
         self.A = 100.0   # 10% of total iterations
         self.alpha = 0.602
@@ -195,6 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--time", type=int, default=2, help="Time per game in seconds")
     parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
     parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%)")
+    parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     args = parser.parse_args()
     
     tuner = SPSATuner(
@@ -207,7 +208,8 @@ if __name__ == "__main__":
         workers=args.workers,
         time_ms=args.time * 1000,
         inc_ms=args.inc,
-        mutate_pct=args.mutate
+        mutate_pct=args.mutate,
+        lr=args.lr
     )
     
     # Run 100 iterations as a test
