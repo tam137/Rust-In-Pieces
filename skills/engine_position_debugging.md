@@ -36,3 +36,7 @@ This document outlines the systematic approach for debugging a chess engine when
 ## 7. Fixing the Issue
 * **For an Evaluation Bug:** Adjust the parameters. Often, material advantages need to be weighed better against poor king safety or opponent piece activity (mobility). Bonuses (like `rook_on_seventh`) should be capped or ignored if your own king is under heavy fire.
 * **For a Search Bug:** Temporarily disable LMR or NMP for testing. If the engine finds the move afterward, the pruning condition needs to be refined (e.g., no NMP in the endgame or when specific tactical threats exist).
+
+## 8. Prevent Regression
+* **Mandatory Regression Tests:** Every resolved faulty move/position MUST be added as a regression test case inside `tests.rs`.
+* The test should load the FEN, perform a search to a sufficient depth, and assert that the engine successfully finds the correct, objectively best move. This guarantees that the issue is permanently solved and cannot reoccur in future updates.
