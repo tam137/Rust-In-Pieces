@@ -17,10 +17,13 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 1. **Run Unit Tests:** Execute the active unit tests first: `cargo test`.
 2. **Run Performance Tests (Perft):** ONLY if all unit tests are 100% successful (green), you MUST execute the performance/ignored tests: `cargo test -- --ignored` (or specifically `cargo test -- --ignored perft`).
 3. **Compare Performance & Document in perft.md:** Compare the search results (Nodes, Time, NPS) with the previous version. To gather these search benchmark results correctly, you MUST bypass the opening book by loading a slightly modified FEN of the starting position with the move counter set to 5 or higher (e.g., `position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 5`), run `go depth <N>` (up to depth 9 or 10), and document the actual search tree results in `perft.md`.
-4. **Run LCT (Louguet Chess Test II) Tests:** ONLY if the performance/perft tests delivered good results in comparison to the previous version, you MUST run the LCT chess tests by executing: `python3 scripts/lct2_evaluator.py` (or `./scripts/lct2_evaluator.py`).
-5. **Document LCT Results in LCT.md:** You MUST document the LCT test results (Estimated ELO, solved positions, and scoreboard) in `LCT.md` by updating/prepending the results for the new version.
-6. **Communicate and Interpret Results:** The agent MUST communicate the results of both the Perft and LCT tests to the user, including a clear interpretation of those results (e.g., whether the engine became faster/slower or gained/lost tactical strength).
-7. **Run Build & Release Pipeline:** ONLY if both the Perft tests and LCT tests have been successfully executed, compared, documented, and communicated, you may proceed to execute the release script: `./build_and_release.sh "Changelog entry"`.
+4. **Compile Optimized Release Binary:** Compiling the optimized release binary FIRST is mandatory before running the evaluation. Run `cargo build --release` to ensure `target/release/suprah` is compiled with your latest changes.
+   > [!WARNING]
+   > CRITICAL ORDER WARNING: You MUST run `cargo build --release` BEFORE running the LCT II evaluator script. If you run the evaluator on a stale binary, it will evaluate old, unmodified behavior, completely invalidating the results and potentially missing game-breaking bugs.
+5. **Run LCT (Louguet Chess Test II) Tests:** Execute the LCT chess tests on the newly compiled optimized release binary by running: `python3 scripts/lct2_evaluator.py`.
+6. **Document LCT Results in LCT.md:** You MUST document the LCT test results (Estimated ELO, solved positions, and scoreboard) in `LCT.md` by updating/prepending the results for the new version.
+7. **Communicate and Interpret Results:** The agent MUST communicate the results of both the Perft and LCT tests to the user, including a clear interpretation of those results (e.g., whether the engine became faster/slower or gained/lost tactical strength).
+8. **Run Build & Release Pipeline:** ONLY if both the Perft tests and LCT tests have been successfully executed, compared, documented, and communicated, you may proceed to execute the release script: `./build_and_release.sh "Changelog entry"`.
 
 ## 3. Pipeline Workflow
 1. Executes all cargo unit tests first (`cargo test`).

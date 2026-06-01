@@ -42,7 +42,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enableeasymove", "enable_easy_move")
                                 .replace("easymovedepththreshold", "easy_move_depth_threshold")
-                                .replace("easymovestabledepths", "easy_move_stable_depths");
+                                .replace("easymovestabledepths", "easy_move_stable_depths")
+                                .replace("easymovemargin", "easy_move_margin");
                             let val_str = parts[val_idx+1..].join(" ");
 
                             if param_name == "aggressiveness" {
@@ -148,6 +149,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "enable_easy_move" => active_config.enable_easy_move = val_str == "true",
                                     "easy_move_depth_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.easy_move_depth_threshold = v; },
                                     "easy_move_stable_depths" => if let Ok(v) = val_str.parse::<i32>() { active_config.easy_move_stable_depths = v; },
+                                    "easy_move_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.easy_move_margin = v; },
                                     _ => {}
                                 }
                             }
@@ -209,6 +211,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_move = book.get_random_book_move(&game_fen);
                     let time_info = uci_parser.parse_go(command.as_str());
+                    let is_infinite = command.contains("infinite");
 
                     if book_move.is_empty() || !active_config.use_book {
 
@@ -307,11 +310,27 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                                 // --- EASY MOVE EARLY EXIT ---
                                 if active_config.enable_easy_move 
+                                    && !is_infinite
                                     && depth >= active_config.easy_move_depth_threshold 
                                     && pv_stable_count >= active_config.easy_move_stable_depths 
                                 {
-                                    logger.send(format!("Easy move detected: {}. Stable for {} depths. Exiting search early.", last_best_move, pv_stable_count + 1)).ok();
-                                    break;
+                                    let is_easy = if is_white {
+                                        search_result.best_score.saturating_sub(search_result.second_best_score) >= active_config.easy_move_margin
+                                    } else {
+                                        search_result.second_best_score.saturating_sub(search_result.best_score) >= active_config.easy_move_margin
+                                    };
+
+                                    if is_easy {
+                                        logger.send(format!(
+                                            "Easy move detected: {}. Stable for {} depths. Best score: {}, Second best: {}, Margin: {}. Exiting search early.",
+                                            last_best_move,
+                                            pv_stable_count + 1,
+                                            search_result.best_score,
+                                            search_result.second_best_score,
+                                            active_config.easy_move_margin
+                                        )).ok();
+                                        break;
+                                    }
                                 }
                             }
 
@@ -462,13 +481,16 @@ mod tests {
         assert!(config.enable_easy_move);
         assert_eq!(config.easy_move_depth_threshold, 6);
         assert_eq!(config.easy_move_stable_depths, 3);
+        assert_eq!(config.easy_move_margin, 150);
 
         config.enable_easy_move = false;
         config.easy_move_depth_threshold = 8;
         config.easy_move_stable_depths = 5;
+        config.easy_move_margin = 200;
 
         assert!(!config.enable_easy_move);
         assert_eq!(config.easy_move_depth_threshold, 8);
         assert_eq!(config.easy_move_stable_depths, 5);
+        assert_eq!(config.easy_move_margin, 200);
     }
 }

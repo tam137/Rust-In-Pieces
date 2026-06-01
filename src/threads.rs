@@ -72,6 +72,7 @@ pub fn uci_command_processor(
                     stdout.write("option name EnableEasyMove type check default true");
                     stdout.write("option name EasyMoveDepthThreshold type spin default 6 min 1 max 100");
                     stdout.write("option name EasyMoveStableDepths type spin default 3 min 1 max 100");
+                    stdout.write("option name EasyMoveMargin type spin default 150 min 0 max 10000");
                     stdout.write("uciok");
                 }
 
