@@ -45,9 +45,33 @@ If a tuning session is currently active on the server, modifying `parameters.jso
 
 ### 5. Compile and Deploy
 Once the code and tuning files are updated:
-1. Run `./build_and_release.sh` to compile the new native binary and deploy it to the remote server.
-2. Upload the updated tuning files to the server:
+
+> [!IMPORTANT]
+> **Why Engine Recompilation & Redeployment is Mandatory:**
+> If you are adding a **brand-new parameter** (such as `easy_move_margin` in the `Config` struct and UCI thread commands), the chess engine binary itself **MUST** be recompiled and redeployed to both local and remote directories before launching the tuner.
+> 
+> If you only upload `parameters.json` without compiling the new binary, `spsa_tuner.py` will send the new UCI option command (e.g. `setoption name EasyMoveMargin value 150`) to the old engine binary. Because the old binary does not recognize this new option, it will throw a UCI error or crash.
+> 
+> Recompiling and deploying a new engine version ensures that the engine fully supports and parses the new UCI option correctly on the remote ARM server.
+
+1. **Recompile and Deploy the Engine:**
+   Run the automated build & release pipeline script to compile the binary and automatically deploy it locally and remotely:
+   ```bash
+   ./build_and_release.sh "Release vX.Y.Z: Registered new tuning parameters"
+   ```
+2. **Update tuning.sh:**
+   Open `tuning/tuning.sh` and update the `--engine` parameter to point to the newly released binary path (e.g., `../engines/suprah-X.Y.Z`), then upload it to the server:
+   ```bash
+   scp tuning/tuning.sh root@<SERVER_IP>:/root/mattmagie/tuning/
+   ```
+3. **Upload the updated parameter configurations:**
    ```bash
    scp tuning/parameters.json root@<SERVER_IP>:/root/mattmagie/tuning/
    ```
-3. SSH into the server, ensure `spsa_state.json` is handled (deleted or patched), and restart the `spsa_tuner.py` script inside a tmux session.
+4. **Restart SPSA on the Server:**
+   SSH into the server, stop the active SPSA process (Ctrl+C in tmux), and clean up the remote state/history files along with any cluttered temporary match PGN files (`tmp_*.pgn`) inside `~/mattmagie/tuning/`:
+   ```bash
+   # Clean up state and temporary pgns
+   rm -f ~/mattmagie/tuning/spsa_history.csv ~/mattmagie/tuning/spsa_state.json ~/mattmagie/tuning/tmp_*.pgn
+   ```
+   Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to start a fresh, mathematically clean SPSA tuning run.
