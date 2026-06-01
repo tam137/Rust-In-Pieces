@@ -1,3 +1,17 @@
+# v0.12.0 (Easy-Move Heuristic & UCI Options Config)
+
+| Depth | Time | Nodes | NPS |
+| :--- | :--- | :--- | :--- |
+| 1 | - | - | - |
+| 2 | < 1 ms | 402 | 402,000 |
+| 3 | 1 ms | 3,215 | 3,215,000 |
+| 4 | 2 ms | 2,812 | 1,406,000 |
+| 5 | 6 ms | 10,067 | 1,677,833 |
+| 6 | 14 ms | 29,056 | 2,075,428 |
+| 7 | 70 ms | 135,005 | 1,928,642 |
+| 9 | 298 ms | 768,806 | 2,580,000 |
+| 10 | 577 ms | 862,805 | 1,495,329 |
+
 # v0.11.7 (Richter-Rauzer Fined-Tuned / Pinned Piece Illusion Fix)
 
 | Depth | Time | Nodes | NPS |

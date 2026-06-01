@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.12.0] - 2026-06-01
+
+### Added
+- **Configurable Easy-Move (Obvious Move) Early Exit Heuristic**:
+  - Implemented an intuitive, high-performance time management heuristic in the iterative deepening loop (`src/game_handler.rs`) to instantly play forced recaptures, highly stable principal variations (PV), or singular best moves, significantly conserving time in rapid/blitz matches.
+  - Automatically monitors best-move consistency across search iterations by comparing the principal variation's best move against previous depths.
+  - **Premium Customizable Parameters in `src/config.rs`**:
+    - `enable_easy_move` (type: check, default: `true`): Toggles the early exit heuristic globally.
+    - `easy_move_depth_threshold` (type: spin, default: `6`): Minimum depth at which easy-move conditions can trigger.
+    - `easy_move_stable_depths` (type: spin, default: `3`): The number of consecutive search depths for which the best move must remain unchanged (stable across 4 total depths) before triggering an early exit.
+- **Full UCI Options Registration and Parsing**:
+  - Registered options (`EnableEasyMove`, `EasyMoveDepthThreshold`, and `EasyMoveStableDepths`) inside `src/threads.rs` so that UCI chess GUIs (like Cutechess or Arena) or automatic SPSA tuners can query and configure them.
+  - Added robust string parsing replacements (`enableeasymove`, `easymovedepththreshold`, and `easymovestabledepths`) inside `src/game_handler.rs`'s `setoption` command loop to allow transparent handling of case variations, spaces, and underscores (e.g., `setoption name Enable Easy Move value true` or `setoption name Enable_Easy_Move value true`).
+
+### Performance & ELO Validation
+- **Search Tree Metrics**: Verified iterative deepening behavior on starting positions, confirming correct termination logic once PV stability requirements are met.
+- **LCT II ELO Scoreboard**:
+  - Estimated rating is stable at **2110 ELO** on the Louguet Chess Test II, solving 7/35 positions (20.0%) scoring a total of 210 points.
+  - Category performance: Positional (2/14), Tactical (2/12), Endgame (3/9 solved with strong pawn and bishop study completions).
+
+### Fixed
+
+
+
+## [V0.11.9] - 2026-06-01
+
+### Added
+- **Solid Opening Book Tuning:**
+  - **Pruned Risky & Passive Opening Variations for Black:**
+    - *Spanish (Ruy Lopez):* Removed the passive Steinitz Defense (`d7d6`) and the highly tactical/fragile Classical Defense (`f8c5`) from the recommended moves after `1. e4 e5 2. Nf3 Nc6 3. Bb5` (FEN: `r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 3`). The engine is now steered exclusively into the ultra-solid mainlines: *Morphy Defense* (`a7a6`) and the *Berlin Defense* (`g8f6`).
+    - *Spanish (Morphy Continuation):* Removed `d7d6` (Modern Steinitz) after `4. Ba4` (FEN: `r1bqkbnr/1ppp1ppp/p1n5/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 4`), forcing the robust developmental mainline `g8f6` instead.
+    - *Open Sicilian:* Fully pruned the sharp, theoretical, and engine-vulnerable *Sicilian Dragon* (`g7g6`) from the recommended responses to `1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3` (FEN: `rnbqkb1r/pp2pppp/3p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 0 5`), preserving only the positionally superior *Najdorf* (`a7a6`) and *Scheveningen/Classical* transpositions (`e7e6`).
+  - **Integrated New Solid Master-Level Opening Lines:**
+    - *Queen's Gambit Declined (Black - Ragozin & Orthodox Defense):* Added the solid defensive systems `f8e7` (Orthodox Defense) and `f8b4` (Ragozin Defense) after `1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Nf3` (FEN: `rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R b KQkq - 0 4`).
+    - *Caro-Kann Defense (Black - Capablanca & Karpov Systems):* Added high-quality mainlines `c8f5` (Capablanca Variation), `b8d7` (Karpov System), and `g8f6` (Smyslov/Bronstein-Larsen) after `1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4` (FEN: `rnbqkbnr/pp2pppp/2p5/8/3PN3/8/PPP2PPP/R1BQKBNR b KQkq - 0 4`).
+    - *Queen's Gambit Declined (White - Classical Line):* Added the robust positional continuations `e2e3` and `g1f3` after `4... Be7 5. e3` (FEN: `rnbqk2r/ppp1bppp/4pn2/3p2B1/2PP4/2N5/PP2PPPP/R2QKBNR w KQkq - 1 5`).
+    - *French Defense (White - Exchange Mainline):* Added active bishop and knight developmental lines `g1f3` and `f1d3` in the French Exchange variation after `3. exd5 exd5` (FEN: `rnbqkbnr/ppp2ppp/8/3p4/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 0 4`).
+
+### Fixed
+
+
+
 ## [V0.11.7] - 2026-05-30
 
 ### Added
