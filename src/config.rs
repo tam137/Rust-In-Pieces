@@ -133,6 +133,7 @@ pub struct Config {
     pub enable_easy_move: bool,
     pub easy_move_depth_threshold: i32,
     pub easy_move_stable_depths: i32,
+    pub easy_move_margin: i16,
 }
 
 
@@ -273,6 +274,7 @@ impl Config {
             enable_easy_move: true,
             easy_move_depth_threshold: 6,
             easy_move_stable_depths: 3,
+            easy_move_margin: 150,
         }
     }
 

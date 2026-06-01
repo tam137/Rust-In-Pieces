@@ -937,6 +937,8 @@ pub struct SearchResult {
     pub completed: bool,
     pub calculated_depth: i32,
     pub is_pv_search_result: bool,
+    pub best_score: i16,
+    pub second_best_score: i16,
 }
 
 #[derive(Debug, Clone)]
@@ -956,6 +958,8 @@ impl SearchResult {
             completed: true,
             calculated_depth: 0,
             is_pv_search_result: false,
+            best_score: 0,
+            second_best_score: 0,
         }
     }
 

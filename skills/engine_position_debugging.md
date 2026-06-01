@@ -8,7 +8,12 @@ This document outlines the systematic approach for debugging a chess engine when
 * **Goal:** Determine which move the engine actually outputs, how high it evaluates the position (score in centipawns), and whether the preferred move changes at higher depths.
 
 ## 2. Compare with a Reference Engine (e.g., Stockfish)
-* Pass the exact same FEN to a proven, very strong engine (e.g., local Stockfish or via a Stockfish web API).
+* Pass the exact same FEN to a proven, very strong engine:
+  * **Option A: Local Stockfish CLI** (if installed).
+  * **Option B: Stockfish Online API**. Query the public REST API:
+    `GET https://stockfish.online/api/s/v2.php?fen=<ENCODED_FEN>&depth=<DEPTH>`
+    *Example:*
+    `https://stockfish.online/api/s/v2.php?fen=1r4k1/2p5/1bp2prB/p2p4/q7/5Q2/1PP1R1PP/4R2K w - - 4 36&depth=10`
 * Note the objectively best move, its evaluation, and the Principal Variation (PV) preferred by Stockfish.
 * **Analysis:**
   * Does your engine play a completely different move?

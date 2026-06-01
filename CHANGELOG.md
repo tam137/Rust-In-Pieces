@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.12.2] - 2026-06-01
+
+### Added
+- **Dynamic Easy-Move Early-Exit Customization**:
+  - Registered new UCI spin option `EasyMoveMargin` (range `0` to `10000`, default `150` centipawns), enabling users to configure the required evaluation margin between the best and second-best moves dynamically.
+  - Fully exposed `easy_move_margin` through all internal thread configurations, configuration structures, and CLI parser modules, allowing easy SPSA tuning and interface customization.
+  - Added new automated unit tests (`test_easy_move_configuration`) in `src/game_handler.rs` to verify thread-safe UCI option parsing and dynamic updates of Easy-Move parameters.
+
+### Fixed
+- **Critical Search Blindspot Fix (Safe Easy-Move Early-Exit Heuristic)**:
+  - **The Bug**: In version `v0.12.1`, the engine mistakenly executed the Easy-Move early exit heuristically during `go infinite` commands. This caused the engine to exit the search early (often at depth 6) during infinite tactical searches, rendering it unable to solve complex tactical positions in evaluators (like LCT II) and severely degrading playing strength in deep tournament matches.
+  - **The Fix**: Strictly restricted the Easy-Move early-exit check to only execute when `!is_infinite` is verified, restoring standard deep-search behavior for tournament benchmarks and puzzles.
+  - **Evaluation Threshold Safety**: Restructured the early-exit condition to only trigger when the best move has a robust evaluation advantage over the second-best move ($\ge 150$ centipawns, or the user-configured `EasyMoveMargin`). This prevents premature exits on tactical positions where multiple solid options exist, ensuring that the engine only takes an early exit when the choice is mathematically clear and safe.
+
+
+
 ## [V0.12.1] - 2026-06-01
 
 ### Added

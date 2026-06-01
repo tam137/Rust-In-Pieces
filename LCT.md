@@ -1,18 +1,19 @@
-# LCT II Test Results: Version v0.12.1
+# LCT II Test Results: Version v0.12.2
 
 * **Engine Binary**: `target/release/suprah`
 * **Positions Solved**: 6 / 35 (17.1%)
 * **Total Points**: 175 / 1050
-* **Estimated ELO**: **2075 ELO** (Tuned SPSA evaluation parameters)
+* **Estimated ELO**: **2075 ELO** (Safe Easy-Move & threshold-margin fixes)
 
 ---
 
-# LCT II Test Results: Version v0.12.0
+# LCT II Test Results: Version v0.12.1
 
 ## Historical Comparison
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.12.2` (Safe Easy-Move Fixes) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |
 | `v0.12.1` (Tuned SPSA parameters) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |
 | `v0.12.0` (Easy-Move / UCI Options) | **2110** | 210 | 7/35 | 2/14 | 2/12 | 3/9 |
 | `v0.11.5` (Expanded Opening Book) | **2080** | 180 | 6/35 | 2/14 | 2/12 | 2/9 |
@@ -53,7 +54,7 @@
 
 ---
 
-### Scoreboard by Category (v0.12.1)
+### Scoreboard by Category (v0.12.2)
 
 * **Positional**: 1 / 14 solved (7.1%) | 30 points
 * **Tactical**: 3 / 12 solved (25.0%) | 85 points
@@ -61,7 +62,7 @@
 
 ---
 
-## Detailed Results (v0.12.1)
+## Detailed Results (v0.12.2)
 
 | ID | Category | Description | Correct Move | Engine Move | Solved? | Time | Points |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -80,10 +81,10 @@
 | LCTII.POS.13 | Positional | Capablanca - Ragozin, Moskau 1935 | c3a2 | b8d8 | **NO** | - | 0 |
 | LCTII.POS.14 | Positional | Polugaevsky - Nezhmetdinov, Sochi 1958 | d4d5 | f3e5 | **NO** | - | 0 |
 | LCTII.TAC.01 | Tactical | Zubarev - Geller, USSR 1950 | c4d6 | h4h1 | **NO** | - | 0 |
-| LCTII.TAC.02 | Tactical | Keres - Eliskases, Noordwijk 1938 | h5h7 | h5h7 | **YES** | 0.18s | 30 |
+| LCTII.TAC.02 | Tactical | Keres - Eliskases, Noordwijk 1938 | h5h7 | h5h7 | **YES** | 0.52s | 30 |
 | LCTII.TAC.03 | Tactical | Drimer - Rellstab, corr. 1968 | f6f3 | e8c8 | **NO** | - | 0 |
-| LCTII.TAC.04 | Tactical | Hort - Wade, Pajulahti 1974 | e5f6 | e5f6 | **YES** | 6.56s | 30 |
-| LCTII.TAC.05 | Tactical | Fischer - Myagmarsuren, Sousse 1967 | h3h7 | h3h7 | **YES** | 9.05s | 25 |
+| LCTII.TAC.04 | Tactical | Hort - Wade, Pajulahti 1974 | e5f6 | e5f6 | **YES** | 6.59s | 30 |
+| LCTII.TAC.05 | Tactical | Fischer - Myagmarsuren, Sousse 1967 | h3h7 | h3h7 | **YES** | 9.30s | 25 |
 | LCTII.TAC.06 | Tactical | R.Byrne - Fischer, New York 1963 | e5f6 | c2e4 | **NO** | - | 0 |
 | LCTII.TAC.07 | Tactical | Wojtkiewicz - Kasparov, Simultan 1993 | c8c3 | b7e4 | **NO** | - | 0 |
 | LCTII.TAC.08 | Tactical | Nei - Bronstein, Moskau 1963 | d5f6 | d1d3 | **NO** | - | 0 |
@@ -91,8 +92,8 @@
 | LCTII.TAC.10 | Tactical | Fischer - Gadia, Simultan 1965 | f4h6 | g1d1 | **NO** | - | 0 |
 | LCTII.TAC.11 | Tactical | Nezhmetdinov - Tal, Baku 1961 | g5h7 | c1f4 | **NO** | - | 0 |
 | LCTII.TAC.12 | Tactical | Vaganyan - Kupreichik, USSR 1980 | e4e5 | d4f3 | **NO** | - | 0 |
-| LCTII.END.01 | Endgame | Pawn Endgame Study | f5f6 | f5f6 | **YES** | 1.15s | 30 |
-| LCTII.END.02 | Endgame | Rook Endgame Study | f4f5 | f4f5 | **YES** | 0.11s | 30 |
+| LCTII.END.01 | Endgame | Pawn Endgame Study | f5f6 | f5f6 | **YES** | 1.19s | 30 |
+| LCTII.END.02 | Endgame | Rook Endgame Study | f4f5 | f4f5 | **YES** | 0.10s | 30 |
 | LCTII.END.03 | Endgame | Bishop Endgame Study | c6e4 | c6b7 | **NO** | - | 0 |
 | LCTII.END.04 | Endgame | Rook and Pawn Study | h4h3 | c4b4 | **NO** | - | 0 |
 | LCTII.END.05 | Endgame | Endgame Combination Study | a5a6 | e1d1 | **NO** | - | 0 |

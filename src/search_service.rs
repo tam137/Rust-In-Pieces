@@ -90,6 +90,8 @@ impl SearchService {
             search_result.calculated_depth = depth;
             search_result.is_white_move = white;
             search_result.is_pv_search_result = true;
+            search_result.best_score = if white { i16::MIN } else { i16::MAX };
+            search_result.second_best_score = if white { i16::MIN } else { i16::MAX };
 
             let mut current_alpha = alpha;
             let mut current_beta = beta;
@@ -178,6 +180,22 @@ impl SearchService {
                 }
 
                 let min_max_eval = min_max_result.1;
+
+                if white {
+                    if min_max_eval > search_result.best_score {
+                        search_result.second_best_score = search_result.best_score;
+                        search_result.best_score = min_max_eval;
+                    } else if min_max_eval > search_result.second_best_score {
+                        search_result.second_best_score = min_max_eval;
+                    }
+                } else {
+                    if min_max_eval < search_result.best_score {
+                        search_result.second_best_score = search_result.best_score;
+                        search_result.best_score = min_max_eval;
+                    } else if min_max_eval < search_result.second_best_score {
+                        search_result.second_best_score = min_max_eval;
+                    }
+                }
 
                 // save min max eval in zobrist table for better move sorting, if depth = 2
                 if depth == 2 && config.use_zobrist {
