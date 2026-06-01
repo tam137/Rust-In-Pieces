@@ -220,6 +220,20 @@ if [ $? -eq 0 ]; then
         echo -e "${GREEN}Success: Remote compilation and deployment completed successfully!${NC}"
     fi
 
+    # Git commit and tagging
+    echo -e "\n${YELLOW}Creating git commit and tag for version v$NEW_VERSION...${NC}"
+    git add Cargo.toml CHANGELOG.md
+    if [ -f Cargo.lock ]; then
+        git add Cargo.lock
+    fi
+    git commit -m "Release v$NEW_VERSION"
+    if [ $? -eq 0 ]; then
+        git tag -a "v$NEW_VERSION" -m "Release version v$NEW_VERSION"
+        echo -e "${GREEN}Success: Created git commit and tag v$NEW_VERSION!${NC}"
+    else
+        echo -e "${RED}Warning: Git commit failed. Skipping tagging.${NC}"
+    fi
+
     echo -e "\n${CYAN}================================================================${NC}"
     echo -e "${GREEN}${BOLD}RELEASE PROCESS COMPLETED SUCCESSFULLY!${NC}"
     echo -e "Engine ${BOLD}suprah-$NEW_VERSION${NC} is now ready for matchups."

@@ -1,6 +1,6 @@
 # SupraH (Rust Chess Engine)
 
-SupraH is a highly optimized, high-performance chess engine written in **Rust** (Edition 2024). It features a micro-optimized search tree, highly selective pruning, state-of-the-art hand-crafted evaluation (HCE), and full multi-platform capability (Ubuntu, Windows, and native ARM64 compilation).
+SupraH is a highly optimized, high-performance chess engine written in **Rust** (Edition 2024). It features a micro-optimized search tree, highly selective pruning, state-of-the-art hand-crafted evaluation (HCE), and full multi-platform capability (Ubuntu and Windows).
 
 SupraH is engineered for maximum computational speed, zero-allocation safety during search paths, and robust tactical accuracy, stabilizing at its peak playing strength of **2260 ELO** on the Louguet Chess Test II (LCT II) benchmark.
 
@@ -60,35 +60,6 @@ SupraH fully adheres to the standard Universal Chess Interface (UCI) protocol, e
 | **`debug`** | `[on \| off]` | Toggles verbose engine logging. Writes log files to `rust-in-piece-<version>.log`. | `debug on` |
 | **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name Move Overhead value 100` |
 | **`test`** | None | Triggers internal diagnostic checks, speed performance tests, and timing benchmarks. | `test` |
-
-### Engine Tuning Options (SPSA)
-SupraH exposes over 50 internal parameters dynamically via UCI `setoption` commands to allow automated SPSA (Simultaneous Perturbation Stochastic Approximation) tuning. 
-Use the syntax: `setoption name <param_name> value <param_value>` (case-insensitive for the name).
-
-**Search & Pruning (i32/u32):**
-- **NMP:** `nmp_depth_threshold`, `nmp_reduction`, `nmp_verification_threshold`, `nmp_dynamic_divisor`
-- **LMR:** `lmr_depth_threshold`, `lmr_move_threshold`
-- **Move Ordering:** `killer_move_1_rank_bonus`, `killer_move_2_rank_bonus`, `counter_move_rank_bonus`, `history_max_threshold`
-- **Misc:** `is_hashed_rank_bonus`, `give_check_rank_bonus`, `is_pv_node_rank_bonus`, `give_promotion_rank_bonus_queen`, `give_promotion_rank_bonus_knight`
-
-**Positional Evaluation (i16):**
-- **Pawns:** `pawn_structure`, `pawn_supports_knight_outpost`, `pawn_centered`, `pawn_undeveloped_malus`, `pawn_on_last_rank_bonus`, `pawn_on_before_last_rank_bonus`, `pawn_on_before_before_last_rank_bonus`, `pawn_defends_bishop`, `pawn_double_malus`, `pawn_isolated_malus`, `pawn_backward_malus`, `protected_passed_pawn_middlegame`, `protected_passed_pawn_endgame`
-- **Knights:** `undeveloped_knight_malus`, `knight_on_rim_malus`, `knight_centered`, `knight_blockes_pawn`, `knight_mobility_factor`
-- **Bishops:** `undeveloped_bishop_malus`, `bishop_pair_bonus`, `bishop_trapped_at_rim_malus`, `bishop_mobility_factor`
-- **Rooks:** `rook_open_file`, `rook_half_open_file`, `rook_doubled_bonus`, `rook_behind_passed_pawn_middlegame`, `rook_behind_passed_pawn_endgame`, `rook_on_seventh`, `rook_mobility_factor`
-- **King Safety:** `undeveloped_king_malus`, `king_ring_attack_knight`, `king_ring_attack_bishop`, `king_ring_attack_rook`, `king_ring_attack_queen`, `king_opposition_bonus`, `king_pawn_shield`, `king_piece_shield`, `king_trapp_at_baseline_malus`, `king_in_check_malus`, `king_in_double_check_malus`
-- **Tempo & Attacks:** `your_turn_bonus`, `pawn_attacks_opponent_fig`, `pawn_attacks_opponent_fig_with_tempo`, `queen_in_attack`, `queen_in_attack_with_tempo`, `knight_attacks_bishop`, `knight_attacks_rook`, `knight_attacks_bishop_tempo`, `knight_attacks_rook_tempo`, `positional_cap_damping`
-- **Misc:** `delta_pruning_margin`
-
-### Automated SPSA Tuning
-SupraH provides a Python-based SPSA (Simultaneous Perturbation Stochastic Approximation) tuner to automatically optimize these parameters by playing iterative batches of test matches. 
-
-To start a tuning run locally:
-```bash
-python3 tuning/spsa_tuner.py --engine ./target/release/suprah --mm /path/to/match_runner --games 250
-```
-This orchestrates 250 games per iteration using the specified match runner (e.g., Matt-Magie or FastChess), calculates the win rate, and estimates gradient adjustments across all active parameters. State and iteration logs are saved automatically to `tuning/spsa_state.json` and `tuning/spsa_history.csv` to allow graceful interruptions and resumability.
-
 ---
 
 ## 🛠️ Build & Compilation Instructions
@@ -101,7 +72,7 @@ cargo build --release
 The resulting binary will be located in `target/release/suprah`.
 
 ### 2. Automated Release Pipeline
-To bump versions, run all unit tests, update `CHANGELOG.md`, compile production binaries, and deploy locally and remotely to the ARM matchup server, run:
+To bump versions, run all unit tests, update `CHANGELOG.md`, and compile production binaries, run:
 ```bash
 ./build_and_release.sh "Release changelog entry"
 ```
@@ -109,20 +80,4 @@ To bump versions, run all unit tests, update `CHANGELOG.md`, compile production 
 ### 3. Cross-Compiling for Windows (from Linux)
 ```bash
 cargo build --target x86_64-pc-windows-gnu --release
-```
-
-### 4. Cross-Compiling for ARM64 (from Linux)
-1. Add target and toolchain linker:
-```bash
-rustup target add aarch64-unknown-linux-gnu
-sudo apt install gcc-aarch64-linux-gnu
-```
-2. Configure `.cargo/config.toml`:
-```toml
-[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
-```
-3. Compile with standard target argument:
-```bash
-cargo build --target=aarch64-unknown-linux-gnu --release
 ```
