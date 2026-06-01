@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.12.1] - 2026-06-01
+
+### Added
+- **Premium SPSA Evaluation Parameter Tuning (Iteration 56)**:
+  - Integrated 45 highly optimized evaluation parameters successfully tuned on the remote EODServer over 56,000 matches.
+  - **Strategic Rook Play Enhancements**:
+    - Significantly increased value for active rooks on the 7th rank (`rook_on_seventh` from 25 to 32, +7 ELO contribution).
+    - Highly elevated endgame rook placement behind passed pawns (`rook_behind_passed_pawn_endgame` from 30 to 36, +6).
+    - Raised bonus for doubled rooks (`rook_doubled_bonus` from 20 to 25, +5).
+    - Decreased value of passive rooks on open files (`rook_open_file` from 35 to 26), pushing the engine towards active rook penetration rather than static placement.
+  - **Leichtfiguren Re-balancing**:
+    - Elevated the highly active Bishop Pair bonus (`bishop_pair_bonus` from 40 to 46, +6).
+    - Drastically reduced undeveloped Knight malus (`undeveloped_knight_malus` from 42 to 31, -11) preventing over-eager piece development.
+    - Raised malus for undeveloped Bishops (`undeveloped_bishop_malus` from 30 to 34) and rim-trapped Bishops (`bishop_trapped_at_rim_malus` from 50 to 57), prioritizing active Bishop development and mobility.
+  - **King Safety Refinement**:
+    - Reduced check and double-check penalties (`king_in_check_malus` from 140 to 136, and `king_in_double_check_malus` from 350 to 343) allowing the engine to pragmatically accept checks when defensive structures are solid.
+    - Adjusted baseline king trapping penalty (`king_trapp_at_baseline_malus` from 75 to 72) for minor tactical de-escalation.
+  - **Pawn Endgame Optimization**:
+    - Significantly elevated passed pawns supported on the 5th rank (`pawn_on_before_before_last_rank_bonus` from 40 to 47, +7) and protected passed pawns in endgames (`protected_passed_pawn_endgame` from 24 to 26), ensuring stable, robust endgame structures.
+- **Official Opening Book Tuning Integration**:
+  - The master-level solid opening book improvements designed in `[V0.11.9]` (which were left unstaged in the git workspace) are now **officially staged, compiled, and committed**!
+  - Pruned risky and passive opening defenses for Black (Spanish Steinitz `d7d6`, Spanish Classical `f8c5`, and Open Sicilian Dragon `g7g6`), channeling the engine into robust, high-draw-rate mainlines (Berlin/Morphy Spanish, Sicilian Najdorf/Scheveningen).
+  - Integrated new master-level systems for Black and White (Ragozin & Orthodox Queen's Gambit Declined, Capablanca/Karpov systems in Caro-Kann, French Exchange mainlines).
+
+### Performance & ELO Validation
+- **Search Tree Efficiency**: Depth 10 resolved in **539 ms** with **904,120 nodes** at **1,674,000 NPS (1.67 MNPS)**.
+- **LCT II ELO Scoreboard**:
+  - Estimated tactical rating stable at **2075 ELO** on the Louguet Chess Test II.
+  - Achieved a major tactical breakthrough: successfully solved **`LCTII.TAC.05`** (Fischer's famous queen sacrifice against Myagmarsuren) in `9.05s` (unsolvable by previous versions under 10s).
+
+### Fixed
+
+
+
 ## [V0.12.0] - 2026-06-01
 
 ### Added
@@ -30,7 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
-## [V0.11.9] - 2026-06-01
+## [V0.11.9] - 2026-06-01 *(Note: The book.rs changes were accidentally left unstaged in git during this version and were officially committed/released in V0.12.1)*
 
 ### Added
 - **Solid Opening Book Tuning:**

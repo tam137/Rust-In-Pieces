@@ -117,11 +117,17 @@ impl Book {
         let e2e4_c7c6_d2d4_d7d5_b1c3 = "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3";
         let d2d4_d7d5_c2c4_e7e6_b1c3_g8f6 = "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4";
 
-        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5, vec!["a7a6", "g8f6", "d7d6", "f8c5"]);
-        book_map.insert(e2e4_c7c5_g1f3_d7d6_d2d4_c5d4_f3d4_g8f6_b1c3, vec!["a7a6", "g7g6", "e7e6"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5, vec!["a7a6", "g8f6"]);
+        book_map.insert(e2e4_c7c5_g1f3_d7d6_d2d4_c5d4_f3d4_g8f6_b1c3, vec!["a7a6", "e7e6"]);
         book_map.insert(e2e4_e7e6_d2d4_d7d5_b1c3, vec!["g8f6", "f8b4", "d5e4"]);
         book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3, vec!["d5e4"]);
         book_map.insert(d2d4_d7d5_c2c4_e7e6_b1c3_g8f6, vec!["c1g5", "g1f3", "c4d5"]);
+
+        // Solid additions for Black and White
+        book_map.insert("rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R b KQkq - 0 4", vec!["f8e7", "f8b4"]);
+        book_map.insert("rnbqkbnr/pp2pppp/2p5/8/3PN3/8/PPP2PPP/R1BQKBNR b KQkq - 0 4", vec!["c8f5", "b8d7", "g8f6"]);
+        book_map.insert("rnbqk2r/ppp1bppp/4pn2/3p2B1/2PP4/2N5/PP2PPPP/R2QKBNR w KQkq - 1 5", vec!["e2e3", "g1f3"]);
+        book_map.insert("rnbqkbnr/ppp2ppp/8/3p4/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 0 4", vec!["g1f3", "f1d3"]);
 
         // --- NEW VARIATIONS START ---
 
@@ -137,7 +143,7 @@ impl Book {
         let e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4_g8f6_e1g1 = "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 0 5";
         let e2e4_e7e5_g1f3_b8c6_f1b5_g8f6 = "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4";
 
-        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4, vec!["g8f6", "g8f6", "d7d6"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4, vec!["g8f6"]);
         book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_a7a6_b5a4_g8f6_e1g1, vec!["f8e7", "f6e4"]);
         book_map.insert(e2e4_e7e5_g1f3_b8c6_f1b5_g8f6, vec!["e1g1", "d2d3"]);
 
