@@ -40,3 +40,11 @@ This document outlines the systematic approach for debugging a chess engine when
 ## 8. Prevent Regression
 * **Mandatory Regression Tests:** Every resolved faulty move/position MUST be added as a regression test case inside `tests.rs`.
 * The test should load the FEN, perform a search to a sufficient depth, and assert that the engine successfully finds the correct, objectively best move. This guarantees that the issue is permanently solved and cannot reoccur in future updates.
+
+## 9. Analysis-First Constraint (Code-Stopp)
+* **Write the Test First:** During the initial reproduction and debugging phase, writing productive code changes (except for the regression test itself and any helpers required to execute it) is strictly forbidden.
+* **Written Bug Analysis:** You must first output a comprehensive written analysis describing the root cause, what the engine calculated (PV path), why it made the incorrect choice, and outline 2-3 potential general solutions before touching the engine's search or evaluation files.
+
+## 10. Generality & Verification (Anti-Overfitting)
+* **No Position-Specific Hacks:** Do not implement quick hacks, hardcoded position rules, or extreme parameter adjustments specifically tailored to the single failing FEN. Every fix must be generalized, mathematically sound, and beneficial for overall chess play.
+* **Global Verification (LCT2 & Perft):** A bugfix is only valid if the new regression test is green AND the change does not degrade the engine's general playing strength or search speed. After every fix, you must run the performance/perft tests (`cargo test -- --ignored perft`) and the LCT2 evaluator (`python3 scripts/lct2_evaluator.py`). If general ELO or NPS drops, the fix is overfitted and must be redesigned.
