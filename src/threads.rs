@@ -69,6 +69,9 @@ pub fn uci_command_processor(
                     stdout.write("option name ThreatMinorAttacksRook type spin default 15 min 0 max 200");
                     stdout.write("option name ThreatMinorAttacksQueen type spin default 30 min 0 max 200");
                     stdout.write("option name ThreatRookAttacksQueen type spin default 20 min 0 max 200");
+                    stdout.write("option name EnableEasyMove type check default true");
+                    stdout.write("option name EasyMoveDepthThreshold type spin default 6 min 1 max 100");
+                    stdout.write("option name EasyMoveStableDepths type spin default 3 min 1 max 100");
                     stdout.write("uciok");
                 }
 
@@ -158,6 +161,9 @@ pub fn uci_command_processor(
                         || token_lower.contains("name threatminorattacksrook")
                         || token_lower.contains("name threatminorattacksqueen")
                         || token_lower.contains("name threatrookattacksqueen")
+                        || token_lower.contains("easy_move")
+                        || token_lower.contains("easymove")
+                        || token_lower.contains("easy move")
                     {
                         tx_game_command.send(uci_token.clone()).ok();
                     } else if token_lower.contains("name threads") && token_lower.contains("value") {
