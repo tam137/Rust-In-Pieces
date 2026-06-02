@@ -6,7 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.2] - 2026-06-02
+
+### Added
+- Revert evaluation parameters to stable v0.12.4 baseline to fix SPSA overfitting regression
+
+### Fixed
+
+
+
 ## [V0.13.1] - 2026-06-02
+
+> [!WARNING]
+> **BUGGY VERSION (CRITICAL EVAL OVERFITTING)**: This version suffered from severe evaluation parameter regression. While the search bug was corrected, the evaluation parameters remained in a heavily distorted, overfitted state from the broken SPSA tuning of v0.13.0 (e.g., setting `protected_passed_pawn_endgame` to `0` and `rook_on_seventh` to `12`). This caused the engine to perform at a highly degraded level (~1370 Elo). **This version is deprecated. Please use V0.13.2 instead.**
 
 ### Added
 - **SPSA Artifact De-escalation & Tuning Reset**:
