@@ -812,6 +812,7 @@ impl SearchService {
             // 1. Late Move Reductions (LMR)
             if config.enable_lmr 
                 && depth >= config.lmr_depth_threshold 
+                && depth >= 3
                 && turn_counter > config.lmr_move_threshold 
                 && current_turn.capture == 0 
                 && current_turn.promotion == 0 

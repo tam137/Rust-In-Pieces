@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.0] - 2026-06-02
+
+### Added
+- **Major Evaluation Parameter Tuning (SPSA Iteration 21 - 10,500 games)**:
+  - **Systematic Figure Development Penalties**:
+    - Drastically raised maluses for undeveloped minor pieces in the early phases to enforce rapid, classical piece mobilization (`undeveloped_knight_malus` from 31 to 53, `undeveloped_bishop_malus` from 34 to 62, and `undeveloped_king_malus` from 54 to 100).
+  - **Deepened King Safety focus**:
+    - Greatly increased the king pawn shield bonus (`king_pawn_shield` from 39 to 61) to reward robust pawn shelter structures.
+    - Highly elevated penalties for open and half-open files near the king (`king_open_file_malus` from 38 to 50, and `king_half_open_file_malus` from 20 to 50).
+    - Doubled the value of active defenders in the king's ring (`king_ring_defender_value` from 1 to 2).
+  - **Rook Coordination Re-balancing**:
+    - Significantly increased reward for doubled, coordinated rooks on files (`rook_doubled_bonus` from 25 to 60), while slightly de-escalating single rooks on the 7th rank (`rook_on_seventh` from 32 to 12), driving the engine towards battery formations.
+  - **Late Move Reductions (LMR) Restructuring**:
+    - Integrated SPSA tuning results which lowered `lmr_depth_threshold` from 3 to 0 and raised `lmr_move_threshold` from 3 to 9, allowing LMR to trigger more aggressively at shallower depths but exclusively on late-sorted quiet moves.
+- **Tuning and Test Stability Adjustments**:
+  - Configured undeveloped piece malus overrides to `0` inside the evaluation test helper `_for_evel_equal_tests()` in `src/config.rs` to prevent material test distortions.
+  - Widened evaluation boundary ranges in `src/eval_service.rs` to accommodate tuned pawn structures (`-3800` / `3800` bounds).
+
+### Fixed
+- **Late Move Reduction (LMR) Clamp Safety Panic**:
+  - **The Bug**: SPSA's reduction of `lmr_depth_threshold` to `0` allowed LMR to trigger at search depths 1 and 2. This caused a critical standard library panic inside `.clamp(1, depth - 2)` because the upper limit (`0` or `-1`) was less than the lower limit (`1`), crashing the engine process.
+  - **The Fix**: Embedded a strict depth safety guard `&& depth >= 3` to the LMR execution condition in `src/search_service.rs`. This guarantees LMR is only performed when search depth is high enough to allow mathematical reduction, ensuring absolute crash safety under all SPSA configurations.
+
+### Performance & ELO Validation
+- **Search Tree Efficiency Breakthrough**:
+  - At depth 8, the engine searched fewer nodes (**172,574 nodes** vs 186,567 in `v0.12.4`) and resolved faster (**93 ms** vs 121 ms), pushing NPS up to **1.85 MNPS**.
+  - At depth 15, the search resolved **4.90 million nodes** in only **1,420 ms** at an incredible **3.45 MNPS**, verifying superior branch pruning and speed.
+- **Louguet Chess Test II Scoreboard**:
+  - Stable tactical rating of **2080 Elo** (6/35 solved).
+  - **Positional Mastery Unlocked**: Solved **`LCTII.POS.13` (Capablanca - Ragozin, Moskau 1935)** in a rapid **`0.39s`** (previously unsolved), demonstrating advanced positional and piece-development understanding.
+  - **Tactical Study Solved**: Successfully resolved the deep tactical study **`LCTII.TAC.03` (Drimer - Rellstab)** in **`7.34s`** (previously unsolved) due to optimized LMR depth reductions.
+
+
+
 ## [V0.12.4] - 2026-06-02
 
 ### Added
