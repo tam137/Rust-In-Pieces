@@ -82,6 +82,11 @@ class SPSATuner:
         
         def run_single_game(i):
             tmp_pgn = f"tmp_{self.k}_{i}.pgn"
+            # Alternate colors: even game index plays opts_plus as White (engine_0),
+            # odd game index plays opts_minus as White (engine_0).
+            is_plus_white = (i % 2 == 0)
+            e0_opts = opts_plus if is_plus_white else opts_minus
+            e1_opts = opts_minus if is_plus_white else opts_plus
             cmd = [
                 self.mm_path,
                 self.engine_path,
@@ -95,8 +100,8 @@ class SPSATuner:
                 str(self.inc_ms),
                 "log_off",
                 "debug_off",
-                opts_plus,
-                opts_minus
+                e0_opts,
+                e1_opts
             ]
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return tmp_pgn
@@ -125,12 +130,26 @@ class SPSATuner:
         # Aggregate results
         for pf in pgn_files:
             if os.path.exists(pf):
+                filename = os.path.basename(pf)
+                # Extract game index from filename e.g. "tmp_1_45.pgn"
+                parts = filename.replace(".pgn", "").split("_")
+                game_idx = int(parts[-1])
+                is_plus_white = (game_idx % 2 == 0)
+
                 with open(pf, "r") as f:
                     content = f.read()
                     if "[Result \"1-0\"]" in content:
-                        wins += 1
+                        # White won
+                        if is_plus_white:
+                            wins += 1    # Plus won
+                        else:
+                            losses += 1  # Minus won
                     elif "[Result \"0-1\"]" in content:
-                        losses += 1
+                        # Black won
+                        if is_plus_white:
+                            losses += 1  # Minus won
+                        else:
+                            wins += 1    # Plus won
                     elif "[Result \"1/2-1/2\"]" in content:
                         draws += 1
                 os.remove(pf)
