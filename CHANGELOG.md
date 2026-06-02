@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.3] - 2026-06-02
+
+### Added
+- Corrected easy-move early-exit logic by implementing a root search window margin
+
+### Fixed
+
+
+
 ## [V0.13.2] - 2026-06-02
 
 ### Added
