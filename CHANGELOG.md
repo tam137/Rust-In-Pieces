@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.1] - 2026-06-02
+
+### Added
+- **SPSA Artifact De-escalation & Tuning Reset**:
+  - Restored `undeveloped_knight_malus` to `31` (from `53`).
+  - Restored `undeveloped_bishop_malus` to `34` (from `62`).
+  - Restored `undeveloped_king_malus` to `54` (from `100`).
+  - The previous values were artificially inflated by SPSA during an LMR search bug, which led to overly passive opening structures.
+
+### Fixed
+- **LMR Regression (Node Bloat & Speed Loss)**:
+  - **The Bug**: Due to the panic fixed in v0.13.0, the SPSA tuner had drastically compensated by pushing `lmr_move_threshold` up to `9` (from `3`), forcing the engine to fully search the first 9 quiet moves at every single node. This caused the search tree to explode and created massive time management issues.
+  - **The Fix**: Completely eliminated the obsolete `lmr_depth_threshold` configuration from the engine and UCI options (the depth constraint is now mathematically hardcoded as `depth >= 3`). Reset `lmr_move_threshold` back to the performant `3`.
+  - **Performance Recovered**: Perft benchmark confirms the fix. Search tree nodes at Depth 9 dropped back down to a highly compressed **383,426 nodes** (in just **244 ms**), restoring optimal search depth and tournament speed.
+
+
+
 ## [V0.13.0] - 2026-06-02
 
 ### Added
