@@ -48,3 +48,26 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
 - **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
 
+
+## Project Directory Structure
+The Suprah repository is structured logically to separate core engine implementation, automated parameter tuning, diagnostic tooling, and standard operating procedures (SOPs):
+
+*   **`src/` (Core Chess Engine)**: Contains the main Rust chess engine source code (Rust 2024 Edition). Key modules include:
+    *   `src/search_service.rs`: Advanced iterative-deepening search loop with alpha-beta pruning, Principal Variation Search (PVS), Late Move Reductions (LMR), Aspiration Windows, Null Move Pruning (NMP), and Reverse Futility Pruning (RFP).
+    *   `src/eval_service.rs` & `src/config.rs`: Static positional evaluation, King Safety shields, development penalties, Rook coordinations, and all hardcoded SPSA-tuned Centipawn parameters.
+    *   `src/move_gen_service.rs` & `src/magic.rs`: High-performance move generator utilizing sliding-piece Magic Bitboards.
+    *   `src/book.rs`: Built-in opening book and defense selection logic.
+*   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts. Key tools include:
+    *   `scripts/run_perft_bench.py`: Fully automated benchmarking script to run depth searches on startpos (FEN with move counter = 5 to bypass the opening book) and output clean markdown tables for `perft.md`.
+    *   `scripts/lct2_evaluator.py`: Automated Louguet Chess Test II (LCT II) evaluator to verify tactical, positional, and endgame solving capabilities on the release binary.
+*   **`tuning/` (SPSA Parameter Tuning)**: Automated tuning environment. Contains:
+    *   `tuning/tuning.sh`: Executes the SPSA tuning runner against the target compiled engine.
+    *   `tuning/parameters.json`: Contains the precise floating-point SPSA parameter targets and ranges.
+*   **`skills/` (Standard Operating Procedures - SOPs)**: Standardized guidelines for specific development tasks:
+    *   `skills/engine_release_procedure.md`: Release packaging, verification, and deployment instructions.
+    *   `skills/engine_position_debugging.md`: Deep search tree and evaluation debugging steps.
+*   **Key Root Documentation**:
+    *   `CHANGELOG.md`: Detailed technical changelogs detailing version releases, fixes, and architectural upgrades.
+    *   `perft.md`: Pre-release search tree benchmark results (Nodes, Time, NPS).
+    *   `LCT.md`: Historical Louguet Chess Test II scoreboard and ELO estimations.
+
