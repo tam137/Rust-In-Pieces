@@ -121,7 +121,6 @@ pub struct Config {
     pub killer_move_2_rank_bonus: i32,
     pub counter_move_rank_bonus: i32,
     pub history_max_threshold: u32,
-    pub lmr_depth_threshold: i32,
     pub lmr_move_threshold: i32,
 
     /// Precalculated logarithmic LMR reduction lookup table indexed by [depth][move_index].
@@ -174,9 +173,9 @@ impl Config {
 
             your_turn_bonus: 18,
 
-            undeveloped_knight_malus: 53,
-            undeveloped_bishop_malus: 62,
-            undeveloped_king_malus: 100,
+            undeveloped_knight_malus: 31,
+            undeveloped_bishop_malus: 34,
+            undeveloped_king_malus: 54,
 
 
             rook_open_file: 18,
@@ -251,8 +250,7 @@ impl Config {
             killer_move_2_rank_bonus: 10000,
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
-            lmr_depth_threshold: 0,
-            lmr_move_threshold: 9,
+            lmr_move_threshold: 3,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];

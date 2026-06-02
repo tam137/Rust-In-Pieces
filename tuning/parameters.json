@@ -30,17 +30,17 @@
         "max": 120
     },
     "undeveloped_knight_malus": {
-        "value": 53,
+        "value": 31,
         "min": 0,
         "max": 142
     },
     "undeveloped_bishop_malus": {
-        "value": 62,
+        "value": 34,
         "min": 0,
         "max": 130
     },
     "undeveloped_king_malus": {
-        "value": 100,
+        "value": 54,
         "min": 0,
         "max": 155
     },
@@ -269,13 +269,8 @@
         "min": 0,
         "max": 101
     },
-    "lmr_depth_threshold": {
-        "value": 0,
-        "min": 0,
-        "max": 103
-    },
     "lmr_move_threshold": {
-        "value": 9,
+        "value": 3,
         "min": 0,
         "max": 103
     },
