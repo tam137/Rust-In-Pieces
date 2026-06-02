@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.13.0] - 2026-06-02
 
+> [!WARNING]
+> **BUGGY VERSION (CRITICAL EVAL REGRESSION)**: This version suffers from a massive search speed degradation (~100 ELO loss in bullet time controls). The SPSA tuner artificially pushed the `lmr_move_threshold` up to `9` (effectively disabling early LMR pruning) to mask a depth calculation bug. This caused the search tree nodes to explode in size. Furthermore, the engine suffers from excessively passive opening play due to heavily inflated undeveloped piece maluses. **This version is deprecated. Please use V0.13.1.**
+
 ### Added
 - **Major Evaluation Parameter Tuning (SPSA Iteration 21 - 10,500 games)**:
   - **Systematic Figure Development Penalties**:
