@@ -303,10 +303,5 @@
         "value": 19,
         "min": 0.0,
         "max": 80.0
-    },
-    "easy_move_margin": {
-        "value": 150,
-        "min": 0,
-        "max": 1000
     }
 }

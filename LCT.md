@@ -1,3 +1,12 @@
+# LCT II Test Results: Version v0.13.5
+
+* **Engine Binary**: `target/release/suprah`
+* **Positions Solved**: 6 / 35 (17.1%)
+* **Total Points**: 175 / 1050
+* **Estimated ELO**: **2075 ELO** (Patch Release - Complete Easy-Move Cleanup)
+
+---
+
 # LCT II Test Results: Version v0.13.4
 
 * **Engine Binary**: `target/release/suprah`
@@ -31,6 +40,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.13.5` (Complete Easy-Move Cleanup) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |
 | `v0.13.4` (Easy-Move reverted) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |
 | `v0.13.3` (Easy-Move detection fix) | **2050** | 150 | 5/35 | 2/14 | 1/12 | 2/9 |
 | `v0.13.0` (SPSA Iteration 21 & LMR Safety Fixes) | **2080** | 180 | 6/35 | 2/14 | 2/12 | 2/9 |
