@@ -8,12 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.13.5] - 2026-06-03
 
-### Added
-- Completely reverted Easy-Move remnants and cleaned up tests and SPSA parameters
-
 ### Fixed
-
-
+- **Complete Cleanup of Easy-Move Remnants (Tests & SPSA Parameter Synchronization)**:
+  - **The Cleanup**: While `v0.13.4` successfully removed the core Easy-Move logic from search execution, configuration references and deprecated testing assets remained. This release performs the final structural sanitation to keep the repository completely clean and prevent build issues in custom test harnesses.
+  - **Removals & Adjustments**:
+    - Removed the obsolete `test_easy_move_failing` unit test from `tests.rs`, which referenced the removed `easy_move_margin` parameter.
+    - Completely deleted `easy_move_margin` from the `tuning/parameters.json` parameter list, ensuring that future SPSA optimization runs do not attempt to tune a non-existent parameter.
+  - **Verification**:
+    - Passes all 71 active unit tests and 5 ignored tests successfully.
+    - Confirmed search tree size remains at the optimal **186,567 nodes** at depth 8 startpos (bypassing book) with **604 ms** search time at depth 10, achieving **1.49 MNPS**.
+    - Louguet Chess Test II rating remains stable at **2075 ELO** solving 6/35 positions (175 points), confirming no regressions were introduced.
 
 ## [V0.13.4] - 2026-06-03
 
