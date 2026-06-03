@@ -219,12 +219,7 @@ impl SearchService {
                 if white {
                     if min_max_eval > best_eval {
                         best_eval = min_max_eval;
-                        let alpha_margin = if config.enable_easy_move && depth >= config.easy_move_depth_threshold {
-                            config.easy_move_margin
-                        } else {
-                            0
-                        };
-                        current_alpha = current_alpha.max(min_max_eval.saturating_sub(alpha_margin));
+                        current_alpha = current_alpha.max(min_max_eval);
                         let mut best_move_row = VecDeque::new();
                         best_move_row.push_back(Some(*turn));
                         for mv in child_pv.iter().take_while(|x| x.is_some()) {
@@ -248,12 +243,7 @@ impl SearchService {
                 } else {
                     if min_max_eval < best_eval {
                         best_eval = min_max_eval;
-                        let beta_margin = if config.enable_easy_move && depth >= config.easy_move_depth_threshold {
-                            config.easy_move_margin
-                        } else {
-                            0
-                        };
-                        current_beta = current_beta.min(min_max_eval.saturating_add(beta_margin));
+                        current_beta = current_beta.min(min_max_eval);
                         let mut best_move_row = VecDeque::new();
                         best_move_row.push_back(Some(*turn));
                         for mv in child_pv.iter().take_while(|x| x.is_some()) {
@@ -1277,56 +1267,7 @@ mod tests {
         assert!(see_d1d4 > 0, "SEE of Qxd4 should be positive (reclaiming pawn)!");
     }
 
-    #[test]
-    fn test_easy_move_failing() {
-        let service = Service::new();
-        let mut board = service.fen.set_fen(
-            "r2q1knr/p1pb2p1/2pb1pp1/3p2BQ/3P4/8/PPP2PPP/RN3RK1 w - - 0 12"
-        );
-        let mut config = Config::new();
-        config.enable_easy_move = true;
 
-        let (tx_log, _rx_log) = std::sync::mpsc::channel();
-        let engine_state = Arc::new(EngineState {
-            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(100_000))),
-            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
-            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
-            log_sender: tx_log,
-        });
-
-        for depth in 2..=7 {
-            let mut stats = Stats::new();
-            let search_result = service.search.get_moves(
-                &mut board,
-                depth,
-                true, // white
-                &mut stats,
-                &config,
-                &service,
-                &engine_state,
-                std::time::Instant::now(),
-                None,
-            );
-
-            println!("Depth {}: variants.len()={}, best_move={:?}, best_score={}, second_best_score={}",
-                depth,
-                search_result.variants.len(),
-                search_result.get_best_move_algebraic(),
-                search_result.best_score,
-                search_result.second_best_score,
-            );
-
-            if depth == 7 {
-                assert_eq!(search_result.get_best_move_algebraic(), "h5h8");
-                assert_ne!(search_result.second_best_score, search_result.best_score);
-                let gap = search_result.best_score.saturating_sub(search_result.second_best_score);
-                assert!(gap < config.easy_move_margin, "Gap should be less than easy_move_margin (150) in this tactical position, got {}", gap);
-            }
-        }
-    }
 }
 
 

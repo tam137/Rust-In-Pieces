@@ -129,10 +129,6 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
-    pub enable_easy_move: bool,
-    pub easy_move_depth_threshold: i32,
-    pub easy_move_stable_depths: i32,
-    pub easy_move_margin: i16,
 }
 
 
@@ -269,10 +265,6 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
-            enable_easy_move: true,
-            easy_move_depth_threshold: 6,
-            easy_move_stable_depths: 3,
-            easy_move_margin: 150,
         }
     }
 
