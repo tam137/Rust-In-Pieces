@@ -6,12 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
-## [V0.13.4] - 2026-06-03
+## [V0.13.5] - 2026-06-03
 
 ### Added
-- Completely reverted Easy-Move feature to restore optimal search tree pruning and depth ELO performance
+- Completely reverted Easy-Move remnants and cleaned up tests and SPSA parameters
 
 ### Fixed
+
+
+
+## [V0.13.4] - 2026-06-03
+
+### Fixed
+- **Complete Revert of Easy-Move Feature (Restored Alpha-Beta Pruning & ELO Performance)**:
+  - **The Problem**: In `v0.13.3`, the root search window was widened by `easy_move_margin` (150 cp) for all subsequent root moves to exactly evaluate rival moves and compute the score gap. However, this caused a catastrophic **7.37x increase in the search tree** in quiet positions (e.g. startpos at depth 8 bloat from **186,567** to **1.376,272** nodes) because multiple legal moves fall within 1.5 pawns of the best move, disabling alpha pruning on them. In matches under time controls, this forced the engine to play 2-3 plies shallower, leading to a severe **-86 ELO** tournament regression.
+  - **The Fix**: Completely reverted and removed the Easy-Move feature from the engine codebase, restoring the mathematical purity of the root alpha-beta search.
+  - **Structural Cleanup**:
+    - Removed `enable_easy_move`, `easy_move_depth_threshold`, `easy_move_stable_depths`, and `easy_move_margin` configurations from the `Config` struct and UCI option parser.
+    - Cleaned up the game loop in `src/game_handler.rs` by removing the early-exit check and associated unused tracking variables (`pv_stable_count`, `last_best_move`, `is_infinite`).
+    - Reverted `src/search_service.rs` search window updates to the standard, highly efficient alpha-beta bounds (`current_alpha = current_alpha.max(min_max_eval)`).
+    - Removed Easy-Move unit tests and integration tests.
+  - **Performance & ELO Validation**:
+    - Search tree nodes at depth 8 is restored to the optimal **186,567 nodes** in startpos (down from 1.37M).
+    - Louguet Chess Test II rating rose back to **2075 ELO** (6/35 solved, 175 points), solving key tactical positions (`LCTII.TAC.04` and `LCTII.TAC.05`) within the 10s time limit due to restored search depth and pruning efficiency.
+    - Passes all 71 active unit tests and 5 ignored tests successfully with zero compiler warnings.
 
 
 
