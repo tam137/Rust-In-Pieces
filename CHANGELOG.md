@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.6] - 2026-06-03
+
+### Added
+- Release v0.13.6: Harvest SPSA tuned parameters
+
+### Fixed
+
+
+
 ## [V0.13.5] - 2026-06-03
 
 ### Fixed
