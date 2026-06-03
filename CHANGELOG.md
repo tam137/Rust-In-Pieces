@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.4] - 2026-06-03
+
+### Added
+- Completely reverted Easy-Move feature to restore optimal search tree pruning and depth ELO performance
+
+### Fixed
+
+
+
 ## [V0.13.3] - 2026-06-02
 
 ### Added
