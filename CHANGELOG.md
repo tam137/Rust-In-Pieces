@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.10] - 2026-06-04
+
+### Added
+- Add lmr_divisor parameter for SPSA tuning and fix compiler warnings
+
+### Fixed
+
+
+
 ## [V0.13.9] - 2026-06-04
 
 ### Added
