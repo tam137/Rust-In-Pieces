@@ -2,6 +2,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.13.7` (Revert parameters, SPSA parser/logging fix) | **2050** | 150 | 5/35 | 1/14 | 2/12 | 2/9 |
 | `v0.13.6` (Harvest SPSA parameters) | **2075** | 175 | 6/35 | 2/14 | 3/12 | 1/9 |
 | `v0.13.5` (Complete Easy-Move Cleanup) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |
 | `v0.13.4` (Easy-Move reverted) | **2075** | 175 | 6/35 | 1/14 | 3/12 | 2/9 |

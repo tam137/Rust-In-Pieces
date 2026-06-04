@@ -86,12 +86,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "moveoverhead" | "move_overhead" => {
                                         if let Ok(v) = val_str.parse::<u64>() { active_config.move_overhead = v; }
                                     },
-                                    "kingopenfilemalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_malus = v; },
-                                    "kinghalfopenfilemalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_half_open_file_malus = v; },
-                                    "kingringdefendervalue" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_defender_value = v; },
-                                    "threatminorattacksrook" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_rook = v; },
-                                    "threatminorattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
-                                    "threatrookattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
+                                     "kingopenfilemalus" | "king_open_file_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_malus = v; },
+                                     "kinghalfopenfilemalus" | "king_half_open_file_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_half_open_file_malus = v; },
+                                     "kingringdefendervalue" | "king_ring_defender_value" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_defender_value = v; },
+                                     "threatminorattacksrook" | "threat_minor_attacks_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_rook = v; },
+                                     "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
+                                     "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
+                                     "logpath" | "log_path" => { active_config.log_path = val_str.clone(); },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
@@ -144,7 +145,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     _ => {}
                                 }
                             }
-                            logger.send(format!("setoption: {} updated to {}", param_name, val_str)).ok();
+                            logger.send(format!("Received option: {} = {}\n", param_name, val_str)).ok();
+                            active_config.log_all_parameters(&logger);
                         }
                     }
                 }
@@ -166,6 +168,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command == "infinite" {
+                    active_config.log_all_parameters(&logger);
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
 
                     let mut best_result: Option<SearchResult> = None;
@@ -194,6 +197,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command.starts_with("go") {
+                    active_config.log_all_parameters(&logger);
                     logger.send("incomming go cmd".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
 
                     engine_state.stop_flag.store(false, Ordering::SeqCst);

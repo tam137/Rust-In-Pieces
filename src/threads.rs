@@ -69,6 +69,7 @@ pub fn uci_command_processor(
                     stdout.write("option name ThreatMinorAttacksRook type spin default 15 min 0 max 200");
                     stdout.write("option name ThreatMinorAttacksQueen type spin default 30 min 0 max 200");
                     stdout.write("option name ThreatRookAttacksQueen type spin default 20 min 0 max 200");
+                    stdout.write("option name LogPath type string default <empty>");
                     stdout.write("uciok");
                 }
 
@@ -146,21 +147,7 @@ pub fn uci_command_processor(
 
                 else if uci_token.trim().starts_with("setoption") {
                     let token_lower = uci_token.to_lowercase();
-                    if token_lower.contains("name aggressiveness")
-                        || token_lower.contains("name positionalcapdamping")
-                        || token_lower.contains("name positional_cap_damping")
-                        || token_lower.contains("name enablepositionalcap")
-                        || token_lower.contains("name enable_positional_cap")
-                        || token_lower.contains("name move overhead")
-                        || token_lower.contains("name kingopenfilemalus")
-                        || token_lower.contains("name kinghalfopenfilemalus")
-                        || token_lower.contains("name kingringdefendervalue")
-                        || token_lower.contains("name threatminorattacksrook")
-                        || token_lower.contains("name threatminorattacksqueen")
-                        || token_lower.contains("name threatrookattacksqueen")
-                    {
-                        tx_game_command.send(uci_token.clone()).ok();
-                    } else if token_lower.contains("name threads") && token_lower.contains("value") {
+                    if token_lower.contains("name threads") && token_lower.contains("value") {
                         let parts: Vec<&str> = uci_token.split_whitespace().collect();
                         if let Some(val_str) = parts.last() {
                             if let Ok(threads) = val_str.parse::<i32>() {
@@ -180,6 +167,38 @@ pub fn uci_command_processor(
                                     .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                             }
                         }
+                    } else {
+                        if token_lower.contains("name logpath") || token_lower.contains("name log_path") {
+                            let parts: Vec<&str> = uci_token.split_whitespace().collect();
+                            if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
+                                let val_str = parts[val_idx+1..].join(" ");
+                                let path = std::path::Path::new(&val_str);
+                                let file_path = if path.is_dir() {
+                                    path.join(format!("engine_{}.log", std::process::id()))
+                                } else {
+                                    path.to_path_buf()
+                                };
+
+                                if let Some(parent) = file_path.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
+
+                                if let Ok(file) = OpenOptions::new()
+                                    .write(true)
+                                    .append(true)
+                                    .create(true)
+                                    .open(&file_path)
+                                {
+                                    let file = Arc::new(Mutex::new(file));
+                                    let logger_function: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |msg: String| {
+                                        let mut file = file.lock().unwrap();
+                                        let _ = file.write_all(msg.as_bytes());
+                                    });
+                                    *engine_state.logger.write().unwrap() = logger_function;
+                                }
+                            }
+                        }
+                        tx_game_command.send(uci_token.clone()).ok();
                     }
                 }
 
