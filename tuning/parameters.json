@@ -303,5 +303,10 @@
         "value": 19,
         "min": 0.0,
         "max": 80.0
+    },
+    "lmr_divisor": {
+        "value": 195,
+        "min": 100,
+        "max": 300
     }
 }

@@ -933,10 +933,6 @@ impl EvalService {
 
     fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
-        let mut e_eval = 0;
-        let rank = sq / 8;
-        let file = sq % 8;
-        
 
         let attackers_mask = movegen.get_attackers_mask_for_see(board, true, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -950,16 +946,12 @@ impl EvalService {
         let attackers = if attacks_on_ring > 0 { 1 } else { 0 };
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
-        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, 0, game_phase);
         (eval, attackers, danger)
     }
 
     fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
-        let mut e_eval = 0;
-        let rank = sq / 8;
-        let file = sq % 8;
-        
 
         let attackers_mask = movegen.get_attackers_mask_for_see(board, false, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -973,7 +965,7 @@ impl EvalService {
         let attackers = if attacks_on_ring > 0 { 1 } else { 0 };
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
-        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
+        let eval = self.calculate_weighted_eval(o_eval, 0, game_phase);
         (eval, attackers, danger)
     }
  

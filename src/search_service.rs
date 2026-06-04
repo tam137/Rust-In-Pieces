@@ -297,7 +297,7 @@ impl SearchService {
     }
     
 
-    fn get_piece_value(&self, piece: u8, config: &Config) -> i16 {
+    fn get_piece_value(&self, piece: u8, _config: &Config) -> i16 {
         match piece {
             10 | 20 => crate::pst::PIECE_EVAL_PAWN,
             11 | 21 => crate::pst::PIECE_EVAL_ROOK,
@@ -1238,7 +1238,7 @@ mod tests {
         let mut stats = Stats::new();
 
         // 1. Black search from the starting FEN
-        let result = service.search.get_moves(
+        let _result = service.search.get_moves(
             &mut board,
             6,
             false, // Black to move

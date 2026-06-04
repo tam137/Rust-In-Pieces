@@ -61,6 +61,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "nmp_verification_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_verification_threshold = v; },
                                     "nmp_dynamic_divisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_dynamic_divisor = v; },
                                     "lmr_move_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_move_threshold = v; },
+                                    "lmr_divisor" | "lmr_divisor_scaled" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_divisor = v; active_config.recalculate_lmr_table(); },
                                     "killer_move_1_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_1_rank_bonus = v; },
                                     "killer_move_2_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_2_rank_bonus = v; },
                                     "counter_move_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.counter_move_rank_bonus = v; },
