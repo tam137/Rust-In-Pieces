@@ -169,54 +169,14 @@ if [ $? -eq 0 ]; then
         REMOTE_DIR="/root/mattmagie"
         REMOTE_TMP_DIR="${REMOTE_DIR}/tmp_suprah_build"
 
-        # A. Create remote temporary directory
-        echo -e "${YELLOW}Creating remote temporary directory: ${REMOTE_TMP_DIR}...${NC}"
-        ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR}"
+        # A. Package, upload, compile and deploy in a single SSH connection to avoid rate limiting / disconnections
+        echo -e "${YELLOW}Packaging, uploading, and compiling suprah on remote server natively...${NC}"
+        tar -cf - Cargo.toml src | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && cd / && rm -rf ${REMOTE_TMP_DIR}"
         if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to connect to remote server or create directories via SSH!${NC}"
+            echo -e "${RED}Error: Remote compilation and deployment failed!${NC}"
             rollback
             exit 1
         fi
-
-        # B. Upload source files
-        echo -e "${YELLOW}Uploading Cargo.toml and src directory to remote server...${NC}"
-        scp -O Cargo.toml ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to upload Cargo.toml!${NC}"
-            rollback
-            exit 1
-        fi
-
-        scp -O -r src ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to upload src directory!${NC}"
-            rollback
-            exit 1
-        fi
-
-        # C. Compile natively on ARM server
-        echo -e "${YELLOW}Compiling suprah natively on remote ARM server...${NC}"
-        ssh ${REMOTE_USER}@${EODSERVERIP} "source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release"
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Remote native compilation failed!${NC}"
-            ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
-            rollback
-            exit 1
-        fi
-
-        # D. Deploy compiled remote binary to remote engine folder
-        echo -e "${YELLOW}Deploying compiled binary to ${REMOTE_DIR}/engines/suprah-${NEW_VERSION}...${NC}"
-        ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_DIR}/engines && cp ${REMOTE_TMP_DIR}/target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION}"
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to deploy binary to remote engines directory!${NC}"
-            ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
-            rollback
-            exit 1
-        fi
-
-        # E. Clean up remote temp directory
-        echo -e "${YELLOW}Cleaning up remote temporary directory...${NC}"
-        ssh ${REMOTE_USER}@${EODSERVERIP} "rm -rf ${REMOTE_TMP_DIR}"
         echo -e "${GREEN}Success: Remote compilation and deployment completed successfully!${NC}"
     fi
 
