@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.9] - 2026-06-04
+
+### Added
+- Expanded built-in static opening book (`src/book.rs`) to include 11 new/deepened opening lines:
+  - **Scandinavian Defense**: Fleshed out lines after `2. exd5 Qxd5 3. Nc3` and `2... Nf6`.
+  - **Scotch Game**: Added support for `1. e4 e5 2. Nf3 Nc6 3. d4 exd4 4. Nxd4 Nf6/Bc5`.
+  - **King's Indian Defense**: Expanded lines through `1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O`.
+  - **Queen's Indian Defense**: Added depth to `1. d4 Nf6 2. c4 e6 3. Nf3 b6` with `4. g3` or `4. a3`.
+  - **Alekhine's Defense**: Fleshed out lines after `1. e4 Nf6 2. e5 Nd5 3. d4 d6`.
+  - **Petrov's Defense**: Expanded main line `1. e4 e5 2. Nf3 Nf6 3. Nxe5 d6 4. Nf3 Nxe4 5. d4 d5`.
+  - **Philidor Defense**: Fleshed out `1. e4 e5 2. Nf3 d6 3. d4`.
+  - **Vienna Game**: Added lines after `1. e4 e5 2. Nc3`.
+  - **Modern Defense**: Added lines after `1. e4 g6 2. d4 Bg7 3. Nc3 d6`.
+  - **Nimzowitsch Defense**: Fleshed out `1. e4 Nc6 2. d4 d5`.
+  - **Caro-Kann Classical**: Added deep line `3. Nc3 dxe4 4. Nxe4 Bf5 5. Ng3 Bg6 6. h4 h6 7. Nf3 Nd7`.
+- Added unit tests verifying that all book moves are legal in their respective FEN states.
+
+### Fixed
+- Fixed an incorrect FEN pawn structure for Petrov's Defense (`e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4`) in `src/book.rs`, restoring the white pawn on `d2` to correct board representation (`PPPP1PPP` instead of `PPP2PPP`).
+
+
+
+
+
 ## [V0.13.8] - 2026-06-04
 
 ### Added
