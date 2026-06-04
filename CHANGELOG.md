@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.13.7] - 2026-06-04
 
+> [!WARNING]
+> **BUGGY VERSION (BROKEN SPSA TUNED PARAMETERS)**: This version is deprecated and contains incorrect evaluation parameters harvested from a broken SPSA tuning run. The parser bug in `src/threads.rs` caused the engine to ignore parameter updates sent via UCI during tuning matches, leading to random noise-based parameter values and significant search tree node bloat. Please use `V0.13.8` or `V0.13.4` instead.
+
 ### Added
 - Release v0.13.7: Revert parameters and fix SPSA parser/logging
 
@@ -26,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.13.6] - 2026-06-03
 
+> [!WARNING]
+> **BUGGY VERSION (BROKEN SPSA TUNED PARAMETERS)**: This version is deprecated and contains incorrect evaluation parameters harvested from a broken SPSA tuning run. The parser bug in `src/threads.rs` caused the engine to ignore parameter updates sent via UCI during tuning matches, leading to random noise-based parameter values and significant search tree node bloat. Please use `V0.13.8` or `V0.13.4` instead.
+
 ### Added
 - Release v0.13.6: Harvest SPSA tuned parameters
 
@@ -34,6 +40,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ## [V0.13.5] - 2026-06-03
+
+> [!WARNING]
+> **BUGGY VERSION (CRITICAL UCI OPTION PARSER BUG)**: This version contains a critical parser bug in `src/threads.rs` that ignores most evaluation parameter updates sent via UCI `setoption` commands. While its default parameters are stable, tuning runs on this version will fail as the engine ignores mutated parameters. Please use `V0.13.8` or `V0.13.4` instead.
 
 ### Fixed
 - **Complete Cleanup of Easy-Move Remnants (Tests & SPSA Parameter Synchronization)**:
