@@ -9,9 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.13.10] - 2026-06-04
 
 ### Added
-- Add lmr_divisor parameter for SPSA tuning and fix compiler warnings
+- **Configurable LMR Divisor Parameter (`lmr_divisor`)**: Exposed the Late Move Reductions (LMR) divisor as a configurable parameter (`lmr_divisor` in `Config`, mapped to UCI options `"lmr_divisor"` and `"lmr_divisor_scaled"`). Since SPSA operates on integers, it is scaled by 100 (default `195` representing $1.95$) and dynamically recomputes the logarithmic lookup table `lmr_table` upon receipt of UCI setoption commands.
+- **Dynamic LMR Table Calculation**: Implemented `Config::recalculate_lmr_table` to update search depth reductions at runtime without impacting search speed (nodes per second).
 
 ### Fixed
+- **Warning-Free Compilation**: Resolved multiple compiler warnings across the codebase:
+  - Cleaned up unused variables `rank`, `file`, and `e_eval` in static queen evaluation functions (`white_queen` and `black_queen` in `src/eval_service.rs`).
+  - Marked unused parameter `config` as `_config` in `get_piece_value` and prefixed unused test variables in `src/search_service.rs`.
+  - Removed a redundant trailing double semicolon in `src/book.rs`.
+- **Opening Book Linkages**: Correctly inserted two previously unused book maps (`e2e4_e7e5_g1f3_g8f6_f3e5_d7d6` and `e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3`), linking Petrov's Defense and Caro-Kann variations to their active book moves and resolving related compiler warnings.
 
 
 

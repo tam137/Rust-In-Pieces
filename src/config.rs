@@ -122,6 +122,8 @@ pub struct Config {
     pub counter_move_rank_bonus: i32,
     pub history_max_threshold: u32,
     pub lmr_move_threshold: i32,
+    pub lmr_divisor: i32,
+
 
     /// Precalculated logarithmic LMR reduction lookup table indexed by [depth][move_index].
     pub lmr_table: [[i16; 64]; 64],
@@ -248,10 +250,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
+            lmr_divisor: 195,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 1.95;
+                let divisor = 195.0 / 100.0;
                 for depth in 1..64 {
                     for move_idx in 1..64 {
                         let d = depth as f64;
@@ -267,6 +270,18 @@ impl Config {
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
             log_path: String::new(),
+        }
+    }
+
+    pub fn recalculate_lmr_table(&mut self) {
+        let divisor = self.lmr_divisor as f64 / 100.0;
+        for depth in 1..64 {
+            for move_idx in 1..64 {
+                let d = depth as f64;
+                let m = move_idx as f64;
+                let reduction = (d.ln() * m.ln() / divisor) as i16;
+                self.lmr_table[depth][move_idx] = reduction.max(0);
+            }
         }
     }
 
@@ -416,6 +431,8 @@ impl Config {
         msg.push_str(&format!("  rook_mobility_factor: {}\n", self.rook_mobility_factor));
         msg.push_str(&format!("  rook_on_seventh: {}\n", self.rook_on_seventh));
         msg.push_str(&format!("  lmr_move_threshold: {}\n", self.lmr_move_threshold));
+        msg.push_str(&format!("  lmr_divisor: {}\n", self.lmr_divisor));
+
         msg.push_str(&format!("  king_open_file_malus: {}\n", self.king_open_file_malus));
         msg.push_str(&format!("  king_half_open_file_malus: {}\n", self.king_half_open_file_malus));
         msg.push_str(&format!("  king_ring_defender_value: {}\n", self.king_ring_defender_value));
