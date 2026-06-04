@@ -18,6 +18,9 @@ def fetch_all_data(server_ip):
     # Bundles all commands to execute in a single SSH connection
     script = """
 echo ""
+echo "=== CMD ==="
+ps aux | grep spsa_tuner.py | grep -v grep || echo "NO_CMD"
+echo ""
 echo "=== TMUX ==="
 tmux capture-pane -t spsa_tuning -p 2>/dev/null || echo "NO_TMUX"
 echo ""
@@ -104,28 +107,32 @@ def main():
         
     sections = parse_sections(raw_data)
     
-    # 1. Verify tmux
+    # 1. Verify tmux & command
+    cmd_output = sections.get("CMD", "")
     tmux_output = sections.get("TMUX", "")
+    
+    # Parse active parameters from process list or tmux
+    full_cmd = cmd_output + "\n" + tmux_output
+    match = re.search(r'--params\s+([a-zA-Z0-9_,]+)', full_cmd)
+    if match:
+        active_params = [p.strip() for p in match.group(1).split(",") if p.strip()]
+    else:
+        active_params = None
+
     if "NO_TMUX" in tmux_output or not tmux_output.strip():
         print(f"{RED}Error: Could not capture tmux pane 'spsa_tuning'. Is the tuner running?{NC}\n")
-        active_params = None
     else:
         print(f"{GREEN}Success: Tmux pane captured!{NC}")
         print("Last 10 lines of tmux output:")
-        lines = tmux_output.split("\n")
+        lines = [l for l in tmux_output.split("\n") if l.strip()]
         for line in lines[-10:]:
             print(f"  > {line}")
         print()
         
-        # Extract active parameters if --params was specified
-        # e.g., --params undeveloped_knight_malus,undeveloped_bishop_malus
-        match = re.search(r'--params\s+([a-zA-Z0-9_,]+)', tmux_output)
-        if match:
-            active_params = [p.strip() for p in match.group(1).split(",") if p.strip()]
+        if active_params:
             print(f"Detected active parameters from SPSA command line:")
             print(f"  {BOLD}{active_params}{NC}\n")
         else:
-            active_params = None
             print(f"No --params filter detected. Tuning ALL parameters by default.\n")
 
     # 2. SPSA State
