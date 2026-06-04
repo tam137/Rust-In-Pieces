@@ -9,7 +9,7 @@ import concurrent.futures
 import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath=""):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -33,6 +33,13 @@ class SPSATuner:
             self.param_defs = json.load(f)
             
         self.param_names = list(self.param_defs.keys())
+        if active_params:
+            self.active_params = [p.strip() for p in active_params if p.strip()]
+            for p in self.active_params:
+                if p not in self.param_defs:
+                    raise ValueError(f"Parameter '{p}' not found in parameters.json")
+        else:
+            self.active_params = self.param_names.copy()
         
         self.k = 1
         self.theta = {k: float(v["value"]) for k, v in self.param_defs.items()}
@@ -179,24 +186,32 @@ class SPSATuner:
         a_k = self._get_a_k()
         
         # Bernoulli +-1
-        delta = {k: random.choice([-1, 1]) for k in self.param_names}
+        delta = {k: random.choice([-1, 1]) for k in self.active_params}
         
         # Calculate integer perturbation steps based on percentage
         step_sizes = {}
-        for k in self.param_names:
+        for k in self.active_params:
             base_val = abs(self.theta[k])
             step = max(1.0, round(base_val * (self.mutate_pct / 100.0)))
             step_sizes[k] = step
 
-        theta_plus = {k: self.theta[k] + step_sizes[k] * delta[k] for k in self.param_names}
-        theta_minus = {k: self.theta[k] - step_sizes[k] * delta[k] for k in self.param_names}
+        # Perturb only active parameters
+        theta_plus = {}
+        theta_minus = {}
+        for k in self.param_names:
+            if k in self.active_params:
+                theta_plus[k] = self.theta[k] + step_sizes[k] * delta[k]
+                theta_minus[k] = self.theta[k] - step_sizes[k] * delta[k]
+            else:
+                theta_plus[k] = self.theta[k]
+                theta_minus[k] = self.theta[k]
         
         score = self.run_match_batch(theta_plus, theta_minus)
         
         # Gradient estimation
         diff = 2.0 * score - 1.0
         
-        for k in self.param_names:
+        for k in self.active_params:
             g_k = diff / (2.0 * step_sizes[k] * delta[k])
             # Scale learning rate by the parameter's magnitude to prevent throttling
             param_scale = max(1.0, abs(self.param_defs[k]["value"]))
@@ -230,7 +245,11 @@ if __name__ == "__main__":
     parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%)")
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
+    parser.add_argument("--params", default="", help="Comma-separated list of parameters to tune")
+    parser.add_argument("--iters", type=int, default=100, help="Number of SPSA iterations to run")
     args = parser.parse_args()
+    
+    active_params = [p.strip() for p in args.params.split(",") if p.strip()] if args.params else None
     
     tuner = SPSATuner(
         params_file="parameters.json",
@@ -244,9 +263,10 @@ if __name__ == "__main__":
         inc_ms=args.inc,
         mutate_pct=args.mutate,
         lr=args.lr,
-        logpath=args.logpath
+        logpath=args.logpath,
+        active_params=active_params
     )
     
-    # Run 100 iterations as a test
-    for _ in range(100):
+    # Run SPSA iterations
+    for _ in range(args.iters):
         tuner.step()

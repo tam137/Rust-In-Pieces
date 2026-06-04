@@ -405,10 +405,17 @@ impl Config {
         msg.push_str(&format!("  knight_attacks_bishop_tempo: {}\n", self.knight_attacks_bishop_tempo));
         msg.push_str(&format!("  knight_attacks_rook_tempo: {}\n", self.knight_attacks_rook_tempo));
         msg.push_str(&format!("  king_pawn_shield: {}\n", self.king_pawn_shield));
+        msg.push_str(&format!("  king_piece_shield: {}\n", self.king_piece_shield));
         msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
         msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
         msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
         msg.push_str(&format!("  pawn_isolated_malus: {}\n", self.pawn_isolated_malus));
+        msg.push_str(&format!("  pawn_backward_malus: {}\n", self.pawn_backward_malus));
+        msg.push_str(&format!("  knight_mobility_factor: {}\n", self.knight_mobility_factor));
+        msg.push_str(&format!("  bishop_mobility_factor: {}\n", self.bishop_mobility_factor));
+        msg.push_str(&format!("  rook_mobility_factor: {}\n", self.rook_mobility_factor));
+        msg.push_str(&format!("  rook_on_seventh: {}\n", self.rook_on_seventh));
+        msg.push_str(&format!("  lmr_move_threshold: {}\n", self.lmr_move_threshold));
         msg.push_str(&format!("  king_open_file_malus: {}\n", self.king_open_file_malus));
         msg.push_str(&format!("  king_half_open_file_malus: {}\n", self.king_half_open_file_malus));
         msg.push_str(&format!("  king_ring_defender_value: {}\n", self.king_ring_defender_value));
