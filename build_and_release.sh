@@ -180,14 +180,14 @@ if [ $? -eq 0 ]; then
 
         # B. Upload source files
         echo -e "${YELLOW}Uploading Cargo.toml and src directory to remote server...${NC}"
-        scp Cargo.toml ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
+        scp -O Cargo.toml ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
         if [ $? -ne 0 ]; then
             echo -e "${RED}Error: Failed to upload Cargo.toml!${NC}"
             rollback
             exit 1
         fi
 
-        scp -r src ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
+        scp -O -r src ${REMOTE_USER}@${EODSERVERIP}:${REMOTE_TMP_DIR}/
         if [ $? -ne 0 ]; then
             echo -e "${RED}Error: Failed to upload src directory!${NC}"
             rollback

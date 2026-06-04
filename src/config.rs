@@ -129,6 +129,7 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
+    pub log_path: String,
 }
 
 
@@ -163,30 +164,30 @@ impl Config {
 
             is_hashed_rank_bonus: 4,
             give_check_rank_bonus: 5,
-            is_pv_node_rank_bonus: 16,
+            is_pv_node_rank_bonus: 17,
             give_promotion_rank_bonus_queen: 18,
             give_promotion_rank_bonus_knight: 6,
 
             your_turn_bonus: 21,
 
-            undeveloped_knight_malus: 32,
-            undeveloped_bishop_malus: 33,
+            undeveloped_knight_malus: 31,
+            undeveloped_bishop_malus: 34,
             undeveloped_king_malus: 54,
 
 
-            rook_open_file: 27,
-            rook_half_open_file: 21,
+            rook_open_file: 26,
+            rook_half_open_file: 22,
             bishop_pair_bonus: 46,
-            rook_doubled_bonus: 24,
-            rook_behind_passed_pawn_middlegame: 14,
-            rook_behind_passed_pawn_endgame: 40,
+            rook_doubled_bonus: 25,
+            rook_behind_passed_pawn_middlegame: 13,
+            rook_behind_passed_pawn_endgame: 36,
             king_ring_attack_knight: 1,
             king_ring_attack_bishop: 1,
             king_ring_attack_rook: 2,
             king_ring_attack_queen: 4,
-            protected_passed_pawn_middlegame: 13,
-            protected_passed_pawn_endgame: 25,
-            king_opposition_bonus: 11,
+            protected_passed_pawn_middlegame: 12,
+            protected_passed_pawn_endgame: 26,
+            king_opposition_bonus: 12,
             king_open_file_malus: 38,
             king_half_open_file_malus: 20,
             king_ring_defender_value: 1,
@@ -195,38 +196,38 @@ impl Config {
             pawn_supports_knight_outpost: 10,
             pawn_centered: 14,
             pawn_undeveloped_malus: 15,
-            pawn_on_last_rank_bonus: 181,
-            pawn_on_before_last_rank_bonus: 103,
-            pawn_on_before_before_last_rank_bonus: 42,
-            pawn_defends_bishop: 26,
-            pawn_double_malus: 13,
+            pawn_on_last_rank_bonus: 178,
+            pawn_on_before_last_rank_bonus: 105,
+            pawn_on_before_before_last_rank_bonus: 47,
+            pawn_defends_bishop: 23,
+            pawn_double_malus: 14,
 
             knight_on_rim_malus: 17,
-            knight_centered: 23,
-            knight_blockes_pawn: 26,
-            bishop_trapped_at_rim_malus: 58,
+            knight_centered: 22,
+            knight_blockes_pawn: 27,
+            bishop_trapped_at_rim_malus: 57,
 
-            pawn_attacks_opponent_fig: 31,
-            pawn_attacks_opponent_fig_with_tempo: 17,
-            queen_in_attack: 51,
-            queen_in_attack_with_tempo: 30,
+            pawn_attacks_opponent_fig: 34,
+            pawn_attacks_opponent_fig_with_tempo: 18,
+            queen_in_attack: 53,
+            queen_in_attack_with_tempo: 29,
             knight_attacks_bishop: 5,
-            knight_attacks_rook: 14,
+            knight_attacks_rook: 17,
             knight_attacks_bishop_tempo: 9,
-            knight_attacks_rook_tempo: 14,
+            knight_attacks_rook_tempo: 13,
             threat_minor_attacks_rook: 13,
             threat_minor_attacks_queen: 25,
-            threat_rook_attacks_queen: 17,
+            threat_rook_attacks_queen: 19,
 
 
-            king_pawn_shield: 46,
+            king_pawn_shield: 39,
             king_piece_shield: 16,
-            king_trapp_at_baseline_malus: 68,
-            king_in_check_malus: 137,
-            king_in_double_check_malus: 346,
+            king_trapp_at_baseline_malus: 72,
+            king_in_check_malus: 136,
+            king_in_double_check_malus: 343,
 
             rook_on_seventh: 32,
-            pawn_isolated_malus: 10,
+            pawn_isolated_malus: 9,
             pawn_backward_malus: 12,
             knight_mobility_factor: 2,
             bishop_mobility_factor: 1,
@@ -265,6 +266,7 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
+            log_path: String::new(),
         }
     }
 
@@ -351,5 +353,68 @@ impl Config {
         config.use_pv_nodes = false;
         config.search_threads = 1;
         config
+    }
+
+    pub fn log_all_parameters(&self, logger: &std::sync::mpsc::Sender<String>) {
+        if self.log_path.is_empty() {
+            return;
+        }
+        let mut msg = String::new();
+        msg.push_str("Current Engine Parameters:\n");
+        msg.push_str(&format!("  is_hashed_rank_bonus: {}\n", self.is_hashed_rank_bonus));
+        msg.push_str(&format!("  give_check_rank_bonus: {}\n", self.give_check_rank_bonus));
+        msg.push_str(&format!("  is_pv_node_rank_bonus: {}\n", self.is_pv_node_rank_bonus));
+        msg.push_str(&format!("  give_promotion_rank_bonus_queen: {}\n", self.give_promotion_rank_bonus_queen));
+        msg.push_str(&format!("  give_promotion_rank_bonus_knight: {}\n", self.give_promotion_rank_bonus_knight));
+        msg.push_str(&format!("  your_turn_bonus: {}\n", self.your_turn_bonus));
+        msg.push_str(&format!("  undeveloped_knight_malus: {}\n", self.undeveloped_knight_malus));
+        msg.push_str(&format!("  undeveloped_bishop_malus: {}\n", self.undeveloped_bishop_malus));
+        msg.push_str(&format!("  undeveloped_king_malus: {}\n", self.undeveloped_king_malus));
+        msg.push_str(&format!("  rook_open_file: {}\n", self.rook_open_file));
+        msg.push_str(&format!("  rook_half_open_file: {}\n", self.rook_half_open_file));
+        msg.push_str(&format!("  bishop_pair_bonus: {}\n", self.bishop_pair_bonus));
+        msg.push_str(&format!("  rook_doubled_bonus: {}\n", self.rook_doubled_bonus));
+        msg.push_str(&format!("  rook_behind_passed_pawn_middlegame: {}\n", self.rook_behind_passed_pawn_middlegame));
+        msg.push_str(&format!("  rook_behind_passed_pawn_endgame: {}\n", self.rook_behind_passed_pawn_endgame));
+        msg.push_str(&format!("  king_ring_attack_knight: {}\n", self.king_ring_attack_knight));
+        msg.push_str(&format!("  king_ring_attack_bishop: {}\n", self.king_ring_attack_bishop));
+        msg.push_str(&format!("  king_ring_attack_rook: {}\n", self.king_ring_attack_rook));
+        msg.push_str(&format!("  king_ring_attack_queen: {}\n", self.king_ring_attack_queen));
+        msg.push_str(&format!("  protected_passed_pawn_middlegame: {}\n", self.protected_passed_pawn_middlegame));
+        msg.push_str(&format!("  protected_passed_pawn_endgame: {}\n", self.protected_passed_pawn_endgame));
+        msg.push_str(&format!("  king_opposition_bonus: {}\n", self.king_opposition_bonus));
+        msg.push_str(&format!("  pawn_structure: {}\n", self.pawn_structure));
+        msg.push_str(&format!("  pawn_supports_knight_outpost: {}\n", self.pawn_supports_knight_outpost));
+        msg.push_str(&format!("  pawn_centered: {}\n", self.pawn_centered));
+        msg.push_str(&format!("  pawn_undeveloped_malus: {}\n", self.pawn_undeveloped_malus));
+        msg.push_str(&format!("  pawn_on_last_rank_bonus: {}\n", self.pawn_on_last_rank_bonus));
+        msg.push_str(&format!("  pawn_on_before_last_rank_bonus: {}\n", self.pawn_on_before_last_rank_bonus));
+        msg.push_str(&format!("  pawn_on_before_before_last_rank_bonus: {}\n", self.pawn_on_before_before_last_rank_bonus));
+        msg.push_str(&format!("  pawn_defends_bishop: {}\n", self.pawn_defends_bishop));
+        msg.push_str(&format!("  pawn_double_malus: {}\n", self.pawn_double_malus));
+        msg.push_str(&format!("  knight_on_rim_malus: {}\n", self.knight_on_rim_malus));
+        msg.push_str(&format!("  knight_centered: {}\n", self.knight_centered));
+        msg.push_str(&format!("  knight_blockes_pawn: {}\n", self.knight_blockes_pawn));
+        msg.push_str(&format!("  bishop_trapped_at_rim_malus: {}\n", self.bishop_trapped_at_rim_malus));
+        msg.push_str(&format!("  pawn_attacks_opponent_fig: {}\n", self.pawn_attacks_opponent_fig));
+        msg.push_str(&format!("  pawn_attacks_opponent_fig_with_tempo: {}\n", self.pawn_attacks_opponent_fig_with_tempo));
+        msg.push_str(&format!("  queen_in_attack: {}\n", self.queen_in_attack));
+        msg.push_str(&format!("  queen_in_attack_with_tempo: {}\n", self.queen_in_attack_with_tempo));
+        msg.push_str(&format!("  knight_attacks_bishop: {}\n", self.knight_attacks_bishop));
+        msg.push_str(&format!("  knight_attacks_rook: {}\n", self.knight_attacks_rook));
+        msg.push_str(&format!("  knight_attacks_bishop_tempo: {}\n", self.knight_attacks_bishop_tempo));
+        msg.push_str(&format!("  knight_attacks_rook_tempo: {}\n", self.knight_attacks_rook_tempo));
+        msg.push_str(&format!("  king_pawn_shield: {}\n", self.king_pawn_shield));
+        msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
+        msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
+        msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
+        msg.push_str(&format!("  pawn_isolated_malus: {}\n", self.pawn_isolated_malus));
+        msg.push_str(&format!("  king_open_file_malus: {}\n", self.king_open_file_malus));
+        msg.push_str(&format!("  king_half_open_file_malus: {}\n", self.king_half_open_file_malus));
+        msg.push_str(&format!("  king_ring_defender_value: {}\n", self.king_ring_defender_value));
+        msg.push_str(&format!("  threat_minor_attacks_rook: {}\n", self.threat_minor_attacks_rook));
+        msg.push_str(&format!("  threat_minor_attacks_queen: {}\n", self.threat_minor_attacks_queen));
+        msg.push_str(&format!("  threat_rook_attacks_queen: {}\n", self.threat_rook_attacks_queen));
+        let _ = logger.send(msg);
     }
 }

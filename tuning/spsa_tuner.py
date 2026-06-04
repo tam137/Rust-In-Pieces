@@ -9,7 +9,7 @@ import concurrent.futures
 import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath=""):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -20,6 +20,7 @@ class SPSATuner:
         self.time_ms = time_ms
         self.inc_ms = inc_ms
         self.mutate_pct = mutate_pct
+        self.logpath = logpath
         
         # SPSA Constants (Standard values)
         self.a = lr     # Base learning rate (depends on gradient magnitude)
@@ -65,6 +66,19 @@ class SPSATuner:
         
         opts_plus = self.format_uci_options(t_plus_rounded)
         opts_minus = self.format_uci_options(t_minus_rounded)
+
+        if self.logpath:
+            # Fallback to local enginelogs if target directory is not writeable
+            resolved_logpath = self.logpath
+            try:
+                os.makedirs(resolved_logpath, exist_ok=True)
+            except Exception:
+                resolved_logpath = "enginelogs"
+                os.makedirs(resolved_logpath, exist_ok=True)
+            
+            logpath_opt = f"logpath={resolved_logpath}"
+            opts_plus = f"{opts_plus},{logpath_opt}" if opts_plus else logpath_opt
+            opts_minus = f"{opts_minus},{logpath_opt}" if opts_minus else logpath_opt
         
         # We need to run matt-magie `games_per_iter` times.
         # matt-magie args: engine_0 engine_1 logfile pgn_path event site round time_per_game inc_per_move log_on debug_on eng_0_opts eng_1_opts
@@ -215,6 +229,7 @@ if __name__ == "__main__":
     parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
     parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%)")
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
+    parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
     args = parser.parse_args()
     
     tuner = SPSATuner(
@@ -228,7 +243,8 @@ if __name__ == "__main__":
         time_ms=args.time * 1000,
         inc_ms=args.inc,
         mutate_pct=args.mutate,
-        lr=args.lr
+        lr=args.lr,
+        logpath=args.logpath
     )
     
     # Run 100 iterations as a test
