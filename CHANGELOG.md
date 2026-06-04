@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.7] - 2026-06-04
+
+### Added
+- Release v0.13.7: Revert parameters and fix SPSA parser/logging
+
+### Fixed
+
+
+
 ## [V0.13.6] - 2026-06-03
 
 ### Added
