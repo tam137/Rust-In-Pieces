@@ -201,7 +201,7 @@ impl Book {
         let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1c2 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PPQ1PPPP/R1B1KBNR b KQkq - 0 4";
         let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_g1f3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N2N2/PP2PPPP/R1BQKB1R b KQkq - 0 4";
         let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_d1b3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/1QN5/PP2PPPP/R1B1KBNR b KQkq - 0 4";
-        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_c1g5 = "rnbqk2r/pppp1ppp/4pn2/6B1/1bPP4/2N5/PP2PPPP/R2QKBNR b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_c1g5 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/2N5/PP2PPPP/R2QKBNR b KQkq - 0 4";
         let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3 = "rnbqk2r/pppp1ppp/4pn2/8/1bPP4/P1N5/1P2PPPP/R1BQKBNR b KQkq - 0 4";
         let d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3_b4c3_b2c3 = "rnbqk2r/pppp1ppp/4pn2/8/2PP4/P1P5/4PPPP/R1BQKBNR b KQkq - 0 5";
 
@@ -218,6 +218,143 @@ impl Book {
         book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_c1g5, vec!["h7h6", "c7c5"]);
         book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3, vec!["b4c3"]);
         book_map.insert(d2d4_g8f6_c2c4_e7e6_b1c3_f8b4_a2a3_b4c3_b2c3, vec!["c7c5", "b7b6", "e8g8"]);
+
+        // --- SCANDINAVIAN EXPANSION ---
+        let e2e4_d7d5_e4d5_d8d5 = "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3";
+        let e2e4_d7d5_e4d5_d8d5_b1c3 = "rnb1kbnr/ppp1pppp/8/3q4/8/2N5/PPPP1PPP/R1BQKBNR b KQkq - 0 3";
+        let e2e4_d7d5_e4d5_d8d5_b1c3_d5a5 = "rnb1kbnr/ppp1pppp/8/q7/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 4";
+        let e2e4_d7d5_e4d5_d8d5_b1c3_d5d8 = "rnbqkbnr/ppp1pppp/8/8/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 4";
+        let e2e4_d7d5_e4d5_d8d5_b1c3_d5d6 = "rnb1kbnr/ppp1pppp/3q4/8/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 4";
+        let e2e4_d7d5_e4d5_g8f6 = "rnbqkb1r/ppp1pppp/5n2/3P4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3";
+        let e2e4_d7d5_e4d5_g8f6_d2d4 = "rnbqkb1r/ppp1pppp/5n2/3P4/3P4/8/PPP2PPP/RNBQKBNR b KQkq d3 0 3";
+        let e2e4_d7d5_e4d5_g8f6_c2c4 = "rnbqkb1r/ppp1pppp/5n2/3P4/2P5/8/PP1P1PPP/RNBQKBNR b KQkq c3 0 3";
+
+        book_map.insert(e2e4_d7d5_e4d5_d8d5, vec!["b1c3"]);
+        book_map.insert(e2e4_d7d5_e4d5_d8d5_b1c3, vec!["d5a5", "d5d8", "d5d6"]);
+        book_map.insert(e2e4_d7d5_e4d5_d8d5_b1c3_d5a5, vec!["d2d4", "g1f3"]);
+        book_map.insert(e2e4_d7d5_e4d5_d8d5_b1c3_d5d8, vec!["d2d4", "g1f3"]);
+        book_map.insert(e2e4_d7d5_e4d5_d8d5_b1c3_d5d6, vec!["d2d4", "g1f3"]);
+        book_map.insert(e2e4_d7d5_e4d5_g8f6, vec!["d2d4", "c2c4"]);
+        book_map.insert(e2e4_d7d5_e4d5_g8f6_d2d4, vec!["f6d5"]);
+        book_map.insert(e2e4_d7d5_e4d5_g8f6_c2c4, vec!["c7c6", "e7e6"]);
+
+        // --- SCOTCH GAME ---
+        let e2e4_e7e5_g1f3_b8c6_d2d4 = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq d3 0 3";
+        let e2e4_e7e5_g1f3_b8c6_d2d4_e5d4 = "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4";
+        let e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4 = "r1bqkbnr/pppp1ppp/2n5/8/3NP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4";
+        let e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4_g8f6 = "r1bqkb1r/pppp1ppp/2n2n2/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 0 5";
+        let e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4_f8c5 = "r1bqk1nr/pppp1ppp/2n5/2b5/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 0 5";
+
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_d2d4, vec!["e5d4"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_d2d4_e5d4, vec!["f3d4", "c2c3", "f1c4"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4, vec!["g8f6", "f8c5", "c6d4"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4_g8f6, vec!["b1c3", "d4c6"]);
+        book_map.insert(e2e4_e7e5_g1f3_b8c6_d2d4_e5d4_f3d4_f8c5, vec!["c1e3", "d4c6", "d4b3"]);
+
+        // --- KINGS INDIAN ---
+        let d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6 = "rnbqk2r/ppp1ppbp/3p1np1/8/2PPP3/2N5/PP3PPP/R1BQKBNR w KQkq - 0 5";
+        let d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6_g1f3 = "rnbqk2r/ppp1ppbp/3p1np1/8/2PP4/2N2N2/PP3PPP/R1BQKB1R b KQkq - 0 5";
+        let d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6_g1f3_e8g8 = "rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP3PPP/R1BQKB1R w KQ - 0 6";
+
+        book_map.insert(d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6, vec!["g1f3", "f2f3", "f1e2", "f2f4"]);
+        book_map.insert(d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6_g1f3, vec!["e8g8"]);
+        book_map.insert(d2d4_g8f6_c2c4_g7g6_b1c3_f8g7_e2e4_d7d6_g1f3_e8g8, vec!["f1e2", "h2h3", "c1e3"]);
+
+        // --- QUEENS INDIAN ---
+        let d2d4_g8f6_c2c4_e7e6_g1f3_b7b6 = "rnbqkb1r/p1pp1ppp/1p2pn2/8/2PP4/5N2/PP2PPPP/RNBQKB1R w KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_g1f3_b7b6_g2g3 = "rnbqkb1r/p1pp1ppp/1p2pn2/8/2PP4/5NP1/PP2PP1P/RNBQKB1R b KQkq - 0 4";
+        let d2d4_g8f6_c2c4_e7e6_g1f3_b7b6_a2a3 = "rnbqkb1r/p1pp1ppp/1p2pn2/8/2PP4/P4N2/1P2PPPP/RNBQKB1R b KQkq - 0 4";
+
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_g1f3_b7b6, vec!["g2g3", "a2a3", "e2e3"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_g1f3_b7b6_g2g3, vec!["c8a6", "c8b7", "f8b4"]);
+        book_map.insert(d2d4_g8f6_c2c4_e7e6_g1f3_b7b6_a2a3, vec!["c8b7", "c8a6"]);
+
+        // --- ALEKHINE ---
+        let e2e4_g8f6_e4e5_f6d5_d2d4_d7d6 = "rnbqkb1r/ppp1pppp/3p4/3nP3/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 0 4";
+        book_map.insert(e2e4_g8f6_e4e5_f6d5_d2d4_d7d6, vec!["g1f3", "c2c4"]);
+
+        // --- PETROV ---
+        let e2e4_e7e5_g1f3_g8f6 = "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3";
+        let e2e4_e7e5_g1f3_g8f6_f3e5 = "rnbqkb1r/pppp1ppp/5n2/4N3/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3";
+        let e2e4_e7e5_g1f3_g8f6_f3e5_d7d6 = "rnbqkb1r/ppp2ppp/3p1n2/4N3/4P3/8/PPPP1PPP/RNBQKB1R w KQkq - 0 4";
+        let e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3 = "rnbqkb1r/ppp2ppp/3p1n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 4";
+        let e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4 = "rnbqkb1r/ppp2ppp/3p4/8/4n3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 5";
+        let e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4_d2d4 = "rnbqkb1r/ppp2ppp/3p4/8/3Pn3/5N2/PPP2PPP/RNBQKB1R b KQkq d3 0 5";
+        let e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4_d2d4_d6d5 = "rnbqkb1r/ppp2ppp/8/3p4/3Pn3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 6";
+
+        book_map.insert(e2e4_e7e5_g1f3_g8f6, vec!["f3e5", "b1c3", "d2d4"]);
+        book_map.insert(e2e4_e7e5_g1f3_g8f6_f3e5, vec!["d7d6"]);
+        book_map.insert(e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3, vec!["f6e4"]);
+        book_map.insert(e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4, vec!["d2d4", "b1c3"]);
+        book_map.insert(e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4_d2d4, vec!["d6d5"]);
+        book_map.insert(e2e4_e7e5_g1f3_g8f6_f3e5_d7d6_e5f3_f6e4_d2d4_d6d5, vec!["f1d3", "b1c3"]);
+
+        // --- PHILIDOR ---
+        let e2e4_e7e5_g1f3_d7d6 = "rnbqkbnr/ppp2ppp/3p4/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3";
+        let e2e4_e7e5_g1f3_d7d6_d2d4 = "rnbqkbnr/ppp2ppp/3p4/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq d3 0 3";
+        let e2e4_e7e5_g1f3_d7d6_d2d4_e5d4 = "rnbqkbnr/ppp2ppp/3p4/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4";
+        let e2e4_e7e5_g1f3_d7d6_d2d4_b8d7 = "r1bqkbnr/pppn1ppp/3p4/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4";
+        let e2e4_e7e5_g1f3_d7d6_d2d4_g8f6 = "rnbqkb1r/ppp2ppp/3p1n2/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4";
+
+        book_map.insert(e2e4_e7e5_g1f3_d7d6, vec!["d2d4"]);
+        book_map.insert(e2e4_e7e5_g1f3_d7d6_d2d4, vec!["e5d4", "b8d7", "g8f6"]);
+        book_map.insert(e2e4_e7e5_g1f3_d7d6_d2d4_e5d4, vec!["d1d4", "f3d4"]);
+        book_map.insert(e2e4_e7e5_g1f3_d7d6_d2d4_b8d7, vec!["f1c4"]);
+        book_map.insert(e2e4_e7e5_g1f3_d7d6_d2d4_g8f6, vec!["b1c3"]);
+
+        // --- VIENNA GAME ---
+        let e2e4_e7e5_b1c3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq - 0 2";
+        let e2e4_e7e5_b1c3_g8f6 = "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3";
+        let e2e4_e7e5_b1c3_b8c6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3";
+
+        book_map.insert("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2", vec!["g1f3", "g1f3", "f1c4", "d2d4", "b1c3"]);
+        book_map.insert(e2e4_e7e5_b1c3, vec!["g8f6", "b8c6"]);
+        book_map.insert(e2e4_e7e5_b1c3_g8f6, vec!["f2f4", "g1f3", "g2g3"]);
+        book_map.insert(e2e4_e7e5_b1c3_b8c6, vec!["f1c4", "g1f3", "g2g3"]);
+
+        // --- MODERN DEFENSE ---
+        let e2e4_g7g6 = "rnbqkbnr/pppppp1p/6p1/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+        let e2e4_g7g6_d2d4 = "rnbqkbnr/pppppp1p/6p1/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3 0 2";
+        let e2e4_g7g6_d2d4_f8g7 = "rnbqk1nr/ppppppbp/6p1/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3";
+        let e2e4_g7g6_d2d4_f8g7_b1c3 = "rnbqk1nr/ppppppbp/6p1/8/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3";
+        let e2e4_g7g6_d2d4_f8g7_b1c3_d7d6 = "rnbqk1nr/ppp1ppbp/3p2p1/8/3PP3/2N5/PPP2PPP/R1BQKBNR w KQkq - 0 4";
+
+        book_map.insert("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", vec!["e7e5", "e7e5", "c7c5", "c7c5", "e7e6", "c7c6", "d7d6", "d7d5", "g7g6"]);
+        book_map.insert(e2e4_g7g6, vec!["d2d4"]);
+        book_map.insert(e2e4_g7g6_d2d4, vec!["f8g7", "d7d6"]);
+        book_map.insert(e2e4_g7g6_d2d4_f8g7, vec!["b1c3", "g1f3", "c2c3"]);
+        book_map.insert(e2e4_g7g6_d2d4_f8g7_b1c3, vec!["d7d6"]);
+        book_map.insert(e2e4_g7g6_d2d4_f8g7_b1c3_d7d6, vec!["g1f3", "f2f4", "c1e3"]);
+
+        // --- NIMZOWITSCH ---
+        let e2e4_b8c6 = "r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+        let e2e4_b8c6_d2d4 = "r1bqkbnr/pppppppp/2n5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3 0 2";
+        let e2e4_b8c6_d2d4_d7d5 = "r1bqkbnr/ppp1pppp/2n5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3";
+        let e2e4_b8c6_d2d4_d7d5_e4e5 = "r1bqkbnr/ppp1pppp/2n5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3";
+        let e2e4_b8c6_d2d4_d7d5_b1c3 = "r1bqkbnr/ppp1pppp/2n5/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3";
+
+        book_map.insert("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", vec!["e7e5", "e7e5", "c7c5", "c7c5", "e7e6", "c7c6", "d7d6", "d7d5", "g7g6", "b8c6"]);
+        book_map.insert(e2e4_b8c6, vec!["d2d4", "g1f3"]);
+        book_map.insert(e2e4_b8c6_d2d4, vec!["d7d5", "e7e5"]);
+        book_map.insert(e2e4_b8c6_d2d4_d7d5, vec!["e4e5", "b1c3", "e4d5"]);
+        book_map.insert(e2e4_b8c6_d2d4_d7d5_e4e5, vec!["c8f5"]);
+        book_map.insert(e2e4_b8c6_d2d4_d7d5_b1c3, vec!["d5e4", "g8f6"]);
+
+        // --- CARO KANN CLASSICAL ---
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5 = "rn1qkbnr/pp2pppp/2p5/5b2/3PN3/8/PPP2PPP/R1BQKBNR w KQkq - 0 5";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3 = "rn1qkbnr/pp2pppp/2p5/5b2/3P4/6N1/PPP2PPP/R1BQKBNR b KQkq - 0 5";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6 = "rn1qkbnr/pp2pppp/2p3b1/8/3P4/6N1/PPP2PPP/R1BQKBNR w KQkq - 0 6";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4 = "rn1qkbnr/pp2pppp/2p3b1/8/3P3P/6N1/PPP2PPP/R1BQKBNR b KQkq - 0 6";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6 = "rn1qkbnr/pp2ppp1/2p3bp/8/3P3P/6N1/PPP2PP1/R1BQKBNR w KQkq - 0 7";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6_g1f3 = "rn1qkbnr/pp2ppp1/2p3bp/8/3P3P/5NN1/PPP2PP1/R1BQKB1R b KQkq - 0 7";
+        let e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6_g1f3_b8d7 = "r2qkbnr/pp1nppp1/2p3bp/8/3P3P/5NN1/PPP2PP1/R1BQKB1R w KQkq - 0 8";
+
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5, vec!["e4g3"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6, vec!["h2h4"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4, vec!["h7h6"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6, vec!["g1f3"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6_g1f3, vec!["b8d7"]);
+        book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6_g1f3_b8d7, vec!["c2c3", "f1d3"]);;
 
         // --- NEW VARIATIONS END ---
         Book { book_map }
