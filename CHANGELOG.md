@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.11] - 2026-06-05
+
+### Added
+- update default lmr_divisor to 196 based on SPSA iteration 20
+
+### Fixed
+
+
+
 ## [V0.13.10] - 2026-06-04
 
 ### Added
