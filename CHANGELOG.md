@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.12] - 2026-06-05
+
+### Added
+- Set default lmr_divisor to 250 for manual play
+
+### Fixed
+
+
+
 ## [V0.13.11] - 2026-06-05
 
 ### Added
