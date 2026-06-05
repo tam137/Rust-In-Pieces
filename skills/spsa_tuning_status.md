@@ -57,3 +57,16 @@ Verify the following:
    - Compare the parameter values in the log file with the `theta` values in the remote `spsa_state.json`.
    - **Active Parameters**: The active parameters (those listed in `--params` in the command line, or all parameters if no `--params` was specified) should differ from the SPSA baseline `theta` by their perturbation step.
    - **Inactive Parameters**: The inactive parameters (those *not* listed in `--params`) **MUST be exactly equal** to their starting baseline defaults in `parameters.json` / `spsa_state.json`. If they differ, SPSA is incorrectly modifying non-targeted parameters.
+
+### 3. Critical Analysis & Interpretation
+> [!IMPORTANT]
+> **Thorough and Critical Review Required!**
+> Do not just blindly read out the values. You must **critically analyze and interpret** the information.
+> - **Are the parameters meaningful ("sinnvoll")?** For example, a malus for a trapped bishop should mathematically be a penalty, not a bonus. A value that explodes to absurd numbers might indicate a bug.
+> - **Is the tuning stable?** If the values oscillate wildly or drift into nonsensical ranges, raise a flag.
+
+### 4. Parameter Adjustment Rules
+> [!WARNING]
+> **Never delete the entire tuning session (starting at iteration 1) just to adjust parameters!**
+> - If parameters need to be adjusted or hot-patched, **retain the current iteration and progress**. You should carefully edit the state files (`spsa_state.json`, `spsa_history.csv`) instead of resetting.
+> - **Full resets (Iteration 1) are strictly reserved** for releasing a completely new engine variant.
