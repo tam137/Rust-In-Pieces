@@ -40,8 +40,8 @@ The `spsa_tuner.py` script relies on `tuning/parameters.json` to know which para
 
 ### 4. Handle Existing SPSA State
 If a tuning session is currently active on the server, modifying `parameters.json` is not enough, because `spsa_tuner.py` loads its current parameter set from `tuning/spsa_state.json`.
-- **Option A (Reset):** Delete `tuning/spsa_history.csv` and `tuning/spsa_state.json` to start a completely fresh tuning run from iteration 1.
-- **Option B (Hot-Patch):** If you wish to keep the tuning progress of the old parameters, you must manually edit `tuning/spsa_state.json` to inject the new parameters into the `"theta"` dictionary with their default values. Also, you must manually add the new parameter column names to the header row of `tuning/spsa_history.csv` and pad all previous rows with their default values. *(Option A is usually preferred and significantly less error-prone).*
+- **Option A (Hot-Patch - REQUIRED for adjustments):** If you are just adding, fixing or adjusting parameters, **you must keep the tuning progress**. Manually edit `tuning/spsa_state.json` to inject the new/modified parameters into the `"theta"` dictionary. Also, manually add the new parameter column names to the header row of `tuning/spsa_history.csv` and pad all previous rows with their default values. **Do not reset to iteration 1 for mere parameter adjustments!**
+- **Option B (Full Reset - ONLY for new engine variants):** Delete `tuning/spsa_history.csv` and `tuning/spsa_state.json` to start a completely fresh tuning run from iteration 1. **This is strictly reserved for when a completely new engine variant is released.**
 
 ### 5. Compile and Deploy
 Once the code and tuning files are updated:
@@ -69,9 +69,10 @@ Once the code and tuning files are updated:
    scp tuning/parameters.json root@<SERVER_IP>:/root/mattmagie/tuning/
    ```
 4. **Restart SPSA on the Server:**
-   SSH into the server, stop the active SPSA process (Ctrl+C in tmux), and clean up the remote state/history files along with any cluttered temporary match PGN files (`tmp_*.pgn`) inside `~/mattmagie/tuning/`:
-   ```bash
-   # Clean up state and temporary pgns
-   rm -f ~/mattmagie/tuning/spsa_history.csv ~/mattmagie/tuning/spsa_state.json ~/mattmagie/tuning/tmp_*.pgn
-   ```
-   Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to start a fresh, mathematically clean SPSA tuning run.
+   SSH into the server, stop the active SPSA process (Ctrl+C in tmux).
+   - **If Hot-Patching (Adjustments):** Upload the modified `spsa_state.json` and `spsa_history.csv`. Only delete temporary match PGNs (`rm -f ~/mattmagie/tuning/tmp_*.pgn`).
+   - **If Full Reset (New Engine Variant):** Clean up the remote state/history files along with temporary match PGNs:
+     ```bash
+     rm -f ~/mattmagie/tuning/spsa_history.csv ~/mattmagie/tuning/spsa_state.json ~/mattmagie/tuning/tmp_*.pgn
+     ```
+   Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to resume or start the SPSA tuning run.
