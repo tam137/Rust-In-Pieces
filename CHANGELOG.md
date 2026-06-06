@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.13] - 2026-06-06
+
+### Added
+- harvest SPSA parameters, set lmr_divisor to 198
+
+### Fixed
+
+
+
 ## [V0.13.12] - 2026-06-05
 
 ### Added
