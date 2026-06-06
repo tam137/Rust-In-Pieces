@@ -9,9 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.13.13] - 2026-06-06
 
 ### Added
-- harvest SPSA parameters, set lmr_divisor to 198
+- **SPSA Parameter Harvest (Iteration 75)**:
+  - Harvested the final optimized parameter values from a 75-iteration SPSA run (comprising 22,500 games under 2s + 100ms time control on EODServer).
+  - Baked in the new optimized baseline value of **198** (from 196) for [lmr_divisor](file:///home/tam137/git/suprah/src/config.rs#L125) into [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json) and [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253).
+- **LCT II Tactical & Positional Strength Boost**:
+  - Achieved an estimated ELO rating of **2110 ELO** on the Louguet Chess Test II, solving **7 / 35 positions** (scoring **210 points**).
+  - Positional mastery verified: solved `LCTII.POS.02`, `LCTII.POS.10`, and `LCTII.POS.13`.
+  - Tactical/Endgame stability verified: solved `LCTII.TAC.02`, `LCTII.TAC.04`, `LCTII.END.01`, and `LCTII.END.02`.
 
 ### Fixed
+- **LMR Table Initialization Divisor Sync Bug**:
+  - Updated the default `lmr_table` calculation inside `Config::new()` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) to use the correct baseline divisor `198.0 / 100.0`. Previously, changing `lmr_divisor` in the struct field did not automatically update the hardcoded table initialization divisor at engine startup.
+  - Modified [harvest_tuning.py](file:///home/tam137/git/suprah/harvest_tuning.py) to automatically replace the hardcoded table divisor during future harvests.
 
 
 
