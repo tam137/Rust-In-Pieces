@@ -31,7 +31,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
 4. Compiles the optimized production release binary.
 5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
-6. Automatically creates a local git commit and tag (e.g. `v0.11.4`) for the release. Push to the remote remains a manual action for the user.
+6. Automatically stages all modified tracked files (via `git add -u`), commits them, and tags the commit (e.g. `v0.13.14`) for the release. Push to the remote remains a manual action for the user.
 
 ## 4. Release Versioning Classification
 - **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh "Changelog entry"`.
