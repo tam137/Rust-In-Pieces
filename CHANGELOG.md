@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.14] - 2026-06-07
+
+### Added
+- **Evaluation Clone Avoidance Optimization**:
+  - Refactored `calc_eval` in [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs) to bypass the expensive cloning of the `Config` struct when running under `Normal` aggressiveness mode (the default tournament mode).
+  - This avoids cloning the heap-allocated `log_path: String` field introduced in recent versions millions of times per second during search.
+  - Successfully recovers the ~20% NPS (Nodes Per Second) performance regression, making search speed slightly faster than `v0.13.4`.
+
+### Fixed
+- **LMR Divisor Configuration Revert**:
+  - Reverted `lmr_divisor` and its corresponding initialization table divisor back to the stronger `v0.13.12` baseline value of **196** (from 198) in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json).
+  - Matches the stronger configuration found in SPSA iteration 20, which performed significantly better in matchups than the iteration 75 value of 198.
+
+
+
 ## [V0.13.13] - 2026-06-06
 
 ### Added
