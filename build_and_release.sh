@@ -182,10 +182,8 @@ if [ $? -eq 0 ]; then
 
     # Git commit and tagging
     echo -e "\n${YELLOW}Creating git commit and tag for version v$NEW_VERSION...${NC}"
-    git add Cargo.toml CHANGELOG.md
-    if [ -f Cargo.lock ]; then
-        git add Cargo.lock
-    fi
+    # Stage all modified tracked files so the tag/release includes all codebase modifications
+    git add -u
     git commit -m "Release v$NEW_VERSION"
     if [ $? -eq 0 ]; then
         git tag -a "v$NEW_VERSION" -m "Release version v$NEW_VERSION"
