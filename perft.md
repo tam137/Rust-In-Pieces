@@ -1,3 +1,11 @@
+# v0.13.14
+
+| Depth | Time | Nodes | NPS |
+| :--- | :--- | :--- | :--- |
+| - | - | - | - |
+
+---
+
 # v0.13.12
 
 | Depth | Time | Nodes | NPS |
