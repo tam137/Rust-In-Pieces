@@ -6,10 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
-## [V0.14.2] - 2026-06-08
+## [V0.15.0] - 2026-06-08
 
 ### Added
-- Set lmr_divisor to 150
+- **Connected Passed Pawns Heuristic**:
+  - Implemented dynamic detection and bonuses for connected passed pawns. Connected passed pawns are highly resilient and powerful, especially in the endgame.
+  - Added configurable parameters `connected_passed_pawn_mg` and `connected_passed_pawn_eg` in `Config`, mapped to UCI options.
+- **True Outpost Identification**:
+  - Upgraded piece placement evaluation with "True Outposts" for Knights and Bishops on ranks 4-6 (White) / ranks 3-5 (Black).
+  - Outpost validation ensures the square is defended by a friendly pawn and cannot be attacked by any enemy pawn.
+  - Added `knight_outpost_true_mg`, `knight_outpost_true_eg`, `bishop_outpost_true_mg`, and `bishop_outpost_true_eg` to configuration.
+  - Pieces occupying or actively attacking/controlling these outpost squares are awarded positional bonuses.
+- **Asymmetric Castling Pawn and Shield Heuristics**:
+  - Replaced symmetric castling evaluation with kingside vs. queenside-specific pawn/piece shields.
+  - Added dedicated parameters `king_pawn_shield_kingside`, `king_pawn_shield_queenside`, `king_piece_shield_kingside`, and `king_piece_shield_queenside` to the config.
+  - Improves defensive evaluation depending on whether the King castles short (files f-h) or long (files a-c).
+- **Scale Down for Opposite-Colored Bishops Endgames**:
+  - Implemented automatic scale-down towards 0 for highly drawish opposite-colored bishops endgames (only Kings, Pawns, and exactly 1 Bishop per side on opposite colors).
+  - Configurable scaling via `opposite_bishops_draw_scale` (percentage scaled by 100, default 50 representing 50% scale-down).
+  - Helps the engine avoid entering dead-drawn opposite-colored bishop endgames even when up in material.
+- **Defensive Tarrasch Rule Integration**:
+  - Rewarded rooks for being placed behind *enemy* passed pawns on the same file, in addition to existing friendly passed pawn support.
+  - Configured via `rook_behind_enemy_passed_pawn_mg` and `rook_behind_enemy_passed_pawn_eg`.
+
+### Fixed
+- **King Danger Endgame Scaling Bug**:
+  - Refactored King Danger evaluation to scale directly into middlegame evaluation (`o_eval`) rather than applying to the final interpolated evaluation. This correctly ensures King Danger scaling properly transitions to 0 in pure endgames.
+  - Added comprehensive test coverage validating correct King Danger interpolation.
+
+### Performance & ELO Validation
+- **Louguet Chess Test II Strength Boost**:
+  - Achieved an estimated ELO rating of **2140 ELO** (+30 ELO over `v0.13.12`), solving **8 / 35 positions** (+1 positional/tactical/endgame net improvement).
+  - Solved `LCTII.POS.08` (Unzicker - Fischer, Varna 1962) in **1.28s** due to new true outpost and king safety logic.
+  - Solved `LCTII.TAC.03` (Drimer - Rellstab, corr. 1968) in **7.34s** and `LCTII.TAC.08` (Nei - Bronstein, Moskau 1963) in **7.92s**.
+  - Solved `LCTII.END.03` (Bishop Endgame Study) in **5.16s** (improving endgame bishop coordination).
+- **Search Tree & Perft Consistency**:
+  - Search tree node count on start FEN remains consistent, confirming zero unwanted search explosions from the positional evaluation upgrades.
+
+## [V0.14.2] - 2026-06-08
+
+- **Late Move Reductions (LMR) Divisor Tuning**:
+  - Decreased the default `lmr_divisor` value from **180** to **150** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test even more aggressive quiet late move reductions ($1.50$ scaling factor).
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `150.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for consistency.
+  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **150**.
+  - **Search Characteristics Impact**:
+    - Reduces quiet move depth much more aggressively.
+    - Yields a significantly larger node count at depth 10 (Nodes: **1,905,766** vs **1,019,063** in `v0.14.1`), caused by deep search branch extensions and specific depth/move index truncation threshold boundary crossings.
+  - Documented search tree benchmark metrics in [perft.md](file:///home/tam137/git/suprah/perft.md).
 
 ### Fixed
 

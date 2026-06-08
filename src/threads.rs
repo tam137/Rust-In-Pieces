@@ -70,6 +70,19 @@ pub fn uci_command_processor(
                     stdout.write("option name ThreatMinorAttacksQueen type spin default 30 min 0 max 200");
                     stdout.write("option name ThreatRookAttacksQueen type spin default 20 min 0 max 200");
                     stdout.write("option name LogPath type string default <empty>");
+                    stdout.write("option name ConnectedPassedPawnMg type spin default 15 min -500 max 500");
+                    stdout.write("option name ConnectedPassedPawnEg type spin default 30 min -500 max 500");
+                    stdout.write("option name KnightOutpostTrueMg type spin default 30 min -500 max 500");
+                    stdout.write("option name KnightOutpostTrueEg type spin default 15 min -500 max 500");
+                    stdout.write("option name BishopOutpostTrueMg type spin default 20 min -500 max 500");
+                    stdout.write("option name BishopOutpostTrueEg type spin default 10 min -500 max 500");
+                    stdout.write("option name KingPawnShieldKingside type spin default 39 min -500 max 500");
+                    stdout.write("option name KingPawnShieldQueenside type spin default 25 min -500 max 500");
+                    stdout.write("option name KingPieceShieldKingside type spin default 16 min -500 max 500");
+                    stdout.write("option name KingPieceShieldQueenside type spin default 10 min -500 max 500");
+                    stdout.write("option name OppositeBishopsDrawScale type spin default 50 min 0 max 100");
+                    stdout.write("option name RookBehindEnemyPassedPawnMg type spin default 10 min -500 max 500");
+                    stdout.write("option name RookBehindEnemyPassedPawnEg type spin default 25 min -500 max 500");
                     stdout.write("uciok");
                 }
 

@@ -2,6 +2,7 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.15.0` (Major Positional Rewrite) | **2140** | 240 | 8/35 | 2/14 | 4/12 | 2/9 |
 | `v0.13.14` (Revert config to v0.13.12, optimized calc_eval) | **SKIPPED** | - | - | - | - | - |
 | `v0.13.12` (Harvest SPSA parameters, lmr_divisor = 198) | **2110** | 210 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.13.7` (Revert parameters, SPSA parser/logging fix) | **2050** | 150 | 5/35 | 1/14 | 2/12 | 2/9 |
@@ -52,15 +53,15 @@
 
 ---
 
-### Scoreboard by Category (v0.13.12)
+### Scoreboard by Category (v0.15.0)
 
-* **Positional**: 3 / 14 solved (21.4%) | 90 points
-* **Tactical**: 2 / 12 solved (16.7%) | 60 points
+* **Positional**: 2 / 14 solved (14.3%) | 60 points
+* **Tactical**: 4 / 12 solved (33.3%) | 120 points
 * **Endgame**: 2 / 9 solved (22.2%) | 60 points
 
 ---
 
-## Detailed Results (v0.13.12)
+## Detailed Results (v0.15.0)
 
 | ID | Category | Description | Correct Move | Engine Move | Solved? | Time | Points |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -71,29 +72,29 @@
 | LCTII.POS.05 | Positional | Estrin - Pytel, Albena 1973 | d7b5 | b7b5 | **NO** | - | 0 |
 | LCTII.POS.06 | Positional | Nimzowitsch - Marshall 1927 | e6e5 | d8d7 | **NO** | - | 0 |
 | LCTII.POS.07 | Positional | Alehine - Nimzowitsch, Semmering 1926 | c3d1 | c3a4 | **NO** | - | 0 |
-| LCTII.POS.08 | Positional | Unzicker - Fischer, Varna 1962 | g2h3 | h4f5 | **NO** | - | 0 |
+| LCTII.POS.08 | Positional | Unzicker - Fischer, Varna 1962 | g2h3 | g2h3 | **YES** | 1.28s | 30 |
 | LCTII.POS.09 | Positional | Boissel - Del Gobbo, corr. 1994 | a7d4 | f4d5 | **NO** | - | 0 |
-| LCTII.POS.10 | Positional | A.Sokolov - Salov, Leningrad 1987 | e7f8 | e7f8 | **YES** | 2.50s | 30 |
-| LCTII.POS.11 | Positional | Capablanca - Ragozin, Moskau 1935 | h3h4 | c1a3 | **NO** | - | 0 |
-| LCTII.POS.12 | Positional | Zuckerman - Evans, USA 1967 | c6b6 | d6b4 | **NO** | - | 0 |
-| LCTII.POS.13 | Positional | Capablanca - Ragozin, Moskau 1935 | c3a2 | c3a2 | **YES** | 0.90s | 30 |
+| LCTII.POS.10 | Positional | A.Sokolov - Salov, Leningrad 1987 | e7f8 | e7d8 | **NO** | - | 0 |
+| LCTII.POS.11 | Positional | Capablanca - Ragozin, Moskau 1935 | h3h4 | b4b5 | **NO** | - | 0 |
+| LCTII.POS.12 | Positional | Zuckerman - Evans, USA 1967 | c6b6 | c6c3 | **NO** | - | 0 |
+| LCTII.POS.13 | Positional | Capablanca - Ragozin, Moskau 1935 | c3a2 | b8d8 | **NO** | - | 0 |
 | LCTII.POS.14 | Positional | Polugaevsky - Nezhmetdinov, Sochi 1958 | d4d5 | c1g5 | **NO** | - | 0 |
 | LCTII.TAC.01 | Tactical | Zubarev - Geller, USSR 1950 | c4d6 | h4h3 | **NO** | - | 0 |
-| LCTII.TAC.02 | Tactical | Keres - Eliskases, Noordwijk 1938 | h5h7 | h5h7 | **YES** | 0.21s | 30 |
-| LCTII.TAC.03 | Tactical | Drimer - Rellstab, corr. 1968 | f6f3 | e8c8 | **NO** | - | 0 |
-| LCTII.TAC.04 | Tactical | Hort - Wade, Pajulahti 1974 | e5f6 | e5f6 | **YES** | 7.62s | 30 |
+| LCTII.TAC.02 | Tactical | Keres - Eliskases, Noordwijk 1938 | h5h7 | h5h7 | **YES** | 0.22s | 30 |
+| LCTII.TAC.03 | Tactical | Drimer - Rellstab, corr. 1968 | f6f3 | f6f3 | **YES** | 7.34s | 30 |
+| LCTII.TAC.04 | Tactical | Hort - Wade, Pajulahti 1974 | e5f6 | e5f6 | **YES** | 5.47s | 30 |
 | LCTII.TAC.05 | Tactical | Fischer - Myagmarsuren, Sousse 1967 | h3h7 | b2c1 | **NO** | - | 0 |
 | LCTII.TAC.06 | Tactical | R.Byrne - Fischer, New York 1963 | e5f6 | c2e4 | **NO** | - | 0 |
 | LCTII.TAC.07 | Tactical | Wojtkiewicz - Kasparov, Simultan 1993 | c8c3 | b7e4 | **NO** | - | 0 |
-| LCTII.TAC.08 | Tactical | Nei - Bronstein, Moskau 1963 | d5f6 | d1d3 | **NO** | - | 0 |
+| LCTII.TAC.08 | Tactical | Nei - Bronstein, Moskau 1963 | d5f6 | d5f6 | **YES** | 7.92s | 30 |
 | LCTII.TAC.09 | Tactical | Stein - Birbrager, USSR 1966 | a2d2 | h5f4 | **NO** | - | 0 |
-| LCTII.TAC.10 | Tactical | Fischer - Gadia, Simultan 1965 | f4h6 | g1f1 | **NO** | - | 0 |
+| LCTII.TAC.10 | Tactical | Fischer - Gadia, Simultan 1965 | f4h6 | g1d1 | **NO** | - | 0 |
 | LCTII.TAC.11 | Tactical | Nezhmetdinov - Tal, Baku 1961 | g5h7 | c1f4 | **NO** | - | 0 |
 | LCTII.TAC.12 | Tactical | Vaganyan - Kupreichik, USSR 1980 | e4e5 | f1f3 | **NO** | - | 0 |
-| LCTII.END.01 | Endgame | Pawn Endgame Study | f5f6 | f5f6 | **YES** | 1.36s | 30 |
-| LCTII.END.02 | Endgame | Rook Endgame Study | f4f5 | f4f5 | **YES** | 0.13s | 30 |
-| LCTII.END.03 | Endgame | Bishop Endgame Study | c6e4 | c6a8 | **NO** | - | 0 |
-| LCTII.END.04 | Endgame | Rook and Pawn Study | h4h3 | c4b4 | **NO** | - | 0 |
+| LCTII.END.01 | Endgame | Pawn Endgame Study | f5f6 | g4g5 | **NO** | - | 0 |
+| LCTII.END.02 | Endgame | Rook Endgame Study | f4f5 | f4f5 | **YES** | 0.09s | 30 |
+| LCTII.END.03 | Endgame | Bishop Endgame Study | c6e4 | c6e4 | **YES** | 5.16s | 30 |
+| LCTII.END.04 | Endgame | Rook and Pawn Study | h4h3 | a4a3 | **NO** | - | 0 |
 | LCTII.END.05 | Endgame | Endgame Combination Study | a5a6 | e1d1 | **NO** | - | 0 |
 | LCTII.END.06 | Endgame | Knight and Bishop Study | f5f4 | e5g4 | **NO** | - | 0 |
 | LCTII.END.07 | Endgame | Endgame Rook Slide Study | d2b4 | a5a6 | **NO** | - | 0 |
