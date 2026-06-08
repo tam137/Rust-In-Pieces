@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.14.0] - 2026-06-08
+
+### Added
+- Revert lmr_divisor to 195
+
+### Fixed
+
+
+
 ## [V0.13.16] - 2026-06-08
 
 ### Added
