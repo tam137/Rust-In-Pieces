@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.15] - 2026-06-08
+
+### Added
+- Set default lmr_divisor to 220
+
+### Fixed
+
+
+
 ## [V0.13.14] - 2026-06-07
 
 ### Added
