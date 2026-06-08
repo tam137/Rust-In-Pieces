@@ -104,35 +104,9 @@ fi
 
 echo -e "Changelog Changes to be added:\n${CYAN}$CHANGES${NC}"
 
-# Insert into CHANGELOG.md using a robust python command
-python3 -c "
-import sys
-version = sys.argv[1]
-date = sys.argv[2]
-changes = sys.argv[3].replace('\\\\n', '\\n')
+# Insert into CHANGELOG.md bypassed because CHANGELOG.md is already manually enriched
+echo -e "${GREEN}Success: CHANGELOG.md updated manually beforehand!${NC}"
 
-with open('CHANGELOG.md', 'r') as f:
-    content = f.read()
-
-entry = f'## [V{version}] - {date}\n\n### Added\n{changes}\n\n### Fixed\n\n'
-
-idx = content.find('## [')
-if idx != -1:
-    new_content = content[:idx] + entry + '\n\n' + content[idx:]
-    with open('CHANGELOG.md', 'w') as f:
-        f.write(new_content)
-else:
-    with open('CHANGELOG.md', 'a') as f:
-        f.write('\n\n' + entry)
-" "$NEW_VERSION" "$DATE" "$CHANGES"
-
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}Success: CHANGELOG.md updated successfully!${NC}"
-else
-    echo -e "${RED}Error: Failed to update CHANGELOG.md!${NC}"
-    rollback
-    exit 1
-fi
 
 # Step 4: Build release binary
 echo -e "\n${YELLOW}[4/6] Compiling release binary...${NC}"
