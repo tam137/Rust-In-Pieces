@@ -6,10 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.13.16] - 2026-06-08
+
+### Added
+- Set default lmr_divisor to 250
+
+### Fixed
+
+
+
 ## [V0.13.15] - 2026-06-08
 
 ### Added
-- Set default lmr_divisor to 220
+- **Late Move Reductions (LMR) Divisor Tuning**:
+  - Increased the default `lmr_divisor` value from **196** to **220** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253).
+  - Updated the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `220.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) to ensure consistency at engine startup.
+  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **220**.
+  - **Search Characteristics Impact**:
+    - By increasing the divisor in the formula $\text{reduction} = \frac{\ln(\text{depth}) \times \ln(\text{move\_idx})}{\text{divisor}}$, the overall logarithmic search reductions for quiet moves are rendered **less aggressive**.
+    - This increases the search tree safety and improves tactical accuracy for late-ordered moves, lowering the risk of horizon-effect blunders at the cost of a slightly larger search tree (Nodes at depth 10 startpos: **2,367,889** vs **1,518,649** in `v0.13.12`).
+  - Documented search tree benchmark metrics for the new divisor in [perft.md](file:///home/tam137/git/suprah/perft.md).
 
 ### Fixed
 
