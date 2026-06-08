@@ -48,10 +48,8 @@ pub fn uci_command_processor(
     let uci_parser = Service::new().uci_parser;
     let benchmark_value = time_check::calculate_benchmark(&engine_state);
 
-    loop {
-        match rx_std_in.recv() {
-            Ok(uci_token) => {
-                let logger = engine_state.log_sender.clone();
+    while let Ok(uci_token) = rx_std_in.recv() {
+        let logger = engine_state.log_sender.clone();
 
                 if uci_token.trim() == "uci" {
                     stdout.write(&format!("id name Rust-In-Pieces {}", config.version));
@@ -197,7 +195,7 @@ pub fn uci_command_processor(
                                 }
 
                                 if let Ok(file) = OpenOptions::new()
-                                    .write(true)
+                                    
                                     .append(true)
                                     .create(true)
                                     .open(&file_path)
@@ -231,11 +229,6 @@ pub fn uci_command_processor(
                     }                        
                     thread::sleep(Duration::from_millis(5));
                 }
-            },
-            Err(_) => {
-                break;
-            }
-        }
         if let Err(_e) = io::stdout().flush() {
             panic!("RIP failed to flush stdout");
         };
@@ -251,31 +244,17 @@ pub fn logger_buffer_thread(engine_state: Arc<EngineState>, _config: &Config, rx
         logger_thread(state_clone, &Config::new(), rx_log_msg);
     });
 
-    loop {
-        match rx_log_buffer.recv() {
-            Ok(log_msg) => {
-                let timestamp = Local::now().format("%H:%M:%S%.3f");
-                let log_entry = format!("{} {}\n", timestamp, log_msg);
-                tx_log_msg.send(log_entry).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-            }
-            Err(_) => {
-                break;
-            }
-        }
+    while let Ok(log_msg) = rx_log_buffer.recv() {
+        let timestamp = Local::now().format("%H:%M:%S%.3f");
+        let log_entry = format!("{} {}\n", timestamp, log_msg);
+        tx_log_msg.send(log_entry).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
     }
 }
 
 
 fn logger_thread(engine_state: Arc<EngineState>, _config: &Config, rx_log_msg: Receiver<String>) {
-    loop {
-        match rx_log_msg.recv() {
-            Ok(log_msg) => {
-                let logger_function = engine_state.logger.read().unwrap().clone();
-                logger_function(log_msg);
-            }
-            Err(_) => {
-                break;
-            }
-        }
+    while let Ok(log_msg) = rx_log_msg.recv() {
+        let logger_function = engine_state.logger.read().unwrap().clone();
+        logger_function(log_msg);
     }
 }

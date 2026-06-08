@@ -10,9 +10,9 @@ static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(||
     let mut rng = StdRng::seed_from_u64(137);
     let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
 
-    for i in 0..BOARD_SIZE {
-        for piece_index in 0..NUM_PIECES {
-            table[i][piece_index] = rng.next_u64();
+    for row in table.iter_mut() {
+        for val in row.iter_mut() {
+            *val = rng.next_u64();
         }
     }
 

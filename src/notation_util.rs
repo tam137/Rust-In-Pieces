@@ -86,7 +86,7 @@ impl NotationUtil {
             }
 
             if target_turn.to / 8 == 0 {
-                target_turn.promotion = target_turn.promotion + 10; // for black promotion
+                target_turn.promotion += 10; // for black promotion
             }
         }
 
@@ -95,7 +95,7 @@ impl NotationUtil {
                 && move_turn.to == target_turn.to
                 && move_turn.promotion == target_turn.promotion
             {
-                return move_turn.clone(); // Return the found move
+                return *move_turn; // Return the found move
             }
         }
         panic!("RIP Turn not found in the move list for notation: {}", notation);
