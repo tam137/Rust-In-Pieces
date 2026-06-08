@@ -6,10 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
-## [V0.14.1] - 2026-06-08
+## [V0.14.2] - 2026-06-08
 
 ### Added
-- Set lmr_divisor to 180
+- Set lmr_divisor to 150
+
+### Fixed
+
+
+
+## [V0.14.1] - 2026-06-08
+
+- **Late Move Reductions (LMR) Divisor Tuning**:
+  - Decreased the default `lmr_divisor` value from **195** to **180** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test more aggressive quiet late move reductions.
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for consistency.
+  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **180**.
+  - **Search Characteristics Impact**:
+    - Reduces quiet move depth more aggressively (Nodes at depth 10: **1,019,063** vs **904,120** in `v0.14.0`). Note that depth 10 nodes increases slightly because of search depth truncation boundary shifts at specific depth/move idx parameters.
+  - Documented search tree benchmark metrics in [perft.md](file:///home/tam137/git/suprah/perft.md).
+- **Unit Verification Enhancements**:
+  - Refactored `test_logarithmic_lmr_table` in [search_service.rs](file:///home/tam137/git/suprah/src/search_service.rs#L1127) to dynamically compute assertions based on the active `config.lmr_divisor` rather than using hardcoded expected values. This prevents test failures when the divisor is adjusted.
 
 ### Fixed
 
