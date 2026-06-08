@@ -8,10 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.15.1] - 2026-06-08
 
-### Added
-- Reverted King Danger scaling, fixed string allocations in config, and resolved all Clippy warnings
-
 ### Fixed
+- **Reverted King Danger Scaling Regression**:
+  - In `v0.15.0`, King Danger was scaled with `game_phase` via `calculate_weighted_eval` (interpolating middlegame and endgame). Because the weights (`king_ring_attack_*`) were originally tuned for an unscaled static evaluation, mathematically halving them during the middlegame severely weakened the engine's attacking initiative and led to a -62 Elo regression.
+  - Reverted this logic in [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs): `white_king_danger_term` and `black_king_danger_term` now bypass `calculate_weighted_eval` and are added directly to the final `eval`, restoring the engine's original sharp tactical play.
+
+### Added
+- **Config Heap Allocation Optimizations**:
+  - Eliminated severe hot-path heap allocations during Config cloning when non-normal aggressiveness is active.
+  - In [config.rs](file:///home/tam137/git/suprah/src/config.rs), changed `pub version: String` to `pub version: &'static str`, initialized with a compile-time static literal `concat!("V", env!("CARGO_PKG_VERSION"))`.
+  - Changed `pub log_path: String` to `pub log_path: std::sync::Arc<str>`, initialized with `std::sync::Arc::from("")`, which is cheap to clone without heap allocation.
+  - Updated UCI option assignment for `log_path` in [game_handler.rs](file:///home/tam137/git/suprah/src/game_handler.rs) to use `Arc::from(val_str.as_str())`.
+- **Zero Warnings Clippy Cleanup**:
+  - Resolved all compiler and Clippy linter warnings in accordance with the Zero Warnings Policy.
+  - Refactored multiple range loops in [magic.rs](file:///home/tam137/git/suprah/src/magic.rs), [zobrist.rs](file:///home/tam137/git/suprah/src/zobrist.rs), [config.rs](file:///home/tam137/git/suprah/src/config.rs), [model.rs](file:///home/tam137/git/suprah/src/model.rs), and [move_gen_service.rs](file:///home/tam137/git/suprah/src/move_gen_service.rs) to use iterators/enumerate, preventing boundary check overhead and resolving lints.
+  - Rewrote loop control flows in [threads.rs](file:///home/tam137/git/suprah/src/threads.rs) and [game_handler.rs](file:///home/tam137/git/suprah/src/game_handler.rs) to use `while let` pattern matching.
+  - Simplified manual check bounds to `clamp` in [search_service.rs](file:///home/tam137/git/suprah/src/search_service.rs).
+  - Cleaned up redundant condition checks and identical blocks.
+  - Added a crate-level allow attribute for `clippy::too_many_arguments` to preserve register-based search parameter performance.
 
 
 
