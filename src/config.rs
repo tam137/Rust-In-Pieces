@@ -96,6 +96,19 @@ pub struct Config {
 
     pub king_pawn_shield: i16,
     pub king_piece_shield: i16,
+    pub king_pawn_shield_kingside: i16,
+    pub king_pawn_shield_queenside: i16,
+    pub king_piece_shield_kingside: i16,
+    pub king_piece_shield_queenside: i16,
+    pub connected_passed_pawn_mg: i16,
+    pub connected_passed_pawn_eg: i16,
+    pub knight_outpost_true_mg: i16,
+    pub knight_outpost_true_eg: i16,
+    pub bishop_outpost_true_mg: i16,
+    pub bishop_outpost_true_eg: i16,
+    pub opposite_bishops_draw_scale: i16,
+    pub rook_behind_enemy_passed_pawn_mg: i16,
+    pub rook_behind_enemy_passed_pawn_eg: i16,
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
@@ -224,6 +237,19 @@ impl Config {
 
             king_pawn_shield: 39,
             king_piece_shield: 16,
+            king_pawn_shield_kingside: 39,
+            king_pawn_shield_queenside: 25,
+            king_piece_shield_kingside: 16,
+            king_piece_shield_queenside: 10,
+            connected_passed_pawn_mg: 15,
+            connected_passed_pawn_eg: 30,
+            knight_outpost_true_mg: 30,
+            knight_outpost_true_eg: 15,
+            bishop_outpost_true_mg: 20,
+            bishop_outpost_true_eg: 10,
+            opposite_bishops_draw_scale: 50,
+            rook_behind_enemy_passed_pawn_mg: 10,
+            rook_behind_enemy_passed_pawn_eg: 25,
             king_trapp_at_baseline_malus: 72,
             king_in_check_malus: 136,
             king_in_double_check_malus: 343,
@@ -421,6 +447,19 @@ impl Config {
         msg.push_str(&format!("  knight_attacks_rook_tempo: {}\n", self.knight_attacks_rook_tempo));
         msg.push_str(&format!("  king_pawn_shield: {}\n", self.king_pawn_shield));
         msg.push_str(&format!("  king_piece_shield: {}\n", self.king_piece_shield));
+        msg.push_str(&format!("  king_pawn_shield_kingside: {}\n", self.king_pawn_shield_kingside));
+        msg.push_str(&format!("  king_pawn_shield_queenside: {}\n", self.king_pawn_shield_queenside));
+        msg.push_str(&format!("  king_piece_shield_kingside: {}\n", self.king_piece_shield_kingside));
+        msg.push_str(&format!("  king_piece_shield_queenside: {}\n", self.king_piece_shield_queenside));
+        msg.push_str(&format!("  connected_passed_pawn_mg: {}\n", self.connected_passed_pawn_mg));
+        msg.push_str(&format!("  connected_passed_pawn_eg: {}\n", self.connected_passed_pawn_eg));
+        msg.push_str(&format!("  knight_outpost_true_mg: {}\n", self.knight_outpost_true_mg));
+        msg.push_str(&format!("  knight_outpost_true_eg: {}\n", self.knight_outpost_true_eg));
+        msg.push_str(&format!("  bishop_outpost_true_mg: {}\n", self.bishop_outpost_true_mg));
+        msg.push_str(&format!("  bishop_outpost_true_eg: {}\n", self.bishop_outpost_true_eg));
+        msg.push_str(&format!("  opposite_bishops_draw_scale: {}\n", self.opposite_bishops_draw_scale));
+        msg.push_str(&format!("  rook_behind_enemy_passed_pawn_mg: {}\n", self.rook_behind_enemy_passed_pawn_mg));
+        msg.push_str(&format!("  rook_behind_enemy_passed_pawn_eg: {}\n", self.rook_behind_enemy_passed_pawn_eg));
         msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
         msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
         msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
