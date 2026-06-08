@@ -21,17 +21,15 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let logger = engine_state.log_sender.clone();
     let mut active_config = config.clone();
 
-    loop {
-        match rx_game_command.recv() {
-            Ok(command) => {
-                if command.trim() == "ucinewgame" {
-                    game = UciGame::new(service.fen.set_init_board());
-                    engine_state.stop_flag.store(false, Ordering::SeqCst);
-                    engine_state.pv_nodes.lock().unwrap().clear();
-                    engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
-                    logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                    continue;
-                }
+    while let Ok(command) = rx_game_command.recv() {
+        if command.trim() == "ucinewgame" {
+            game = UciGame::new(service.fen.set_init_board());
+            engine_state.stop_flag.store(false, Ordering::SeqCst);
+            engine_state.pv_nodes.lock().unwrap().clear();
+            engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
+            logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+            continue;
+        }
 
                 else if command.starts_with("setoption") {
                     let parts: Vec<&str> = command.split_whitespace().collect();
@@ -93,7 +91,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatminorattacksrook" | "threat_minor_attacks_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_rook = v; },
                                      "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
-                                     "logpath" | "log_path" => { active_config.log_path = val_str.clone(); },
+                                     "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
@@ -170,11 +168,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     game = UciGame::new(service.fen.set_fen(&fen));
                 }
 
-                else if command.starts_with("moves") {
+                else if let Some(moves_str) = command.strip_prefix("moves") {
                     if command.len() <= 5 {
                         continue;
                     }
-                    let moves_str = &command[5..];
                     let moves_iter = moves_str.split_whitespace();
                     for mv in moves_iter {
                         game.do_move(mv);
@@ -195,7 +192,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         let is_white = game.board.white_to_move;
                         let mut stats = Stats::default();
-                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &active_config, &service, &engine_state, std::time::Instant::now(), None);
+                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &active_config, service, &engine_state, std::time::Instant::now(), None);
 
                         if search_result.completed {
                             best_result = Some(search_result.clone());
@@ -227,7 +224,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let history_table = [[0u32; 64]; 64];
                         let current_zobrist_table_1 = engine_state.zobrist_table.read().unwrap().clone();
                         let context = crate::model::SearchContext {
-                            zobrist_table: &*current_zobrist_table_1,
+                            zobrist_table: &current_zobrist_table_1,
                             stop_flag: &engine_state.stop_flag,
                             pv_nodes: &engine_state.pv_nodes,
                             killer_moves: [None; 2],
@@ -287,7 +284,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 is_white,
                                 &mut stats,
                                 &active_config,
-                                &service,
+                                service,
                                 &engine_state,
                                 go_start_time,
                                 Some(my_thinking_time as i32),
@@ -304,7 +301,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 let mut old_board = game.board.clone();
                                 for turn in search_result.get_pv_move_row() {
                                     let hash = zobrist::gen_hash(&old_board);
-                                    pv_guard.insert(hash, turn.clone());
+                                    pv_guard.insert(hash, turn);
                                     old_board.do_move(&turn);
                                 }
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
@@ -334,7 +331,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let history_table = [[0u32; 64]; 64];
                             let current_zobrist_table_2 = engine_state.zobrist_table.read().unwrap().clone();
                             let context = crate::model::SearchContext {
-                                zobrist_table: &*current_zobrist_table_2,
+                                zobrist_table: &current_zobrist_table_2,
                                 stop_flag: &engine_state.stop_flag,
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],
@@ -362,12 +359,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         stdout.write(&format!("bestmove {}", book_move));
                     }
                 }
-            }
-
-            Err(_) => {
-                break;
-            }
-        }
     }
 }
 

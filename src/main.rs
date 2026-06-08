@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 mod fen_service;
 mod notation_util;
 mod model;

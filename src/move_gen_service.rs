@@ -17,25 +17,25 @@ static KNIGHT_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
         (-2, -1), (-2, 1), (-1, -2), (-1, 2),
         (1, -2), (1, 2), (2, -1), (2, 1)
     ];
-    for sq in 0..64 {
+    for (sq, attack_mask) in attacks.iter_mut().enumerate() {
         let file = (sq % 8) as i32;
         let rank = (sq / 8) as i32;
         let mut mask = 0u64;
         for &(df, dr) in &offsets {
             let f = file + df;
             let r = rank + dr;
-            if f >= 0 && f < 8 && r >= 0 && r < 8 {
+            if (0..8).contains(&f) && (0..8).contains(&r) {
                 mask |= 1u64 << (r * 8 + f);
             }
         }
-        attacks[sq] = mask;
+        *attack_mask = mask;
     }
     attacks
 });
 
 static KING_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
     let mut attacks = [0u64; 64];
-    for sq in 0..64 {
+    for (sq, attack_mask) in attacks.iter_mut().enumerate() {
         let file = (sq % 8) as i32;
         let rank = (sq / 8) as i32;
         let mut mask = 0u64;
@@ -44,12 +44,12 @@ static KING_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
                 if df == 0 && dr == 0 { continue; }
                 let f = file + df;
                 let r = rank + dr;
-                if f >= 0 && f < 8 && r >= 0 && r < 8 {
+                if (0..8).contains(&f) && (0..8).contains(&r) {
                     mask |= 1u64 << (r * 8 + f);
                 }
             }
         }
-        attacks[sq] = mask;
+        *attack_mask = mask;
     }
     attacks
 });
@@ -193,10 +193,8 @@ impl MoveGenService {
 
             // Check for castling
             let moved_piece = board.get_piece_at(idx0);
-            if !only_captures && (moved_piece == king_value && (idx1 as i32 - idx0 as i32).abs() == 2) {
-                if !self.is_valid_castling(board, white_turn, idx1 as i32) {
-                    continue;
-                }
+            if !only_captures && (moved_piece == king_value && (idx1 as i32 - idx0 as i32).abs() == 2) && !self.is_valid_castling(board, white_turn, idx1 as i32) {
+                continue;
             }
 
             move_turn.rank += match move_turn.capture {
@@ -274,11 +272,11 @@ impl MoveGenService {
                 let mut noisy_ranks = [0i32; 256];
                 for idx in 0..valid_moves.len {
                     let noise = rng.gen_range(-config.smp_thread_eval_noise..=config.smp_thread_eval_noise) as i32;
-                    noisy_ranks[idx] = slice[idx].rank as i32 + noise;
+                    noisy_ranks[idx] = slice[idx].rank + noise;
                 }
                 let mut indices: [usize; 256] = [0; 256];
-                for idx in 0..valid_moves.len {
-                    indices[idx] = idx;
+                for (idx, item) in indices.iter_mut().enumerate().take(valid_moves.len) {
+                    *item = idx;
                 }
                 let active_indices = &mut indices[0..valid_moves.len];
                 active_indices.sort_unstable_by(|&a, &b| noisy_ranks[b].cmp(&noisy_ranks[a]));
@@ -366,10 +364,8 @@ impl MoveGenService {
         let move_info = board.do_move(turn);
         let mut valid = true;
 
-        if !force_skip_validation {
-            if self.gives_check(board) {
-                valid = false;
-            }
+        if !force_skip_validation && self.gives_check(board) {
+            valid = false;
         }
 
         if valid {
@@ -431,9 +427,7 @@ impl MoveGenService {
     fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32) -> bool {
         let check_squares: &[u8] = if white_turn {
             if target == 6 { &[5, 6] } else { &[3, 2] }
-        } else {
-            if target == 62 { &[61, 62] } else { &[59, 58] }
-        };
+        } else if target == 62 { &[61, 62] } else { &[59, 58] };
 
         if self.is_in_check(board) {
             return false;
@@ -544,7 +538,7 @@ impl MoveGenService {
                 continue;
             }
 
-            let is_white_piece = piece >= 10 && piece <= 15;
+            let is_white_piece = (10..=15).contains(&piece);
             if is_white_piece != white {
                 continue;
             }
@@ -682,22 +676,20 @@ impl MoveGenService {
                                 moves.push(2);
                             }
                         }
-                    } else {
-                        if sq == 60 {
-                            if board.black_possible_to_castle_short
-                                && (occupied & ((1u64 << 61) | (1u64 << 62))) == 0
-                                && (board.bitboards[BLACK_ROOK] & (1u64 << 63)) != 0
-                            {
-                                moves.push(60);
-                                moves.push(62);
-                            }
-                            if board.black_possible_to_castle_long
-                                && (occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59))) == 0
-                                && (board.bitboards[BLACK_ROOK] & (1u64 << 56)) != 0
-                            {
-                                moves.push(60);
-                                moves.push(58);
-                            }
+                    } else if sq == 60 {
+                        if board.black_possible_to_castle_short
+                            && (occupied & ((1u64 << 61) | (1u64 << 62))) == 0
+                            && (board.bitboards[BLACK_ROOK] & (1u64 << 63)) != 0
+                        {
+                            moves.push(60);
+                            moves.push(62);
+                        }
+                        if board.black_possible_to_castle_long
+                            && (occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59))) == 0
+                            && (board.bitboards[BLACK_ROOK] & (1u64 << 56)) != 0
+                        {
+                            moves.push(60);
+                            moves.push(58);
                         }
                     }
                 }
@@ -825,35 +817,27 @@ impl MoveGenService {
         if white {
             if file > 0 && target_idx <= 56 {
                 let sq = target_idx + 7;
-                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
-                    if !self.is_pinned_away_from_target(board, sq, target_idx, false) {
-                        attackers |= 1u64 << sq;
-                    }
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 && !self.is_pinned_away_from_target(board, sq, target_idx, false) {
+                    attackers |= 1u64 << sq;
                 }
             }
             if file < 7 && target_idx <= 54 {
                 let sq = target_idx + 9;
-                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
-                    if !self.is_pinned_away_from_target(board, sq, target_idx, false) {
-                        attackers |= 1u64 << sq;
-                    }
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 && !self.is_pinned_away_from_target(board, sq, target_idx, false) {
+                    attackers |= 1u64 << sq;
                 }
             }
         } else {
             if file > 0 && target_idx >= 9 {
                 let sq = target_idx - 9;
-                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
-                    if !self.is_pinned_away_from_target(board, sq, target_idx, true) {
-                        attackers |= 1u64 << sq;
-                    }
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 && !self.is_pinned_away_from_target(board, sq, target_idx, true) {
+                    attackers |= 1u64 << sq;
                 }
             }
             if file < 7 && target_idx >= 7 {
                 let sq = target_idx - 7;
-                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 {
-                    if !self.is_pinned_away_from_target(board, sq, target_idx, true) {
-                        attackers |= 1u64 << sq;
-                    }
+                if (board.bitboards[opp_pawn] & (1u64 << sq)) != 0 && !self.is_pinned_away_from_target(board, sq, target_idx, true) {
+                    attackers |= 1u64 << sq;
                 }
             }
         }

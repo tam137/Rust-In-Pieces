@@ -9,7 +9,7 @@ pub enum Aggressiveness {
 
 #[derive(Clone)]
 pub struct Config {
-    pub version: String,
+    pub version: &'static str,
     pub use_zobrist: bool,
     pub use_book: bool,
     pub max_zobrist_hash_entries: usize,
@@ -144,14 +144,14 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
-    pub log_path: String,
+    pub log_path: std::sync::Arc<str>,
 }
 
 
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: concat!("V", env!("CARGO_PKG_VERSION")).to_string(),
+            version: concat!("V", env!("CARGO_PKG_VERSION")),
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
@@ -281,12 +281,12 @@ impl Config {
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
                 let divisor = 150.0 / 100.0;
-                for depth in 1..64 {
-                    for move_idx in 1..64 {
+                for (depth, row) in table.iter_mut().enumerate().skip(1) {
+                    for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
                         let m = move_idx as f64;
                         let reduction = (d.ln() * m.ln() / divisor) as i16;
-                        table[depth][move_idx] = reduction.max(0);
+                        *item = reduction.max(0);
                     }
                 }
                 table
@@ -295,18 +295,18 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
-            log_path: String::new(),
+            log_path: std::sync::Arc::from(""),
         }
     }
 
     pub fn recalculate_lmr_table(&mut self) {
         let divisor = self.lmr_divisor as f64 / 100.0;
-        for depth in 1..64 {
-            for move_idx in 1..64 {
+        for (depth, row) in self.lmr_table.iter_mut().enumerate().skip(1) {
+            for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                 let d = depth as f64;
                 let m = move_idx as f64;
                 let reduction = (d.ln() * m.ln() / divisor) as i16;
-                self.lmr_table[depth][move_idx] = reduction.max(0);
+                *item = reduction.max(0);
             }
         }
     }
@@ -382,7 +382,7 @@ impl Config {
 
     // like integration test but wo pv nodes and 1 thread
     pub fn _for_integration_tests_with_pv_nodes(&self) -> Self {
-        let mut config = Config::_for_integration_tests(&self);
+        let mut config = Config::_for_integration_tests(self);
         config.use_pv_nodes = true;
         config.search_threads = 1;
         config
@@ -390,7 +390,7 @@ impl Config {
 
     // like integration test with 1 thread
     pub fn _for_integration_tests_wo_pv_nodes(&self) -> Self {
-        let mut config = Config::_for_integration_tests(&self);
+        let mut config = Config::_for_integration_tests(self);
         config.use_pv_nodes = false;
         config.search_threads = 1;
         config
