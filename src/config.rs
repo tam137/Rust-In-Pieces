@@ -250,11 +250,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
-            lmr_divisor: 220,
+            lmr_divisor: 250,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 220.0 / 100.0;
+                let divisor = 250.0 / 100.0;
                 for depth in 1..64 {
                     for move_idx in 1..64 {
                         let d = depth as f64;
