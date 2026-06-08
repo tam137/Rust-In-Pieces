@@ -12,13 +12,15 @@ pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
 pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 
+pub type LoggerFn = std::sync::Arc<dyn Fn(String) + Send + Sync>;
+
 pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub zobrist_table: std::sync::RwLock<std::sync::Arc<ZobristTable>>,
     pub pv_nodes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Turn>>>,
     pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
-    pub logger: std::sync::Arc<std::sync::RwLock<std::sync::Arc<dyn Fn(String) + Send + Sync>>>,
+    pub logger: std::sync::Arc<std::sync::RwLock<LoggerFn>>,
     pub log_sender: std::sync::mpsc::Sender<String>,
 }
 
@@ -179,7 +181,7 @@ impl Turn {
         self.promotion != 0
     }
 
-    pub fn to_algebraic(&self) -> String {
+    pub fn to_algebraic(self) -> String {
         let col_from = self.from % 8;
         let row_from = self.from / 8;
         let col_to = self.to % 8;
@@ -363,8 +365,8 @@ impl Board {
         let occupied = white_pieces | black_pieces;
 
         let mut mailbox = [0u8; 64];
-        for i in 0..12 {
-            let mut bb = bitboards[i];
+        for (i, &bb_val) in bitboards.iter().enumerate() {
+            let mut bb = bb_val;
             let piece = match i {
                 WHITE_PAWN => 10,
                 WHITE_ROOK => 11,
@@ -389,8 +391,8 @@ impl Board {
 
         let mut pst_mg: i16 = 0;
         let mut pst_eg: i16 = 0;
-        for i in 0..12 {
-            let mut bb = bitboards[i];
+        for (i, &bb_val) in bitboards.iter().enumerate() {
+            let mut bb = bb_val;
             while bb != 0 {
                 let square = bb.trailing_zeros() as usize;
                 pst_mg += crate::pst::PST_MG[i][square];
@@ -476,7 +478,7 @@ impl Board {
         let mut actual_capture = turn.capture;
         if actual_capture == 0 {
             let piece_at_to = self.get_piece_at(to);
-            if piece_at_to != 0 && (piece_at_to >= 10 && piece_at_to <= 15) != self.white_to_move {
+            if piece_at_to != 0 && (10..=15).contains(&piece_at_to) != self.white_to_move {
                 actual_capture = piece_at_to;
             } else if (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante) {
                 actual_capture = if self.white_to_move { 20 } else { 10 };
@@ -810,7 +812,7 @@ impl Board {
 
     /// Zobrist-Hash function for the board (used for 3-move repetition and Zobrist-Hash Table)
     pub fn hash(&self) -> u64 {
-        zobrist::gen_hash(&self)
+        zobrist::gen_hash(self)
     }
 
     pub fn _get_piece_idx(&self) -> Vec<usize> {
@@ -968,7 +970,7 @@ impl SearchResult {
     }
 
     pub fn get_eval(&self) -> i16 {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             variant.eval
         } else {
             0
@@ -976,7 +978,7 @@ impl SearchResult {
     }
 
     pub fn get_depth(&self) -> i32 {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             variant.move_row.len() as i32
         } else {
             0
@@ -984,7 +986,7 @@ impl SearchResult {
     }
 
     pub fn _print_debug(&self) {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             print!("{:?}", variant);
         } else {
             println!("No variants available");
@@ -992,7 +994,7 @@ impl SearchResult {
     }
 
     pub fn _print_best_variant(&self) {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             print!("{} ", self.get_eval());
             let move_row = variant.move_row.clone();            
             move_row.iter()
@@ -1017,14 +1019,14 @@ impl SearchResult {
     }
 
     pub fn get_best_move_algebraic(&self) -> String {
-        self.variants.get(0)
+        self.variants.first()
             .and_then(|variant| variant.best_move.as_ref())
             .map(|best_move| best_move.to_algebraic())
             .unwrap_or_else(|| "0000".to_string())
     }
 
     pub fn get_best_move_row(&self) -> String {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             let move_row = variant.move_row.clone();
             return move_row.iter()
                 .map(|turn_option| {
@@ -1037,10 +1039,10 @@ impl SearchResult {
     }
 
     pub fn get_pv_move_row(&self) -> Vec<Turn> {
-        if let Some(variant) = self.variants.get(0) {
+        if let Some(variant) = self.variants.first() {
             variant.move_row
                 .iter()
-                .filter_map(|turn_option| turn_option.clone())
+                .filter_map(|turn_option| *turn_option)
                 .collect()
         } else {
             Vec::new()

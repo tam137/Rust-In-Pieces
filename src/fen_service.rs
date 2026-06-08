@@ -27,7 +27,7 @@ impl FenService {
             if c == '/' {
                 rank -= 1;
                 file = 0;
-            } else if c.is_digit(10) {
+            } else if c.is_ascii_digit() {
                 file += c.to_digit(10).unwrap() as i32;
             } else {
                 let piece_idx = match c {
@@ -180,7 +180,7 @@ impl FenService {
 
     /// Converts a board index to a notation field (e.g., 28 -> "e4").
     pub fn get_notation_from_index(&self, index: i8) -> String {
-        if index < 0 || index > 63 {
+        if !(0..=63).contains(&index) {
             return String::from("-"); // Invalid index
         }
 

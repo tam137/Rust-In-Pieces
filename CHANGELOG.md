@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.15.1] - 2026-06-08
+
+### Added
+- Reverted King Danger scaling, fixed string allocations in config, and resolved all Clippy warnings
+
+### Fixed
+
+
+
 ## [V0.15.0] - 2026-06-08
 
 ### Added

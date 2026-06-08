@@ -73,12 +73,7 @@ impl SearchService {
 
         if let Some(val) = prev_eval {
             // De-normalize mate score if present
-            let mut val_de = val;
-            if val > 30000 {
-                val_de = 30000;
-            } else if val < -30000 {
-                val_de = -30000;
-            }
+            let val_de = val.clamp(-30000, 30000);
             alpha = val_de.saturating_sub(delta);
             beta = val_de.saturating_add(delta);
         }
@@ -114,11 +109,9 @@ impl SearchService {
                 }
                 turns.moves.swap(i, best_idx);
 
-                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
-                    if !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                        turns.moves[i].rank -= 100000;
-                        continue; // rank decreased, re-evaluate this index to find the next best move
-                    }
+                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                    turns.moves[i].rank -= 100000;
+                    continue; // rank decreased, re-evaluate this index to find the next best move
                 }
 
                 let turn = &turns.moves[i];
@@ -127,10 +120,8 @@ impl SearchService {
                 let elapsed = context.start_time.elapsed().as_millis() as i32;
                 if let Some(target) = context.target_time {
                     let mut dynamic_target = target;
-                    if target < i32::MAX - 1000000 {
-                        if total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
-                            dynamic_target = (target * 13) / 10;
-                        }
+                    if target < i32::MAX - 1000000 && total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
+                        dynamic_target = (target * 13) / 10;
                     }
                     if elapsed >= dynamic_target {
                         stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -188,13 +179,11 @@ impl SearchService {
                     } else if min_max_eval > search_result.second_best_score {
                         search_result.second_best_score = min_max_eval;
                     }
-                } else {
-                    if min_max_eval < search_result.best_score {
-                        search_result.second_best_score = search_result.best_score;
-                        search_result.best_score = min_max_eval;
-                    } else if min_max_eval < search_result.second_best_score {
-                        search_result.second_best_score = min_max_eval;
-                    }
+                } else if min_max_eval < search_result.best_score {
+                    search_result.second_best_score = search_result.best_score;
+                    search_result.best_score = min_max_eval;
+                } else if min_max_eval < search_result.second_best_score {
+                    search_result.second_best_score = min_max_eval;
                 }
 
                 // save min max eval in zobrist table for better move sorting, if depth = 2
@@ -240,30 +229,28 @@ impl SearchService {
                             }
                         }
                     }
-                } else {
-                    if min_max_eval < best_eval {
-                        best_eval = min_max_eval;
-                        current_beta = current_beta.min(min_max_eval);
-                        let mut best_move_row = VecDeque::new();
-                        best_move_row.push_back(Some(*turn));
-                        for mv in child_pv.iter().take_while(|x| x.is_some()) {
-                            best_move_row.push_back(*mv);
-                        }
-                        search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
-                        search_result.is_white_move = white;
-                        search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
-                        search_result.stats.best_turn_nr = turn_counter as i8;
-                        let calc_time_ms = context.start_time.elapsed().as_millis();
-                        stats.calc_time_ms = calc_time_ms as usize;
-                        stats.calculate();
-                        if config.print_info_string_during_search {
-                            if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
-                                logger.send("stdout channel closed during search".to_string())
-                                    .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                                break;
-                            }
-                        } 
+                } else if min_max_eval < best_eval {
+                    best_eval = min_max_eval;
+                    current_beta = current_beta.min(min_max_eval);
+                    let mut best_move_row = VecDeque::new();
+                    best_move_row.push_back(Some(*turn));
+                    for mv in child_pv.iter().take_while(|x| x.is_some()) {
+                        best_move_row.push_back(*mv);
                     }
+                    search_result.add_variant(Variant { best_move: Some(*turn), move_row: best_move_row, eval: min_max_eval });
+                    search_result.is_white_move = white;
+                    search_result.variants.sort_by(|a, b| a.eval.cmp(&b.eval)); // Lowest first for black
+                    search_result.stats.best_turn_nr = turn_counter as i8;
+                    let calc_time_ms = context.start_time.elapsed().as_millis();
+                    stats.calc_time_ms = calc_time_ms as usize;
+                    stats.calculate();
+                    if config.print_info_string_during_search {
+                        if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
+                            logger.send("stdout channel closed during search".to_string())
+                                .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                            break;
+                        }
+                    } 
                 }
                 i += 1;
             }
@@ -276,8 +263,8 @@ impl SearchService {
 
             // Fail-Low / Fail-High checks
             if best_score <= alpha || best_score >= beta {
-                alpha = best_score.saturating_sub(delta).max(i16::MIN);
-                beta = best_score.saturating_add(delta).min(i16::MAX);
+                alpha = best_score.saturating_sub(delta);
+                beta = best_score.saturating_add(delta);
                 delta = delta.saturating_mul(4);
                 continue;
             }
@@ -288,11 +275,7 @@ impl SearchService {
         let calc_time_ms = context.start_time.elapsed().as_millis();
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
-        if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            search_result.completed = false;
-        } else {
-            search_result.completed = true;
-        }
+        search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
         search_result
     }
     
@@ -364,23 +347,19 @@ impl SearchService {
 
         let mut white_to_move = !board.white_to_move;
 
-        loop {
-            if let Some((attacker_sq, attacker_piece)) = self.get_least_valuable_attacker(board, to as u8, white_to_move, occupied, movegen) {
-                if depth >= 31 {
-                    break;
-                }
-                depth += 1;
-                gain[depth] = self.get_piece_value(current_attacker, config);
-                current_attacker = attacker_piece;
-                occupied &= !(1u64 << attacker_sq);
-                white_to_move = !white_to_move;
-            } else {
+        while let Some((attacker_sq, attacker_piece)) = self.get_least_valuable_attacker(board, to as u8, white_to_move, occupied, movegen) {
+            if depth >= 31 {
                 break;
             }
+            depth += 1;
+            gain[depth] = self.get_piece_value(current_attacker, config);
+            current_attacker = attacker_piece;
+            occupied &= !(1u64 << attacker_sq);
+            white_to_move = !white_to_move;
         }
 
         while depth > 0 {
-            gain[depth - 1] = gain[depth - 1] - gain[depth].max(0);
+            gain[depth - 1] -= gain[depth].max(0);
             depth -= 1;
         }
 
@@ -439,9 +418,9 @@ impl SearchService {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
                     if entry_eval > 30000 {
-                        entry_eval = entry_eval - ply as i16;
+                        entry_eval -= ply as i16;
                     } else if entry_eval < -30000 {
-                        entry_eval = entry_eval + ply as i16;
+                        entry_eval += ply as i16;
                     }
 
                     let decompressed = entry.decompress_move(board);
@@ -555,10 +534,8 @@ impl SearchService {
                 if static_eval - margin >= beta {
                     return (None, static_eval - margin); // Beta cutoff
                 }
-            } else {
-                if static_eval + margin <= alpha {
-                    return (None, static_eval + margin); // Alpha cutoff
-                }
+            } else if static_eval + margin <= alpha {
+                return (None, static_eval + margin); // Alpha cutoff
             }
         }
 
@@ -573,7 +550,7 @@ impl SearchService {
             zobrist_table: context.zobrist_table,
             stop_flag: context.stop_flag,
             pv_nodes: context.pv_nodes,
-            killer_moves: if ply >= 0 && ply < 128 { killer_moves[ply as usize] } else { [None; 2] },
+            killer_moves: if (0..128).contains(&ply) { killer_moves[ply as usize] } else { [None; 2] },
             history_table,
             counter_move,
             start_time: context.start_time,
@@ -585,10 +562,7 @@ impl SearchService {
         // Quiescence Search (depth <= 0)
         if depth <= 0 {
             stats.add_eval_nodes(1);
-            if board.white_to_move && turn.gives_check {
-                            } else if !board.white_to_move && turn.gives_check {
-                            } else {
-                                            }
+
 
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
@@ -669,18 +643,14 @@ impl SearchService {
                         if stand_pat + gain + delta_margin < alpha {
                             continue;
                         }
-                    } else {
-                        if stand_pat - gain - delta_margin > beta {
-                            continue;
-                        }
+                    } else if stand_pat - gain - delta_margin > beta {
+                        continue;
                     }
                 }
 
                 // SEE Pruning: Skip capture moves that lose material (SEE < 0)
-                if !in_check && capture_turn.promotion == 0 {
-                    if !self.see_ge(board, capture_turn, 0, config, &service.move_gen) {
-                        continue;
-                    }
+                if !in_check && capture_turn.promotion == 0 && !self.see_ge(board, capture_turn, 0, config, &service.move_gen) {
+                    continue;
                 }
 
                 if stats.calculated_nodes & 1023 == 0 {
@@ -689,11 +659,9 @@ impl SearchService {
                         let mut dynamic_target = target;
                         let searched = context.root_moves_searched;
                     let total = context.root_moves_total;
-                    if true {
-                            if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
-                                dynamic_target = (target * 13) / 10;
-                            }
-                        }
+                    if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+                        dynamic_target = (target * 13) / 10;
+                    }
                         if elapsed >= dynamic_target {
                             context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
@@ -718,13 +686,11 @@ impl SearchService {
                         pv[0] = Some(*capture_turn);
                         pv[1..].copy_from_slice(&child_pv[..127]);
                     }
-                } else {
-                    if eval > min_max_eval {
-                        eval = min_max_eval;
-                        beta = beta.min(min_max_eval);
-                        pv[0] = Some(*capture_turn);
-                        pv[1..].copy_from_slice(&child_pv[..127]);
-                    }
+                } else if eval > min_max_eval {
+                    eval = min_max_eval;
+                    beta = beta.min(min_max_eval);
+                    pv[0] = Some(*capture_turn);
+                    pv[1..].copy_from_slice(&child_pv[..127]);
                 }
 
                 if beta <= alpha {
@@ -769,11 +735,9 @@ impl SearchService {
             }
             turns.moves.swap(i, best_idx);
 
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
-                if !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                    turns.moves[i].rank -= 100000;
-                    continue; // rank decreased, re-evaluate this index
-                }
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                turns.moves[i].rank -= 100000;
+                continue; // rank decreased, re-evaluate this index
             }
 
             let current_turn = &turns.moves[i];
@@ -784,10 +748,8 @@ impl SearchService {
                     let mut dynamic_target = target;
                     let searched = context.root_moves_searched;
                     let total = context.root_moves_total;
-                    if true {
-                        if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
-                            dynamic_target = (target * 13) / 10;
-                        }
+                    if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+                        dynamic_target = (target * 13) / 10;
                     }
                     if elapsed >= dynamic_target {
                         context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -937,19 +899,17 @@ impl SearchService {
                         service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
                     };
                 }
-            } else {
-                if eval > min_max_eval {
-                    eval = min_max_eval;
-                    beta = beta.min(min_max_eval);
-                    best_move = Some(*current_turn);
-                    pv[0] = Some(*current_turn);
-                    pv[1..].copy_from_slice(&child_pv[..127]);
-                    if config.in_debug && turn_counter > 30 {
-                        stats.add_turn_nr_gt_threshold(1);
-                        stats.add_log(format!("{}, move {} was the {} lvl:{}",
-                        service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
-                    };
-                }
+            } else if eval > min_max_eval {
+                eval = min_max_eval;
+                beta = beta.min(min_max_eval);
+                best_move = Some(*current_turn);
+                pv[0] = Some(*current_turn);
+                pv[1..].copy_from_slice(&child_pv[..127]);
+                if config.in_debug && turn_counter > 30 {
+                    stats.add_turn_nr_gt_threshold(1);
+                    stats.add_log(format!("{}, move {} was the {} lvl:{}",
+                    service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
+                };
             }
             if beta <= alpha {
                 if depth > 0 && current_turn.capture == 0 {
@@ -969,8 +929,8 @@ impl SearchService {
 
                     // History Malus for previously searched quiet moves
                     if config.enable_history_malus {
-                        for j in 0..quiet_count {
-                            if let Some(bad_move) = searched_quiet_moves[j] {
+                        for bad_move_opt in searched_quiet_moves.iter().take(quiet_count) {
+                            if let Some(bad_move) = *bad_move_opt {
                                 if bad_move != *current_turn {
                                     let b_from = bad_move.from as usize;
                                     let b_to = bad_move.to as usize;
@@ -1031,7 +991,7 @@ impl SearchService {
             );
         }
 
-        return (best_move, eval);
+        (best_move, eval)
     }
 
     

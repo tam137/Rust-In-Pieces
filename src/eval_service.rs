@@ -231,7 +231,7 @@ impl EvalService {
             if config.print_eval_per_figure && piece > 0 {
                 println!("{},\t{},\t{}", sq, piece, eval_for_piece);
             }
-            eval = eval + eval_for_piece;
+            eval += eval_for_piece;
             if piece < 20 {
                 white_attackers += attackers;
                 white_king_danger += danger;
@@ -269,19 +269,16 @@ impl EvalService {
             }
         }
 
-        let mut white_king_danger_term = 0;
         if white_attackers > 0 {
             let effective_attackers = (white_attackers as i16 - (black_defenders as i16 * config.king_ring_defender_value)).max(0) as usize;
             let idx = std::cmp::min(effective_attackers, 5);
-            white_king_danger_term = (white_king_danger * danger_weights[idx]) / 100;
+            eval += (white_king_danger * danger_weights[idx]) / 100;
         }
-        let mut black_king_danger_term = 0;
         if black_attackers > 0 {
             let effective_attackers = (black_attackers as i16 - (white_defenders as i16 * config.king_ring_defender_value)).max(0) as usize;
             let idx = std::cmp::min(effective_attackers, 5);
-            black_king_danger_term = (black_king_danger * danger_weights[idx]) / 100;
+            eval -= (black_king_danger * danger_weights[idx]) / 100;
         }
-        eval += self.calculate_weighted_eval(white_king_danger_term - black_king_danger_term, 0, game_phase);
 
         // Connected passed pawns bonus
         let mut white_connected_passed_pawns = 0;
@@ -373,7 +370,7 @@ impl EvalService {
             }
         }
 
-        eval = eval + if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
+        eval += if board.white_to_move { config.your_turn_bonus } else { -config.your_turn_bonus };
 
         if config.enable_positional_cap {
             let mut material_eval: i16 = 0;
@@ -433,48 +430,48 @@ impl EvalService {
         let moves_until_promote = 7 - rank;
         let on_rank = rank + 1;
 
-        if (on_rank >= 3) && (on_rank <= 5) {
+        if (3..=5).contains(&on_rank) {
             let white_knights = board.bitboards[crate::model::WHITE_KNIGHT];
             let has_white_knight_support =
                 (file > 0 && ((1u64 << (sq + 7)) & white_knights) != 0) ||
                 (file < 7 && ((1u64 << (sq + 9)) & white_knights) != 0);
             if has_white_knight_support {
-                o_eval = o_eval + config.pawn_supports_knight_outpost;
+                o_eval += config.pawn_supports_knight_outpost;
             }
         }
 
         if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
-            o_eval = o_eval + config.pawn_centered;
+            o_eval += config.pawn_centered;
         }
 
         match moves_until_promote {
-            1 => e_eval = e_eval + config.pawn_on_last_rank_bonus,
-            2 => e_eval = e_eval + config.pawn_on_before_last_rank_bonus,
-            3 => e_eval = e_eval + config.pawn_on_before_before_last_rank_bonus,
+            1 => e_eval += config.pawn_on_last_rank_bonus,
+            2 => e_eval += config.pawn_on_before_last_rank_bonus,
+            3 => e_eval += config.pawn_on_before_before_last_rank_bonus,
             _ => ()
         }
 
         match moves_until_promote {
-            1 => o_eval = o_eval + config.pawn_on_last_rank_bonus / 2,
-            2 => o_eval = o_eval + config.pawn_on_before_last_rank_bonus / 2,
-            3 => o_eval = o_eval + config.pawn_on_before_before_last_rank_bonus / 2,
+            1 => o_eval += config.pawn_on_last_rank_bonus / 2,
+            2 => o_eval += config.pawn_on_before_last_rank_bonus / 2,
+            3 => o_eval += config.pawn_on_before_before_last_rank_bonus / 2,
             _ => ()
         }
 
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
         if (file < 7 && ((1u64 << (sq + 9)) & white_pawns) != 0) ||
            (file > 0 && ((1u64 << (sq + 7)) & white_pawns) != 0) {
-            o_eval = o_eval + config.pawn_structure;
+            o_eval += config.pawn_structure;
         }
 
         let white_bishops = board.bitboards[crate::model::WHITE_BISHOP];
         if (file < 7 && ((1u64 << (sq + 9)) & white_bishops) != 0) ||
            (file > 0 && ((1u64 << (sq + 7)) & white_bishops) != 0) {
-            e_eval = e_eval + config.pawn_defends_bishop;
+            e_eval += config.pawn_defends_bishop;
         }
 
         if moves_until_promote >= 5 && (file == 3 || file == 4) {
-            o_eval = o_eval - config.pawn_undeveloped_malus;
+            o_eval -= config.pawn_undeveloped_malus;
         }
 
         let black_non_pawns = board.bitboards[crate::model::BLACK_ROOK] |
@@ -568,48 +565,48 @@ impl EvalService {
         
         let moves_until_promote = rank;
 
-        if (rank >= 3) && (rank <= 5) {
+        if (3..=5).contains(&rank) {
             let black_knights = board.bitboards[crate::model::BLACK_KNIGHT];
             let has_black_knight_support =
                 (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_knights) != 0) ||
                 (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_knights) != 0);
             if has_black_knight_support {
-                o_eval = o_eval - config.pawn_supports_knight_outpost;
+                o_eval -= config.pawn_supports_knight_outpost;
             }
         }
 
         if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
-            o_eval = o_eval - config.pawn_centered;
+            o_eval -= config.pawn_centered;
         }
 
         match moves_until_promote {
-            1 => e_eval = e_eval - config.pawn_on_last_rank_bonus,
-            2 => e_eval = e_eval - config.pawn_on_before_last_rank_bonus,
-            3 => e_eval = e_eval - config.pawn_on_before_before_last_rank_bonus,
+            1 => e_eval -= config.pawn_on_last_rank_bonus,
+            2 => e_eval -= config.pawn_on_before_last_rank_bonus,
+            3 => e_eval -= config.pawn_on_before_before_last_rank_bonus,
             _ => ()
         }
 
         match moves_until_promote {
-            1 => o_eval = o_eval - config.pawn_on_last_rank_bonus / 2,
-            2 => o_eval = o_eval - config.pawn_on_before_last_rank_bonus / 2,
-            3 => o_eval = o_eval - config.pawn_on_before_before_last_rank_bonus / 2,
+            1 => o_eval -= config.pawn_on_last_rank_bonus / 2,
+            2 => o_eval -= config.pawn_on_before_last_rank_bonus / 2,
+            3 => o_eval -= config.pawn_on_before_before_last_rank_bonus / 2,
             _ => ()
         }
 
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
         if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_pawns) != 0) ||
            (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_pawns) != 0) {
-            o_eval = o_eval - config.pawn_structure;
+            o_eval -= config.pawn_structure;
         }
 
         let black_bishops = board.bitboards[crate::model::BLACK_BISHOP];
         if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_bishops) != 0) ||
            (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_bishops) != 0) {
-            e_eval = e_eval - config.pawn_defends_bishop;
+            e_eval -= config.pawn_defends_bishop;
         }
 
         if moves_until_promote >= 5 && (file == 3 || file == 4) {
-            o_eval = o_eval + config.pawn_undeveloped_malus;
+            o_eval += config.pawn_undeveloped_malus;
         }
 
         let white_non_pawns = board.bitboards[crate::model::WHITE_ROOK] |
@@ -917,7 +914,7 @@ impl EvalService {
             e_eval += config.knight_outpost_true_eg;
         }
 
-        let is_centered = (rank >= 3 && rank <= 5) && (file >= 2 && file <= 5);
+        let is_centered = (3..=5).contains(&rank) && (2..=5).contains(&file);
         if is_centered {
             e_eval += config.knight_centered;
             o_eval += config.knight_centered / 2;
@@ -979,7 +976,7 @@ impl EvalService {
             e_eval -= config.knight_outpost_true_eg;
         }
 
-        let is_centered = (rank >= 2 && rank <= 4) && (file >= 2 && file <= 5);
+        let is_centered = (2..=4).contains(&rank) && (2..=5).contains(&file);
         if is_centered {
             e_eval -= config.knight_centered;
             o_eval -= config.knight_centered / 2;
@@ -1011,14 +1008,14 @@ impl EvalService {
         
 
         if sq == 2 || sq == 5 {
-            o_eval = o_eval - config.undeveloped_bishop_malus;
+            o_eval -= config.undeveloped_bishop_malus;
         }
 
         if rank == 6 && file == 7 && ((1u64 << (sq - 9)) & board.occupied) != 0 {
-            o_eval = o_eval - config.bishop_trapped_at_rim_malus;
+            o_eval -= config.bishop_trapped_at_rim_malus;
         }
         if rank == 6 && file == 0 && ((1u64 << (sq - 7)) & board.occupied) != 0 {
-            o_eval = o_eval - config.bishop_trapped_at_rim_malus;
+            o_eval -= config.bishop_trapped_at_rim_malus;
         }
 
         // Bishop mobility
@@ -1058,14 +1055,14 @@ impl EvalService {
         
 
         if sq == 58 || sq == 61 {
-            o_eval = o_eval + config.undeveloped_bishop_malus;
+            o_eval += config.undeveloped_bishop_malus;
         }
 
         if rank == 1 && file == 7 && ((1u64 << (sq + 7)) & board.occupied) != 0 {
-            o_eval = o_eval + config.bishop_trapped_at_rim_malus;
+            o_eval += config.bishop_trapped_at_rim_malus;
         }
         if rank == 1 && file == 0 && ((1u64 << (sq + 9)) & board.occupied) != 0 {
-            o_eval = o_eval + config.bishop_trapped_at_rim_malus;
+            o_eval += config.bishop_trapped_at_rim_malus;
         }
 
         // Bishop mobility
@@ -1200,7 +1197,7 @@ impl EvalService {
         }
 
         if rank == 0 {
-            e_eval = e_eval - config.king_trapp_at_baseline_malus;
+            e_eval -= config.king_trapp_at_baseline_malus;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -1273,7 +1270,7 @@ impl EvalService {
         }
 
         if rank == 7 {
-            e_eval = e_eval + config.king_trapp_at_baseline_malus;
+            e_eval += config.king_trapp_at_baseline_malus;
         }
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
@@ -1298,7 +1295,7 @@ impl EvalService {
         let rooks = (board.bitboards[crate::model::WHITE_ROOK] | board.bitboards[crate::model::BLACK_ROOK]).count_ones();
         let queens = (board.bitboards[crate::model::WHITE_QUEEN] | board.bitboards[crate::model::BLACK_QUEEN]).count_ones();
         
-        let total_phase = knights * 1 + bishops * 1 + rooks * 2 + queens * 4;
+        let total_phase = knights + bishops + rooks * 2 + queens * 4;
         // Max phase is usually 24 (4 knights/bishops + 4 rooks + 2 queens = 4 + 8 + 8 = 20... wait, 4*1 + 4*1 + 4*2 + 2*4 = 4+4+8+8 = 24).
         // If promotions occurred, it could be higher, we cap at 24 for the calculation.
         let phase = std::cmp::min(total_phase, 24);
@@ -1308,7 +1305,7 @@ impl EvalService {
     /// adjust eval when exchange pieces with advantage
     fn adjust_eval(&self, eval: i16, game_phase: i16, config: &Config) -> i16 {
         if game_phase + 100 < 255 && (eval <= -200 || eval >= 200) {
-            let mut mult: f32 = 255 as f32 / (game_phase + 100) as f32;
+            let mut mult: f32 = 255_f32 / (game_phase + 100) as f32;
             assert!(mult >= 1.0);
             if mult > config.max_eval_mult {
                 mult = config.max_eval_mult;
@@ -1346,7 +1343,7 @@ impl EvalService {
         let rank = (sq / 8) as i32;
         
         if is_white {
-            if rank < 3 || rank > 5 {
+            if !(3..=5).contains(&rank) {
                 return false;
             }
             let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
@@ -1383,7 +1380,7 @@ impl EvalService {
             }
             true
         } else {
-            if rank < 2 || rank > 4 {
+            if !(2..=4).contains(&rank) {
                 return false;
             }
             let black_pawns = board.bitboards[crate::model::BLACK_PAWN];

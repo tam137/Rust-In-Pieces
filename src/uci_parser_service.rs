@@ -102,7 +102,7 @@ impl UciParserService {
 
     /// Parse the "position" command and returns a tuple (FEN, Moves)
     pub fn parse_position(&self, uci_token: &str) -> (String, String) {
-        let tokens: Vec<&str> = uci_token.trim().split_whitespace().collect();
+        let tokens: Vec<&str> = uci_token.split_whitespace().collect();
         let fen;
         let mut moves = String::new();
 
@@ -139,13 +139,13 @@ impl UciParserService {
     pub fn get_info_str(&self, search_result: &SearchResult, stats: &Stats) -> String {
         let mut stats = stats.clone();
         let stats = stats.calculate();        
-        let cp = if search_result.is_white_move { search_result.get_eval() } else { search_result.get_eval() *(-1) };
+        let cp = if search_result.is_white_move { search_result.get_eval() } else { -search_result.get_eval() };
         format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
             search_result.get_depth(),
             cp,
             stats.calc_time_ms,
             stats.created_nodes,
-            stats.created_nodes / (stats.calc_time_ms + 1) as usize,
+            stats.created_nodes / (stats.calc_time_ms + 1),
             search_result.get_best_move_row())
     }
 }

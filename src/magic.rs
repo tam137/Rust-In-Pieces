@@ -44,6 +44,8 @@ pub fn get_rook_attacks(square: usize, occupied: u64) -> u64 {
 unsafe fn initialize_magics() {
     unsafe {
         let mut prng = Prng::new(1804289383);
+        let bishop_ptr = std::ptr::addr_of_mut!(BISHOP_MAGICS) as *mut Magic;
+        let bishop_table_ptr = std::ptr::addr_of_mut!(BISHOP_TABLE) as *mut u64;
         
         // 1. Initialize Bishop Magics & Table
         let mut bishop_offset = 0;
@@ -61,21 +63,23 @@ unsafe fn initialize_magics() {
             }
             
             let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
-            BISHOP_MAGICS[sq] = Magic {
+            bishop_ptr.add(sq).write(Magic {
                 mask,
                 magic: magic_val,
                 shift,
                 offset: bishop_offset,
-            };
+            });
             
             for i in 0..num_configs {
                 let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
-                BISHOP_TABLE[bishop_offset + idx] = attacks[i];
+                bishop_table_ptr.add(bishop_offset + idx).write(attacks[i]);
             }
             bishop_offset += num_configs;
         }
         
         // 2. Initialize Rook Magics & Table
+        let rook_ptr = std::ptr::addr_of_mut!(ROOK_MAGICS) as *mut Magic;
+        let rook_table_ptr = std::ptr::addr_of_mut!(ROOK_TABLE) as *mut u64;
         let mut rook_offset = 0;
         for sq in 0..64 {
             let mask = rook_mask(sq);
@@ -91,16 +95,16 @@ unsafe fn initialize_magics() {
             }
             
             let magic_val = find_magic(sq, num_bits, &occupancies, &attacks, &mut prng);
-            ROOK_MAGICS[sq] = Magic {
+            rook_ptr.add(sq).write(Magic {
                 mask,
                 magic: magic_val,
                 shift,
                 offset: rook_offset,
-            };
+            });
             
             for i in 0..num_configs {
                 let idx = (((occupancies[i] & mask).wrapping_mul(magic_val)) >> shift) as usize;
-                ROOK_TABLE[rook_offset + idx] = attacks[i];
+                rook_table_ptr.add(rook_offset + idx).write(attacks[i]);
             }
             rook_offset += num_configs;
         }
