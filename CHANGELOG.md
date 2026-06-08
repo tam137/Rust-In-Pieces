@@ -6,10 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
-## [V0.14.0] - 2026-06-08
+## [V0.14.1] - 2026-06-08
 
 ### Added
-- Revert lmr_divisor to 195
+- Set lmr_divisor to 180
+
+### Fixed
+
+
+
+## [V0.14.0] - 2026-06-08
+
+- **Late Move Reductions (LMR) Divisor Reversion**:
+  - Reverted the default `lmr_divisor` value from **250** to **195** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to return to the optimal 1.95 baseline.
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `195.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for startup consistency.
+  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **195**.
+  - **Search Characteristics Impact**:
+    - Reverting to 1.95 increases the reduction amounts compared to 250, resulting in more aggressive pruning of quiet moves.
+    - Reduces the search tree size back to a more efficient state (Nodes at depth 10: **904,120** vs **2,163,889** in `v0.13.16`).
+  - Documented search tree benchmark metrics for the reverted divisor in [perft.md](file:///home/tam137/git/suprah/perft.md).
 
 ### Fixed
 

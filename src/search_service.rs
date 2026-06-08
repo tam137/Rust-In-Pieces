@@ -1132,11 +1132,12 @@ mod tests {
         assert_eq!(config.lmr_table[8][1], 0);
         
         // Assert precalculated values for normal search depth/move counts
-        // ln(8) * ln(12) / 1.95 = 2.07944 * 2.4849 / 1.95 = 2.649 -> 2
-        assert_eq!(config.lmr_table[8][12], 2);
+        let divisor = config.lmr_divisor as f64 / 100.0;
+        let expected_8_12 = (8.0f64.ln() * 12.0f64.ln() / divisor) as i16;
+        assert_eq!(config.lmr_table[8][12], expected_8_12.max(0));
         
-        // ln(16) * ln(16) / 1.95 = 2.77258 * 2.77258 / 1.95 = 7.687 / 1.95 = 3.94 -> 3
-        assert_eq!(config.lmr_table[16][16], 3);
+        let expected_16_16 = (16.0f64.ln() * 16.0f64.ln() / divisor) as i16;
+        assert_eq!(config.lmr_table[16][16], expected_16_16.max(0));
         
         let mut config_conservative = Config::new();
         config_conservative.lmr_table = {
