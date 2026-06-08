@@ -308,5 +308,70 @@
         "value": 150,
         "min": 100,
         "max": 300
+    },
+    "king_pawn_shield_kingside": {
+        "value": 39,
+        "min": 0,
+        "max": 150
+    },
+    "king_pawn_shield_queenside": {
+        "value": 25,
+        "min": 0,
+        "max": 100
+    },
+    "king_piece_shield_kingside": {
+        "value": 16,
+        "min": 0,
+        "max": 100
+    },
+    "king_piece_shield_queenside": {
+        "value": 10,
+        "min": 0,
+        "max": 60
+    },
+    "connected_passed_pawn_mg": {
+        "value": 15,
+        "min": 0,
+        "max": 100
+    },
+    "connected_passed_pawn_eg": {
+        "value": 30,
+        "min": 0,
+        "max": 150
+    },
+    "knight_outpost_true_mg": {
+        "value": 30,
+        "min": 0,
+        "max": 150
+    },
+    "knight_outpost_true_eg": {
+        "value": 15,
+        "min": 0,
+        "max": 100
+    },
+    "bishop_outpost_true_mg": {
+        "value": 20,
+        "min": 0,
+        "max": 100
+    },
+    "bishop_outpost_true_eg": {
+        "value": 10,
+        "min": 0,
+        "max": 60
+    },
+    "opposite_bishops_draw_scale": {
+        "value": 50,
+        "min": 0,
+        "max": 100
+    },
+    "rook_behind_enemy_passed_pawn_mg": {
+        "value": 10,
+        "min": 0,
+        "max": 80
+    },
+    "rook_behind_enemy_passed_pawn_eg": {
+        "value": 25,
+        "min": 0,
+        "max": 100
     }
 }
