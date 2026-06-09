@@ -43,6 +43,7 @@ class SPSATuner:
         
         self.k = 1
         self.theta = {k: float(v["value"]) for k, v in self.param_defs.items()}
+        self.m = {k: 0.0 for k in self.param_names}
         
         # Load state if exists
         if os.path.exists(self.state_file):
@@ -50,6 +51,10 @@ class SPSATuner:
                 state = json.load(f)
                 self.k = state["k"]
                 self.theta = state["theta"]
+                if "m" in state:
+                    self.m = state["m"]
+                else:
+                    self.m = {k: 0.0 for k in self.param_names}
                 print(f"Loaded state from iteration {self.k}")
         else:
             # Initialize history file
@@ -195,28 +200,38 @@ class SPSATuner:
             step = max(1.0, round(base_val * (self.mutate_pct / 100.0)))
             step_sizes[k] = step
 
-        # Perturb only active parameters
+        # Perturb only active parameters and clamp to min/max bounds
         theta_plus = {}
         theta_minus = {}
         for k in self.param_names:
+            _min = self.param_defs[k]["min"]
+            _max = self.param_defs[k]["max"]
             if k in self.active_params:
-                theta_plus[k] = self.theta[k] + step_sizes[k] * delta[k]
-                theta_minus[k] = self.theta[k] - step_sizes[k] * delta[k]
+                theta_plus[k] = max(_min, min(_max, self.theta[k] + step_sizes[k] * delta[k]))
+                theta_minus[k] = max(_min, min(_max, self.theta[k] - step_sizes[k] * delta[k]))
             else:
-                theta_plus[k] = self.theta[k]
-                theta_minus[k] = self.theta[k]
+                theta_plus[k] = max(_min, min(_max, self.theta[k]))
+                theta_minus[k] = max(_min, min(_max, self.theta[k]))
         
         score = self.run_match_batch(theta_plus, theta_minus)
         
         # Gradient estimation
         diff = 2.0 * score - 1.0
         
+        beta = 0.9
         for k in self.active_params:
-            g_k = diff / (2.0 * step_sizes[k] * delta[k])
-            # Scale learning rate by the parameter's magnitude to prevent throttling
-            param_scale = max(1.0, abs(self.param_defs[k]["value"]))
+            # Gradient estimation without division by step size to prevent scaling cancellation
+            g_k = (diff * delta[k]) / 2.0
+            
+            # Scale learning rate by the current parameter's magnitude to prevent throttling
+            param_scale = max(1.0, abs(self.theta[k]))
             a_k_scaled = a_k * param_scale
-            self.theta[k] += a_k_scaled * g_k
+            
+            raw_update = a_k_scaled * g_k
+            
+            # Apply momentum (EMA)
+            self.m[k] = beta * self.m[k] + (1.0 - beta) * raw_update
+            self.theta[k] += self.m[k]
             
             # Apply bounds
             _min = self.param_defs[k]["min"]
@@ -226,7 +241,7 @@ class SPSATuner:
         # Save state
         self.k += 1
         with open(self.state_file, "w") as f:
-            json.dump({"k": self.k, "theta": self.theta}, f, indent=4)
+            json.dump({"k": self.k, "theta": self.theta, "m": self.m}, f, indent=4)
             
         # Save history
         with open(self.history_file, "a", newline="") as f:
