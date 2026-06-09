@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.15.2] - 2026-06-09
+
+### Added
+- **SPSA Parameter Harvest (Iteration 43)**:
+  - Harvested the optimized parameter values from a 43-iteration SPSA run on EODServer.
+  - **Threat Matrix De-escalation**:
+    - Reduced the heuristic penalties for minor pieces attacking rooks/queens (`threat_minor_attacks_rook` from 20 to 15, `threat_minor_attacks_queen` from 45 to 30) and rooks attacking queens (`threat_rook_attacks_queen` from 30 to 20). This makes the engine less prone to panicking and misjudging positions where these "threats" are safely defended.
+  - **Positional Mastery Enhancements**:
+    - Amplified the strength of connected passed pawns in both middlegame and endgame (`connected_passed_pawn_mg` from 10 to 15, `connected_passed_pawn_eg` from 20 to 30).
+    - Strengthened the "True Outpost" heuristic for Knights (`knight_outpost_true_mg` from 25 to 30, `knight_outpost_true_eg` from 10 to 15) and Bishops (`bishop_outpost_true_mg` from 15 to 20, `bishop_outpost_true_eg` from 5 to 10), rewarding centralized minor pieces that cannot be chased away by enemy pawns.
+  - **Defensive Tarrasch Rule Integration**:
+    - Significantly increased the reward for rooks placed behind enemy passed pawns (`rook_behind_enemy_passed_pawn_mg` from 5 to 10, `rook_behind_enemy_passed_pawn_eg` from 15 to 25) for improved endgame defense.
+
+### Performance & ELO Validation
+- **Search Tree Efficiency**:
+  - Startpos Depth 11 resolves **1,602,002 nodes** at **2.47 MNPS**, maintaining extremely fast positional evaluation with zero search tree bloat.
+
+### Fixed
+
+
+
 ## [V0.15.1] - 2026-06-08
 
 ### Fixed
