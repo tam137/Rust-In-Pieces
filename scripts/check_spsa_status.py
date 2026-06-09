@@ -31,11 +31,11 @@ echo "=== PARAMS ==="
 cat /root/mattmagie/tuning/parameters.json 2>/dev/null || echo "NO_PARAMS"
 echo ""
 echo "=== LOGS ==="
-files=$(ls -t /root/mattmagie/tuning/enginelogs/*.log 2>/dev/null | head -n 3)
+files=$(ls -t /root/mattmagie/tuning/enginelogs 2>/dev/null | grep '\.log$' | head -n 3)
 for f in $files; do
   echo ""
-  echo "--- FILE: $(basename $f) ---"
-  cat "$f" 2>/dev/null
+  echo "--- FILE: $f ---"
+  cat "/root/mattmagie/tuning/enginelogs/$f" 2>/dev/null
   echo ""
   echo "--- END_FILE ---"
 done
