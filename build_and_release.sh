@@ -180,25 +180,21 @@ if [ $? -eq 0 ]; then
         echo -e "${GREEN}Success: Remote compilation and deployment completed successfully!${NC}"
     fi
 
-    # Git commit and tagging
-    echo -e "\n${YELLOW}Creating git commit and tag for version v$NEW_VERSION...${NC}"
-    # Stage all modified tracked files so the tag/release includes all codebase modifications
-    git add -u
-    git commit -m "Release v$NEW_VERSION"
-    if [ $? -eq 0 ]; then
-        git tag -a "v$NEW_VERSION" -m "Release version v$NEW_VERSION"
-        echo -e "${GREEN}Success: Created git commit and tag v$NEW_VERSION!${NC}"
-    else
-        echo -e "${RED}Warning: Git commit failed. Skipping tagging.${NC}"
-    fi
-
+    # Git instructions (automatic commit and tag removed to ensure atomic commits after changelog enrichment/benchmarks)
     echo -e "\n${CYAN}================================================================${NC}"
-    echo -e "${GREEN}${BOLD}RELEASE PROCESS COMPLETED SUCCESSFULLY!${NC}"
+    echo -e "${GREEN}${BOLD}RELEASE BUILD & DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
     echo -e "Engine ${BOLD}suprah-$NEW_VERSION${NC} is now ready for matchups."
     if [ -n "$EODSERVERIP" ]; then
         echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/suprah-$NEW_VERSION"
     fi
-    echo -e "\n${YELLOW}Reminder: Please open CHANGELOG.md and manually enrich the release notes with detailed explanations of changes.${NC}"
+    echo -e "\n${YELLOW}${BOLD}Next Manual Steps to Finalize Release:${NC}"
+    echo -e "1. Run perft benchmarks and prepend them to perft.md."
+    echo -e "2. Open CHANGELOG.md and manually enrich the release notes with detailed explanations."
+    echo -e "3. Create Git commit and tag manually:"
+    echo -e "   ${BOLD}git add Cargo.toml CHANGELOG.md perft.md${NC}"
+    echo -e "   ${BOLD}git commit -m \"Release v$NEW_VERSION: <Detailed Description>\"${NC}"
+    echo -e "   ${BOLD}git tag -a \"v$NEW_VERSION\" -m \"Release version v$NEW_VERSION\"${NC}"
+    echo -e "   ${BOLD}git push origin master --tags${NC}"
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
