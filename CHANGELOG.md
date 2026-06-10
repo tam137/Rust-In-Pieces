@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.15.3] - 2026-06-10
+
+### Added
+- **Re-aligned Late Move Reductions (LMR) Divisor**:
+  - Restored the default `lmr_divisor` value to **180** (up from **148** / **150**) in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L279).
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L283) for consistency.
+  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) and [server_parameters.json](file:///home/tam137/git/suprah/tuning/server_parameters.json#L308) to **180**.
+  - Reset the active SPSA optimization state in [spsa_state_remote.json](file:///home/tam137/git/suprah/tuning/spsa_state_remote.json#L65) to **180.0** and cleared its momentum `m` to **0.0**.
+  - **Search & Performance Impact**:
+    - Re-establishes the optimal LMR scaling factor from `v0.14.1` (where the engine scored a peak 58.3% win rate).
+    - Ensures search tree reductions are appropriately scaled, preventing search depth degradation.
+
+### Performance & ELO Validation
+- **Louguet Chess Test II Scoreboard**:
+  - Estimated tactical/positional rating of **2110 ELO** on the Louguet Chess Test II, solving **7 / 35 positions** (scoring **210 points**).
+  - Category performance: Positional (3/14), Tactical (2/12), Endgame (2/9).
+
+### Fixed
+
+
+
 ## [V0.15.2] - 2026-06-09
 
 ### Added
