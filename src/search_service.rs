@@ -35,8 +35,6 @@ impl SearchService {
                 
         let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
         let zobrist_table = &*current_zobrist_table;
-        let current_pawn_table = engine_state.pawn_table.read().unwrap().clone();
-        let pawn_table = &*current_pawn_table;
         let stop_flag = &engine_state.stop_flag;
         let pv_nodes = &engine_state.pv_nodes;
 
@@ -46,7 +44,6 @@ impl SearchService {
 
         let mut context = SearchContext {
             zobrist_table,
-            pawn_table,
             stop_flag,
             pv_nodes,
             killer_moves: [None; 2],
@@ -145,7 +142,6 @@ impl SearchService {
 
                 let child_context = SearchContext {
                     zobrist_table: context.zobrist_table,
-                    pawn_table: context.pawn_table,
                     stop_flag: context.stop_flag,
                     pv_nodes: context.pv_nodes,
                     killer_moves: killer_moves[1],
@@ -531,7 +527,7 @@ impl SearchService {
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, Some(context.pawn_table), i16::MIN, i16::MAX);
+            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, i16::MIN, i16::MAX);
             let margin = 80 * depth as i16;
             
             if white {
@@ -552,7 +548,6 @@ impl SearchService {
         // SearchContext for current ply with specific killer moves and counter move
         let current_context = SearchContext {
             zobrist_table: context.zobrist_table,
-            pawn_table: context.pawn_table,
             stop_flag: context.stop_flag,
             pv_nodes: context.pv_nodes,
             killer_moves: if (0..128).contains(&ply) { killer_moves[ply as usize] } else { [None; 2] },
@@ -574,7 +569,7 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, Some(context.pawn_table), alpha, beta);
+                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, alpha, beta);
                 eval = stand_pat;
                 if config.use_zobrist {
                     context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
@@ -1038,7 +1033,6 @@ mod tests {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
-            pawn_table: std::sync::RwLock::new(Arc::new(crate::pawn_hash::PawnHashTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
@@ -1194,7 +1188,6 @@ mod tests {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
-            pawn_table: std::sync::RwLock::new(Arc::new(crate::pawn_hash::PawnHashTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),

@@ -114,7 +114,7 @@ pub struct Config {
     pub king_in_double_check_malus: i16,
 
     pub rook_on_seventh: i16,
-    pub max_pawn_hash_entries: usize,
+
     pub lazy_eval_margin: i16,
     pub enable_lazy_eval: bool,
     pub king_danger_weight_1: i16,
@@ -263,7 +263,7 @@ impl Config {
             king_in_double_check_malus: 337,
 
             rook_on_seventh: 33,
-            max_pawn_hash_entries: 524_288,
+
             lazy_eval_margin: 250,
             enable_lazy_eval: true,
             king_danger_weight_1: 10,

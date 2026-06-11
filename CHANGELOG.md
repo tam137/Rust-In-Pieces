@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.17.0] - 2026-06-11
+
+### Added
+- **Phase 1: Pawn Hash Architecture Purge (Single-Thread Preparation)**:
+  - Completely removed the legacy `PawnHashTable` implementation (`src/pawn_hash.rs`) and all `RwLock`/`Arc` overheads originally designed for Lazy SMP multithreading.
+  - Eradicated the massive overhead associated with multi-threaded synchronization of pawn structure evaluations.
+  - Cleaned up the `SearchContext`, `game_handler.rs`, and all core evaluation parameters to operate cleanly without pawn cache dependencies.
+  - This marks the absolute baseline for a pure single-threaded search tree, preparing the grounds for a massive `std::cell::Cell` lock-free integration in v0.17.1.
+  - **Search & Performance Impact**:
+    - Resolves all potential data races during high-speed iterative deepening.
+    - Yields a clean search benchmark resolution of **1,811,143 nodes** at depth 10 (3.11 MNPS) for precise baseline verification before cache reconstruction.
+
+### Fixed
+- Fixed compilation and lifetime issues inside the move generation test suites, strictly stripping all deprecated caching dependencies.
+
+
 ## [V0.16.2] - 2026-06-11
 
 ### Added

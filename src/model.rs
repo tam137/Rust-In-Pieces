@@ -18,7 +18,7 @@ pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub zobrist_table: std::sync::RwLock<std::sync::Arc<ZobristTable>>,
-    pub pawn_table: std::sync::RwLock<std::sync::Arc<crate::pawn_hash::PawnHashTable>>,
+
     pub pv_nodes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Turn>>>,
     pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
     pub logger: std::sync::Arc<std::sync::RwLock<LoggerFn>>,
@@ -27,7 +27,7 @@ pub struct EngineState {
 
 pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
-    pub pawn_table: &'a crate::pawn_hash::PawnHashTable,
+
     pub stop_flag: &'a AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
