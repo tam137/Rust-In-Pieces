@@ -123,7 +123,7 @@ impl EvalService {
         ];
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, alpha: i16, beta: i16) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
         let mut scaled_config;
         let config = if config.aggressiveness == crate::config::Aggressiveness::Normal {
             config
@@ -162,44 +162,71 @@ impl EvalService {
         // Pawn structure evaluation and caching
         let mut white_passed_pawns = 0u64;
         let mut black_passed_pawns = 0u64;
-        let mut pawn_mg = 0;
-        let mut pawn_eg = 0;
 
         let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
-            while temp_w != 0 {
-                let sq = temp_w.trailing_zeros() as u8;
-                if self.is_white_passed_pawn(sq, board) {
-                    white_passed_pawns |= 1u64 << sq;
-                }
-                temp_w &= temp_w - 1;
+        while temp_w != 0 {
+            let sq = temp_w.trailing_zeros() as u8;
+            if self.is_white_passed_pawn(sq, board) {
+                white_passed_pawns |= 1u64 << sq;
             }
-            let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
-            while temp_b != 0 {
-                let sq = temp_b.trailing_zeros() as u8;
-                if self.is_black_passed_pawn(sq, board) {
-                    black_passed_pawns |= 1u64 << sq;
-                }
-                temp_b &= temp_b - 1;
+            temp_w &= temp_w - 1;
+        }
+        let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
+        while temp_b != 0 {
+            let sq = temp_b.trailing_zeros() as u8;
+            if self.is_black_passed_pawn(sq, board) {
+                black_passed_pawns |= 1u64 << sq;
             }
+            temp_b &= temp_b - 1;
+        }
 
+        let mut struct_mg = 0;
+        let mut struct_eg = 0;
+
+        if let Some((cached_mg, cached_eg)) = pawn_table.get(board.pawn_key) {
+            struct_mg = cached_mg;
+            struct_eg = cached_eg;
+        } else {
             let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
             while temp_w != 0 {
                 let sq = temp_w.trailing_zeros() as u8;
-                let (mg, eg) = self.white_pawn_score(sq, board, config, white_passed_pawns);
-                pawn_mg += mg;
-                pawn_eg += eg;
+                let (mg, eg) = self.white_pawn_structure_score(sq, board, config, white_passed_pawns);
+                struct_mg += mg;
+                struct_eg += eg;
                 temp_w &= temp_w - 1;
             }
             let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
             while temp_b != 0 {
                 let sq = temp_b.trailing_zeros() as u8;
-                let (mg, eg) = self.black_pawn_score(sq, board, config, black_passed_pawns);
-                pawn_mg += mg;
-                pawn_eg += eg;
+                let (mg, eg) = self.black_pawn_structure_score(sq, board, config, black_passed_pawns);
+                struct_mg += mg;
+                struct_eg += eg;
                 temp_b &= temp_b - 1;
             }
+            pawn_table.store(board.pawn_key, struct_mg, struct_eg);
+        }
 
-        eval += self.calculate_weighted_eval(pawn_mg, pawn_eg, game_phase);
+        // Add dynamic pawn scores (King proximity, attacks/defenses)
+        let mut dyn_mg = 0;
+        let mut dyn_eg = 0;
+        let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
+        while temp_w != 0 {
+            let sq = temp_w.trailing_zeros() as u8;
+            let (mg, eg) = self.white_pawn_dynamic_score(sq, board, config, white_passed_pawns);
+            dyn_mg += mg;
+            dyn_eg += eg;
+            temp_w &= temp_w - 1;
+        }
+        let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
+        while temp_b != 0 {
+            let sq = temp_b.trailing_zeros() as u8;
+            let (mg, eg) = self.black_pawn_dynamic_score(sq, board, config, black_passed_pawns);
+            dyn_mg += mg;
+            dyn_eg += eg;
+            temp_b &= temp_b - 1;
+        }
+
+        eval += self.calculate_weighted_eval(struct_mg + dyn_mg, struct_eg + dyn_eg, game_phase);
 
         // Lazy Evaluation Pruning
         if config.enable_lazy_eval {
@@ -458,7 +485,7 @@ impl EvalService {
         eval
     }
 
-    fn white_pawn_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
+    fn white_pawn_structure_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -466,17 +493,9 @@ impl EvalService {
         let file = sq % 8;
         
         let moves_until_promote = 7 - rank;
-        let on_rank = rank + 1;
+        let _on_rank = rank + 1;
 
-        if (3..=5).contains(&on_rank) {
-            let white_knights = board.bitboards[crate::model::WHITE_KNIGHT];
-            let has_white_knight_support =
-                (file > 0 && ((1u64 << (sq + 7)) & white_knights) != 0) ||
-                (file < 7 && ((1u64 << (sq + 9)) & white_knights) != 0);
-            if has_white_knight_support {
-                o_eval += config.pawn_supports_knight_outpost;
-            }
-        }
+
 
         if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
             o_eval += config.pawn_centered;
@@ -502,32 +521,13 @@ impl EvalService {
             o_eval += config.pawn_structure;
         }
 
-        let white_bishops = board.bitboards[crate::model::WHITE_BISHOP];
-        if (file < 7 && ((1u64 << (sq + 9)) & white_bishops) != 0) ||
-           (file > 0 && ((1u64 << (sq + 7)) & white_bishops) != 0) {
-            e_eval += config.pawn_defends_bishop;
-        }
+
 
         if moves_until_promote >= 5 && (file == 3 || file == 4) {
             o_eval -= config.pawn_undeveloped_malus;
         }
 
-        let black_non_pawns = board.bitboards[crate::model::BLACK_ROOK] |
-                              board.bitboards[crate::model::BLACK_KNIGHT] |
-                              board.bitboards[crate::model::BLACK_BISHOP] |
-                              board.bitboards[crate::model::BLACK_QUEEN] |
-                              board.bitboards[crate::model::BLACK_KING];
-        let attacked_by_pawn =
-            (file < 7 && ((1u64 << (sq + 9)) & black_non_pawns) != 0) ||
-            (file > 0 && ((1u64 << (sq + 7)) & black_non_pawns) != 0);
-        if attacked_by_pawn {
-            o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move {
-                config.pawn_attacks_opponent_fig_with_tempo
-            } else {
-                0 
-            };
-            e_eval += config.pawn_attacks_opponent_fig / 2;
-        }
+
 
         let front_mask = (0x0101010101010101u64 << file) & !((1u64 << (sq + 1)) - 1);
         let has_doubled_pawn = (white_pawns & front_mask) != 0;
@@ -554,22 +554,7 @@ impl EvalService {
                 e_eval += config.protected_passed_pawn_endgame;
             }
 
-            // King proximity to own/opponent passed pawns in endgame
-            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
-            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
-            let wk_rank = white_king_sq / 8;
-            let wk_file = white_king_sq % 8;
-            let bk_rank = black_king_sq / 8;
-            let bk_file = black_king_sq % 8;
-            
-            let dist_to_own_king = (rank - wk_rank).abs().max((file - wk_file).abs());
-            let dist_to_opp_king = (rank - bk_rank).abs().max((file - bk_file).abs());
-            
-            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
-            e_eval += own_k_bonus;
-            
-            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
-            e_eval -= opp_k_malus;
+
 
             e_eval += bonus;
             o_eval += bonus / 3;
@@ -592,7 +577,7 @@ impl EvalService {
         (o_eval, e_eval)
     }
 
-    fn black_pawn_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
+    fn black_pawn_structure_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -601,15 +586,7 @@ impl EvalService {
         
         let moves_until_promote = rank;
 
-        if (3..=5).contains(&rank) {
-            let black_knights = board.bitboards[crate::model::BLACK_KNIGHT];
-            let has_black_knight_support =
-                (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_knights) != 0) ||
-                (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_knights) != 0);
-            if has_black_knight_support {
-                o_eval -= config.pawn_supports_knight_outpost;
-            }
-        }
+
 
         if sq == 27 || sq == 28 || sq == 35 || sq == 36 {
             o_eval -= config.pawn_centered;
@@ -635,32 +612,13 @@ impl EvalService {
             o_eval -= config.pawn_structure;
         }
 
-        let black_bishops = board.bitboards[crate::model::BLACK_BISHOP];
-        if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_bishops) != 0) ||
-           (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_bishops) != 0) {
-            e_eval -= config.pawn_defends_bishop;
-        }
+
 
         if moves_until_promote >= 5 && (file == 3 || file == 4) {
             o_eval += config.pawn_undeveloped_malus;
         }
 
-        let white_non_pawns = board.bitboards[crate::model::WHITE_ROOK] |
-                              board.bitboards[crate::model::WHITE_KNIGHT] |
-                              board.bitboards[crate::model::WHITE_BISHOP] |
-                              board.bitboards[crate::model::WHITE_QUEEN] |
-                              board.bitboards[crate::model::WHITE_KING];
-        let attacked_by_pawn =
-            (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & white_non_pawns) != 0) ||
-            (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & white_non_pawns) != 0);
-        if attacked_by_pawn {
-            o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move {
-                config.pawn_attacks_opponent_fig_with_tempo
-            } else {
-                0
-            };
-            e_eval -= config.pawn_attacks_opponent_fig / 2;
-        }
+
 
         let back_mask = (0x0101010101010101u64 << file) & ((1u64 << sq) - 1);
         let has_doubled_pawn = (black_pawns & back_mask) != 0;
@@ -687,22 +645,7 @@ impl EvalService {
                 e_eval -= config.protected_passed_pawn_endgame;
             }
 
-            // King proximity to own/opponent passed pawns in endgame
-            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
-            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
-            let wk_rank = white_king_sq / 8;
-            let wk_file = white_king_sq % 8;
-            let bk_rank = black_king_sq / 8;
-            let bk_file = black_king_sq % 8;
-            
-            let dist_to_own_king = (rank - bk_rank).abs().max((file - bk_file).abs());
-            let dist_to_opp_king = (rank - wk_rank).abs().max((file - wk_file).abs());
-            
-            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
-            e_eval -= own_k_bonus;
-            
-            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
-            e_eval += opp_k_malus;
+
 
             e_eval -= bonus;
             o_eval -= bonus / 3;
@@ -1478,8 +1421,132 @@ impl EvalService {
         false
     }
 
-}
 
+    fn white_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
+        let mut o_eval = 0;
+        let mut e_eval = 0;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
+        let on_rank = rank + 1;
+
+        if (3..=5).contains(&on_rank) {
+            let white_knights = board.bitboards[crate::model::WHITE_KNIGHT];
+            let has_white_knight_support =
+                (file > 0 && ((1u64 << (sq + 7)) & white_knights) != 0) ||
+                (file < 7 && ((1u64 << (sq + 9)) & white_knights) != 0);
+            if has_white_knight_support {
+                o_eval += config.pawn_supports_knight_outpost;
+            }
+        }
+
+        let white_bishops = board.bitboards[crate::model::WHITE_BISHOP];
+        if (file < 7 && ((1u64 << (sq + 9)) & white_bishops) != 0) ||
+           (file > 0 && ((1u64 << (sq + 7)) & white_bishops) != 0) {
+            e_eval += config.pawn_defends_bishop;
+        }
+
+        let black_non_pawns = board.bitboards[crate::model::BLACK_ROOK] |
+                              board.bitboards[crate::model::BLACK_KNIGHT] |
+                              board.bitboards[crate::model::BLACK_BISHOP] |
+                              board.bitboards[crate::model::BLACK_QUEEN] |
+                              board.bitboards[crate::model::BLACK_KING];
+        let attacked_by_pawn =
+            (file < 7 && ((1u64 << (sq + 9)) & black_non_pawns) != 0) ||
+            (file > 0 && ((1u64 << (sq + 7)) & black_non_pawns) != 0);
+        if attacked_by_pawn {
+            o_eval += config.pawn_attacks_opponent_fig + if board.white_to_move {
+                config.pawn_attacks_opponent_fig_with_tempo
+            } else {
+                0 
+            };
+            e_eval += config.pawn_attacks_opponent_fig / 2;
+        }
+
+        let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
+        if is_passed {
+            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+            let wk_rank = white_king_sq / 8;
+            let wk_file = white_king_sq % 8;
+            let bk_rank = black_king_sq / 8;
+            let bk_file = black_king_sq % 8;
+            
+            let dist_to_own_king = (rank - wk_rank).abs().max((file - wk_file).abs());
+            let dist_to_opp_king = (rank - bk_rank).abs().max((file - bk_file).abs());
+            
+            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
+            e_eval += own_k_bonus;
+            
+            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
+            e_eval -= opp_k_malus;
+        }
+
+        (o_eval, e_eval)
+    }
+
+    fn black_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
+        let mut o_eval = 0;
+        let mut e_eval = 0;
+        let sq = sq as i32;
+        let rank = sq / 8;
+        let file = sq % 8;
+
+        if (3..=5).contains(&rank) {
+            let black_knights = board.bitboards[crate::model::BLACK_KNIGHT];
+            let has_black_knight_support =
+                (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_knights) != 0) ||
+                (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_knights) != 0);
+            if has_black_knight_support {
+                o_eval -= config.pawn_supports_knight_outpost;
+            }
+        }
+
+        let black_bishops = board.bitboards[crate::model::BLACK_BISHOP];
+        if (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & black_bishops) != 0) ||
+           (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & black_bishops) != 0) {
+            e_eval -= config.pawn_defends_bishop;
+        }
+
+        let white_non_pawns = board.bitboards[crate::model::WHITE_ROOK] |
+                              board.bitboards[crate::model::WHITE_KNIGHT] |
+                              board.bitboards[crate::model::WHITE_BISHOP] |
+                              board.bitboards[crate::model::WHITE_QUEEN] |
+                              board.bitboards[crate::model::WHITE_KING];
+        let attacked_by_pawn =
+            (file > 0 && sq >= 9 && ((1u64 << (sq - 9)) & white_non_pawns) != 0) ||
+            (file < 7 && sq >= 7 && ((1u64 << (sq - 7)) & white_non_pawns) != 0);
+        if attacked_by_pawn {
+            o_eval -= config.pawn_attacks_opponent_fig + if !board.white_to_move {
+                config.pawn_attacks_opponent_fig_with_tempo
+            } else {
+                0
+            };
+            e_eval -= config.pawn_attacks_opponent_fig / 2;
+        }
+
+        let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
+        if is_passed {
+            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+            let wk_rank = white_king_sq / 8;
+            let wk_file = white_king_sq % 8;
+            let bk_rank = black_king_sq / 8;
+            let bk_file = black_king_sq % 8;
+            
+            let dist_to_own_king = (rank - bk_rank).abs().max((file - bk_file).abs());
+            let dist_to_opp_king = (rank - wk_rank).abs().max((file - wk_file).abs());
+            
+            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
+            e_eval -= own_k_bonus;
+            
+            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
+            e_eval += opp_k_malus;
+        }
+
+        (o_eval, e_eval)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1546,16 +1613,16 @@ mod tests {
         let config = &Config::new();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval1 = eval_service.calc_eval(&board, config, movegen, i16::MIN, i16::MAX);
+        let eval1 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
-        let eval2 = eval_service.calc_eval(&board, config, movegen, i16::MIN, i16::MAX);
+        let eval2 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval3 = eval_service.calc_eval(&board, config, movegen, i16::MIN, i16::MAX);
+        let eval3 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
-        let eval4 = eval_service.calc_eval(&board, config, movegen, i16::MIN, i16::MAX);
+        let eval4 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
         println!("{}", eval1);
         println!("{}", eval2);
@@ -1668,8 +1735,8 @@ mod tests {
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
-        let eval1 = eval.calc_eval(&board1, &config, &movegen, i16::MIN, i16::MAX);
-        let eval2 = eval.calc_eval(&board2, &config, &movegen, i16::MIN, i16::MAX);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
         println!("FIB: eval1={} eval2={} diff={} | fen1='{}' fen2='{}'", eval1, eval2, eval1 - eval2, fen1, fen2);
 
@@ -1687,7 +1754,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, i16::MIN, i16::MAX);
+        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         assert!(eval.abs() <= 10, "Eval {} is not close to 0", eval);
     }
 
@@ -1699,7 +1766,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, i16::MIN, i16::MAX);
+        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
@@ -1713,7 +1780,7 @@ mod tests {
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();
         config.print_eval_per_figure = true;
-        eval_service.calc_eval(board, &config, &movegen, i16::MIN, i16::MAX);
+        eval_service.calc_eval(board, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         println!("------------");
     }
 
@@ -1729,7 +1796,7 @@ mod tests {
         let mut config_normal = Config::new();
         config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
-        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, i16::MIN, i16::MAX);
+        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 150 + (1000 - 150) / 5 = 150 + 170 = 320
         assert_eq!(eval_normal, 320, "Normal aggressiveness eval should be soft capped at 320");
 
@@ -1737,7 +1804,7 @@ mod tests {
         let mut config_aggressive = Config::new();
         config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
         config_aggressive.your_turn_bonus = 1000;
-        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, i16::MIN, i16::MAX);
+        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 250 + (1000 - 250) / 5 = 250 + 150 = 400
         assert_eq!(eval_aggressive, 400, "Aggressive eval should be soft capped at 400");
 
@@ -1745,7 +1812,7 @@ mod tests {
         let mut config_high = Config::new();
         config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
         config_high.your_turn_bonus = 1000;
-        let eval_high = eval_service.calc_eval(&board, &config_high, movegen, i16::MIN, i16::MAX);
+        let eval_high = eval_service.calc_eval(&board, &config_high, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 400 + (1000 - 400) / 5 = 400 + 120 = 520
         assert_eq!(eval_high, 520, "High aggressive eval should be soft capped at 520");
     }
@@ -1763,11 +1830,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.connected_passed_pawn_mg = 50;
             config.connected_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.connected_passed_pawn_mg = 0;
             config.connected_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
             
             // Expected bonus: 2 connected pawns, each gets EG bonus (100) = 200 total
             let diff = eval_with - eval_without;
@@ -1782,11 +1849,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             // Phase = 1 (1 Knight = 1/24 * 255 = 10) -> mostly endgame (eg weight is 246/256)
             // Expected bonus: weighted outpost bonus ~ 30
@@ -1797,11 +1864,11 @@ mod tests {
             let board_att = fen_service.set_fen("8/8/8/8/2NP4/k7/8/K7 w - - 0 1");
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen, i16::MIN, i16::MAX);
+            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen, i16::MIN, i16::MAX);
+            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             let diff_att = eval_with_att - eval_without_att;
             assert!(diff_att >= 25 && diff_att <= 35, "True outpost control bonus not applied correctly, diff={}", diff_att);
@@ -1821,15 +1888,15 @@ mod tests {
             let board_qs_mg = fen_service.set_fen("q7/8/8/8/8/k7/PPP5/2K3Q1 w - - 0 1");
 
             // Evaluate with shields active
-            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen, i16::MIN, i16::MAX);
-            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen, i16::MIN, i16::MAX);
+            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.king_pawn_shield_kingside = 0;
             config.king_pawn_shield_queenside = 0;
 
             // Evaluate without shields
-            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen, i16::MIN, i16::MAX);
-            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen, i16::MIN, i16::MAX);
+            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             let ks_diff = eval_ks - eval_ks_no;
             let qs_diff = eval_qs - eval_qs_no;
@@ -1844,10 +1911,10 @@ mod tests {
             config.max_eval_mult = 1.0;
             
             config.opposite_bishops_draw_scale = 100;
-            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.opposite_bishops_draw_scale = 50;
-            let eval_scaled = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_scaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             assert_eq!(eval_scaled, eval_unscaled / 2, "Opposite-colored bishops endgame evaluation not scaled correctly");
         }
@@ -1860,11 +1927,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.rook_behind_enemy_passed_pawn_mg = 50;
             config.rook_behind_enemy_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             config.rook_behind_enemy_passed_pawn_mg = 0;
             config.rook_behind_enemy_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
 
             // phase is 2 rooks = 4/24 * 255 = 42 -> mostly endgame
             let diff = eval_with - eval_without;
