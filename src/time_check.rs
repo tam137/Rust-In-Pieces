@@ -40,18 +40,20 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
 
     let history_table = [[0u32; 64]; 64];
     let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
+    let current_pawn_table = engine_state.pawn_table.read().unwrap().clone();
     let context = crate::model::SearchContext {
         zobrist_table: &current_zobrist_table,
+        pawn_table: &current_pawn_table,
         stop_flag: &engine_state.stop_flag,
         pv_nodes: &engine_state.pv_nodes,
         killer_moves: [None; 2],
         history_table: &history_table,
         counter_move: None,
-    start_time: std::time::Instant::now(),
-                            target_time: None,
-                            root_moves_total: 0,
-                            root_moves_searched: 0,
-                        };
+        start_time: std::time::Instant::now(),
+        target_time: None,
+        root_moves_total: 0,
+        root_moves_searched: 0,
+    };
 
     println!("expected <10µs");
     let mut board = time_it!(service.fen.set_fen("r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8"));
@@ -89,7 +91,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
     time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, true, false, &mut move_list3));
 
     println!("\nexpected ~2.5µs");
-    time_it!(service.eval.calc_eval(&board, config, &service.move_gen));
+    time_it!(service.eval.calc_eval(&board, config, &service.move_gen, Some(&current_pawn_table), i16::MIN, i16::MAX));
 
     println!("\nexpected <1000ns");
     let board = service.fen.set_fen("r1q2r1k/1pp1bpp1/p2p1n2/4P2p/2Q2B2/2N4P/PPPR1PP1/3R2K1 b - - 3 16");

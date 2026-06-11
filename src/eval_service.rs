@@ -123,7 +123,7 @@ impl EvalService {
         ];
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: Option<&crate::pawn_hash::PawnHashTable>, alpha: i16, beta: i16) -> i16 {
         let mut scaled_config;
         let config = if config.aggressiveness == crate::config::Aggressiveness::Normal {
             config
@@ -159,24 +159,74 @@ impl EvalService {
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
-        // Precalculate passed pawns for connected passed pawns & Tarrasch rule
+        // Pawn structure evaluation and caching
         let mut white_passed_pawns = 0u64;
         let mut black_passed_pawns = 0u64;
-        let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
-        while temp_w != 0 {
-            let sq = temp_w.trailing_zeros() as u8;
-            if self.is_white_passed_pawn(sq, board) {
-                white_passed_pawns |= 1u64 << sq;
+        let mut pawn_mg = 0;
+        let mut pawn_eg = 0;
+        let mut cache_hit = false;
+
+        if let Some(tbl) = pawn_table {
+            if let Some(entry) = tbl.probe(board.pawn_key) {
+                pawn_mg = entry.mg_eval;
+                pawn_eg = entry.eg_eval;
+                white_passed_pawns = entry.white_passed;
+                black_passed_pawns = entry.black_passed;
+                cache_hit = true;
             }
-            temp_w &= temp_w - 1;
         }
-        let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
-        while temp_b != 0 {
-            let sq = temp_b.trailing_zeros() as u8;
-            if self.is_black_passed_pawn(sq, board) {
-                black_passed_pawns |= 1u64 << sq;
+
+        if !cache_hit {
+            let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
+            while temp_w != 0 {
+                let sq = temp_w.trailing_zeros() as u8;
+                if self.is_white_passed_pawn(sq, board) {
+                    white_passed_pawns |= 1u64 << sq;
+                }
+                temp_w &= temp_w - 1;
             }
-            temp_b &= temp_b - 1;
+            let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
+            while temp_b != 0 {
+                let sq = temp_b.trailing_zeros() as u8;
+                if self.is_black_passed_pawn(sq, board) {
+                    black_passed_pawns |= 1u64 << sq;
+                }
+                temp_b &= temp_b - 1;
+            }
+
+            let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
+            while temp_w != 0 {
+                let sq = temp_w.trailing_zeros() as u8;
+                let (mg, eg) = self.white_pawn_score(sq, board, config, white_passed_pawns);
+                pawn_mg += mg;
+                pawn_eg += eg;
+                temp_w &= temp_w - 1;
+            }
+            let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
+            while temp_b != 0 {
+                let sq = temp_b.trailing_zeros() as u8;
+                let (mg, eg) = self.black_pawn_score(sq, board, config, black_passed_pawns);
+                pawn_mg += mg;
+                pawn_eg += eg;
+                temp_b &= temp_b - 1;
+            }
+
+            if let Some(tbl) = pawn_table {
+                tbl.store(board.pawn_key, pawn_mg, pawn_eg, white_passed_pawns, black_passed_pawns);
+            }
+        }
+
+        eval += self.calculate_weighted_eval(pawn_mg, pawn_eg, game_phase);
+
+        // Lazy Evaluation Pruning
+        if config.enable_lazy_eval {
+            let margin = config.lazy_eval_margin;
+            if eval + margin <= alpha {
+                return alpha;
+            }
+            if eval - margin >= beta {
+                return beta;
+            }
         }
 
         // Precalculate true outpost squares
@@ -214,13 +264,12 @@ impl EvalService {
             let sq = temp.trailing_zeros() as u8;
             let piece = board.get_piece_at(sq);
             let (eval_for_piece, attackers, danger) = match piece {
-                10 => self.white_pawn(sq, board, config, game_phase),
+                10 | 20 => (0, 0, 0), // Already calculated separately!
                 11 => self.white_rook(sq, board, config, game_phase, movegen, black_king_ring),
                 12 => self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts),
                 13 => self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts),
                 14 => self.white_queen(sq, board, config, game_phase, movegen, black_king_ring),
                 15 => self.white_king(sq, board, config, game_phase, movegen),
-                20 => self.black_pawn(sq, board, config, game_phase),
                 21 => self.black_rook(sq, board, config, game_phase, movegen, white_king_ring),
                 22 => self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts),
                 23 => self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts),
@@ -232,10 +281,10 @@ impl EvalService {
                 println!("{},\t{},\t{}", sq, piece, eval_for_piece);
             }
             eval += eval_for_piece;
-            if piece < 20 {
+            if piece < 20 && piece > 0 {
                 white_attackers += attackers;
                 white_king_danger += danger;
-            } else {
+            } else if piece >= 20 {
                 black_attackers += attackers;
                 black_king_danger += danger;
             }
@@ -243,8 +292,14 @@ impl EvalService {
         }
 
         // Apply King Danger Weights (Task 1.4)
-        // 0 -> 0%, 1 -> 10%, 2 -> 50%, 3 -> 100%, 4 -> 150%, 5+ -> 200%
-        let danger_weights = [0, 10, 50, 100, 150, 200];
+        let danger_weights = [
+            0,
+            config.king_danger_weight_1,
+            config.king_danger_weight_2,
+            config.king_danger_weight_3,
+            config.king_danger_weight_4,
+            config.king_danger_weight_5,
+        ];
         
         let mut white_defenders = 0;
         let mut black_defenders = 0;
@@ -420,7 +475,7 @@ impl EvalService {
         eval
     }
 
-    fn white_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> (i16, u8, i16) {
+    fn white_pawn_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -498,7 +553,8 @@ impl EvalService {
             e_eval -= config.pawn_double_malus;
         }
 
-        if self.is_white_passed_pawn(sq as u8, board) {
+        let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
+        if is_passed {
             let bonus = match rank {
                 1 => 10,
                 2 => 40,
@@ -532,8 +588,6 @@ impl EvalService {
             let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
             e_eval -= opp_k_malus;
 
-
-
             e_eval += bonus;
             o_eval += bonus / 3;
         }
@@ -552,11 +606,10 @@ impl EvalService {
             e_eval -= config.pawn_backward_malus + 10;
         }
 
-        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, 0, 0)
+        (o_eval, e_eval)
     }
 
-    fn black_pawn(&self, sq: u8, board: &Board, config: &Config, game_phase: i16) -> (i16, u8, i16) {
+    fn black_pawn_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -633,7 +686,8 @@ impl EvalService {
             e_eval += config.pawn_double_malus;
         }
 
-        if self.is_black_passed_pawn(sq as u8, board) {
+        let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
+        if is_passed {
             let bonus = match moves_until_promote {
                 6 => 10,
                 5 => 40,
@@ -667,8 +721,6 @@ impl EvalService {
             let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
             e_eval += opp_k_malus;
 
-
-
             e_eval -= bonus;
             o_eval -= bonus / 3;
         }
@@ -687,8 +739,7 @@ impl EvalService {
             e_eval += config.pawn_backward_malus + 10;
         }
 
-        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, 0, 0)
+        (o_eval, e_eval)
     }
 
     fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
@@ -1512,16 +1563,16 @@ mod tests {
         let config = &Config::new();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval1 = eval_service.calc_eval(&board, config, movegen);
+        let eval1 = eval_service.calc_eval(&board, config, movegen, None, i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
-        let eval2 = eval_service.calc_eval(&board, config, movegen);
+        let eval2 = eval_service.calc_eval(&board, config, movegen, None, i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval3 = eval_service.calc_eval(&board, config, movegen);
+        let eval3 = eval_service.calc_eval(&board, config, movegen, None, i16::MIN, i16::MAX);
 
         let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
-        let eval4 = eval_service.calc_eval(&board, config, movegen);
+        let eval4 = eval_service.calc_eval(&board, config, movegen, None, i16::MIN, i16::MAX);
 
         println!("{}", eval1);
         println!("{}", eval2);
@@ -1634,8 +1685,8 @@ mod tests {
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
-        let eval1 = eval.calc_eval(&board1, &config, &movegen);
-        let eval2 = eval.calc_eval(&board2, &config, &movegen);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen, None, i16::MIN, i16::MAX);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen, None, i16::MIN, i16::MAX);
 
         println!("FIB: eval1={} eval2={} diff={} | fen1='{}' fen2='{}'", eval1, eval2, eval1 - eval2, fen1, fen2);
 
@@ -1653,7 +1704,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen);
+        let eval = eval_service.calc_eval(board, config, &movegen, None, i16::MIN, i16::MAX);
         assert!(eval.abs() <= 10, "Eval {} is not close to 0", eval);
     }
 
@@ -1665,7 +1716,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen);
+        let eval = eval_service.calc_eval(board, config, &movegen, None, i16::MIN, i16::MAX);
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
@@ -1679,7 +1730,7 @@ mod tests {
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();
         config.print_eval_per_figure = true;
-        eval_service.calc_eval(board, &config, &movegen);
+        eval_service.calc_eval(board, &config, &movegen, None, i16::MIN, i16::MAX);
         println!("------------");
     }
 
@@ -1695,7 +1746,7 @@ mod tests {
         let mut config_normal = Config::new();
         config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
-        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen);
+        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, None, i16::MIN, i16::MAX);
         // Soft cap calculation: 150 + (1000 - 150) / 5 = 150 + 170 = 320
         assert_eq!(eval_normal, 320, "Normal aggressiveness eval should be soft capped at 320");
 
@@ -1703,7 +1754,7 @@ mod tests {
         let mut config_aggressive = Config::new();
         config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
         config_aggressive.your_turn_bonus = 1000;
-        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen);
+        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, None, i16::MIN, i16::MAX);
         // Soft cap calculation: 250 + (1000 - 250) / 5 = 250 + 150 = 400
         assert_eq!(eval_aggressive, 400, "Aggressive eval should be soft capped at 400");
 
@@ -1711,7 +1762,7 @@ mod tests {
         let mut config_high = Config::new();
         config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
         config_high.your_turn_bonus = 1000;
-        let eval_high = eval_service.calc_eval(&board, &config_high, movegen);
+        let eval_high = eval_service.calc_eval(&board, &config_high, movegen, None, i16::MIN, i16::MAX);
         // Soft cap calculation: 400 + (1000 - 400) / 5 = 400 + 120 = 520
         assert_eq!(eval_high, 520, "High aggressive eval should be soft capped at 520");
     }
@@ -1729,11 +1780,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.connected_passed_pawn_mg = 50;
             config.connected_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.connected_passed_pawn_mg = 0;
             config.connected_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
             
             // Expected bonus: 2 connected pawns, each gets EG bonus (100) = 200 total
             let diff = eval_with - eval_without;
@@ -1748,11 +1799,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             // Phase = 1 (1 Knight = 1/24 * 255 = 10) -> mostly endgame (eg weight is 246/256)
             // Expected bonus: weighted outpost bonus ~ 30
@@ -1763,11 +1814,11 @@ mod tests {
             let board_att = fen_service.set_fen("8/8/8/8/2NP4/k7/8/K7 w - - 0 1");
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen);
+            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen);
+            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen, None, i16::MIN, i16::MAX);
 
             let diff_att = eval_with_att - eval_without_att;
             assert!(diff_att >= 25 && diff_att <= 35, "True outpost control bonus not applied correctly, diff={}", diff_att);
@@ -1787,15 +1838,15 @@ mod tests {
             let board_qs_mg = fen_service.set_fen("q7/8/8/8/8/k7/PPP5/2K3Q1 w - - 0 1");
 
             // Evaluate with shields active
-            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen);
-            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen);
+            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen, None, i16::MIN, i16::MAX);
+            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.king_pawn_shield_kingside = 0;
             config.king_pawn_shield_queenside = 0;
 
             // Evaluate without shields
-            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen);
-            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen);
+            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen, None, i16::MIN, i16::MAX);
+            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen, None, i16::MIN, i16::MAX);
 
             let ks_diff = eval_ks - eval_ks_no;
             let qs_diff = eval_qs - eval_qs_no;
@@ -1810,10 +1861,10 @@ mod tests {
             config.max_eval_mult = 1.0;
             
             config.opposite_bishops_draw_scale = 100;
-            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen);
+            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.opposite_bishops_draw_scale = 50;
-            let eval_scaled = eval_service.calc_eval(&board, &config, movegen);
+            let eval_scaled = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             assert_eq!(eval_scaled, eval_unscaled / 2, "Opposite-colored bishops endgame evaluation not scaled correctly");
         }
@@ -1826,11 +1877,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.rook_behind_enemy_passed_pawn_mg = 50;
             config.rook_behind_enemy_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             config.rook_behind_enemy_passed_pawn_mg = 0;
             config.rook_behind_enemy_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, None, i16::MIN, i16::MAX);
 
             // phase is 2 rooks = 4/24 * 255 = 42 -> mostly endgame
             let diff = eval_with - eval_without;

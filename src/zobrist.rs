@@ -250,6 +250,27 @@ pub fn gen_hash(board: &Board) -> u64 {
     hash
 }
 
+pub fn gen_pawn_hash(board: &Board) -> u64 {
+    let mut hash = 0u64;
+    let mut wp = board.bitboards[crate::model::WHITE_PAWN];
+    while wp != 0 {
+        let square = wp.trailing_zeros() as usize;
+        hash ^= ZOBRIST_TABLE[square][crate::model::WHITE_PAWN];
+        wp &= wp - 1;
+    }
+    let mut bp = board.bitboards[crate::model::BLACK_PAWN];
+    while bp != 0 {
+        let square = bp.trailing_zeros() as usize;
+        hash ^= ZOBRIST_TABLE[square][crate::model::BLACK_PAWN];
+        bp &= bp - 1;
+    }
+    hash
+}
+
+pub fn get_zobrist_val(square: usize, piece_idx: usize) -> u64 {
+    ZOBRIST_TABLE[square][piece_idx]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

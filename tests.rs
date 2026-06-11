@@ -8,8 +8,10 @@ fn test_my_bug_fen() {
     let stop = std::sync::atomic::AtomicBool::new(false);
     let pv = std::sync::Mutex::new(std::collections::HashMap::new());
     let history = [[0u32; 64]; 64];
+    let pawn_table = suprah::pawn_hash::PawnHashTable::with_capacity(1);
     let ctx = suprah::model::SearchContext {
         zobrist_table: &z,
+        pawn_table: &pawn_table,
         stop_flag: &stop,
         pv_nodes: &pv,
         killer_moves: [None; 2],

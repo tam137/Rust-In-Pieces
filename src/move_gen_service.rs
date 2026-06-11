@@ -981,11 +981,13 @@ mod tests {
         let service = Service::new();
                 let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
@@ -1006,11 +1008,13 @@ mod tests {
         let service = Service::new();
                 let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
@@ -1377,10 +1381,12 @@ mod tests {
         let pv_nodes = Mutex::new(pv_nodes_map);
 
         let zobrist_table = ZobristTable::with_capacity(1_000);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
@@ -1407,11 +1413,13 @@ mod tests {
         let config = Config::for_tests();
         
         let zobrist_table = ZobristTable::with_capacity(1_000);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
@@ -1558,11 +1566,13 @@ mod tests {
         config.use_underpromotions = true;
         
                 let zobrist_table = ZobristTable::with_capacity(1);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
@@ -1607,11 +1617,13 @@ mod tests {
         let move_gen_service = service.move_gen;
         let config = Config::for_tests();
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
+        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
+            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
