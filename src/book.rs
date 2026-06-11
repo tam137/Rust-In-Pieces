@@ -388,13 +388,11 @@ mod tests {
         
         let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
-        let pawn_table = crate::pawn_hash::PawnHashTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
         let history_table = [[0u32; 64]; 64];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
-            pawn_table: &pawn_table,
             stop_flag: &stop_flag,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
