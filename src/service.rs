@@ -5,6 +5,7 @@ use crate::move_gen_service::MoveGenService;
 use crate::search_service::SearchService;
 use crate::uci_parser_service::UciParserService;
 use crate::stdout_wrapper::StdoutWrapper;
+use crate::pawn_hash::PawnHashTable;
 
 pub struct Service {
     pub fen: FenService,
@@ -13,6 +14,7 @@ pub struct Service {
     pub eval: EvalService,
     pub stdout: StdoutWrapper,
     pub uci_parser: UciParserService,
+    pub pawn_table: PawnHashTable,
 }
 
 impl Service {
@@ -24,6 +26,7 @@ impl Service {
             eval: EvalService::new(&Config::new()),
             stdout: StdoutWrapper,
             uci_parser: UciParserService::new(),
+            pawn_table: PawnHashTable::new(Config::new().max_pawn_hash_entries),
         }
     }
 }

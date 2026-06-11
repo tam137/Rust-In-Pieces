@@ -11,6 +11,7 @@ mod move_gen_service;
 mod book;
 mod uci_parser_service;
 mod zobrist;
+pub mod pawn_hash;
 mod stdout_wrapper;
 mod threads;
 mod game_handler;

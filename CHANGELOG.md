@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.17.1] - 2026-06-11
+
+### Added
+- Sauberer Split der Pawn HashTable Logik (Statisch/Dynamisch)
+
+### Fixed
+
+
+
 ## [V0.17.0] - 2026-06-11
 
 ### Added
@@ -23,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ## [V0.16.2] - 2026-06-11
+
+> **Wichtiger Hinweis:** Die Versionen v0.16.0 bis v0.16.2 haben sich in Turnieren als 'buggy' und deutlich spielschwächer als ihre Vorgänger (insb. v0.15.3 und v0.14.0) erwiesen. Grund hierfür war das fehlerhafte dynamische Caching innerhalb der neuen Pawn HashTable (verursachte falsche Stellungsbewertungen). Die zugehörigen Git-Tags wurden entfernt, um unbeabsichtigte Re-Builds zu verhindern.
 
 ### Added
 - **Optimized Late Move Reductions (LMR) Divisor (225)**:
