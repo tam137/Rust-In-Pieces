@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.16.1] - 2026-06-11
+
+### Added
+- **Optimized Late Move Reductions (LMR) Divisor (205)**:
+  - Adjusted the default `lmr_divisor` value to **205** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L295).
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `205.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L299) for startup consistency.
+  - Aligned SPSA tuning variables to use 205 as base.
+  - **Search & Performance Impact**:
+    - Tests a softer LMR quiet move reduction scaling factor. Increasing the divisor to 205 results in slightly less aggressive depth reductions, which improves tactical safety in complex search branches by mitigating the risk of horizon-effect pruning errors.
+
+### Fixed
+
+
+
+
+
 ## [V0.16.0] - 2026-06-11
 
 ### Added
