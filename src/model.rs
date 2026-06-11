@@ -18,6 +18,7 @@ pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub zobrist_table: std::sync::RwLock<std::sync::Arc<ZobristTable>>,
+    pub pawn_table: std::sync::RwLock<std::sync::Arc<crate::pawn_hash::PawnHashTable>>,
     pub pv_nodes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Turn>>>,
     pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
     pub logger: std::sync::Arc<std::sync::RwLock<LoggerFn>>,
@@ -26,6 +27,7 @@ pub struct EngineState {
 
 pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
+    pub pawn_table: &'a crate::pawn_hash::PawnHashTable,
     pub stop_flag: &'a AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
@@ -286,6 +288,7 @@ impl MoveRawList {
 pub struct MoveInformation {
     pub castle_information: CastleInformation,
     pub hash: u64,
+    pub pawn_key: u64,
     pub en_passante: i8,
     pub capture: u8,
     pub moved_piece: u8,
@@ -295,10 +298,11 @@ pub struct MoveInformation {
 
 impl MoveInformation {
     // Constructor
-    pub fn new(castle_information: CastleInformation, hash: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16) -> Self {
+    pub fn new(castle_information: CastleInformation, hash: u64, pawn_key: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16) -> Self {
         MoveInformation {
             castle_information,
             hash,
+            pawn_key,
             en_passante,
             capture,
             moved_piece,
@@ -338,6 +342,7 @@ pub struct Board {
     pub game_status: GameStatus,
     pub move_repetition_map: HashMap<u64, i32>,
     pub cached_hash: u64,
+    pub pawn_key: u64,
     pub pst_mg: i16,
     pub pst_eg: i16,
     pub _white_king_on_board: bool,
@@ -401,7 +406,7 @@ impl Board {
             }
         }
 
-        Board {
+        let mut board = Board {
             bitboards,
             mailbox,
             white_pieces,
@@ -417,11 +422,14 @@ impl Board {
             game_status: GameStatus::Normal,
             move_repetition_map: HashMap::new(),
             cached_hash: 0,
+            pawn_key: 0,
             pst_mg,
             pst_eg,
             _white_king_on_board,
             _black_king_on_board,
-        }
+        };
+        board.pawn_key = zobrist::gen_pawn_hash(&board);
+        board
     }
 
     pub fn piece_to_bb_idx(piece: u8) -> usize {
@@ -474,6 +482,7 @@ impl Board {
         let old_field_for_en_passante = self.field_for_en_passante;
         let old_pst_mg = self.pst_mg;
         let old_pst_eg = self.pst_eg;
+        let old_pawn_key = self.pawn_key;
 
         let mut actual_capture = turn.capture;
         if actual_capture == 0 {
@@ -659,12 +668,32 @@ impl Board {
                 self.game_status = GameStatus::Draw;
             }
         }
-        MoveInformation::new(old_castle_information, self.cached_hash, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
+        // Update pawn key
+        let is_pawn = moved_piece == 10 || moved_piece == 20;
+        if is_pawn {
+            self.pawn_key ^= zobrist::get_zobrist_val(from as usize, moved_bb_idx);
+            if !turn.is_promotion() {
+                self.pawn_key ^= zobrist::get_zobrist_val(to as usize, moved_bb_idx);
+            }
+        }
+        if actual_capture == 10 || actual_capture == 20 {
+            let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante);
+            let capture_sq = if is_en_passant {
+                if !self.white_to_move { to - 8 } else { to + 8 }
+            } else {
+                to
+            };
+            let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
+            self.pawn_key ^= zobrist::get_zobrist_val(capture_sq as usize, capture_bb_idx);
+        }
+
+        MoveInformation::new(old_castle_information, self.cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
         self.cached_hash = 0;
+        self.pawn_key = move_information.pawn_key;
         self.pst_mg = move_information.old_pst_mg;
         self.pst_eg = move_information.old_pst_eg;
 
@@ -839,6 +868,7 @@ impl PartialEq for Board {
             self.move_count == other.move_count &&
             self.game_status == other.game_status &&
             self.bitboards == other.bitboards &&
+            self.pawn_key == other.pawn_key &&
             self.move_repetition_map == other.move_repetition_map
     }
 }

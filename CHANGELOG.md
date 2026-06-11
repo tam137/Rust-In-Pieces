@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.16.0] - 2026-06-11
+
+### Added
+- **Optimized Late Move Reductions (LMR) Divisor (190)**:
+  - Adjusted the default `lmr_divisor` value to **190** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L295).
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `190.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L299) for startup consistency.
+  - Aligned SPSA tuning variables to use 190 as base.
+  - **Search & Performance Impact**:
+    - Targets the optimal LMR scaling factor near the v0.14.0 baseline to prune quiet late moves efficiently without triggering unwanted search kaskades or boundary crossings.
+- **Pawn Hash Table Integration**:
+  - Implemented a thread-safe, lock-free `PawnHashTable` in `src/pawn_hash.rs` to cache evaluation values for pawn structures.
+  - Significantly reduces redundant static pawn evaluations across the search tree, freeing up CPU cycles for deeper positional searches.
+  - Integrated `pawn_table` lookup into `calc_eval` inside [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs) and passed it down the search tree via `SearchContext`.
+
+### Fixed
+
+
+
+
+
 ## [V0.15.3] - 2026-06-10
 
 ### Added
