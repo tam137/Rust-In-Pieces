@@ -13,6 +13,7 @@ pub struct Config {
     pub use_zobrist: bool,
     pub use_book: bool,
     pub max_zobrist_hash_entries: usize,
+    pub max_pawn_hash_entries: usize,
     pub search_depth: i32,
     pub max_depth: i32,
     pub truncate_bad_moves: usize,
@@ -163,6 +164,7 @@ impl Config {
             use_zobrist: true,
             use_book: true,
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
+            max_pawn_hash_entries: 1_000_000,
             search_depth: 4, // only used as default for tests
             max_depth: 99,
             truncate_bad_moves: 99,
@@ -391,6 +393,7 @@ impl Config {
         config.use_book = false;
         config.search_threads = 4;
         config.max_zobrist_hash_entries = 10_000_000;
+        config.max_pawn_hash_entries = 1_000_000;
         config.use_underpromotions = true;
         config.move_overhead = 0;
         config
