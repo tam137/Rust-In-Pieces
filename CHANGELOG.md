@@ -79,6 +79,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.15.2] - 2026-06-09
 
+> [!WARNING]
+> **REGRESSION (ELO DROP)**: This version performed worse than its predecessor `v0.15.1` (Elo 2053 vs 2058). The SPSA tuned evaluation parameters likely misbalanced the engine's threat perception (e.g., over-deescalating minor piece attacks), leading to weaker positional play.
+
 ### Added
 - **SPSA Parameter Harvest (Iteration 43)**:
   - Harvested the optimized parameter values from a 43-iteration SPSA run on EODServer.
@@ -160,6 +163,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.14.2] - 2026-06-08
 
+> [!WARNING]
+> **REGRESSION (ELO DROP)**: This version performed worse than `v0.14.1` (Elo < 2049). Decreasing the LMR divisor further to 150 caused significant search tree node bloat due to boundary crossing issues, severely degrading performance.
+
 - **Late Move Reductions (LMR) Divisor Tuning**:
   - Decreased the default `lmr_divisor` value from **180** to **150** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test even more aggressive quiet late move reductions ($1.50$ scaling factor).
   - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `150.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for consistency.
@@ -174,6 +180,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ## [V0.14.1] - 2026-06-08
+
+> [!WARNING]
+> **REGRESSION (ELO DROP)**: This version performed worse than the `v0.14.0` baseline (Elo 2056 vs 2065). Decreasing the LMR divisor to 180 made pruning too aggressive, causing horizon-effect tactical blunders.
 
 - **Late Move Reductions (LMR) Divisor Tuning**:
   - Decreased the default `lmr_divisor` value from **195** to **180** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test more aggressive quiet late move reductions.
@@ -221,6 +230,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ## [V0.13.15] - 2026-06-08
+
+> [!WARNING]
+> **REGRESSION (ELO DROP)**: This version performed worse than `v0.13.14` (Elo 2051 vs 2057). Increasing the LMR divisor to 220 caused search tree node bloat, which negatively impacted time management and overall strength under time controls.
 
 ### Added
 - **Late Move Reductions (LMR) Divisor Tuning**:
