@@ -154,6 +154,12 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "knight_attacks_bishop_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop_tempo = v; },
                                     "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
                                     "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
+                                    "lazy_eval_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin = v; },
+                                    "king_danger_weight_1" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_1 = v; },
+                                    "king_danger_weight_2" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_2 = v; },
+                                    "king_danger_weight_3" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_3 = v; },
+                                    "king_danger_weight_4" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_4 = v; },
+                                    "king_danger_weight_5" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_5 = v; },
                                     _ => {}
                                 }
                             }
@@ -223,8 +229,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let mut stats = Stats::default();
                         let history_table = [[0u32; 64]; 64];
                         let current_zobrist_table_1 = engine_state.zobrist_table.read().unwrap().clone();
+                        let current_pawn_table_1 = engine_state.pawn_table.read().unwrap().clone();
                         let context = crate::model::SearchContext {
                             zobrist_table: &current_zobrist_table_1,
+                            pawn_table: &current_pawn_table_1,
                             stop_flag: &engine_state.stop_flag,
                             pv_nodes: &engine_state.pv_nodes,
                             killer_moves: [None; 2],
@@ -330,8 +338,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let mut stats = Stats::default();
                             let history_table = [[0u32; 64]; 64];
                             let current_zobrist_table_2 = engine_state.zobrist_table.read().unwrap().clone();
+                            let current_pawn_table_2 = engine_state.pawn_table.read().unwrap().clone();
                             let context = crate::model::SearchContext {
                                 zobrist_table: &current_zobrist_table_2,
+                                pawn_table: &current_pawn_table_2,
                                 stop_flag: &engine_state.stop_flag,
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],

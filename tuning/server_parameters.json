@@ -373,5 +373,35 @@
         "value": 25,
         "min": 0,
         "max": 100
+    },
+    "lazy_eval_margin": {
+        "value": 250,
+        "min": 50,
+        "max": 450
+    },
+    "king_danger_weight_1": {
+        "value": 10,
+        "min": 0,
+        "max": 100
+    },
+    "king_danger_weight_2": {
+        "value": 50,
+        "min": 0,
+        "max": 150
+    },
+    "king_danger_weight_3": {
+        "value": 100,
+        "min": 0,
+        "max": 250
+    },
+    "king_danger_weight_4": {
+        "value": 150,
+        "min": 0,
+        "max": 350
+    },
+    "king_danger_weight_5": {
+        "value": 200,
+        "min": 0,
+        "max": 450
     }
 }

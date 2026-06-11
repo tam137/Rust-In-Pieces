@@ -114,6 +114,14 @@ pub struct Config {
     pub king_in_double_check_malus: i16,
 
     pub rook_on_seventh: i16,
+    pub max_pawn_hash_entries: usize,
+    pub lazy_eval_margin: i16,
+    pub enable_lazy_eval: bool,
+    pub king_danger_weight_1: i16,
+    pub king_danger_weight_2: i16,
+    pub king_danger_weight_3: i16,
+    pub king_danger_weight_4: i16,
+    pub king_danger_weight_5: i16,
     pub pawn_isolated_malus: i16,
     pub pawn_backward_malus: i16,
     pub knight_mobility_factor: i16,
@@ -255,6 +263,14 @@ impl Config {
             king_in_double_check_malus: 337,
 
             rook_on_seventh: 33,
+            max_pawn_hash_entries: 524_288,
+            lazy_eval_margin: 250,
+            enable_lazy_eval: true,
+            king_danger_weight_1: 10,
+            king_danger_weight_2: 50,
+            king_danger_weight_3: 100,
+            king_danger_weight_4: 150,
+            king_danger_weight_5: 200,
             pawn_isolated_malus: 9,
             pawn_backward_malus: 11,
             knight_mobility_factor: 2,
@@ -276,11 +292,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
-            lmr_divisor: 180,
+            lmr_divisor: 190,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 180.0 / 100.0;
+                let divisor = 190.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
@@ -463,6 +479,13 @@ impl Config {
         msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
         msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
         msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
+        msg.push_str(&format!("  lazy_eval_margin: {}\n", self.lazy_eval_margin));
+        msg.push_str(&format!("  enable_lazy_eval: {}\n", self.enable_lazy_eval));
+        msg.push_str(&format!("  king_danger_weight_1: {}\n", self.king_danger_weight_1));
+        msg.push_str(&format!("  king_danger_weight_2: {}\n", self.king_danger_weight_2));
+        msg.push_str(&format!("  king_danger_weight_3: {}\n", self.king_danger_weight_3));
+        msg.push_str(&format!("  king_danger_weight_4: {}\n", self.king_danger_weight_4));
+        msg.push_str(&format!("  king_danger_weight_5: {}\n", self.king_danger_weight_5));
         msg.push_str(&format!("  pawn_isolated_malus: {}\n", self.pawn_isolated_malus));
         msg.push_str(&format!("  pawn_backward_malus: {}\n", self.pawn_backward_malus));
         msg.push_str(&format!("  knight_mobility_factor: {}\n", self.knight_mobility_factor));
