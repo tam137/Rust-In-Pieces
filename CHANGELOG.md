@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.17.2] - 2026-06-12
 
+> **Wichtiger Hinweis:** Diese Version hat sich in Turnieren unter sehr schnellen Bullet-Zeitkontrollen (z. B. `0/110`) als 'buggy' erwiesen. Aufgrund der zeitintensiven Re-Allokation der 512-MB-Transpositionstabelle beim Befehl `ucinewgame` verlor die Engine als Anziehende (Weiß) sofort durch Zeitüberschreitung, bevor sie den ersten Zug berechnen konnte. Bitte stattdessen die bereinigte Version `v0.17.3` verwenden.
+
 ### Fixed
 - **Cache Persistence & State Pollution (95 Elo Regression Fix)**: Corrected a major regression from version `v0.17.1` where the transposition table (`zobrist_table`) and pawn structure cache (`pawn_table`) were not cleared between games. When tournament managers reuse the engine process, transposition entries and pawn hashes carried over from previous games, causing search non-determinism and major tactical blunders. We now re-initialize the `pawn_table` and recreate the `zobrist_table` upon receiving the `ucinewgame` command.
 - **Search Determinism**: Restored identical node counts and evaluation outputs across consecutive game starts under process reuse conditions.
@@ -26,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ## [V0.17.1] - 2026-06-11
+
+> **Wichtiger Hinweis:** Diese Version hat sich in Turnieren als 'buggy' erwiesen und führte zu einer massiven ELO-Regression (ca. 95 ELO). Aufgrund einer fehlenden Cache-Bereinigung (`zobrist_table` und `pawn_table`) bei Game-Resets kam es zu ELO-schädigender Stellungsvorbelastung zwischen aufeinanderfolgenden Partien. Bitte stattdessen `v0.17.3` verwenden.
 
 ### Added
 - Sauberer Split der Pawn HashTable Logik (Statisch/Dynamisch)
