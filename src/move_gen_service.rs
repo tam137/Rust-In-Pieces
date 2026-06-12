@@ -1646,4 +1646,38 @@ mod tests {
         }
         assert!(found, "e4h4 is not generated");
     }
+
+    #[test]
+    fn test_pawn_key_consistency() {
+        let service = Service::new();
+        let fens = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+            "r1bqk2r/pp2bppp/2n1pn2/2pp2B1/3P4/2N1PN2/PPP1BPPP/R2QK2R w KQkq - 2 7"
+        ];
+
+        fn check_pawn_key_recursive(board: &mut Board, service: &Service, depth: i32) {
+            let expected_key = crate::zobrist::gen_pawn_hash(board);
+            assert_eq!(board.pawn_key, expected_key, "Pawn key mismatch at FEN: {}", service.fen.get_fen(board));
+
+            if depth == 0 {
+                return;
+            }
+
+            let moves = generate_valid_moves_list(board);
+            for m in &moves {
+                let move_info = board.do_move(m);
+                check_pawn_key_recursive(board, service, depth - 1);
+                board.undo_move(m, move_info);
+                let expected_key_after_undo = crate::zobrist::gen_pawn_hash(board);
+                assert_eq!(board.pawn_key, expected_key_after_undo, "Pawn key mismatch after undo of move {} at FEN: {}", m.to_algebraic(), service.fen.get_fen(board));
+            }
+        }
+
+        for fen in fens {
+            let mut board = service.fen.set_fen(fen);
+            check_pawn_key_recursive(&mut board, &service, 3);
+        }
+    }
 }
