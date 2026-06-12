@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.17.2] - 2026-06-12
 
-> **Wichtiger Hinweis:** Diese Version hat sich in Turnieren unter sehr schnellen Bullet-Zeitkontrollen (z. B. `0/110`) als 'buggy' erwiesen. Aufgrund der zeitintensiven Re-Allokation der 512-MB-Transpositionstabelle beim Befehl `ucinewgame` verlor die Engine als Anziehende (Weiß) sofort durch Zeitüberschreitung, bevor sie den ersten Zug berechnen konnte. Bitte stattdessen die bereinigte Version `v0.17.3` verwenden.
+> **Important Note:** This version has proven to be 'buggy' in tournaments under very fast bullet time controls (e.g. `0/110`). Due to the time-consuming re-allocation of the 512MB transposition table on the `ucinewgame` command, the engine playing as White lost immediately by timeout before it could calculate its first move. Please use the corrected version `v0.17.3` instead.
 
 ### Fixed
 - **Cache Persistence & State Pollution (95 Elo Regression Fix)**: Corrected a major regression from version `v0.17.1` where the transposition table (`zobrist_table`) and pawn structure cache (`pawn_table`) were not cleared between games. When tournament managers reuse the engine process, transposition entries and pawn hashes carried over from previous games, causing search non-determinism and major tactical blunders. We now re-initialize the `pawn_table` and recreate the `zobrist_table` upon receiving the `ucinewgame` command.
@@ -29,10 +29,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.17.1] - 2026-06-11
 
-> **Wichtiger Hinweis:** Diese Version hat sich in Turnieren als 'buggy' erwiesen und führte zu einer massiven ELO-Regression (ca. 95 ELO). Aufgrund einer fehlenden Cache-Bereinigung (`zobrist_table` und `pawn_table`) bei Game-Resets kam es zu ELO-schädigender Stellungsvorbelastung zwischen aufeinanderfolgenden Partien. Bitte stattdessen `v0.17.3` verwenden.
+> **Important Note:** This version has proven to be 'buggy' in tournaments, leading to a massive Elo regression (approx. 95 Elo). Due to a lack of cache clearing (`zobrist_table` and `pawn_table`) on game resets, it caused Elo-damaging state carryover between consecutive games. Please use `v0.17.3` instead.
 
 ### Added
-- Sauberer Split der Pawn HashTable Logik (Statisch/Dynamisch)
+- Clean split of the Pawn HashTable logic (Static/Dynamic)
 
 ### Fixed
 
@@ -56,7 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.16.2] - 2026-06-11
 
-> **Wichtiger Hinweis:** Die Versionen v0.16.0 bis v0.16.2 haben sich in Turnieren als 'buggy' und deutlich spielschwächer als ihre Vorgänger (insb. v0.15.3 und v0.14.0) erwiesen. Grund hierfür war das fehlerhafte dynamische Caching innerhalb der neuen Pawn HashTable (verursachte falsche Stellungsbewertungen). Die zugehörigen Git-Tags wurden entfernt, um unbeabsichtigte Re-Builds zu verhindern.
+> **Important Note:** Versions v0.16.0 to v0.16.2 have proven to be 'buggy' in tournaments and significantly weaker in playing strength than their predecessors (especially v0.15.3 and v0.14.0). The reason for this was faulty dynamic caching within the new Pawn HashTable (causing incorrect position evaluations). The associated Git tags have been removed to prevent accidental re-builds.
 
 ### Added
 - **Optimized Late Move Reductions (LMR) Divisor (225)**:
