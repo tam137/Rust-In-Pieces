@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.17.3] - 2026-06-12
+
+### Fixed
+- **Ucinewgame Latency and Timeouts (Bullet Time Controls)**: Resolved a critical issue in `v0.17.2` where the engine would immediately lose by time on move 1 under fast bullet time controls (such as `0/110` with 110ms increment). Recreating and allocating the 512MB transposition table (`ZobristTable` with 33M elements) from scratch on `ucinewgame` took 100-150ms of CPU time, which consumed the entire starting clock budget before the engine could process the first `go` command.
+- **In-place Cache Clearing**: Replaced the expensive heap reallocation of the transposition table with a fast, in-place `clear` method in `src/zobrist.rs` that resets only the keys of all `AtomicEntry` slots to `0`. This keeps memory pages warm and active in the cache, reducing the latency of `ucinewgame` from 100+ms to sub-millisecond ranges (and also improving subsequent search performance).
+
+
+
 ## [V0.17.2] - 2026-06-12
 
 ### Fixed
