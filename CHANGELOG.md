@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.17.2] - 2026-06-12
+
+### Fixed
+- **Cache Persistence & State Pollution (95 Elo Regression Fix)**: Corrected a major regression from version `v0.17.1` where the transposition table (`zobrist_table`) and pawn structure cache (`pawn_table`) were not cleared between games. When tournament managers reuse the engine process, transposition entries and pawn hashes carried over from previous games, causing search non-determinism and major tactical blunders. We now re-initialize the `pawn_table` and recreate the `zobrist_table` upon receiving the `ucinewgame` command.
+- **Search Determinism**: Restored identical node counts and evaluation outputs across consecutive game starts under process reuse conditions.
+
+### Added
+- **Incremental Pawn Key Consistency Test**: Implemented `test_pawn_key_consistency` in `src/move_gen_service.rs` to verify that the incremental Zobrist hash updates for pawns are perfectly aligned with full pawn hash recalculations across recursive move/undo sequences for complex FENs.
+
+
+
 ## [V0.17.1] - 2026-06-11
 
 ### Added
