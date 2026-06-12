@@ -28,10 +28,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
             engine_state.pv_nodes.lock().unwrap().clear();
             engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
             service.pawn_table.clear();
-            {
-                let capacity = engine_state.zobrist_table.read().unwrap().table.len();
-                *engine_state.zobrist_table.write().unwrap() = std::sync::Arc::new(crate::zobrist::ZobristTable::with_capacity(capacity));
-            }
+            engine_state.zobrist_table.read().unwrap().clear();
             logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             continue;
         }
