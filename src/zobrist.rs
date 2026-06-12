@@ -232,6 +232,14 @@ impl ZobristTable {
             .filter(|e| e.depth != -1)
             .count()
     }
+
+    pub fn clear(&self) {
+        let default_entry = TranspositionEntry::default();
+        let default_key = default_entry.key;
+        for slot in &self.table {
+            slot.key.store(default_key, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
 }
 
 pub fn gen_hash(board: &Board) -> u64 {
