@@ -81,3 +81,9 @@ To bump versions, run all unit tests, update `CHANGELOG.md`, and compile product
 ```bash
 cargo build --target x86_64-pc-windows-gnu --release
 ```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
