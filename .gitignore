@@ -19,3 +19,13 @@ scratch/initial_parameters.json
 tuning/server_spsa_history.csv
 tuning/server_spsa_state.json
 tuning/spsa_history_remote.csv
+
+# Security and OS File Exclusions
+.env
+.env.*
+*.key
+*.pem
+*.cert
+*.p12
+.DS_Store
+Thumbs.db
