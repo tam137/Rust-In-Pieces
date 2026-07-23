@@ -1,16 +1,29 @@
-# SupraH (Rust Chess Engine)
+# Rust-In-Pieces (Rust Chess Engine)
 
-SupraH is a highly optimized, high-performance chess engine written in **Rust** (Edition 2024). It features a micro-optimized search tree, highly selective pruning, state-of-the-art hand-crafted evaluation (HCE), and full multi-platform capability (Ubuntu and Windows).
+Rust-In-Pieces is a chess engine written in **Rust** (Edition 2024). It features an optimized search tree, selective pruning, and hand-crafted evaluation (HCE).
 
-SupraH is engineered for maximum computational speed, zero-allocation safety during search paths, and robust tactical accuracy, stabilizing at its peak playing strength of **2260 ELO** on the Louguet Chess Test II (LCT II) benchmark.
+Rust-In-Pieces is engineered for computational speed, zero-allocation safety, and tactical strength, stabilizing at around **2000 - 2200 ELO** (on Lichess and the Louguet Chess Test II (LCT II) benchmark). Its primary limitation lies in long-term strategic decision-making, reflecting the author's modest chess knowledge rather than software engineering limits.
 
 ---
 
-## 🚀 Key Features & Architecture
+## Motivation & Background
 
-SupraH utilizes a state-of-the-art **Minimax Search with Alpha-Beta Pruning** and highly selective pruning algorithms to search millions of positions efficiently. Below is a comprehensive reference of all search features and move-sorting heuristics implemented in the engine, complete with technical definitions and direct links to the English-language [Chess Programming Wiki (CPW)](https://www.chessprogramming.org).
+This project was created as a personal learning experience to deepen practical knowledge in **Rust** (high-performance systems engineering and core chess engine architecture) and **Python** (automated SPSA parameter tuning pipelines, diagnostic tooling, and benchmarking).
 
-### 1. Core Search & Selective Pruning
+While not every subsystem is fully micro-optimized - and starting the project over from scratch today would certainly lead to a few different architectural choices - it incorporates advanced chess programming concepts and achieves high tactical performance.
+
+### Play on Lichess
+
+When the host server is online, the engine is playable live on Lichess:  
+[Rust-In-Pieces on Lichess](https://lichess.org/@/rust-in-pieces)
+
+---
+
+## Key Features & Architecture
+
+Rust-In-Pieces utilizes a state-of-the-art **Minimax Search with Alpha-Beta Pruning** and highly selective pruning algorithms to search millions of positions efficiently. Below is a comprehensive reference of all search features and move-sorting heuristics implemented in the engine, complete with technical definitions and direct links to the English-language [Chess Programming Wiki (CPW)](https://www.chessprogramming.org).
+
+### Core Search & Selective Pruning
 
 | Feature | Technical Description | Wiki Reference |
 | :--- | :--- | :--- |
@@ -23,9 +36,9 @@ SupraH utilizes a state-of-the-art **Minimax Search with Alpha-Beta Pruning** an
 | **Quiescence Search (Q-Search)** | Extends leaf nodes recursively by searching only captures and promotions until a tactically stable position ("stand-pat") is reached, completely resolving the horizon effect. | [Quiescence Search](https://www.chessprogramming.org/Quiescence_Search) |
 | **Static Exchange Evaluation (SEE)** | Evaluates the material balance of capture sequences on a single target square. Used to prune losing quiet captures in Quiescence Search (`SEE < 0`) and demote blunder captures below quiet moves in standard search move ordering. | [Static Exchange Evaluation](https://www.chessprogramming.org/Static_Exchange_Evaluation) |
 
-### 2. Move Ordering Heuristics
+### Move Ordering Heuristics
 
-Optimal move ordering is crucial for triggering Alpha-Beta cutoffs as early as possible. SupraH achieves highly efficient sorting using these combined techniques:
+Optimal move ordering is crucial for triggering Alpha-Beta cutoffs as early as possible. Rust-In-Pieces achieves highly efficient sorting using these combined techniques:
 
 | Heuristic | Technical Description | Wiki Reference |
 | :--- | :--- | :--- |
@@ -35,16 +48,17 @@ Optimal move ordering is crucial for triggering Alpha-Beta cutoffs as early as p
 | **History Heuristic & Aging** | Dynamically increments a weight table for quiet moves causing beta cutoffs (scaled by `depth * depth`), with built-in aging processes to keep sorting highly responsive to recent positions. | [History Heuristic](https://www.chessprogramming.org/History_Heuristic) |
 | **Mate Distance Pruning** | Bounds alpha-beta thresholds based on the maximum possible distance to a checkmate, avoiding redundant calculations when a quicker mate has already been discovered. | [Mate Distance Pruning](https://www.chessprogramming.org/Mate_Distance_Pruning) |
 
-### 3. Hand-Crafted Evaluation (HCE)
+### Hand-Crafted Evaluation (HCE)
+
 *   **Passed Pawn Dominance**: Detailed endgame bonuses for passed pawn advancement, protected passed pawn coordination, and rooks standing directly behind passed pawns.
 *   **King Safety**: King pawn shields, piece shields, and King Ring Attack evaluations to reward/penalize coordinate king assaults.
 *   **Tactical Mobility**: Real-time evaluation of sliding and jumping piece mobilities.
 
 ---
 
-## ⚙️ UCI Protocol & Command Specification
+## UCI Protocol & Command Specification
 
-SupraH fully adheres to the standard Universal Chess Interface (UCI) protocol, enabling seamless integration into GUIs like Arena, Cute Chess, or Banksia.
+Rust-In-Pieces fully adheres to the standard Universal Chess Interface (UCI) protocol, enabling seamless integration into GUIs like Arena, Cute Chess, or Banksia.
 
 ### Supported UCI Commands
 
@@ -60,30 +74,64 @@ SupraH fully adheres to the standard Universal Chess Interface (UCI) protocol, e
 | **`debug`** | `[on \| off]` | Toggles verbose engine logging. Writes log files to `rust-in-piece-<version>.log`. | `debug on` |
 | **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name Move Overhead value 100` |
 | **`test`** | None | Triggers internal diagnostic checks, speed performance tests, and timing benchmarks. | `test` |
+
 ---
 
-## 🛠️ Build & Compilation Instructions
+## SPSA Parameter Tuning
 
-### 1. Standard Production Build
+Rust-In-Pieces utilizes Simultaneous Perturbation Stochastic Approximation (SPSA) to optimize its hand-crafted evaluation (HCE) parameters. SPSA efficiently computes simultaneous gradient approximations across all active parameters using only two engine variant evaluations per iteration.
+
+### Core Optimization & Mathematical Concepts
+
+| Feature | Technical Description |
+| :--- | :--- |
+| **Simultaneous Perturbation** | Evaluates gradient vectors across all parameters simultaneously using a random Bernoulli distribution ($\pm 1$), requiring only 2 game-batch evaluations per iteration regardless of parameter count. |
+| **Dynamic Scaling & Clamping** | Dynamically scales step sizes proportionally to each parameter's absolute magnitude, enforcing strict `[min, max]` boundary clamping to prevent unstable configurations. |
+| **SGDM & EMA Momentum** | Applies Stochastic Gradient Descent with Exponential Moving Average (EMA) momentum tracking ($\beta = 0.9$) to smooth out game-outcome noise and stabilize the optimization trajectory. |
+
+### Infrastructure & Workflow Integration
+
+| Component | Technical Description |
+| :--- | :--- |
+| **Match Infrastructure & Fairness** | Integrates with the `Matt-Magie` match manager to execute parallel game batches (e.g., 500 games/iteration) with strict alternating color assignments to eliminate White/Black side bias. |
+| **State Persistence & Fault Tolerance** | Automatically serializes iteration state, parameter vectors ($\theta$), and momentum ($m$) to `spsa_state.json` and logs historical trajectories in `spsa_history.csv` for seamless pause and resume capability. |
+| **Parameter Schema & Scope** | Configures and tunes 75+ active evaluation parameters (piece values, pawn structures, king safety, mobility) defined in `parameters.json` without requiring manual per-parameter tuning loops. |
+| **Parameter Harvesting** | Post-tuning workflow extracts optimal converged parameters from `spsa_state.json` and integrates them back into `src/config.rs` for production engine builds. |
+
+### Tuning Invocation Example
+
+```bash
+python3 tuning/spsa_tuner.py \
+    --engine target/release/rust-in-pieces \
+    --mm ../target/release/Matt-Magie \
+    --games 500 \
+    --workers 4
+```
+
+---
+
+## Build & Compilation Instructions
+
+### Standard Production Build
 To compile the optimized production release binary locally:
 ```bash
 cargo build --release
 ```
-The resulting binary will be located in `target/release/suprah`.
+The resulting binary will be located in `target/release/rust-in-pieces`.
 
-### 2. Automated Release Pipeline
+### Automated Release Pipeline
 To bump versions, run all unit tests, update `CHANGELOG.md`, and compile production binaries, run:
 ```bash
 ./build_and_release.sh "Release changelog entry"
 ```
 
-### 3. Cross-Compiling for Windows (from Linux)
+### Cross-Compiling for Windows (from Linux)
 ```bash
 cargo build --target x86_64-pc-windows-gnu --release
 ```
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
