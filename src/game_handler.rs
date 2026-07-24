@@ -17,7 +17,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let uci_parser = &service.uci_parser;
     let stdout = &service.stdout;
     let mut game = UciGame::new(service.fen.set_init_board());
-    let book = Book::new();
+    let mut book = Book::new();
     let logger = engine_state.log_sender.clone();
     let mut active_config = config.clone();
 
@@ -94,7 +94,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                      "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
-                                     "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); },
+                                     "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); book.clear_polyglot_cache(); },
+                                     "cachebookinram" | "cache_book_in_ram" => {
+                                         active_config.cache_book_in_ram = val_str.to_lowercase() == "true";
+                                         if !active_config.cache_book_in_ram {
+                                             book.clear_polyglot_cache();
+                                         }
+                                     },
                                      "ownbook" | "own_book" | "usebook" | "use_book" => { active_config.use_book = val_str.to_lowercase() == "true"; },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
@@ -225,7 +231,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_book_move(&game.board, &game_fen, &active_config);
+                    let book_move = book.get_book_move(&game.board, &game_fen, &active_config, Some(&logger));
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() {

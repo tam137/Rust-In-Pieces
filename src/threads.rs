@@ -60,6 +60,7 @@ pub fn uci_command_processor(
                     stdout.write("option name SyzygyPath type string default <empty>");
                     stdout.write("option name BookFile type string default <empty>");
                     stdout.write("option name OwnBook type check default true");
+                    stdout.write("option name CacheBookInRam type check default true");
                     stdout.write("option name Aggressiveness type string default Normal");
                     stdout.write("option name EnablePositionalCap type check default true");
                     stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");

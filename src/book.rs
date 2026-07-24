@@ -8,6 +8,8 @@ use crate::polyglot::PolyglotBook;
 #[derive(Debug, Clone)]
 pub struct Book {
     pub book_map: HashMap<&'static str, Vec<&'static str>>,
+    pub polyglot_book: Option<PolyglotBook>,
+    pub loaded_book_path: String,
 }
 
 impl Book {
@@ -362,9 +364,17 @@ impl Book {
         book_map.insert(e2e4_c7c6_d2d4_d7d5_b1c3_d5e4_c3e4_c8f5_e4g3_f5g6_h2h4_h7h6_g1f3_b8d7, vec!["c2c3", "f1d3"]);
 
         // --- NEW VARIATIONS END ---
-        Book { book_map }
+        Book {
+            book_map,
+            polyglot_book: None,
+            loaded_book_path: String::new(),
+        }
     }
 
+    pub fn clear_polyglot_cache(&mut self) {
+        self.polyglot_book = None;
+        self.loaded_book_path.clear();
+    }
 
     pub fn get_random_book_move(&self, fen: &str) -> &str {
         if let Some(moves) = self.book_map.get(fen) {
@@ -374,13 +384,60 @@ impl Book {
         ""
     }
 
-    pub fn get_book_move(&self, board: &Board, fen: &str, config: &Config) -> String {
-        // 1. If BookFile is set, always check PolyGlot book first (regardless of OwnBook)
+    pub fn get_book_move(
+        &mut self,
+        board: &Board,
+        fen: &str,
+        config: &Config,
+        logger: Option<&std::sync::mpsc::Sender<String>>,
+    ) -> String {
+        // 1. If BookFile is set, check PolyGlot book first (regardless of OwnBook)
         if !config.book_file.is_empty() {
-            if let Ok(poly_book) = PolyglotBook::load(&config.book_file) {
-                let poly_move = poly_book.get_random_book_move(board);
-                if !poly_move.is_empty() {
-                    return poly_move;
+            if config.cache_book_in_ram {
+                if self.loaded_book_path != config.book_file || self.polyglot_book.is_none() {
+                    match PolyglotBook::load(&config.book_file) {
+                        Ok(poly_book) => {
+                            self.polyglot_book = Some(poly_book);
+                            self.loaded_book_path = config.book_file.clone();
+                            if let Some(log) = logger {
+                                log.send(format!("Successfully loaded PolyGlot book '{}' into RAM", config.book_file)).ok();
+                            }
+                        }
+                        Err(err) => {
+                            let msg = format!("RIP Critical Error: Failed to open PolyGlot book file '{}': {}", config.book_file, err);
+                            eprintln!("{}", msg);
+                            if let Some(log) = logger {
+                                log.send(msg).ok();
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                if let Some(ref poly_book) = self.polyglot_book {
+                    let poly_move = poly_book.get_random_book_move(board);
+                    if !poly_move.is_empty() {
+                        return poly_move;
+                    }
+                }
+            } else {
+                match PolyglotBook::load(&config.book_file) {
+                    Ok(poly_book) => {
+                        let poly_move = poly_book.get_random_book_move(board);
+                        if !poly_move.is_empty() {
+                            return poly_move;
+                        }
+                    }
+                    Err(err) => {
+                        let msg = format!("RIP Critical Error: Failed to open PolyGlot book file '{}': {}", config.book_file, err);
+                        eprintln!("{}", msg);
+                        if let Some(log) = logger {
+                            log.send(msg).ok();
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -458,4 +515,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_clear_polyglot_cache() {
+        let mut book = Book::new();
+        book.loaded_book_path = "some_path.bin".to_string();
+        book.polyglot_book = Some(PolyglotBook::from_entries(vec![]));
+        assert!(book.polyglot_book.is_some());
+
+        book.clear_polyglot_cache();
+        assert!(book.polyglot_book.is_none());
+        assert!(book.loaded_book_path.is_empty());
+    }
 }
