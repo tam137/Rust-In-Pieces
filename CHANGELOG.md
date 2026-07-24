@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.18.1] - 2026-07-24
+
+### Added
+- **PolyGlot In-Memory RAM Caching (`CacheBookInRam`)**:
+  - Implemented automatic in-memory RAM caching for PolyGlot `.bin` opening books inside `Book` ([book.rs](file:///home/tam137/git/suprah/src/book.rs)).
+  - Upon first lookup or UCI configuration of `BookFile`, the entire 16-byte PolyGlot entry array is loaded into RAM (`Option<PolyglotBook>`), eliminating per-move disk I/O and enabling sub-microsecond ($O(\log N)$) move selection.
+  - Added new UCI option `CacheBookInRam` (`setoption name CacheBookInRam value true/false`, default `true`) to control RAM caching dynamically.
+  - Integrated `clear_polyglot_cache` to reset in-memory cached entries whenever `BookFile` changes or `CacheBookInRam` is toggled.
+- **Fail-Fast Book Error Policy & Logging**:
+  - Enhanced error handling when opening PolyGlot `.bin` files: if a specified `BookFile` path is invalid or unreadable, a critical error message is logged to the active log buffer (`RIP Critical Error: Failed to open PolyGlot book file ...`) and written to `stderr`, followed by an immediate controlled process exit (`std::process::exit(1)`).
+
+### Fixed
+- **Cleaned Up Debug Output**:
+  - Removed verbliebene debug `println!` statements in `polyglot_key()` ([polyglot.rs](file:///home/tam137/git/suprah/src/polyglot.rs)), keeping the UCI `stdout` stream completely clean.
+- **Unit Test Coverage**:
+  - Added `test_clear_polyglot_cache` unit test in [book.rs](file:///home/tam137/git/suprah/src/book.rs) to verify cache clearing and state management.
+
+
+
 ## [V0.18.0] - 2026-07-24
 
 ### Added

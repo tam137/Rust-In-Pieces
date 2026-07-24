@@ -146,19 +146,15 @@ pub fn polyglot_key(board: &Board) -> u64 {
 
     // 2. Castling rights
     if board.white_possible_to_castle_short {
-        println!("Castle WK: 0x{:016x}", POLYGLOT_RANDOM64[768]);
         key ^= POLYGLOT_RANDOM64[768];
     }
     if board.white_possible_to_castle_long {
-        println!("Castle WQ: 0x{:016x}", POLYGLOT_RANDOM64[769]);
         key ^= POLYGLOT_RANDOM64[769];
     }
     if board.black_possible_to_castle_short {
-        println!("Castle BK: 0x{:016x}", POLYGLOT_RANDOM64[770]);
         key ^= POLYGLOT_RANDOM64[770];
     }
     if board.black_possible_to_castle_long {
-        println!("Castle BQ: 0x{:016x}", POLYGLOT_RANDOM64[771]);
         key ^= POLYGLOT_RANDOM64[771];
     }
 
@@ -167,14 +163,12 @@ pub fn polyglot_key(board: &Board) -> u64 {
         let ep_sq = board.field_for_en_passante as usize;
         let file = ep_sq % 8;
         if enemy_pawns_can_capture_ep(board, ep_sq) {
-            println!("EP file={}: 0x{:016x}", file, POLYGLOT_RANDOM64[772 + file]);
             key ^= POLYGLOT_RANDOM64[772 + file];
         }
     }
 
     // 4. Side to move (Black turn)
     if !board.white_to_move {
-        println!("Black turn: 0x{:016x}", POLYGLOT_RANDOM64[780]);
         key ^= POLYGLOT_RANDOM64[780];
     }
 
@@ -182,6 +176,7 @@ pub fn polyglot_key(board: &Board) -> u64 {
 }
 
 /// PolyGlot Book Reader.
+#[derive(Debug, Clone)]
 pub struct PolyglotBook {
     entries: Vec<PolyglotEntry>,
 }
