@@ -18,6 +18,7 @@ mod game_handler;
 mod time_check;
 mod magic;
 mod pst;
+pub mod polyglot;
 
 
 

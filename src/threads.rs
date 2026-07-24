@@ -58,6 +58,8 @@ pub fn uci_command_processor(
                     stdout.write("option name Threads type spin default 1 min 1 max 8");
                     stdout.write("option name Move Overhead type spin default 0 min 0 max 5000");
                     stdout.write("option name SyzygyPath type string default <empty>");
+                    stdout.write("option name BookFile type string default <empty>");
+                    stdout.write("option name OwnBook type check default true");
                     stdout.write("option name Aggressiveness type string default Normal");
                     stdout.write("option name EnablePositionalCap type check default true");
                     stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");

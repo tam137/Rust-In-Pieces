@@ -12,6 +12,7 @@ pub struct Config {
     pub version: &'static str,
     pub use_zobrist: bool,
     pub use_book: bool,
+    pub book_file: String,
     pub max_zobrist_hash_entries: usize,
     pub max_pawn_hash_entries: usize,
     pub search_depth: i32,
@@ -163,6 +164,7 @@ impl Config {
             version: concat!("V", env!("CARGO_PKG_VERSION")),
             use_zobrist: true,
             use_book: true,
+            book_file: String::new(),
             max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
             max_pawn_hash_entries: 1_000_000,
             search_depth: 4, // only used as default for tests
