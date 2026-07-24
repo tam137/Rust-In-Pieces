@@ -72,8 +72,17 @@ Rust-In-Pieces fully adheres to the standard Universal Chess Interface (UCI) pro
 | **`stop`** | None | Immediately halts the search thread and returns the best move found. | `stop` |
 | **`quit`** | None | Safely terminates the engine execution. | `quit` |
 | **`debug`** | `[on \| off]` | Toggles verbose engine logging. Writes log files to `rust-in-piece-<version>.log`. | `debug on` |
-| **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name Move Overhead value 100` |
+| **`setoption`** | `name <Option> value <v>` | Configure option variables (e.g., `BookFile`, `OwnBook`, `Move Overhead`, `Aggressiveness`). *(Note: Threads config is supported but prints single-threaded capability warnings)*. | `setoption name BookFile value /path/to/book.bin` |
 | **`test`** | None | Triggers internal diagnostic checks, speed performance tests, and timing benchmarks. | `test` |
+
+### Key UCI Options
+
+| Option Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **`BookFile`** | `string` | `<empty>` | Path to an external **PolyGlot (`.bin`)** opening book. When configured, PolyGlot book moves are prioritized regardless of `OwnBook`. |
+| **`OwnBook`** | `check` | `true` | Controls whether the internal hardcoded opening book is used as a fallback when `BookFile` is empty or does not contain a move for the position. |
+| **`Move Overhead`** | `spin` | `0` | Buffer in milliseconds subtracted from time controls to compensate for network/GUI latency. |
+| **`LogPath`** | `string` | `<empty>` | File path for verbose engine debug logs. |
 
 ---
 

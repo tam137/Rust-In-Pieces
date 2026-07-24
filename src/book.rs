@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use crate::model::Board;
+use crate::config::Config;
+use crate::polyglot::PolyglotBook;
 
 #[derive(Debug, Clone)]
 pub struct Book {
@@ -369,6 +372,29 @@ impl Book {
             return moves.choose(&mut rng).copied().unwrap_or("");
         }
         ""
+    }
+
+    pub fn get_book_move(&self, board: &Board, fen: &str, config: &Config) -> String {
+        // 1. If BookFile is set, always check PolyGlot book first (regardless of OwnBook)
+        if !config.book_file.is_empty() {
+            if let Ok(poly_book) = PolyglotBook::load(&config.book_file) {
+                let poly_move = poly_book.get_random_book_move(board);
+                if !poly_move.is_empty() {
+                    return poly_move;
+                }
+            }
+        }
+
+        // 2. If no PolyGlot move was found (or BookFile is empty), check OwnBook for internal book
+        if config.use_book {
+            let internal_move = self.get_random_book_move(fen);
+            if !internal_move.is_empty() {
+                return internal_move.to_string();
+            }
+        }
+
+        // 3. Otherwise no book move available -> engine will search
+        String::new()
     }
 }
 
