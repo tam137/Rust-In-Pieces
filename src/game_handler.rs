@@ -94,6 +94,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                      "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
+                                     "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); },
+                                     "ownbook" | "own_book" | "usebook" | "use_book" => { active_config.use_book = val_str.to_lowercase() == "true"; },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
@@ -223,10 +225,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_random_book_move(&game_fen);
+                    let book_move = book.get_book_move(&game.board, &game_fen, &active_config);
                     let time_info = uci_parser.parse_go(command.as_str());
 
-                    if book_move.is_empty() || !active_config.use_book {
+                    if book_move.is_empty() {
 
                         let mut stats = Stats::default();
                         let history_table = [[0u32; 64]; 64];
@@ -363,7 +365,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     } else {
                         logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
-                        game.do_move(book_move);
+                        game.do_move(&book_move);
                         stdout.write(&format!("bestmove {}", book_move));
                     }
                 }

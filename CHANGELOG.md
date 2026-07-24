@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.18.0] - 2026-07-24
+
+### Added
+- **Open-Source PolyGlot (`.bin`) Opening Book Integration**:
+  - Implemented `src/polyglot.rs` providing full support for world-standard binary opening books (`.bin`).
+  - Added 64-bit PolyGlot Zobrist hashing (`polyglot_key`) covering all board pieces, castling availability, en-passant square, and side to move.
+  - Added 16-bit big-endian PolyGlot move decoding into standard UCI move strings (`e2e4`, `e7e8q`).
+  - Added $O(\log N)$ binary search reader (`PolyglotBook`) with weighted random move selection.
+- **UCI Options `BookFile` and `OwnBook`**:
+  - `BookFile`: Enables configuring an external PolyGlot `.bin` file via UCI (`setoption name BookFile value /path/to/book.bin`).
+  - `OwnBook`: Toggles internal opening book fallback usage (`setoption name OwnBook value true/false`).
+- **Priority Logic**:
+  - When `BookFile` is specified, PolyGlot book moves take highest priority regardless of `OwnBook`.
+  - When `BookFile` is unpopulated or lacks a move for the position, `OwnBook` controls fallback to the internal hardcoded Rust book.
+
+### Documentation
+- Updated `README.md` with complete documentation for `BookFile` and `OwnBook` UCI options and priority rules.
+
 ## [V0.17.3] - 2026-06-12
 
 ### Fixed
