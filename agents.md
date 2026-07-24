@@ -42,6 +42,10 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Release Verification Requirement:** The heavy verification processes MUST only be executed when a release is explicitly requested by the USER:
   1. Execute deep search/ignored tests (including `perft` tests) as step 2 of the Mandatory Release Sequence: `cargo test -- --ignored`.
   2. Execute the live tournament verification matchup (`./run_verify.sh` in the `matt-magie` repository) ONLY if the USER explicitly requests or mentions it. Do NOT run the tournament verification script by default during a release unless explicitly asked.
+- **Mandatory Completion Waiting:** Whenever running asynchronous test commands (e.g., `cargo test` or `cargo test -- --ignored`) during a release procedure, the AI MUST explicitly wait for the background test execution to finish completely and verify 100% clean success (`test result: ok`) BEFORE proceeding to execute the build and release pipeline script (`./build_and_release.sh`). Never trigger build/release steps while background test tasks are still running.
+
+## Fail-Fast Policy for Engine Dependencies
+- **Strict Error Handling:** If any configured external resource or dependency (such as a PolyGlot opening book `.bin` file specified via `BookFile`) cannot be opened, read, or loaded, the engine MUST write a clear critical error log entry and immediately terminate execution via `std::process::exit(1)`. Silent fallbacks or masking errors during tournament play are strictly prohibited.
 
 ## Git & Version Control Policy
 - **Strict Limit on Git Operations:** The AI must NEVER automatically or preemptively execute `git commit` or `git push` commands.
