@@ -8,8 +8,10 @@ import argparse
 import concurrent.futures
 import threading
 
+import sys
+
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None, book_path=""):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None, book_path="", group_name="all"):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -22,6 +24,7 @@ class SPSATuner:
         self.mutate_pct = mutate_pct
         self.logpath = logpath
         self.book_path = book_path
+        self.group_name = group_name
         
         # SPSA Constants (Standard values)
         self.a = lr     # Base learning rate (depends on gradient magnitude)
@@ -61,7 +64,7 @@ class SPSATuner:
             # Initialize history file
             with open(self.history_file, "w", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow(["Iteration", "Score"] + self.param_names)
+                writer.writerow(["Iteration", "Group", "Score"] + self.param_names)
 
     def _get_a_k(self):
         return self.a / ((self.A + self.k) ** self.alpha)
@@ -252,11 +255,12 @@ class SPSATuner:
         # Save history
         with open(self.history_file, "a", newline="") as f:
             writer = csv.writer(f)
-            row = [self.k - 1, score] + [self.theta[k] for k in self.param_names]
+            row = [self.k - 1, self.group_name, score] + [self.theta[k] for k in self.param_names]
             writer.writerow(row)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="SPSA Parameter Tuner for Suprah Chess Engine")
+    parser.add_argument("--group", required=True, help="Mandatory tuning group (e.g. pawns, king_safety, pieces_and_outposts, rooks, tactics_and_threats, search_and_ordering, or all)")
     parser.add_argument("--engine", required=True)
     parser.add_argument("--mm", required=True)
     parser.add_argument("--games", type=int, default=250)
@@ -267,16 +271,46 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
-    parser.add_argument("--params", default="", help="Comma-separated list of parameters to tune")
+    parser.add_argument("--params", default="", help="Optional explicit comma-separated list of parameters to tune (overrides group)")
     parser.add_argument("--iters", type=int, default=100, help="Number of SPSA iterations to run")
     args = parser.parse_args()
     
-    active_params = [p.strip() for p in args.params.split(",") if p.strip()] if args.params else None
-    
+    # Load groups.json
+    groups_file = os.path.join(os.path.dirname(__file__), "groups.json")
+    if not os.path.exists(groups_file):
+        groups_file = "groups.json"
+        
+    if os.path.exists(groups_file):
+        with open(groups_file, "r") as f:
+            available_groups = json.load(f)
+    else:
+        available_groups = {}
+
+    if args.group not in available_groups and not args.params:
+        print(f"Error: Invalid group '{args.group}'.")
+        print("Available groups in groups.json:")
+        for g_name in available_groups.keys():
+            print(f"  - {g_name}")
+        sys.exit(1)
+
+    if args.params:
+        active_params = [p.strip() for p in args.params.split(",") if p.strip()]
+        group_name = args.group or "custom"
+    else:
+        active_params = available_groups[args.group]
+        group_name = args.group
+
+    print(f"Starting SPSA Tuner for group '{group_name}' with {len(active_params)} active parameters.")
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    params_file = os.path.join(script_dir, "parameters.json") if os.path.exists(os.path.join(script_dir, "parameters.json")) else "parameters.json"
+    state_file = os.path.join(script_dir, "spsa_state.json") if os.path.exists(os.path.join(script_dir, "spsa_state.json")) else "spsa_state.json"
+    history_file = os.path.join(script_dir, "spsa_history.csv") if os.path.exists(os.path.join(script_dir, "spsa_history.csv")) else "spsa_history.csv"
+
     tuner = SPSATuner(
-        params_file="parameters.json",
-        state_file="spsa_state.json",
-        history_file="spsa_history.csv",
+        params_file=params_file,
+        state_file=state_file,
+        history_file=history_file,
         engine_path=args.engine,
         mm_path=args.mm,
         games_per_iter=args.games,
@@ -287,7 +321,8 @@ if __name__ == "__main__":
         lr=args.lr,
         logpath=args.logpath,
         active_params=active_params,
-        book_path=args.book
+        book_path=args.book,
+        group_name=group_name
     )
     
     # Run SPSA iterations
