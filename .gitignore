@@ -29,3 +29,4 @@ tuning/spsa_history_remote.csv
 *.p12
 .DS_Store
 Thumbs.db
+books/
