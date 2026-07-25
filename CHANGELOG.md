@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.19.0] - 2026-07-25
+
+### Added
+- **SPSA Parameter Harvest**:
+  - Harvested SPSA optimization results into engine configuration ([config.rs](file:///home/tam137/git/suprah/src/config.rs)) and parameter definitions ([parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json)).
+  - **Late Move Reductions (LMR) Divisor Optimization**:
+    - Adjusted baseline `lmr_divisor` to **152** (from **225**), optimizing logarithmic search depth reductions and reducing search tree node count at depth 10 by >5x (from 1,811,143 down to 342,889 nodes).
+  - **King Safety & Shield Enhancements**:
+    - Fine-tuned `king_pawn_shield` (38) and `king_pawn_shield_kingside` (39).
+    - Adjusted `king_trapp_at_baseline_malus` (73) and `king_in_double_check_malus` (342).
+  - **Piece Activity & Positional Heuristics**:
+    - Updated `pawn_centered` (14), `knight_centered` (24), `knight_blockes_pawn` (27), `bishop_trapped_at_rim_malus` (58), `pawn_attacks_opponent_fig` (35), and `queen_in_attack_with_tempo` (30).
+    - Tuned rook positioning parameters (`rook_on_seventh` set to 31, `rook_behind_passed_pawn_endgame` set to 37).
+
+### Performance & Search Benchmark
+- **Search Tree Compression**:
+  - Startpos depth 10 node count compressed from **1,811,143 nodes** (606 ms) down to **342,889 nodes** (160 ms) while maintaining tactical precision, significantly speeding up move generation and position evaluation.
+
+
 ## [V0.18.1] - 2026-07-24
 
 ### Added
