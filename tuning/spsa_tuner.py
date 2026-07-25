@@ -9,7 +9,7 @@ import concurrent.futures
 import threading
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None, book_path=""):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -21,6 +21,7 @@ class SPSATuner:
         self.inc_ms = inc_ms
         self.mutate_pct = mutate_pct
         self.logpath = logpath
+        self.book_path = book_path
         
         # SPSA Constants (Standard values)
         self.a = lr     # Base learning rate (depends on gradient magnitude)
@@ -91,6 +92,11 @@ class SPSATuner:
             logpath_opt = f"logpath={resolved_logpath}"
             opts_plus = f"{opts_plus},{logpath_opt}" if opts_plus else logpath_opt
             opts_minus = f"{opts_minus},{logpath_opt}" if opts_minus else logpath_opt
+
+        if self.book_path:
+            book_opts = f"bookfile={self.book_path},ownbook=true"
+            opts_plus = f"{opts_plus},{book_opts}" if opts_plus else book_opts
+            opts_minus = f"{opts_minus},{book_opts}" if opts_minus else book_opts
         
         # We need to run matt-magie `games_per_iter` times.
         # matt-magie args: engine_0 engine_1 logfile pgn_path event site round time_per_game inc_per_move log_on debug_on eng_0_opts eng_1_opts
@@ -260,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%%)")
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
+    parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
     parser.add_argument("--params", default="", help="Comma-separated list of parameters to tune")
     parser.add_argument("--iters", type=int, default=100, help="Number of SPSA iterations to run")
     args = parser.parse_args()
@@ -279,7 +286,8 @@ if __name__ == "__main__":
         mutate_pct=args.mutate,
         lr=args.lr,
         logpath=args.logpath,
-        active_params=active_params
+        active_params=active_params,
+        book_path=args.book
     )
     
     # Run SPSA iterations
