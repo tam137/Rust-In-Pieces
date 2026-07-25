@@ -193,53 +193,53 @@ impl Config {
 
             is_hashed_rank_bonus: 4,
             give_check_rank_bonus: 5,
-            is_pv_node_rank_bonus: 18,
+            is_pv_node_rank_bonus: 17,
             give_promotion_rank_bonus_queen: 17,
             give_promotion_rank_bonus_knight: 6,
 
-            your_turn_bonus: 19,
+            your_turn_bonus: 20,
 
-            undeveloped_knight_malus: 31,
-            undeveloped_bishop_malus: 31,
+            undeveloped_knight_malus: 32,
+            undeveloped_bishop_malus: 32,
             undeveloped_king_malus: 54,
 
 
-            rook_open_file: 27,
-            rook_half_open_file: 21,
-            bishop_pair_bonus: 48,
-            rook_doubled_bonus: 25,
+            rook_open_file: 26,
+            rook_half_open_file: 22,
+            bishop_pair_bonus: 45,
+            rook_doubled_bonus: 24,
             rook_behind_passed_pawn_middlegame: 13,
-            rook_behind_passed_pawn_endgame: 38,
+            rook_behind_passed_pawn_endgame: 37,
             king_ring_attack_knight: 1,
             king_ring_attack_bishop: 1,
             king_ring_attack_rook: 2,
             king_ring_attack_queen: 4,
             protected_passed_pawn_middlegame: 12,
-            protected_passed_pawn_endgame: 27,
+            protected_passed_pawn_endgame: 26,
             king_opposition_bonus: 12,
-            king_open_file_malus: 37,
+            king_open_file_malus: 38,
             king_half_open_file_malus: 20,
             king_ring_defender_value: 1,
 
             pawn_structure: 5,
             pawn_supports_knight_outpost: 10,
-            pawn_centered: 13,
+            pawn_centered: 14,
             pawn_undeveloped_malus: 15,
-            pawn_on_last_rank_bonus: 183,
-            pawn_on_before_last_rank_bonus: 104,
+            pawn_on_last_rank_bonus: 179,
+            pawn_on_before_last_rank_bonus: 105,
             pawn_on_before_before_last_rank_bonus: 47,
             pawn_defends_bishop: 23,
             pawn_double_malus: 14,
 
             knight_on_rim_malus: 17,
             knight_centered: 24,
-            knight_blockes_pawn: 28,
+            knight_blockes_pawn: 27,
             bishop_trapped_at_rim_malus: 58,
 
             pawn_attacks_opponent_fig: 35,
             pawn_attacks_opponent_fig_with_tempo: 18,
             queen_in_attack: 53,
-            queen_in_attack_with_tempo: 29,
+            queen_in_attack_with_tempo: 30,
             knight_attacks_bishop: 5,
             knight_attacks_rook: 16,
             knight_attacks_bishop_tempo: 9,
@@ -249,9 +249,9 @@ impl Config {
             threat_rook_attacks_queen: 20,
 
 
-            king_pawn_shield: 37,
+            king_pawn_shield: 38,
             king_piece_shield: 17,
-            king_pawn_shield_kingside: 37,
+            king_pawn_shield_kingside: 39,
             king_pawn_shield_queenside: 25,
             king_piece_shield_kingside: 15,
             king_piece_shield_queenside: 10,
@@ -260,15 +260,15 @@ impl Config {
             knight_outpost_true_mg: 29,
             knight_outpost_true_eg: 15,
             bishop_outpost_true_mg: 21,
-            bishop_outpost_true_eg: 11,
-            opposite_bishops_draw_scale: 51,
+            bishop_outpost_true_eg: 10,
+            opposite_bishops_draw_scale: 50,
             rook_behind_enemy_passed_pawn_mg: 10,
             rook_behind_enemy_passed_pawn_eg: 24,
-            king_trapp_at_baseline_malus: 71,
-            king_in_check_malus: 135,
-            king_in_double_check_malus: 337,
+            king_trapp_at_baseline_malus: 73,
+            king_in_check_malus: 134,
+            king_in_double_check_malus: 342,
 
-            rook_on_seventh: 33,
+            rook_on_seventh: 31,
 
             lazy_eval_margin: 250,
             enable_lazy_eval: true,
@@ -298,11 +298,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
-            lmr_divisor: 225,
+            lmr_divisor: 152,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 225.0 / 100.0;
+                let divisor = 152.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
