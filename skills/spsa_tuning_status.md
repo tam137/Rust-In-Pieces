@@ -29,7 +29,10 @@ Attach to or capture the remote tmux session to verify the script is printing pr
 ssh root@$EODSERVERIP "tmux capture-pane -t spsa_tuning -p"
 ```
 - **Check Progress**: Verify the current iteration (e.g. `Iter 4`) and progress of the game batch (e.g. `Progress: 12% (90/750)`).
-- **Check Command**: Look for the active command line (e.g. `python3 spsa_tuner.py ...`). If a parameter subset is specified (e.g. `--params undeveloped_knight_malus`), note it.
+- **Check Command & Constraints**:
+  - Look for the active command line (e.g. `python3 spsa_tuner.py --group pawns ...`).
+  - **Mandatory `--group` Parameter**: Verify that a `--group` argument (e.g. `pawns`, `king_safety`, or `all`) is explicitly supplied.
+  - **Maximal 4 Workers auf dem Server**: Verify that `--workers` does **not exceed 4** (`--workers 4`).
 
 #### B. Fetch SPSA State
 Check the current state parameters being adjusted:

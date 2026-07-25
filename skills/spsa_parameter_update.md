@@ -68,7 +68,12 @@ Once the code and tuning files are updated:
    ```bash
    scp tuning/parameters.json root@<SERVER_IP>:/root/mattmagie/tuning/
    ```
-4. **Restart SPSA on the Server:**
+5. **Server Tuning Configuration Rules:**
+   > [!IMPORTANT]
+   > - **Maximal 4 Workers auf dem Server:** Der Parameter `--workers` darf auf dem Server **maximal auf 4** gesetzt werden (`--workers 4`), um eine Überlastung der Server-Ressourcen zu vermeiden.
+   > - **Zwingende Gruppenangabe (`--group`):** `spsa_tuner.py` erfordert **immer** die Angabe von `--group <gruppenname>`. Mögliche Gruppen sind in `tuning/groups.json` definiert (`pawns`, `king_safety`, `pieces_and_outposts`, `rooks`, `tactics_and_threats`, `search_and_ordering`, `all`). Für ein vollständiges Tuning aller Parameter muss explizit `--group all` übergeben werden.
+
+6. **Restart SPSA on the Server:**
    SSH into the server, stop the active SPSA process (Ctrl+C in tmux).
    - **If Hot-Patching (Adjustments):** Upload the modified `spsa_state.json` and `spsa_history.csv`. Only delete temporary match PGNs (`rm -f ~/mattmagie/tuning/tmp_*.pgn`).
    - **If Full Reset (New Engine Variant):** Clean up the remote state/history files along with temporary match PGNs:
@@ -76,3 +81,4 @@ Once the code and tuning files are updated:
      rm -f ~/mattmagie/tuning/spsa_history.csv ~/mattmagie/tuning/spsa_state.json ~/mattmagie/tuning/tmp_*.pgn
      ```
    Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to resume or start the SPSA tuning run.
+
