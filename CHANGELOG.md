@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.19.2] - 2026-07-26
+
+### Fixed & Changed
+- **Full Positional Evaluation Accuracy (`enable_lazy_eval = false`)**:
+  - Disabled Lazy Evaluation cutoffs (`enable_lazy_eval: false`) in [config.rs](file:///home/tam137/git/suprah/src/config.rs).
+  - Ensures that every single node in the search tree evaluates complete positional features (including king danger weights, pawn structures, passed pawn shields, and threat matrix calculations) without premature early exits based solely on raw material margins.
+- **Aggressive Late Move Reductions (`lmr_divisor = 180`)**:
+  - Set `lmr_divisor` to **180** in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json).
+  - Recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 180.0 / 100.0`), matching the aggressive quiet move reduction strength of `v0.15.3` to achieve deeper ply search reach in fast time controls.
+- **Retained Positional Cap Damping**:
+  - Kept `enable_positional_cap = true` and `positional_cap_damping = 5` active to prevent positional evaluation saturation blindness while preserving true strategic evaluation depth.
+
+
+
 ## [V0.19.1] - 2026-07-26
 
 ### Fixed
