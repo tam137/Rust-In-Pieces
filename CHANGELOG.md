@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.19.3] - 2026-07-26
+
+### Fixed & Changed
+- **Re-aligned Late Move Reductions (`lmr_divisor = 225`)**:
+  - Set `lmr_divisor` to **225** in [config.rs](file:///home/tam137/git/suprah/src/config.rs), [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json), [server_parameters.json](file:///home/tam137/git/suprah/tuning/server_parameters.json), and [spsa_state_remote.json](file:///home/tam137/git/suprah/tuning/spsa_state_remote.json).
+  - Recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 225.0 / 100.0`).
+  - Eliminates overly aggressive quiet move depth reductions that caused tactical horizon-effect errors, restoring safe search tree traversal and tactical stability.
+
+
+
 ## [V0.19.2] - 2026-07-26
 
 ### Fixed & Changed
