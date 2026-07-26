@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.19.4] - 2026-07-26
+
+### Fixed & Changed
+- **Disabled Positional Evaluation Capping (`enable_positional_cap = false`)**:
+  - Disabled positional evaluation capping by default (`enable_positional_cap: false`) in [config.rs](src/config.rs#L190).
+  - Removes soft-clamping of positional evaluation terms above 150 centipawns (`positional_cap_damping`), allowing true uncompressed positional evaluation weight throughout the search tree.
+  - Updated `test_positional_evaluation_capping` in [eval_service.rs](src/eval_service.rs#L1794) to explicitly enable capping for unit testing.
+
+
+
 ## [V0.19.3] - 2026-07-26
 
 ### Fixed & Changed
