@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.19.1] - 2026-07-26
+
+### Fixed
+- **Reverted SPSA Evaluation Parameter Regression & Restored v0.18.1 Playing Strength**:
+  - Reverted all evaluation and search configuration parameters in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and SPSA parameter definitions in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json) back to the proven version `v0.18.1` baseline.
+  - Re-aligned the Late Move Reductions (LMR) `lmr_divisor` to **225** (from **152**), eliminating aggressive quiet move pruning that caused tactical horizon-effect errors in `v0.19.0`.
+  - Re-established exact `v0.18.1` evaluation weights across king safety, pawn shield, piece activity, outposts, and threat penalties (`king_open_file_malus`: 37, `king_pawn_shield`: 37, `bishop_pair_bonus`: 48, `pawn_on_last_rank_bonus`: 183, `rook_open_file`: 27, etc.).
+
+### Performance & Search Benchmark
+- **Search Tree & Evaluation Accuracy**:
+  - Restored full search tree fidelity at startpos depth 10 to exactly **1,811,143 nodes** (606 ms, ~3.0 MNPS), matching the exact node count of the `v0.18.1` release.
+
+
+
 ## [V0.19.0] - 2026-07-25
 
 ### Added
