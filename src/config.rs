@@ -271,7 +271,7 @@ impl Config {
             rook_on_seventh: 33,
 
             lazy_eval_margin: 250,
-            enable_lazy_eval: true,
+            enable_lazy_eval: false,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
             king_danger_weight_3: 100,
@@ -298,11 +298,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
-            lmr_divisor: 225,
+            lmr_divisor: 180,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 225.0 / 100.0;
+                let divisor = 180.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
