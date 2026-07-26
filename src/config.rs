@@ -187,7 +187,7 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
-            enable_positional_cap: true,
+            enable_positional_cap: false,
             positional_cap_damping: 5,
             move_overhead: 0,
 
