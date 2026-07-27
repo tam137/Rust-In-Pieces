@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.20.0] - 2026-07-27
+
+### Fixed & Changed
+- **Restored Positional Evaluation Capping (`enable_positional_cap = true`)**:
+  - Re-enabled positional evaluation capping by default (`enable_positional_cap: true`) in [config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs#L190).
+  - Resolves the positional evaluation scaling issues and Elo regression introduced in `v0.19.4` by re-instating soft-clamping (`positional_cap_damping = 5`) for positional terms exceeding 150 centipawns.
+- **Restored Optimal LMR Divisor (`lmr_divisor = 180`)**:
+  - Restored `lmr_divisor` to **180** in [config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs#L301).
+  - Recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 180.0 / 100.0`).
+  - Resolves move pruning conservative regression from `v0.19.3` (`lmr_divisor = 225`), achieving deeper ply search reach and optimal search tree efficiency.
+
+
+
 ## [V0.19.4] - 2026-07-26
 
 ### Fixed & Changed
