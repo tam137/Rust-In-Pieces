@@ -187,7 +187,7 @@ impl Config {
             skip_strong_validation: false,
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
-            enable_positional_cap: false,
+            enable_positional_cap: true,
             positional_cap_damping: 5,
             move_overhead: 0,
 
@@ -298,11 +298,11 @@ impl Config {
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
             lmr_move_threshold: 3,
-            lmr_divisor: 225,
+            lmr_divisor: 180,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 225.0 / 100.0;
+                let divisor = 180.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
