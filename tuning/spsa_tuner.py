@@ -202,11 +202,10 @@ class SPSATuner:
         # Bernoulli +-1
         delta = {k: random.choice([-1, 1]) for k in self.active_params}
         
-        # Calculate integer perturbation steps based on percentage
+        # Get explicit fixed perturbation steps per parameter from parameters.json
         step_sizes = {}
         for k in self.active_params:
-            base_val = abs(self.theta[k])
-            step = max(1.0, round(base_val * (self.mutate_pct / 100.0)))
+            step = float(self.param_defs[k].get("step", 1.0))
             step_sizes[k] = step
 
         # Perturb only active parameters and clamp to min/max bounds
