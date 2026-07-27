@@ -268,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--mm", required=True)
     parser.add_argument("--games", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=3, help="Number of parallel games to run simultaneously")
-    parser.add_argument("--time", type=int, default=1, help="Time per game in seconds")
+    parser.add_argument("--time", type=float, default=1.0, help="Time per game in seconds")
     parser.add_argument("--inc", type=int, default=60, help="Increment per move in milliseconds")
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")

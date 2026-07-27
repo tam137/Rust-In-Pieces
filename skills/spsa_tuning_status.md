@@ -24,20 +24,21 @@ python3 scripts/check_spsa_status.py
 If manual verification is needed or in case of script failure, follow these steps:
 
 #### A. Inspect Tmux Running output
-Attach to or capture the remote tmux session to verify the script is printing progress cleanly and not throwing python errors:
+Attach to or capture the remote tmux session (standardized session name: `spsa`) to verify the script is printing progress cleanly:
 ```bash
-ssh root@$EODSERVERIP "tmux capture-pane -t spsa_tuning -p"
+tmux capture-pane -t spsa -p
 ```
-- **Check Progress**: Verify the current iteration (e.g. `Iter 4`) and progress of the game batch (e.g. `Progress: 12% (90/750)`).
+- **Check Progress**: Verify the current iteration (e.g. `Iter 4`) and progress of the game batch (e.g. `Progress: 12% (90/800)`).
 - **Check Command & Constraints**:
-  - Look for the active command line (e.g. `python3 spsa_tuner.py --group pawns ...`).
-  - **Mandatory `--group` Parameter**: Verify that a `--group` argument (e.g. `pawns`, `king_safety`, or `all`) is explicitly supplied.
-  - **Maximal 4 Workers auf dem Server**: Verify that `--workers` does **not exceed 4** (`--workers 4`).
+  - Look for the active command line (e.g. `python3 spsa_tuner.py --group search_and_ordering ...`).
+  - **Mandatory `--group` Parameter**: Verify that a `--group` argument (e.g. `search_and_ordering`, `pawns`, `king_safety`, or `all`) is explicitly supplied.
+  - **Recommended Fast Time Control**: `--time 0.5 --inc 25` (500ms base + 25ms increment) provides optimal throughput and evaluation depth balance.
+  - **Maximal 3-4 Workers**: Verify that `--workers` does not overload system CPU resources.
 
 #### B. Fetch SPSA State
 Check the current state parameters being adjusted:
 ```bash
-ssh root@$EODSERVERIP "cat /root/mattmagie/tuning/spsa_state.json"
+cat /root/mattmagie/tuning/spsa_state.json
 ```
 This contains:
 - `k`: Current iteration number.
@@ -47,17 +48,17 @@ This contains:
 Inspect the latest engine log files inside the remote logs directory:
 ```bash
 # List latest logs
-ssh root@$EODSERVERIP "ls -t /root/mattmagie/tuning/enginelogs/*.log | head -n 3"
+ls -t /root/mattmagie/tuning/enginelogs/*.log | head -n 3
 
 # Cat the content of the latest log file
-ssh root@$EODSERVERIP "cat /root/mattmagie/tuning/enginelogs/engine_<pid>.log"
+cat /root/mattmagie/tuning/enginelogs/engine_<pid>.log
 ```
 
 Verify the following:
 1. **logpath Option**: Look for the string `Received option: logpath = /root/mattmagie/tuning/enginelogs`. This confirms that the engine received the custom option and successfully initialized its custom file writer log callback.
 2. **Current Parameter Dump**: Look for `Current Engine Parameters:` followed by the list of parameters.
 3. **Parameter Plausibility Check**:
-   - Compare the parameter values in the log file with the `theta` values in the remote `spsa_state.json`.
+   - Compare the parameter values in the log file with the `theta` values in `spsa_state.json`.
    - **Active Parameters**: The active parameters (those listed in `--params` in the command line, or all parameters if no `--params` was specified) should differ from the SPSA baseline `theta` by their perturbation step.
    - **Inactive Parameters**: The inactive parameters (those *not* listed in `--params`) **MUST be exactly equal** to their starting baseline defaults in `parameters.json` / `spsa_state.json`. If they differ, SPSA is incorrectly modifying non-targeted parameters.
 
@@ -70,6 +71,7 @@ Verify the following:
 
 ### 4. Parameter Adjustment Rules
 > [!WARNING]
-> **Never delete the entire tuning session (starting at iteration 1) just to adjust parameters!**
-> - If parameters need to be adjusted or hot-patched, **retain the current iteration and progress**. You should carefully edit the state files (`spsa_state.json`, `spsa_history.csv`) instead of resetting.
-> - **Full resets (Iteration 1) are strictly reserved** for releasing a completely new engine variant.
+> **Tuning Resets & State Maintenance Rules:**
+> - **Modifying Tuner Code / Algorithm:** If `spsa_tuner.py` code logic is altered (such as removing momentum or changing gradient calculations), the tuning state **MUST be fully reset** to $k=1$ (clearing `spsa_history.csv` and resetting `spsa_state.json` to initial defaults).
+> - **Hot-Patching Parameter Values:** If parameter baseline values need minor adjustments during a run without changing the algorithm, **retain the current iteration and progress**. Edit the state files (`spsa_state.json`, `spsa_history.csv`) carefully instead of resetting.
+> - **Full Resets (Iteration 1):** Reserved for releasing a completely new engine variant or changing optimization algorithm logic.
