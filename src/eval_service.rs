@@ -230,12 +230,15 @@ impl EvalService {
 
         // Lazy Evaluation Pruning
         if config.enable_lazy_eval {
-            let margin = config.lazy_eval_margin;
-            if eval + margin <= alpha {
-                return alpha;
+            let margin = config.lazy_eval_margin as i32;
+            let eval_i32 = eval as i32;
+            let alpha_i32 = alpha as i32;
+            let beta_i32 = beta as i32;
+            if eval_i32 + margin <= alpha_i32 {
+                return eval;
             }
-            if eval - margin >= beta {
-                return beta;
+            if eval_i32 - margin >= beta_i32 {
+                return eval;
             }
         }
 
@@ -1939,6 +1942,32 @@ mod tests {
             // phase is 2 rooks = 4/24 * 255 = 42 -> mostly endgame
             let diff = eval_with - eval_without;
             assert!(diff >= 75 && diff <= 100, "Rook behind enemy passed pawn bonus not applied correctly, diff={}", diff);
+        }
+
+        // 6. Lazy Evaluation Pruning and Overflow Test
+        {
+            let board = fen_service.set_fen("k7/8/8/8/8/8/8/K7 w - - 0 1");
+            let mut config = Config::for_tests();
+            config.enable_lazy_eval = true;
+            config.lazy_eval_margin = 250;
+
+            // Normal lazy evaluation trigger: eval + margin <= alpha
+            // With very high alpha, it should trigger fail-low and return cheap eval (which is different from full eval)
+            let eval_pruned = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), 10000, 20000);
+            let eval_full = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            assert_ne!(eval_pruned, eval_full, "Pruned eval should differ from full eval because positional terms are skipped");
+
+            // If margin is extremely large, pruning should not trigger, and it should match eval_full
+            config.lazy_eval_margin = 30000;
+            let eval_not_pruned = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), 10000, 20000);
+            assert_eq!(eval_not_pruned, eval_full, "Pruning should not trigger if margin is too large");
+
+            // Test overflow safety: high evaluation + margin should not wrap around and cause panic or incorrect fail-low
+            let board_winning = fen_service.set_fen("k7/8/8/8/8/8/PPPPPPPP/K7 w - - 0 1");
+            config.lazy_eval_margin = 250;
+            let eval_overflow = eval_service.calc_eval(&board_winning, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), -5000, -4000);
+            // It should not panic and should not incorrectly fail-low because of overflow
+            assert!(eval_overflow > 0);
         }
     }
 }
