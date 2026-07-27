@@ -111,6 +111,7 @@ Rust-In-Pieces utilizes Simultaneous Perturbation Stochastic Approximation (SPSA
 
 ```bash
 python3 tuning/spsa_tuner.py \
+    --group all \
     --engine target/release/rust-in-pieces \
     --mm ../target/release/Matt-Magie \
     --games 500 \
