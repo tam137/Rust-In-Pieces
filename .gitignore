@@ -30,3 +30,4 @@ tuning/spsa_history_remote.csv
 .DS_Store
 Thumbs.db
 books/
+implementation_plan.md
