@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.20.1] - 2026-07-27
+
+### Added
+- **UCI Parameter Support**: Added UCI parser support for `enable_lazy_eval` in `src/game_handler.rs`, enabling real-time runtime toggling of lazy evaluation.
+- **Unit Testing Coverage**: Integrated dedicated unit tests in `src/eval_service.rs` verifying lazy evaluation pruning conditions, margin-edge triggers, and overflow/underflow safety.
+
+### Fixed & Changed
+- **Re-enabled Lazy Evaluation by Default**: Enabled `enable_lazy_eval = true` by default in `src/config.rs` following successful bug fixes.
+- **Safe Evaluation Arithmetic (Overflow/Underflow Fix)**: Upgraded bounds check to `i32` precision in `src/eval_service.rs` to prevent `i16` overflow/underflow wraps where high-scoring or low-scoring positions would wrap and trigger incorrect early cutoffs.
+- **Stand-pat Delta Pruning Recovery in QS**: Restored cheap evaluation (`eval`) return values instead of window-dependent bounds (`alpha`/`beta`) on early exit. This ensures that the Quiescence Search `stand_pat` score is accurate and prevents delta pruning from being bypassed.
+- **Transposition Table Cleanliness**: Avoids caching window boundaries (`alpha`/`beta`) as exact scores in the Transposition Table when lazy evaluation triggers, ensuring consistent evaluation lookups.
+
+
+
 ## [V0.20.0] - 2026-07-27
 
 ### Fixed & Changed

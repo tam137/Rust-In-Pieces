@@ -39,6 +39,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
                             let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase()
                                 .replace("enablepositionalcap", "enable_positional_cap")
+                                .replace("enablelazy_eval", "enable_lazy_eval")
                                 .replace("positionalcapdamping", "positional_cap_damping");
                             let val_str = parts[val_idx+1..].join(" ");
 
@@ -52,6 +53,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 }
                             } else if param_name == "enable_positional_cap" {
                                 active_config.enable_positional_cap = val_str.to_lowercase() == "true";
+                            } else if param_name == "enable_lazy_eval" {
+                                active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
                             } else if param_name == "move_overhead" {
                                 if let Ok(overhead) = val_str.parse::<u64>() { active_config.move_overhead = overhead; }
                             } else {
@@ -80,6 +83,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     },
                                     "enablepositionalcap" | "enable_positional_cap" => {
                                         active_config.enable_positional_cap = val_str == "true";
+                                    },
+                                    "enablelazy_eval" | "enable_lazy_eval" => {
+                                        active_config.enable_lazy_eval = val_str == "true";
                                     },
                                     "positionalcapdamping" | "positional_cap_damping" => {
                                         if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; }
