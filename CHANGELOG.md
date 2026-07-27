@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.20.2] - 2026-07-27
+
+### Fixed & Changed
+- **Prevent TT Pollution from Lazy Evaluation**: `calc_eval` now returns `(eval, is_lazy)`. When lazy evaluation triggers, static evaluation scores are skipped from insertion into `zobrist_table` as `Exact` entries in Quiescence Search to prevent Transposition Table corruption.
+- **Safe Delta Pruning in QS**: Adjusted Delta Pruning in Quiescence Search to incorporate `lazy_eval_margin` when `is_lazy` is true, ensuring no tactical capture moves are incorrectly pruned.
+
+
+
 ## [V0.20.1] - 2026-07-27
 
 ### Added
