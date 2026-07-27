@@ -33,33 +33,32 @@ Once the match batch is completed, the win rate (score) of `theta_plus` against 
 
 Because the calculation avoids dividing by the individual step sizes, the gradient directly reflects the shift in the objective function.
 
-### 5. Momentum and Parameter Update (Adam-like SGDM)
-SPSA gradients are inherently noisy, especially when tuning 75 parameters simultaneously with a low game count. To stabilize the optimization trajectory, the script employs an Exponential Moving Average (EMA) momentum tracking:
+### 5. Pure SPSA Parameter Update (Direct Gradient Descent)
+SPSA gradients directly drive parameter updates per iteration without artificial momentum damping:
 
-1. A raw update vector is calculated by multiplying the gradient with a dynamically decaying learning rate `a_k` and the parameter's current magnitude scale.
-2. The momentum vector `m` is updated: `m[k] = beta * m[k] + (1.0 - beta) * raw_update` (where `beta = 0.9`).
-3. The baseline parameters `theta` are updated using the smoothed momentum.
-4. Finally, the updated parameters are clamped again to their legal boundaries.
+1. A raw update vector is calculated by multiplying the gradient `g_k` with the dynamically decaying learning rate `a_k` and the parameter's step size scale (`step_sizes[k]`).
+2. The baseline parameters `theta` are updated directly: `theta[k] += raw_update`.
+3. Finally, the updated parameters are strictly clamped to their legal `[min, max]` boundaries defined in `parameters.json`.
 
 ### 6. State Persistence
-The current state of the tuning process (the iteration counter `k`, the parameter vector `theta`, and the momentum vector `m`) is serialized into `spsa_state.json`. A history of all scores and parameter trajectories is appended to `spsa_history.csv`. This allows the tuning process to be safely interrupted and resumed at any time.
+The current state of the tuning process (the iteration counter `k` and the parameter vector `theta`) is serialized into `spsa_state.json`. A history of all scores and parameter trajectories is appended to `spsa_history.csv`. This allows the tuning process to be safely interrupted and resumed at any time.
 
 ## Usage
 
-The tuner is invoked via the command line, requiring paths to the engine and the match manager. 
+The tuner is invoked via the command line, requiring paths to the engine and the match manager.
 
 Example usage (as seen in `tuning.sh`):
 ```bash
 python3 spsa_tuner.py \
-    --group all \
-    --engine ../engines/suprah-0.18.1 \
+    --group search_and_ordering \
+    --engine ../engines/suprah-0.20.1 \
     --mm ../target/release/Matt-Magie \
     --book ../books/Performance.bin \
-    --games 500 \
-    --workers 4 \
-    --time 2 \
-    --inc 100 \
-    --lr 3.0
+    --games 800 \
+    --workers 3 \
+    --time 0.5 \
+    --inc 25 \
+    --lr 2.0
 ```
 
 ### Logging and Telemetry
