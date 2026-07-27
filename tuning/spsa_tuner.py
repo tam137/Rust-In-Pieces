@@ -52,7 +52,6 @@ class SPSATuner:
         
         self.k = 1
         self.theta = {k: float(v["value"]) for k, v in self.param_defs.items()}
-        self.m = {k: 0.0 for k in self.param_names}
         
         # Load state if exists
         if os.path.exists(self.state_file):
@@ -65,12 +64,6 @@ class SPSATuner:
                 for k in self.param_names:
                     if k in loaded_theta:
                         self.theta[k] = float(loaded_theta[k])
-                        
-                # Merge loaded momentum with defaults
-                loaded_m = state.get("m", {})
-                for k in self.param_names:
-                    if k in loaded_m:
-                        self.m[k] = float(loaded_m[k])
                         
                 print(f"Loaded state from iteration {self.k}")
         else:
@@ -239,7 +232,6 @@ class SPSATuner:
         # Gradient estimation
         diff = 2.0 * score - 1.0
         
-        beta = 0.9
         for k in self.active_params:
             # Gradient estimation without division by step size to prevent scaling cancellation
             g_k = (diff * delta[k]) / 2.0
@@ -250,9 +242,8 @@ class SPSATuner:
             
             raw_update = a_k_scaled * g_k
             
-            # Apply momentum (EMA)
-            self.m[k] = beta * self.m[k] + (1.0 - beta) * raw_update
-            self.theta[k] += self.m[k]
+            # Direct pure SPSA update (no momentum)
+            self.theta[k] += raw_update
             
             # Apply bounds
             _min = self.param_defs[k]["min"]
@@ -262,7 +253,7 @@ class SPSATuner:
         # Save state
         self.k += 1
         with open(self.state_file, "w") as f:
-            json.dump({"k": self.k, "theta": self.theta, "m": self.m}, f, indent=4)
+            json.dump({"k": self.k, "theta": self.theta}, f, indent=4)
             
         # Save history
         with open(self.history_file, "a", newline="") as f:
