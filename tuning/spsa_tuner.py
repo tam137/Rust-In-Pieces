@@ -11,7 +11,7 @@ import threading
 import sys
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None, book_path="", group_name="all"):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, lr=2.0, logpath="", active_params=None, book_path="", group_name="all"):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -21,7 +21,6 @@ class SPSATuner:
         self.workers = workers
         self.time_ms = time_ms
         self.inc_ms = inc_ms
-        self.mutate_pct = mutate_pct
         self.logpath = logpath
         self.book_path = book_path
         self.group_name = group_name
@@ -35,6 +34,12 @@ class SPSATuner:
 
         with open(self.params_file, "r") as f:
             self.param_defs = json.load(f)
+            
+        # Check if all parameters are fully defined
+        for k, v in self.param_defs.items():
+            for field in ["value", "step", "min", "max"]:
+                if field not in v:
+                    raise ValueError(f"Parameter '{k}' is missing required field '{field}' in parameters.json")
             
         self.param_names = list(self.param_defs.keys())
         if active_params:
@@ -54,11 +59,19 @@ class SPSATuner:
             with open(self.state_file, "r") as f:
                 state = json.load(f)
                 self.k = state["k"]
-                self.theta = state["theta"]
-                if "m" in state:
-                    self.m = state["m"]
-                else:
-                    self.m = {k: 0.0 for k in self.param_names}
+                
+                # Merge loaded theta with defaults
+                loaded_theta = state.get("theta", {})
+                for k in self.param_names:
+                    if k in loaded_theta:
+                        self.theta[k] = float(loaded_theta[k])
+                        
+                # Merge loaded momentum with defaults
+                loaded_m = state.get("m", {})
+                for k in self.param_names:
+                    if k in loaded_m:
+                        self.m[k] = float(loaded_m[k])
+                        
                 print(f"Loaded state from iteration {self.k}")
         else:
             # Initialize history file
@@ -231,8 +244,8 @@ class SPSATuner:
             # Gradient estimation without division by step size to prevent scaling cancellation
             g_k = (diff * delta[k]) / 2.0
             
-            # Scale learning rate by the current parameter's magnitude to prevent throttling
-            param_scale = max(1.0, abs(self.theta[k]))
+            # Scale learning rate by the parameter's step size to align update magnitude with perturbation scale
+            param_scale = step_sizes[k]
             a_k_scaled = a_k * param_scale
             
             raw_update = a_k_scaled * g_k
@@ -266,7 +279,6 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=8, help="Number of parallel games to run simultaneously")
     parser.add_argument("--time", type=int, default=2, help="Time per game in seconds")
     parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
-    parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%%)")
     parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
@@ -316,7 +328,6 @@ if __name__ == "__main__":
         workers=args.workers,
         time_ms=args.time * 1000,
         inc_ms=args.inc,
-        mutate_pct=args.mutate,
         lr=args.lr,
         logpath=args.logpath,
         active_params=active_params,
