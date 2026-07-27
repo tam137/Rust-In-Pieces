@@ -527,7 +527,7 @@ impl SearchService {
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX);
+            let (static_eval, _) = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX);
             let margin = 80 * depth as i16;
             
             if white {
@@ -567,11 +567,14 @@ impl SearchService {
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
             let mut eval = if white { i16::MIN } else { i16::MAX };
+            let mut is_lazy = false;
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
+                let (eval_score, lazy_flag) = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
+                stand_pat = eval_score;
+                is_lazy = lazy_flag;
                 eval = stand_pat;
-                if config.use_zobrist {
+                if !is_lazy && config.use_zobrist {
                     context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
                         key: board.cached_hash,
                         eval: stand_pat,
@@ -639,11 +642,12 @@ impl SearchService {
                         _ => 0,
                     };
                     let delta_margin = config.delta_pruning_margin;
+                    let margin = if is_lazy { config.lazy_eval_margin } else { 0 };
                     if white {
-                        if stand_pat + gain + delta_margin < alpha {
+                        if stand_pat + margin + gain + delta_margin < alpha {
                             continue;
                         }
-                    } else if stand_pat - gain - delta_margin > beta {
+                    } else if stand_pat - margin - gain - delta_margin > beta {
                         continue;
                     }
                 }
