@@ -68,6 +68,7 @@ Verify the following:
 > Do not just blindly read out the values. You must **critically analyze and interpret** the information.
 > - **Are the parameters meaningful ("sinnvoll")?** For example, a malus for a trapped bishop should mathematically be a penalty, not a bonus. A value that explodes to absurd numbers might indicate a bug.
 > - **Is the tuning stable?** If the values oscillate wildly or drift into nonsensical ranges, raise a flag.
+- **Unusually Fast Iterations (0.5 Score Loop):** If iterations run unnaturally fast (e.g., 100 iterations completing in a few seconds with `Score: 0.5` across all rows in `spsa_history.csv`), `Matt-Magie` is failing to parse input arguments or crashing silently. Verify that integer CLI options (`time_ms`, `inc_ms`) are passed as clean integer strings without decimal floats (`int(round(...))`).
 
 ### 4. Parameter Adjustment Rules
 > [!WARNING]
