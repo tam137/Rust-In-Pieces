@@ -137,6 +137,10 @@ pub struct Config {
     pub enable_nmp: bool,
     pub enable_aspiration: bool,
     pub enable_rfp: bool,
+    pub enable_futility_pruning: bool,
+    pub futility_max_depth: i32,
+    pub futility_margin_base: i16,
+    pub futility_margin_slope: i16,
     pub enable_delta_pruning: bool,
     pub delta_pruning_margin: i16,
     pub enable_counter_moves: bool,
@@ -289,6 +293,10 @@ impl Config {
             enable_nmp: true,
             enable_aspiration: true,
             enable_rfp: true,
+            enable_futility_pruning: true,
+            futility_max_depth: 3,
+            futility_margin_base: 150,
+            futility_margin_slope: 100,
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
             enable_counter_moves: true,
@@ -508,6 +516,10 @@ impl Config {
         msg.push_str(&format!("  threat_minor_attacks_rook: {}\n", self.threat_minor_attacks_rook));
         msg.push_str(&format!("  threat_minor_attacks_queen: {}\n", self.threat_minor_attacks_queen));
         msg.push_str(&format!("  threat_rook_attacks_queen: {}\n", self.threat_rook_attacks_queen));
+        msg.push_str(&format!("  enable_futility_pruning: {}\n", self.enable_futility_pruning));
+        msg.push_str(&format!("  futility_max_depth: {}\n", self.futility_max_depth));
+        msg.push_str(&format!("  futility_margin_base: {}\n", self.futility_margin_base));
+        msg.push_str(&format!("  futility_margin_slope: {}\n", self.futility_margin_slope));
         let _ = logger.send(msg);
     }
 }

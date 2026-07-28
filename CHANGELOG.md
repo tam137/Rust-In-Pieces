@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.1] - 2026-07-28
+
+### Added & Optimized
+- **Futility Pruning (FP) at Low Search Depths (`depth <= 3`)**:
+  - Implemented leaf/frontier Futility Pruning inside the main move search loop in [src/search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs).
+  - Skips unpromising quiet moves at low search depths (`depth <= 3`) when `static_eval + futility_margin <= alpha` (for White) or `static_eval - futility_margin >= beta` (for Black), where `futility_margin = base + slope * depth`.
+  - Added strict tactical safety guards: Futility Pruning is bypassed if the node is in check (`turn.gives_check`), if the move is tactical (captures, promotions, or check-giving moves), or if the move is a priority move (Transposition Table move, Killer moves, or Counter move).
+  - Preserved PV-node evaluation fidelity by disabling Futility Pruning when `is_pv` is active or when near mate scores (`alpha.abs() >= 20000`).
+- **Centralized `static_eval` Computation**:
+  - Precalculates `static_eval` once per node when `depth > 0` and not in check, reusing the value across both Reverse Futility Pruning (RFP) and Futility Pruning (FP) to prevent redundant evaluation calls.
+- **Transposition Table Hash-Move Preservation**:
+  - Extracted the Transposition Table move (`tt_move`) during TT lookup to guarantee that TT best-moves are protected from pruning in subsequent search plies.
+- **New UCI & Tuning Parameters in `Config`**:
+  - Added `enable_futility_pruning: bool` (default: `true`), `futility_max_depth: i32` (default: `3`), `futility_margin_base: i16` (default: `150`), and `futility_margin_slope: i16` (default: `100`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs).
+
+
+
 ## [V0.22.0] - 2026-07-28
 
 ### Fixed & Added
