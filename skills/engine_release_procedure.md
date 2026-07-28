@@ -11,6 +11,8 @@ This document outlines the mandatory procedure for building, testing, and releas
 - **Build Directive:** Standard manual compilation commands like `cargo build` or `cargo build --release` are strictly forbidden for releasing the engine.
 - **Mandatory Script:** You MUST compile, version-bump, and deploy the engine solely using the automated pipeline script: `./build_and_release.sh`.
 - **Changelog Message:** You can pass an optional description of the functional changes as the first argument, e.g., `./build_and_release.sh "Added new search features"`. If no argument is provided, the script will automatically harvest recent git commit logs as changes.
+- **Git Branch Policy:** Do NOT create, checkout, or work on any new Git branches unless explicitly requested or commanded by the user. Git tags (e.g. `v0.21.0`) are excluded from this rule and must be created during release finalization. All work, commits, and releases must happen directly on the active branch (normally `master`) by default.
+
 
 ## 2. Mandatory Release Sequence & Procedure
 Whenever a release is explicitly requested by the USER (applicable for both **Patch** and **Minor** releases), the AI MUST execute the following steps in this exact chronological order:
