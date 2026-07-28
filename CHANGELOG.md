@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.3] - 2026-07-28
+
+### Changed & Optimized
+- **Aggressive Futility Pruning Configuration (`src/config.rs`)**:
+  - Extended maximum Futility Pruning depth to `futility_max_depth = 4` (pruning quiet moves at depths 1, 2, 3, and 4).
+  - Tightened pruning safety margins: reduced base margin `futility_margin_base = 100` cp (from 150) and slope `futility_margin_slope = 70` cp (from 100).
+  - New depth-scaled margin thresholds: Depth 1 = 170 cp, Depth 2 = 240 cp, Depth 3 = 310 cp, Depth 4 = 380 cp.
+- **Search Tree Node Reduction**:
+  - Increases search tree pruning aggressiveness, significantly boosting Nodes Per Second (NPS) and reaching deeper ply search depths in fast time controls.
+- **Overflow-Safe Mate Score Normalization (`src/search_service.rs`)**:
+  - Switched mate score Transposition Table normalization to `saturating_add` and `saturating_sub` in `minimax`, preventing potential integer overflow panics when evaluating nodes with extreme scores.
+  - Added dedicated unit test `test_mate_score_normalization_overflow_safety` to verify saturating arithmetic and search stability on forced mate scores.
+
+
+
 ## [V0.22.2] - 2026-07-28
 
 ### Added & Verified
