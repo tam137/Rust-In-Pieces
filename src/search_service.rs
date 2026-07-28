@@ -395,6 +395,7 @@ impl SearchService {
 
         let orig_alpha = alpha;
         let orig_beta = beta;
+        let mut tt_move = None;
 
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
@@ -402,6 +403,7 @@ impl SearchService {
                 board.cached_hash = crate::zobrist::gen_hash(board);
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                tt_move = entry.decompress_move(board);
                 if entry.depth as i32 >= depth {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
@@ -411,7 +413,7 @@ impl SearchService {
                         entry_eval += ply as i16;
                     }
 
-                    let decompressed = entry.decompress_move(board);
+                    let decompressed = tt_move;
 
                     match entry.entry_type {
                         crate::zobrist::TranspositionType::Exact => {
@@ -442,6 +444,13 @@ impl SearchService {
                 }
             }
         }
+
+        // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
+        let static_eval = if depth > 0 && !turn.gives_check {
+            service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX)
+        } else {
+            0
+        };
 
         // 0. Null Move Pruning (NMP)
         if config.enable_nmp 
@@ -515,7 +524,6 @@ impl SearchService {
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let static_eval = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX);
             let margin = 80 * depth as i16;
             
             if white {
@@ -720,6 +728,36 @@ impl SearchService {
             }
 
             let current_turn = &turns.moves[i];
+
+            // 0.8. Futility Pruning (FP) at low search depths
+            if config.enable_futility_pruning
+                && depth <= config.futility_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && !current_turn.gives_check
+                && alpha.abs() < 20000
+            {
+                let p = ply.clamp(0, 127) as usize;
+                let is_important = Some(*current_turn) == tt_move
+                    || Some(*current_turn) == killer_moves[p][0]
+                    || Some(*current_turn) == killer_moves[p][1]
+                    || Some(*current_turn) == current_context.counter_move;
+
+                if !is_important {
+                    let futility_margin = config.futility_margin_base + config.futility_margin_slope * depth as i16;
+                    if white {
+                        if static_eval + futility_margin <= alpha {
+                            i += 1;
+                            continue;
+                        }
+                    } else if static_eval - futility_margin >= beta {
+                        i += 1;
+                        continue;
+                    }
+                }
+            }
 
             if stats.calculated_nodes & 1023 == 0 {
                 let elapsed = context.start_time.elapsed().as_millis() as i32;
