@@ -86,6 +86,10 @@ pub fn uci_command_processor(
                     stdout.write("option name RookBehindEnemyPassedPawnEg type spin default 25 min -500 max 500");
                     stdout.write("option name EnableLazyEval type check default true");
                     stdout.write("option name LazyEvalMargin type spin default 250 min 10 max 1000");
+                    stdout.write("option name EnableFutilityPruning type check default true");
+                    stdout.write("option name FutilityMaxDepth type spin default 3 min 1 max 10");
+                    stdout.write("option name FutilityMarginBase type spin default 120 min 0 max 500");
+                    stdout.write("option name FutilityMarginSlope type spin default 80 min 0 max 300");
                     stdout.write("uciok");
                 }
 
