@@ -65,6 +65,10 @@ impl MoveGenService {
         KNIGHT_ATTACKS[sq]
     }
 
+    pub fn get_king_attacks(&self, sq: usize) -> u64 {
+        KING_ATTACKS[sq]
+    }
+
     pub fn get_bishop_attacks(&self, square: usize, occupied: u64) -> u64 {
         crate::magic::get_bishop_attacks(square, occupied)
     }
@@ -963,6 +967,19 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
     use super::*;
+
+    #[test]
+    fn test_get_king_attacks() {
+        let movegen = MoveGenService::new();
+        let e4_attacks = movegen.get_king_attacks(28);
+        assert_eq!(e4_attacks.count_ones(), 8);
+
+        let a1_attacks = movegen.get_king_attacks(0);
+        assert_eq!(a1_attacks.count_ones(), 3);
+        assert_ne!(a1_attacks & (1u64 << 1), 0);
+        assert_ne!(a1_attacks & (1u64 << 8), 0);
+        assert_ne!(a1_attacks & (1u64 << 9), 0);
+    }
 
     // Test-only mailbox-to-lerf translator to preserve all test coordinates
     fn m2l(sq: i32) -> i32 {

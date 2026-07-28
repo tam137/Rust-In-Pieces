@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.5] - 2026-07-28
+
+### Optimized & Fixed
+- **Evaluation Performance & Integrity Optimizations (`src/eval_service.rs`)**:
+  - **Connected Passed Pawns Acceleration**: Replaced $O(N^2)$ nested loops with division/modulo with single-pass bitwise mask checks using `movegen.get_king_attacks(sq) & !file_mask`.
+  - **Piece Loop Optimization**: Eliminated per-square `board.get_piece_at()` mailbox lookups and 12-branch `match` dispatching in favor of direct iteration over piece type bitboards.
+  - **King Danger Defender Lookup**: Streamlined defender count loops for knights and bishops without mailbox lookups.
+  - **Knight Evaluation Symmetry**: Removed duplicate `attacks_on_ring` computation in `white_knight`, resolving evaluation asymmetry between White and Black knights.
+  - **Unit Testing Suite**: Added targeted unit tests for `get_king_attacks`, connected passed pawns, and knight evaluation symmetry.
+
 ## [V0.22.4] - 2026-07-28
 
 ### Changed & Configuration
