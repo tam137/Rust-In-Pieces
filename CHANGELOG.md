@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.21.1] - 2026-07-28
+
+### Added
+- Unified lazy evaluation and search fixes, optimized outpost calculation
+
+### Fixed
+
+
+
+## [V0.21.1] - 2026-07-28
+
+### Added & Fixed
+- **Clean Quiescence Search Lazy Evaluation**:
+  - Integrated `cheap_eval` in [src/eval_service.rs](file:///home/tam137/Rust-In-Pieces/src/eval_service.rs) into Quiescence Search inside [src/search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) to bypass full evaluation when positional terms cannot change the alpha/beta cutoff.
+  - Excluded Transposition Table writes when lazy evaluation prunes, completely preventing the TT pollution and depth-0 cache thrashing present in v0.20.3.
+- **Outpost Calculation Speedup**:
+  - Replaced 48-iteration unconditional loops in `calc_eval` with candidate bitboard filtering, cutting full evaluation time from ~8.5µs down to ~2.5µs.
+- **UCI Parameter Support**:
+  - Re-exposed `EnableLazyEval` and `LazyEvalMargin` UCI options in [src/threads.rs](file:///home/tam137/Rust-In-Pieces/src/threads.rs) and [src/game_handler.rs](file:///home/tam137/Rust-In-Pieces/src/game_handler.rs).
+
+
 ## [V0.21.0] - 2026-07-28
 
 ### Fixed & Changed
