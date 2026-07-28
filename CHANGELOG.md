@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.4] - 2026-07-28
+
+### Changed & Configuration
+- **Full Search & Evaluation Fidelity Baseline**:
+  - Disabled **Lazy Evaluation** (`enable_lazy_eval: false`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs) for full positional feature calculation accuracy across all evaluated nodes.
+  - Disabled **Futility Pruning** (`enable_futility_pruning: false`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs) by default.
+  - Retains all underlying Futility Pruning code, configuration infrastructure, and unit tests, allowing FP to be toggled on-demand via UCI parameters (`EnableFutilityPruning: true`) or SPSA tuning harnesses without modifying code.
+
+
+
 ## [V0.22.3] - 2026-07-28
 
 ### Changed & Optimized
