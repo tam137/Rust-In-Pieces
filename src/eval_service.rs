@@ -293,36 +293,102 @@ impl EvalService {
         let mut white_king_danger = 0;
         let mut black_king_danger = 0;
 
-        let mut temp = board.occupied;
-        while temp != 0 {
-            let sq = temp.trailing_zeros() as u8;
-            let piece = board.get_piece_at(sq);
-            let (eval_for_piece, attackers, danger) = match piece {
-                10 | 20 => (0, 0, 0), // Already calculated separately!
-                11 => self.white_rook(sq, board, config, game_phase, movegen, black_king_ring),
-                12 => self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts),
-                13 => self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts),
-                14 => self.white_queen(sq, board, config, game_phase, movegen, black_king_ring),
-                15 => self.white_king(sq, board, config, game_phase, movegen),
-                21 => self.black_rook(sq, board, config, game_phase, movegen, white_king_ring),
-                22 => self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts),
-                23 => self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts),
-                24 => self.black_queen(sq, board, config, game_phase, movegen, white_king_ring),
-                25 => self.black_king(sq, board, config, game_phase, movegen),
-                _ => (0, 0, 0),
-            };
-            if config.print_eval_per_figure && piece > 0 {
-                println!("{},\t{},\t{}", sq, piece, eval_for_piece);
-            }
+        let mut temp_w_rook = board.bitboards[crate::model::WHITE_ROOK];
+        while temp_w_rook != 0 {
+            let sq = temp_w_rook.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.white_rook(sq, board, config, game_phase, movegen, black_king_ring);
+            if config.print_eval_per_figure { println!("{},\t11,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
-            if piece < 20 && piece > 0 {
-                white_attackers += attackers;
-                white_king_danger += danger;
-            } else if piece >= 20 {
-                black_attackers += attackers;
-                black_king_danger += danger;
-            }
-            temp &= temp - 1;
+            white_attackers += attackers;
+            white_king_danger += danger;
+            temp_w_rook &= temp_w_rook - 1;
+        }
+        let mut temp_w_knight = board.bitboards[crate::model::WHITE_KNIGHT];
+        while temp_w_knight != 0 {
+            let sq = temp_w_knight.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts);
+            if config.print_eval_per_figure { println!("{},\t12,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            white_attackers += attackers;
+            white_king_danger += danger;
+            temp_w_knight &= temp_w_knight - 1;
+        }
+        let mut temp_w_bishop = board.bitboards[crate::model::WHITE_BISHOP];
+        while temp_w_bishop != 0 {
+            let sq = temp_w_bishop.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts);
+            if config.print_eval_per_figure { println!("{},\t13,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            white_attackers += attackers;
+            white_king_danger += danger;
+            temp_w_bishop &= temp_w_bishop - 1;
+        }
+        let mut temp_w_queen = board.bitboards[crate::model::WHITE_QUEEN];
+        while temp_w_queen != 0 {
+            let sq = temp_w_queen.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.white_queen(sq, board, config, game_phase, movegen, black_king_ring);
+            if config.print_eval_per_figure { println!("{},\t14,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            white_attackers += attackers;
+            white_king_danger += danger;
+            temp_w_queen &= temp_w_queen - 1;
+        }
+        let mut temp_w_king = board.bitboards[crate::model::WHITE_KING];
+        while temp_w_king != 0 {
+            let sq = temp_w_king.trailing_zeros() as u8;
+            let (eval_for_piece, _attackers, _danger) = self.white_king(sq, board, config, game_phase, movegen);
+            if config.print_eval_per_figure { println!("{},\t15,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            temp_w_king &= temp_w_king - 1;
+        }
+
+        let mut temp_b_rook = board.bitboards[crate::model::BLACK_ROOK];
+        while temp_b_rook != 0 {
+            let sq = temp_b_rook.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.black_rook(sq, board, config, game_phase, movegen, white_king_ring);
+            if config.print_eval_per_figure { println!("{},\t21,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            black_attackers += attackers;
+            black_king_danger += danger;
+            temp_b_rook &= temp_b_rook - 1;
+        }
+        let mut temp_b_knight = board.bitboards[crate::model::BLACK_KNIGHT];
+        while temp_b_knight != 0 {
+            let sq = temp_b_knight.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts);
+            if config.print_eval_per_figure { println!("{},\t22,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            black_attackers += attackers;
+            black_king_danger += danger;
+            temp_b_knight &= temp_b_knight - 1;
+        }
+        let mut temp_b_bishop = board.bitboards[crate::model::BLACK_BISHOP];
+        while temp_b_bishop != 0 {
+            let sq = temp_b_bishop.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts);
+            if config.print_eval_per_figure { println!("{},\t23,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            black_attackers += attackers;
+            black_king_danger += danger;
+            temp_b_bishop &= temp_b_bishop - 1;
+        }
+        let mut temp_b_queen = board.bitboards[crate::model::BLACK_QUEEN];
+        while temp_b_queen != 0 {
+            let sq = temp_b_queen.trailing_zeros() as u8;
+            let (eval_for_piece, attackers, danger) = self.black_queen(sq, board, config, game_phase, movegen, white_king_ring);
+            if config.print_eval_per_figure { println!("{},\t24,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            black_attackers += attackers;
+            black_king_danger += danger;
+            temp_b_queen &= temp_b_queen - 1;
+        }
+        let mut temp_b_king = board.bitboards[crate::model::BLACK_KING];
+        while temp_b_king != 0 {
+            let sq = temp_b_king.trailing_zeros() as u8;
+            let (eval_for_piece, _attackers, _danger) = self.black_king(sq, board, config, game_phase, movegen);
+            if config.print_eval_per_figure { println!("{},\t25,\t{}", sq, eval_for_piece); }
+            eval += eval_for_piece;
+            temp_b_king &= temp_b_king - 1;
         }
 
         // Apply King Danger Weights (Task 1.4)
@@ -339,21 +405,29 @@ impl EvalService {
         let mut black_defenders = 0;
         
         if white_attackers > 0 || black_attackers > 0 {
-            let mut temp = board.bitboards[crate::model::WHITE_KNIGHT] | board.bitboards[crate::model::WHITE_BISHOP];
+            let mut temp = board.bitboards[crate::model::WHITE_KNIGHT];
             while temp != 0 {
                 let sq = temp.trailing_zeros() as usize;
-                let piece = board.get_piece_at(sq as u8);
-                let attacks = if piece == 12 { movegen.get_knight_attacks(sq) } else { movegen.get_bishop_attacks(sq, board.occupied) };
-                if (attacks & white_king_ring) != 0 { white_defenders += 1; }
+                if (movegen.get_knight_attacks(sq) & white_king_ring) != 0 { white_defenders += 1; }
+                temp &= temp - 1;
+            }
+            let mut temp = board.bitboards[crate::model::WHITE_BISHOP];
+            while temp != 0 {
+                let sq = temp.trailing_zeros() as usize;
+                if (movegen.get_bishop_attacks(sq, board.occupied) & white_king_ring) != 0 { white_defenders += 1; }
                 temp &= temp - 1;
             }
             
-            let mut temp = board.bitboards[crate::model::BLACK_KNIGHT] | board.bitboards[crate::model::BLACK_BISHOP];
+            let mut temp = board.bitboards[crate::model::BLACK_KNIGHT];
             while temp != 0 {
                 let sq = temp.trailing_zeros() as usize;
-                let piece = board.get_piece_at(sq as u8);
-                let attacks = if piece == 22 { movegen.get_knight_attacks(sq) } else { movegen.get_bishop_attacks(sq, board.occupied) };
-                if (attacks & black_king_ring) != 0 { black_defenders += 1; }
+                if (movegen.get_knight_attacks(sq) & black_king_ring) != 0 { black_defenders += 1; }
+                temp &= temp - 1;
+            }
+            let mut temp = board.bitboards[crate::model::BLACK_BISHOP];
+            while temp != 0 {
+                let sq = temp.trailing_zeros() as usize;
+                if (movegen.get_bishop_attacks(sq, board.occupied) & black_king_ring) != 0 { black_defenders += 1; }
                 temp &= temp - 1;
             }
         }
@@ -373,22 +447,11 @@ impl EvalService {
         let mut white_connected_passed_pawns = 0;
         let mut temp_w_passed = white_passed_pawns;
         while temp_w_passed != 0 {
-            let sq1 = temp_w_passed.trailing_zeros() as i32;
-            let file1 = sq1 % 8;
-            let rank1 = sq1 / 8;
-            let mut other_passed = white_passed_pawns & !(1u64 << sq1);
-            let mut is_connected = false;
-            while other_passed != 0 {
-                let sq2 = other_passed.trailing_zeros() as i32;
-                let file2 = sq2 % 8;
-                let rank2 = sq2 / 8;
-                if (file1 - file2).abs() == 1 && (rank1 - rank2).abs() <= 1 {
-                    is_connected = true;
-                    break;
-                }
-                other_passed &= other_passed - 1;
-            }
-            if is_connected {
+            let sq1 = temp_w_passed.trailing_zeros() as usize;
+            let file1 = sq1 & 7;
+            let file_mask = 0x0101010101010101u64 << file1;
+            let adjacent_king_attacks = movegen.get_king_attacks(sq1) & !file_mask;
+            if (adjacent_king_attacks & white_passed_pawns) != 0 {
                 white_connected_passed_pawns += 1;
             }
             temp_w_passed &= temp_w_passed - 1;
@@ -397,22 +460,11 @@ impl EvalService {
         let mut black_connected_passed_pawns = 0;
         let mut temp_b_passed = black_passed_pawns;
         while temp_b_passed != 0 {
-            let sq1 = temp_b_passed.trailing_zeros() as i32;
-            let file1 = sq1 % 8;
-            let rank1 = sq1 / 8;
-            let mut other_passed = black_passed_pawns & !(1u64 << sq1);
-            let mut is_connected = false;
-            while other_passed != 0 {
-                let sq2 = other_passed.trailing_zeros() as i32;
-                let file2 = sq2 % 8;
-                let rank2 = sq2 / 8;
-                if (file1 - file2).abs() == 1 && (rank1 - rank2).abs() <= 1 {
-                    is_connected = true;
-                    break;
-                }
-                other_passed &= other_passed - 1;
-            }
-            if is_connected {
+            let sq1 = temp_b_passed.trailing_zeros() as usize;
+            let file1 = sq1 & 7;
+            let file_mask = 0x0101010101010101u64 << file1;
+            let adjacent_king_attacks = movegen.get_king_attacks(sq1) & !file_mask;
+            if (adjacent_king_attacks & black_passed_pawns) != 0 {
                 black_connected_passed_pawns += 1;
             }
             temp_b_passed &= temp_b_passed - 1;
@@ -903,10 +955,6 @@ impl EvalService {
         let mobility = attacks.count_ones() as i16;
         o_eval += mobility * config.knight_mobility_factor;
         e_eval += mobility * config.knight_mobility_factor;
-
-        // King ring attacks
-        let attacks_on_ring = (attacks & opp_king_ring).count_ones() as i16;
-        o_eval += attacks_on_ring * config.king_ring_attack_knight;
 
         let stands_on_outpost = (1u64 << sq) & friendly_true_outposts != 0;
         let attacks_outpost = (attacks & friendly_true_outposts) != 0;
@@ -1963,6 +2011,49 @@ mod tests {
             // phase is 2 rooks = 4/24 * 255 = 42 -> mostly endgame
             let diff = eval_with - eval_without;
             assert!(diff >= 75 && diff <= 100, "Rook behind enemy passed pawn bonus not applied correctly, diff={}", diff);
+        }
+
+        // 6. Connected Passed Pawns Bitwise Accuracy Test for White and Black
+        {
+            let fen_service = Service::new().fen;
+            let eval_service = Service::new().eval;
+            let movegen = &Service::new().move_gen;
+            let config = Config::for_tests();
+
+            // White connected passed pawns on e5, f5 vs isolated passed pawns on a5, e5
+            let board_connected = fen_service.set_fen("8/8/8/4PP2/8/k7/8/K7 w - - 0 1");
+            let board_isolated = fen_service.set_fen("8/8/8/P3P3/8/k7/8/K7 w - - 0 1");
+
+            let eval_connected = eval_service.calc_eval(&board_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_isolated = eval_service.calc_eval(&board_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+
+            assert!(eval_connected > eval_isolated, "Connected passed pawns should evaluate higher than isolated passed pawns");
+
+            // Black connected passed pawns on e4, f4 vs isolated passed pawns on a4, e4
+            let board_b_connected = fen_service.set_fen("8/8/8/K7/4pp2/8/8/k7 b - - 0 1");
+            let board_b_isolated = fen_service.set_fen("8/8/8/K7/p3p3/8/8/k7 b - - 0 1");
+
+            let eval_b_connected = eval_service.calc_eval(&board_b_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_b_isolated = eval_service.calc_eval(&board_b_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+
+            assert!(eval_b_connected < eval_b_isolated, "Black connected passed pawns should give a lower (more negative for White) eval than isolated");
+        }
+
+        // 7. Knight King Ring Attack Symmetry Test
+        {
+            let fen_service = Service::new().fen;
+            let eval_service = Service::new().eval;
+            let movegen = &Service::new().move_gen;
+            let config = Config::for_tests();
+
+            // Symmetrical position with White Knight attacking Black King ring vs Black Knight attacking White King ring
+            let board_white_att = fen_service.set_fen("4k3/8/8/5N2/8/8/8/4K3 w - - 0 1");
+            let board_black_att = fen_service.set_fen("4k3/8/8/8/5n2/8/8/4K3 b - - 0 1");
+
+            let eval_w = eval_service.calc_eval(&board_white_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_b = eval_service.calc_eval(&board_black_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+
+            assert_eq!(eval_w, -eval_b, "Evaluation should be perfectly symmetric for White and Black knight attacks on king ring");
         }
     }
 }
