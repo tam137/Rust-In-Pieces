@@ -271,7 +271,7 @@ impl Config {
             rook_on_seventh: 33,
 
             lazy_eval_margin: 250,
-            enable_lazy_eval: true,
+            enable_lazy_eval: false,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
             king_danger_weight_3: 100,
