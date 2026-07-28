@@ -123,7 +123,30 @@ impl EvalService {
         ];
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
+    pub fn cheap_eval(&self, board: &Board, config: &Config, pawn_table: &crate::pawn_hash::PawnHashTable) -> i16 {
+        let game_phase = self.get_game_phase(board) as i16;
+        let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
+
+        // Add pawn structure from table if present
+        let mut struct_mg = 0;
+        let mut struct_eg = 0;
+        if let Some((cached_mg, cached_eg)) = pawn_table.get(board.pawn_key) {
+            struct_mg = cached_mg;
+            struct_eg = cached_eg;
+        }
+        eval += self.calculate_weighted_eval(struct_mg, struct_eg, game_phase);
+
+        // Apply bishop pair scaling if opposite colored bishops
+        if Self::is_opposite_colored_bishops_endgame(board) {
+            eval = (eval * config.opposite_bishops_draw_scale) / 100;
+        }
+
+        // Apply endgame scaling
+        eval = self.adjust_eval(eval, game_phase, config);
+        eval
+    }
+
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, _alpha: i16, _beta: i16) -> i16 {
         let mut scaled_config;
         let config = if config.aggressiveness == crate::config::Aggressiveness::Normal {
             config
@@ -228,34 +251,34 @@ impl EvalService {
 
         eval += self.calculate_weighted_eval(struct_mg + dyn_mg, struct_eg + dyn_eg, game_phase);
 
-        // Lazy Evaluation Pruning
-        if config.enable_lazy_eval {
-            let margin = config.lazy_eval_margin;
-            if eval + margin <= alpha {
-                return alpha;
-            }
-            if eval - margin >= beta {
-                return beta;
+        // Precalculate true outpost squares using efficient candidate bitboards
+        let mut white_true_outposts = 0u64;
+        let mut black_true_outposts = 0u64;
+
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+
+        if (board.bitboards[crate::model::WHITE_KNIGHT] | board.bitboards[crate::model::WHITE_BISHOP]) != 0 {
+            let supported_by_white = ((white_pawns << 9) & !0x0101010101010101u64) | ((white_pawns << 7) & !0x8080808080808080u64);
+            let mut white_candidates = supported_by_white & 0x0000FFFFFF000000u64;
+            while white_candidates != 0 {
+                let sq = white_candidates.trailing_zeros() as u8;
+                if self.is_true_outpost(sq, true, board) {
+                    white_true_outposts |= 1u64 << sq;
+                }
+                white_candidates &= white_candidates - 1;
             }
         }
 
-        // Precalculate true outpost squares
-        let mut white_true_outposts = 0u64;
-        let mut black_true_outposts = 0u64;
-        for r in 3..=5 {
-            for f in 0..8 {
-                let sq = r * 8 + f;
-                if self.is_true_outpost(sq as u8, true, board) {
-                    white_true_outposts |= 1u64 << sq;
-                }
-            }
-        }
-        for r in 2..=4 {
-            for f in 0..8 {
-                let sq = r * 8 + f;
-                if self.is_true_outpost(sq as u8, false, board) {
+        if (board.bitboards[crate::model::BLACK_KNIGHT] | board.bitboards[crate::model::BLACK_BISHOP]) != 0 {
+            let supported_by_black = ((black_pawns >> 9) & !0x8080808080808080u64) | ((black_pawns >> 7) & !0x0101010101010101u64);
+            let mut black_candidates = supported_by_black & 0x000000FFFFFF0000u64;
+            while black_candidates != 0 {
+                let sq = black_candidates.trailing_zeros() as u8;
+                if self.is_true_outpost(sq, false, board) {
                     black_true_outposts |= 1u64 << sq;
                 }
+                black_candidates &= black_candidates - 1;
             }
         }
 
