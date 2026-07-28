@@ -41,7 +41,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("enablepositionalcap", "enable_positional_cap")
                                 .replace("enablelazyeval", "enable_lazy_eval")
                                 .replace("lazyevalmargin", "lazy_eval_margin")
-                                .replace("positionalcapdamping", "positional_cap_damping");
+                                .replace("positionalcapdamping", "positional_cap_damping")
+                                .replace("enablefutilitypruning", "enable_futility_pruning")
+                                .replace("futilitymaxdepth", "futility_max_depth")
+                                .replace("futilitymarginbase", "futility_margin_base")
+                                .replace("futilitymarginslope", "futility_margin_slope");
                             let val_str = parts[val_idx+1..].join(" ");
 
                             if param_name == "aggressiveness" {
@@ -172,6 +176,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "king_danger_weight_3" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_3 = v; },
                                     "king_danger_weight_4" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_4 = v; },
                                     "king_danger_weight_5" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_5 = v; },
+                                    "enablefutilitypruning" | "enable_futility_pruning" => { active_config.enable_futility_pruning = val_str.to_lowercase() == "true"; },
+                                    "futilitymaxdepth" | "futility_max_depth" => if let Ok(v) = val_str.parse::<i32>() { active_config.futility_max_depth = v; },
+                                    "futilitymarginbase" | "futility_margin_base" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_base = v; },
+                                    "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
                                     _ => {}
                                 }
                             }
