@@ -84,6 +84,8 @@ pub fn uci_command_processor(
                     stdout.write("option name OppositeBishopsDrawScale type spin default 50 min 0 max 100");
                     stdout.write("option name RookBehindEnemyPassedPawnMg type spin default 10 min -500 max 500");
                     stdout.write("option name RookBehindEnemyPassedPawnEg type spin default 25 min -500 max 500");
+                    stdout.write("option name EnableLazyEval type check default true");
+                    stdout.write("option name LazyEvalMargin type spin default 250 min 10 max 1000");
                     stdout.write("uciok");
                 }
 

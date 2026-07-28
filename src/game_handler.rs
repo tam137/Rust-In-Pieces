@@ -39,6 +39,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
                             let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase()
                                 .replace("enablepositionalcap", "enable_positional_cap")
+                                .replace("enablelazyeval", "enable_lazy_eval")
+                                .replace("lazyevalmargin", "lazy_eval_margin")
                                 .replace("positionalcapdamping", "positional_cap_damping");
                             let val_str = parts[val_idx+1..].join(" ");
 
