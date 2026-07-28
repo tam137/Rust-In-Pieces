@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.0] - 2026-07-28
+
+### Fixed & Added
+- **Complete Zobrist Hash Specification**:
+  - Expanded Zobrist key generation in [src/zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) to include 16 castling rights states (`CASTLING_RIGHTS`) and 8 en-passant file target fields (`EN_PASSANT_FILE`), eliminating Transposition Table collisions across positions with differing castling or en-passant availability.
+  - Added unit tests `zobrist_castling_rights_hash_test` and `zobrist_en_passant_hash_test` for Zobrist key differentiation.
+- **Quiescence Search & Search Baseline Restoration**:
+  - Reverted flawed early-return lazy evaluation in Quiescence Search back to the robust, high-performing v0.20.0 search baseline.
+  - Reset `enable_lazy_eval` default configuration to `false`.
+
 ## [V0.21.1] - 2026-07-28
 
 ### Added

@@ -1354,6 +1354,55 @@ mod tests {
     }
 
     #[test]
+    fn zobrist_castling_do_undo_move_hash_test() {
+        let fen_service = Service::new().fen;
+        let mut board = fen_service.set_init_board();
+        let org_hash = board.hash();
+
+        // Move king e1e2 -> white loses both castling rights
+        let turn = &NotationUtil::get_turn_from_notation("e1e2");
+        let mi = board.do_move(turn);
+
+        let new_hash = board.hash();
+        assert_ne!(org_hash, new_hash, "Hash must change when king moves and castling rights are lost");
+        assert_eq!(new_hash, crate::zobrist::gen_hash(&board), "Incremental/cached hash must equal gen_hash");
+
+        board.undo_move(turn, mi);
+        assert_eq!(org_hash, board.hash(), "Hash must restore after undoing king move");
+        assert_eq!(org_hash, crate::zobrist::gen_hash(&board));
+    }
+
+    #[test]
+    fn zobrist_en_passant_do_undo_move_hash_test() {
+        let fen_service = Service::new().fen;
+        let mut board = fen_service.set_init_board();
+        let org_hash = board.hash();
+
+        // Double pawn push e2e4 -> creates en-passant target at e3 (field 20)
+        let turn1 = &NotationUtil::get_turn_from_notation("e2e4");
+        let mi1 = board.do_move(turn1);
+        let hash_after_e4 = board.hash();
+
+        assert_ne!(org_hash, hash_after_e4);
+        assert_eq!(board.field_for_en_passante, 20);
+        assert_eq!(hash_after_e4, crate::zobrist::gen_hash(&board), "Hash after double pawn push must equal gen_hash");
+
+        // Quiet move g8f6 -> clears en-passant target (field_for_en_passante becomes -1)
+        let turn2 = &NotationUtil::get_turn_from_notation("g8f6");
+        let mi2 = board.do_move(turn2);
+        let hash_after_nf6 = board.hash();
+
+        assert_eq!(board.field_for_en_passante, -1);
+        assert_eq!(hash_after_nf6, crate::zobrist::gen_hash(&board), "Hash after en-passant clears must equal gen_hash");
+
+        board.undo_move(turn2, mi2);
+        assert_eq!(hash_after_e4, board.hash(), "Hash after undoing g8f6 must restore e4 hash");
+
+        board.undo_move(turn1, mi1);
+        assert_eq!(org_hash, board.hash(), "Hash after undoing e2e4 must restore init hash");
+    }
+
+    #[test]
     fn uci_game_test() {
         let service = Service::new();
 
