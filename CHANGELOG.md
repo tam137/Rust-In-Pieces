@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.2] - 2026-07-28
+
+### Added & Verified
+- **Futility Pruning Unit Tests (`src/search_service.rs`)**:
+  - `test_futility_pruning_node_reduction`: Verifies that `enable_futility_pruning: true` achieves a strict reduction in searched nodes compared to `enable_futility_pruning: false` during iterative search.
+  - `test_futility_pruning_tactical_safety_guards`: Verifies that search with Futility Pruning active runs safely on complex tactical positions without dropping tactical moves or returning corrupted evaluation bounds.
+
+
+
 ## [V0.22.1] - 2026-07-28
 
 ### Added & Optimized
