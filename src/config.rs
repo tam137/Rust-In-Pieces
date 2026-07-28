@@ -293,7 +293,7 @@ impl Config {
             enable_nmp: true,
             enable_aspiration: true,
             enable_rfp: true,
-            enable_futility_pruning: true,
+            enable_futility_pruning: false,
             futility_max_depth: 4,
             futility_margin_base: 100,
             futility_margin_slope: 70,
