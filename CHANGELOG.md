@@ -29,8 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed & Configuration
 - **Full Search & Evaluation Fidelity Baseline**:
-  - Disabled **Lazy Evaluation** (`enable_lazy_eval: false`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs) for full positional feature calculation accuracy across all evaluated nodes.
-  - Disabled **Futility Pruning** (`enable_futility_pruning: false`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs) by default.
+  - Disabled **Lazy Evaluation** (`enable_lazy_eval: false`) in src/config.rs for full positional feature calculation accuracy across all evaluated nodes.
+  - Disabled **Futility Pruning** (`enable_futility_pruning: false`) in src/config.rs by default.
   - Retains all underlying Futility Pruning code, configuration infrastructure, and unit tests, allowing FP to be toggled on-demand via UCI parameters (`EnableFutilityPruning: true`) or SPSA tuning harnesses without modifying code.
 
 
@@ -63,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added & Optimized
 - **Futility Pruning (FP) at Low Search Depths (`depth <= 3`)**:
-  - Implemented leaf/frontier Futility Pruning inside the main move search loop in [src/search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs).
+  - Implemented leaf/frontier Futility Pruning inside the main move search loop in src/search_service.rs.
   - Skips unpromising quiet moves at low search depths (`depth <= 3`) when `static_eval + futility_margin <= alpha` (for White) or `static_eval - futility_margin >= beta` (for Black), where `futility_margin = base + slope * depth`.
   - Added strict tactical safety guards: Futility Pruning is bypassed if the node is in check (`turn.gives_check`), if the move is tactical (captures, promotions, or check-giving moves), or if the move is a priority move (Transposition Table move, Killer moves, or Counter move).
   - Preserved PV-node evaluation fidelity by disabling Futility Pruning when `is_pv` is active or when near mate scores (`alpha.abs() >= 20000`).
@@ -72,7 +72,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Transposition Table Hash-Move Preservation**:
   - Extracted the Transposition Table move (`tt_move`) during TT lookup to guarantee that TT best-moves are protected from pruning in subsequent search plies.
 - **New UCI & Tuning Parameters in `Config`**:
-  - Added `enable_futility_pruning: bool` (default: `true`), `futility_max_depth: i32` (default: `3`), `futility_margin_base: i16` (default: `150`), and `futility_margin_slope: i16` (default: `100`) in [src/config.rs](file:///home/tam137/Rust-In-Pieces/src/config.rs).
+  - Added `enable_futility_pruning: bool` (default: `true`), `futility_max_depth: i32` (default: `3`), `futility_margin_base: i16` (default: `150`), and `futility_margin_slope: i16` (default: `100`) in src/config.rs.
 
 
 
@@ -80,7 +80,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed & Added
 - **Complete Zobrist Hash Specification**:
-  - Expanded Zobrist key generation in [src/zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) to include 16 castling rights states (`CASTLING_RIGHTS`) and 8 en-passant file target fields (`EN_PASSANT_FILE`), eliminating Transposition Table collisions across positions with differing castling or en-passant availability.
+  - Expanded Zobrist key generation in src/zobrist.rs to include 16 castling rights states (`CASTLING_RIGHTS`) and 8 en-passant file target fields (`EN_PASSANT_FILE`), eliminating Transposition Table collisions across positions with differing castling or en-passant availability.
   - Added unit tests `zobrist_castling_rights_hash_test` and `zobrist_en_passant_hash_test` for Zobrist key differentiation.
 - **Quiescence Search & Search Baseline Restoration**:
   - Reverted flawed early-return lazy evaluation in Quiescence Search back to the robust, high-performing v0.20.0 search baseline.
@@ -99,25 +99,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added & Fixed
 - **Clean Quiescence Search Lazy Evaluation**:
-  - Integrated `cheap_eval` in [src/eval_service.rs](file:///home/tam137/Rust-In-Pieces/src/eval_service.rs) into Quiescence Search inside [src/search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) to bypass full evaluation when positional terms cannot change the alpha/beta cutoff.
+  - Integrated `cheap_eval` in src/eval_service.rs into Quiescence Search inside src/search_service.rs to bypass full evaluation when positional terms cannot change the alpha/beta cutoff.
   - Excluded Transposition Table writes when lazy evaluation prunes, completely preventing the TT pollution and depth-0 cache thrashing present in v0.20.3.
 - **Outpost Calculation Speedup**:
   - Replaced 48-iteration unconditional loops in `calc_eval` with candidate bitboard filtering, cutting full evaluation time from ~8.5µs down to ~2.5µs.
 - **UCI Parameter Support**:
-  - Re-exposed `EnableLazyEval` and `LazyEvalMargin` UCI options in [src/threads.rs](file:///home/tam137/Rust-In-Pieces/src/threads.rs) and [src/game_handler.rs](file:///home/tam137/Rust-In-Pieces/src/game_handler.rs).
+  - Re-exposed `EnableLazyEval` and `LazyEvalMargin` UCI options in src/threads.rs and src/game_handler.rs.
 
 
 ## [V0.21.0] - 2026-07-28
 
 ### Fixed & Changed
 - **Transposition Table Replacement Policy & Consistency**:
-  - Corrected the replacement policy in `insert_entry` within [zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) to check `existing.depth == -1 || entry.depth >= existing.depth`. This prevents lower-depth search results from overwriting higher-depth entries of the same position.
-  - Removed useless depth-0 writes to the Transposition Table in Quiescence Search (`depth <= 0` block in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs)). Since Quiescence Search does not read from the Transposition Table and main search requires `depth >= 1`, writing depth-0 entries was causing memory overhead and cache thrashing by overwriting valuable deeper entries.
-  - Removed a redundant and incorrect write in `get_moves` within [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) at `depth == 2`, which fälschlicherweise overwrote child bounds (`UpperBound`/`LowerBound`) as `Exact` in the Transposition Table.
-  - Adjusted unit tests in [zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) (`zobrist_replacement_policy_test`) to verify that deeper entries are correctly preserved when writing lower-depth entries to the same key.
+  - Corrected the replacement policy in `insert_entry` within zobrist.rs to check `existing.depth == -1 || entry.depth >= existing.depth`. This prevents lower-depth search results from overwriting higher-depth entries of the same position.
+  - Removed useless depth-0 writes to the Transposition Table in Quiescence Search (`depth <= 0` block in search_service.rs). Since Quiescence Search does not read from the Transposition Table and main search requires `depth >= 1`, writing depth-0 entries was causing memory overhead and cache thrashing by overwriting valuable deeper entries.
+  - Removed a redundant and incorrect write in `get_moves` within search_service.rs at `depth == 2`, which fälschlicherweise overwrote child bounds (`UpperBound`/`LowerBound`) as `Exact` in the Transposition Table.
+  - Adjusted unit tests in zobrist.rs (`zobrist_replacement_policy_test`) to verify that deeper entries are correctly preserved when writing lower-depth entries to the same key.
 - **Search Efficiency & Correctness**:
-  - Added a `stop_flag` check directly at the entry of `minimax` in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) to abort the recursive call hierarchy immediately upon timeout/signal, preventing redundant deep search tree traversals.
-  - Corrected the `is_pv` argument passed in recursive `minimax` calls in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) for Late Move Reductions (LMR) and Principal Variation Search (PVS) null-window checks. By passing `false` for non-PV nodes instead of a hardcoded `true`, we avoid dampening LMR on non-PV moves, leading to much faster search speeds.
+  - Added a `stop_flag` check directly at the entry of `minimax` in search_service.rs to abort the recursive call hierarchy immediately upon timeout/signal, preventing redundant deep search tree traversals.
+  - Corrected the `is_pv` argument passed in recursive `minimax` calls in search_service.rs for Late Move Reductions (LMR) and Principal Variation Search (PVS) null-window checks. By passing `false` for non-PV nodes instead of a hardcoded `true`, we avoid dampening LMR on non-PV moves, leading to much faster search speeds.
 
 
 
@@ -126,9 +126,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed & Changed
 - **Disabled Positional Evaluation Capping (`enable_positional_cap = false`)**:
-  - Disabled positional evaluation capping by default (`enable_positional_cap: false`) in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L190).
+  - Disabled positional evaluation capping by default (`enable_positional_cap: false`) in config.rs.
   - Removes soft-clamping of positional evaluation terms above 150 centipawns (`positional_cap_damping`), allowing true uncompressed positional evaluation weight throughout the search tree.
-  - Updated `test_positional_evaluation_capping` in [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs#L1794) to explicitly enable capping for unit testing.
+  - Updated `test_positional_evaluation_capping` in eval_service.rs to explicitly enable capping for unit testing.
 
 
 
@@ -136,7 +136,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed & Changed
 - **Re-aligned Late Move Reductions (`lmr_divisor = 225`)**:
-  - Set `lmr_divisor` to **225** in [config.rs](file:///home/tam137/git/suprah/src/config.rs), [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json), [server_parameters.json](file:///home/tam137/git/suprah/tuning/server_parameters.json), and [spsa_state_remote.json](file:///home/tam137/git/suprah/tuning/spsa_state_remote.json).
+  - Set `lmr_divisor` to **225** in config.rs, parameters.json, server_parameters.json, and spsa_state_remote.json.
   - Recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 225.0 / 100.0`).
   - Eliminates overly aggressive quiet move depth reductions that caused tactical horizon-effect errors, restoring safe search tree traversal and tactical stability.
 
@@ -146,10 +146,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed & Changed
 - **Full Positional Evaluation Accuracy (`enable_lazy_eval = false`)**:
-  - Disabled Lazy Evaluation cutoffs (`enable_lazy_eval: false`) in [config.rs](file:///home/tam137/git/suprah/src/config.rs).
+  - Disabled Lazy Evaluation cutoffs (`enable_lazy_eval: false`) in config.rs.
   - Ensures that every single node in the search tree evaluates complete positional features (including king danger weights, pawn structures, passed pawn shields, and threat matrix calculations) without premature early exits based solely on raw material margins.
 - **Aggressive Late Move Reductions (`lmr_divisor = 180`)**:
-  - Set `lmr_divisor` to **180** in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json).
+  - Set `lmr_divisor` to **180** in config.rs and parameters.json.
   - Recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 180.0 / 100.0`), matching the aggressive quiet move reduction strength of `v0.15.3` to achieve deeper ply search reach in fast time controls.
 - **Retained Positional Cap Damping**:
   - Kept `enable_positional_cap = true` and `positional_cap_damping = 5` active to prevent positional evaluation saturation blindness while preserving true strategic evaluation depth.
@@ -160,7 +160,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Reverted SPSA Evaluation Parameter Regression & Restored v0.18.1 Playing Strength**:
-  - Reverted all evaluation and search configuration parameters in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and SPSA parameter definitions in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json) back to the proven version `v0.18.1` baseline.
+  - Reverted all evaluation and search configuration parameters in config.rs and SPSA parameter definitions in parameters.json back to the proven version `v0.18.1` baseline.
   - Re-aligned the Late Move Reductions (LMR) `lmr_divisor` to **225** (from **152**), eliminating aggressive quiet move pruning that caused tactical horizon-effect errors in `v0.19.0`.
   - Re-established exact `v0.18.1` evaluation weights across king safety, pawn shield, piece activity, outposts, and threat penalties (`king_open_file_malus`: 37, `king_pawn_shield`: 37, `bishop_pair_bonus`: 48, `pawn_on_last_rank_bonus`: 183, `rook_open_file`: 27, etc.).
 
@@ -174,7 +174,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **SPSA Parameter Harvest**:
-  - Harvested SPSA optimization results into engine configuration ([config.rs](file:///home/tam137/git/suprah/src/config.rs)) and parameter definitions ([parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json)).
+  - Harvested SPSA optimization results into engine configuration (config.rs) and parameter definitions (parameters.json).
   - **Late Move Reductions (LMR) Divisor Optimization**:
     - Adjusted baseline `lmr_divisor` to **152** (from **225**), optimizing logarithmic search depth reductions and reducing search tree node count at depth 10 by >5x (from 1,811,143 down to 342,889 nodes).
   - **King Safety & Shield Enhancements**:
@@ -193,7 +193,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **PolyGlot In-Memory RAM Caching (`CacheBookInRam`)**:
-  - Implemented automatic in-memory RAM caching for PolyGlot `.bin` opening books inside `Book` ([book.rs](file:///home/tam137/git/suprah/src/book.rs)).
+  - Implemented automatic in-memory RAM caching for PolyGlot `.bin` opening books inside `Book` (book.rs).
   - Upon first lookup or UCI configuration of `BookFile`, the entire 16-byte PolyGlot entry array is loaded into RAM (`Option<PolyglotBook>`), eliminating per-move disk I/O and enabling sub-microsecond ($O(\log N)$) move selection.
   - Added new UCI option `CacheBookInRam` (`setoption name CacheBookInRam value true/false`, default `true`) to control RAM caching dynamically.
   - Integrated `clear_polyglot_cache` to reset in-memory cached entries whenever `BookFile` changes or `CacheBookInRam` is toggled.
@@ -202,9 +202,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Cleaned Up Debug Output**:
-  - Removed verbliebene debug `println!` statements in `polyglot_key()` ([polyglot.rs](file:///home/tam137/git/suprah/src/polyglot.rs)), keeping the UCI `stdout` stream completely clean.
+  - Removed verbliebene debug `println!` statements in `polyglot_key()` (polyglot.rs), keeping the UCI `stdout` stream completely clean.
 - **Unit Test Coverage**:
-  - Added `test_clear_polyglot_cache` unit test in [book.rs](file:///home/tam137/git/suprah/src/book.rs) to verify cache clearing and state management.
+  - Added `test_clear_polyglot_cache` unit test in book.rs to verify cache clearing and state management.
 
 
 
@@ -280,8 +280,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Optimized Late Move Reductions (LMR) Divisor (225)**:
-  - Adjusted the default `lmr_divisor` value to **225** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L295).
-  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `225.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L299) for startup consistency.
+  - Adjusted the default `lmr_divisor` value to **225** in config.rs.
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `225.0 / 100.0` in config.rs for startup consistency.
   - Aligned SPSA tuning variables to use 225 as base.
   - **Search & Performance Impact**:
     - Evaluates a highly conservative LMR quiet move reduction scaling factor (greater than 205). A higher divisor results in significantly less aggressive quiet move depth reductions, rendering search trees safer and more robust against horizon-effect tactical blunders, at the cost of searching a larger number of nodes.
@@ -294,8 +294,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Optimized Late Move Reductions (LMR) Divisor (205)**:
-  - Adjusted the default `lmr_divisor` value to **205** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L295).
-  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `205.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L299) for startup consistency.
+  - Adjusted the default `lmr_divisor` value to **205** in config.rs.
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `205.0 / 100.0` in config.rs for startup consistency.
   - Aligned SPSA tuning variables to use 205 as base.
   - **Search & Performance Impact**:
     - Tests a softer LMR quiet move reduction scaling factor. Increasing the divisor to 205 results in slightly less aggressive depth reductions, which improves tactical safety in complex search branches by mitigating the risk of horizon-effect pruning errors.
@@ -310,15 +310,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Optimized Late Move Reductions (LMR) Divisor (190)**:
-  - Adjusted the default `lmr_divisor` value to **190** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L295).
-  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `190.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L299) for startup consistency.
+  - Adjusted the default `lmr_divisor` value to **190** in config.rs.
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `190.0 / 100.0` in config.rs for startup consistency.
   - Aligned SPSA tuning variables to use 190 as base.
   - **Search & Performance Impact**:
     - Targets the optimal LMR scaling factor near the v0.14.0 baseline to prune quiet late moves efficiently without triggering unwanted search kaskades or boundary crossings.
 - **Pawn Hash Table Integration**:
   - Implemented a thread-safe, lock-free `PawnHashTable` in `src/pawn_hash.rs` to cache evaluation values for pawn structures.
   - Significantly reduces redundant static pawn evaluations across the search tree, freeing up CPU cycles for deeper positional searches.
-  - Integrated `pawn_table` lookup into `calc_eval` inside [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs) and passed it down the search tree via `SearchContext`.
+  - Integrated `pawn_table` lookup into `calc_eval` inside eval_service.rs and passed it down the search tree via `SearchContext`.
 
 ### Fixed
 
@@ -330,10 +330,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Re-aligned Late Move Reductions (LMR) Divisor**:
-  - Restored the default `lmr_divisor` value to **180** (up from **148** / **150**) in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L279).
-  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L283) for consistency.
-  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) and [server_parameters.json](file:///home/tam137/git/suprah/tuning/server_parameters.json#L308) to **180**.
-  - Reset the active SPSA optimization state in [spsa_state_remote.json](file:///home/tam137/git/suprah/tuning/spsa_state_remote.json#L65) to **180.0** and cleared its momentum `m` to **0.0**.
+  - Restored the default `lmr_divisor` value to **180** (up from **148** / **150**) in config.rs.
+  - Aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in config.rs for consistency.
+  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in parameters.json and server_parameters.json to **180**.
+  - Reset the active SPSA optimization state in spsa_state_remote.json to **180.0** and cleared its momentum `m` to **0.0**.
   - **Search & Performance Impact**:
     - Re-establishes the optimal LMR scaling factor from `v0.14.1` (where the engine scored a peak 58.3% win rate).
     - Ensures search tree reductions are appropriately scaled, preventing search depth degradation.
@@ -376,19 +376,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Reverted King Danger Scaling Regression**:
   - In `v0.15.0`, King Danger was scaled with `game_phase` via `calculate_weighted_eval` (interpolating middlegame and endgame). Because the weights (`king_ring_attack_*`) were originally tuned for an unscaled static evaluation, mathematically halving them during the middlegame severely weakened the engine's attacking initiative and led to a -62 Elo regression.
-  - Reverted this logic in [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs): `white_king_danger_term` and `black_king_danger_term` now bypass `calculate_weighted_eval` and are added directly to the final `eval`, restoring the engine's original sharp tactical play.
+  - Reverted this logic in eval_service.rs: `white_king_danger_term` and `black_king_danger_term` now bypass `calculate_weighted_eval` and are added directly to the final `eval`, restoring the engine's original sharp tactical play.
 
 ### Added
 - **Config Heap Allocation Optimizations**:
   - Eliminated severe hot-path heap allocations during Config cloning when non-normal aggressiveness is active.
-  - In [config.rs](file:///home/tam137/git/suprah/src/config.rs), changed `pub version: String` to `pub version: &'static str`, initialized with a compile-time static literal `concat!("V", env!("CARGO_PKG_VERSION"))`.
+  - In config.rs, changed `pub version: String` to `pub version: &'static str`, initialized with a compile-time static literal `concat!("V", env!("CARGO_PKG_VERSION"))`.
   - Changed `pub log_path: String` to `pub log_path: std::sync::Arc<str>`, initialized with `std::sync::Arc::from("")`, which is cheap to clone without heap allocation.
-  - Updated UCI option assignment for `log_path` in [game_handler.rs](file:///home/tam137/git/suprah/src/game_handler.rs) to use `Arc::from(val_str.as_str())`.
+  - Updated UCI option assignment for `log_path` in game_handler.rs to use `Arc::from(val_str.as_str())`.
 - **Zero Warnings Clippy Cleanup**:
   - Resolved all compiler and Clippy linter warnings in accordance with the Zero Warnings Policy.
-  - Refactored multiple range loops in [magic.rs](file:///home/tam137/git/suprah/src/magic.rs), [zobrist.rs](file:///home/tam137/git/suprah/src/zobrist.rs), [config.rs](file:///home/tam137/git/suprah/src/config.rs), [model.rs](file:///home/tam137/git/suprah/src/model.rs), and [move_gen_service.rs](file:///home/tam137/git/suprah/src/move_gen_service.rs) to use iterators/enumerate, preventing boundary check overhead and resolving lints.
-  - Rewrote loop control flows in [threads.rs](file:///home/tam137/git/suprah/src/threads.rs) and [game_handler.rs](file:///home/tam137/git/suprah/src/game_handler.rs) to use `while let` pattern matching.
-  - Simplified manual check bounds to `clamp` in [search_service.rs](file:///home/tam137/git/suprah/src/search_service.rs).
+  - Refactored multiple range loops in magic.rs, zobrist.rs, config.rs, model.rs, and move_gen_service.rs to use iterators/enumerate, preventing boundary check overhead and resolving lints.
+  - Rewrote loop control flows in threads.rs and game_handler.rs to use `while let` pattern matching.
+  - Simplified manual check bounds to `clamp` in search_service.rs.
   - Cleaned up redundant condition checks and identical blocks.
   - Added a crate-level allow attribute for `clippy::too_many_arguments` to preserve register-based search parameter performance.
 
@@ -437,13 +437,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > **REGRESSION (ELO DROP)**: This version performed worse than `v0.14.1` (Elo < 2049). Decreasing the LMR divisor further to 150 caused significant search tree node bloat due to boundary crossing issues, severely degrading performance.
 
 - **Late Move Reductions (LMR) Divisor Tuning**:
-  - Decreased the default `lmr_divisor` value from **180** to **150** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test even more aggressive quiet late move reductions ($1.50$ scaling factor).
-  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `150.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for consistency.
-  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **150**.
+  - Decreased the default `lmr_divisor` value from **180** to **150** in config.rs to test even more aggressive quiet late move reductions ($1.50$ scaling factor).
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `150.0 / 100.0` in config.rs for consistency.
+  - Updated the SPSA tuning parameter default value in parameters.json to **150**.
   - **Search Characteristics Impact**:
     - Reduces quiet move depth much more aggressively.
     - Yields a significantly larger node count at depth 10 (Nodes: **1,905,766** vs **1,019,063** in `v0.14.1`), caused by deep search branch extensions and specific depth/move index truncation threshold boundary crossings.
-  - Documented search tree benchmark metrics in [perft.md](file:///home/tam137/git/suprah/perft.md).
+  - Documented search tree benchmark metrics in perft.md.
 
 ### Fixed
 
@@ -455,14 +455,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > **REGRESSION (ELO DROP)**: This version performed worse than the `v0.14.0` baseline (Elo 2056 vs 2065). Decreasing the LMR divisor to 180 made pruning too aggressive, causing horizon-effect tactical blunders.
 
 - **Late Move Reductions (LMR) Divisor Tuning**:
-  - Decreased the default `lmr_divisor` value from **195** to **180** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to test more aggressive quiet late move reductions.
-  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for consistency.
-  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **180**.
+  - Decreased the default `lmr_divisor` value from **195** to **180** in config.rs to test more aggressive quiet late move reductions.
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `180.0 / 100.0` in config.rs for consistency.
+  - Updated the SPSA tuning parameter default value in parameters.json to **180**.
   - **Search Characteristics Impact**:
     - Reduces quiet move depth more aggressively (Nodes at depth 10: **1,019,063** vs **904,120** in `v0.14.0`). Note that depth 10 nodes increases slightly because of search depth truncation boundary shifts at specific depth/move idx parameters.
-  - Documented search tree benchmark metrics in [perft.md](file:///home/tam137/git/suprah/perft.md).
+  - Documented search tree benchmark metrics in perft.md.
 - **Unit Verification Enhancements**:
-  - Refactored `test_logarithmic_lmr_table` in [search_service.rs](file:///home/tam137/git/suprah/src/search_service.rs#L1127) to dynamically compute assertions based on the active `config.lmr_divisor` rather than using hardcoded expected values. This prevents test failures when the divisor is adjusted.
+  - Refactored `test_logarithmic_lmr_table` in search_service.rs to dynamically compute assertions based on the active `config.lmr_divisor` rather than using hardcoded expected values. This prevents test failures when the divisor is adjusted.
 
 ### Fixed
 
@@ -471,13 +471,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [V0.14.0] - 2026-06-08
 
 - **Late Move Reductions (LMR) Divisor Reversion**:
-  - Reverted the default `lmr_divisor` value from **250** to **195** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253) to return to the optimal 1.95 baseline.
-  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `195.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) for startup consistency.
-  - Updated the SPSA tuning parameter default value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **195**.
+  - Reverted the default `lmr_divisor` value from **250** to **195** in config.rs to return to the optimal 1.95 baseline.
+  - Re-aligned the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `195.0 / 100.0` in config.rs for startup consistency.
+  - Updated the SPSA tuning parameter default value in parameters.json to **195**.
   - **Search Characteristics Impact**:
     - Reverting to 1.95 increases the reduction amounts compared to 250, resulting in more aggressive pruning of quiet moves.
     - Reduces the search tree size back to a more efficient state (Nodes at depth 10: **904,120** vs **2,163,889** in `v0.13.16`).
-  - Documented search tree benchmark metrics for the reverted divisor in [perft.md](file:///home/tam137/git/suprah/perft.md).
+  - Documented search tree benchmark metrics for the reverted divisor in perft.md.
 
 ### Fixed
 
@@ -487,13 +487,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Late Move Reductions (LMR) Divisor Tuning**:
-  - Increased the default `lmr_divisor` value from **220** to **250** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253).
-  - Updated the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `250.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) to ensure consistency at engine startup.
-  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **250**.
+  - Increased the default `lmr_divisor` value from **220** to **250** in config.rs.
+  - Updated the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `250.0 / 100.0` in config.rs to ensure consistency at engine startup.
+  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in parameters.json to **250**.
   - **Search Characteristics Impact**:
     - By increasing the divisor in the formula $\text{reduction} = \frac{\ln(\text{depth}) \times \ln(\text{move\_idx})}{\text{divisor}}$, the overall logarithmic search reductions for quiet moves are rendered **less aggressive**.
     - This increases the search tree safety and improves tactical accuracy for late-ordered moves, lowering the risk of horizon-effect blunders at the cost of a slightly larger search tree (Nodes at depth 10 startpos: **2,163,889** vs **2,367,889** in `v0.13.15`).
-  - Documented search tree benchmark metrics for the new divisor in [perft.md](file:///home/tam137/git/suprah/perft.md).
+  - Documented search tree benchmark metrics for the new divisor in perft.md.
 
 ### Fixed
 
@@ -506,13 +506,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Late Move Reductions (LMR) Divisor Tuning**:
-  - Increased the default `lmr_divisor` value from **196** to **220** in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253).
-  - Updated the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `220.0 / 100.0` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) to ensure consistency at engine startup.
-  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json#L308) to **220**.
+  - Increased the default `lmr_divisor` value from **196** to **220** in config.rs.
+  - Updated the static logarithmic reduction lookup table (`lmr_table`) initialization divisor inside `Config::new()` to `220.0 / 100.0` in config.rs to ensure consistency at engine startup.
+  - Aligned the SPSA tuning environment configuration by updating the default `lmr_divisor` value in parameters.json to **220**.
   - **Search Characteristics Impact**:
     - By increasing the divisor in the formula $\text{reduction} = \frac{\ln(\text{depth}) \times \ln(\text{move\_idx})}{\text{divisor}}$, the overall logarithmic search reductions for quiet moves are rendered **less aggressive**.
     - This increases the search tree safety and improves tactical accuracy for late-ordered moves, lowering the risk of horizon-effect blunders at the cost of a slightly larger search tree (Nodes at depth 10 startpos: **2,367,889** vs **1,518,649** in `v0.13.12`).
-  - Documented search tree benchmark metrics for the new divisor in [perft.md](file:///home/tam137/git/suprah/perft.md).
+  - Documented search tree benchmark metrics for the new divisor in perft.md.
 
 ### Fixed
 
@@ -522,13 +522,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Evaluation Clone Avoidance Optimization**:
-  - Refactored `calc_eval` in [eval_service.rs](file:///home/tam137/git/suprah/src/eval_service.rs) to bypass the expensive cloning of the `Config` struct when running under `Normal` aggressiveness mode (the default tournament mode).
+  - Refactored `calc_eval` in eval_service.rs to bypass the expensive cloning of the `Config` struct when running under `Normal` aggressiveness mode (the default tournament mode).
   - This avoids cloning the heap-allocated `log_path: String` field introduced in recent versions millions of times per second during search.
   - Successfully recovers the ~20% NPS (Nodes Per Second) performance regression, making search speed slightly faster than `v0.13.4`.
 
 ### Fixed
 - **LMR Divisor Configuration Revert**:
-  - Reverted `lmr_divisor` and its corresponding initialization table divisor back to the stronger `v0.13.12` baseline value of **196** (from 198) in [config.rs](file:///home/tam137/git/suprah/src/config.rs) and [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json).
+  - Reverted `lmr_divisor` and its corresponding initialization table divisor back to the stronger `v0.13.12` baseline value of **196** (from 198) in config.rs and parameters.json.
   - Matches the stronger configuration found in SPSA iteration 20, which performed significantly better in matchups than the iteration 75 value of 198.
 
 
@@ -538,7 +538,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **SPSA Parameter Harvest (Iteration 75)**:
   - Harvested the final optimized parameter values from a 75-iteration SPSA run (comprising 22,500 games under 2s + 100ms time control on EODServer).
-  - Baked in the new optimized baseline value of **198** (from 196) for [lmr_divisor](file:///home/tam137/git/suprah/src/config.rs#L125) into [parameters.json](file:///home/tam137/git/suprah/tuning/parameters.json) and [config.rs](file:///home/tam137/git/suprah/src/config.rs#L253).
+  - Baked in the new optimized baseline value of **198** (from 196) for lmr_divisor into parameters.json and config.rs.
 - **LCT II Tactical & Positional Strength Boost**:
   - Achieved an estimated ELO rating of **2110 ELO** on the Louguet Chess Test II, solving **7 / 35 positions** (scoring **210 points**).
   - Positional mastery verified: solved `LCTII.POS.02`, `LCTII.POS.10`, and `LCTII.POS.13`.
@@ -546,8 +546,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **LMR Table Initialization Divisor Sync Bug**:
-  - Updated the default `lmr_table` calculation inside `Config::new()` in [config.rs](file:///home/tam137/git/suprah/src/config.rs#L257) to use the correct baseline divisor `198.0 / 100.0`. Previously, changing `lmr_divisor` in the struct field did not automatically update the hardcoded table initialization divisor at engine startup.
-  - Modified [harvest_tuning.py](file:///home/tam137/git/suprah/harvest_tuning.py) to automatically replace the hardcoded table divisor during future harvests.
+  - Updated the default `lmr_table` calculation inside `Config::new()` in config.rs to use the correct baseline divisor `198.0 / 100.0`. Previously, changing `lmr_divisor` in the struct field did not automatically update the hardcoded table initialization divisor at engine startup.
+  - Modified harvest_tuning.py to automatically replace the hardcoded table divisor during future harvests.
 
 
 
