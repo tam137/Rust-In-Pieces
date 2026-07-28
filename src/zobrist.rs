@@ -6,7 +6,7 @@ use crate::model::Board;
 const NUM_PIECES: usize = 12;
 const BOARD_SIZE: usize = 64;
 
-static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(|| {
+static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64, [u64; 16], [u64; 8])> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(137);
     let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
 
@@ -18,11 +18,23 @@ static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64)> = Lazy::new(||
 
     let white_to_move = rng.next_u64();
 
-    (table, white_to_move)
+    let mut castling_rights = [0u64; 16];
+    for val in castling_rights.iter_mut() {
+        *val = rng.next_u64();
+    }
+
+    let mut en_passant_files = [0u64; 8];
+    for val in en_passant_files.iter_mut() {
+        *val = rng.next_u64();
+    }
+
+    (table, white_to_move, castling_rights, en_passant_files)
 });
 
 static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| ZOBRIST_DATA.0);
 static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
+static CASTLING_RIGHTS: Lazy<[u64; 16]> = Lazy::new(|| ZOBRIST_DATA.2);
+static EN_PASSANT_FILE: Lazy<[u64; 8]> = Lazy::new(|| ZOBRIST_DATA.3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -246,6 +258,15 @@ pub fn gen_hash(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
         hash ^= *WHITE_TO_MOVE;
+    }
+    let castle_index = (if board.white_possible_to_castle_short { 1 } else { 0 })
+        | (if board.white_possible_to_castle_long { 2 } else { 0 })
+        | (if board.black_possible_to_castle_short { 4 } else { 0 })
+        | (if board.black_possible_to_castle_long { 8 } else { 0 });
+    hash ^= CASTLING_RIGHTS[castle_index];
+    if board.field_for_en_passante >= 0 {
+        let file = (board.field_for_en_passante % 8) as usize;
+        hash ^= EN_PASSANT_FILE[file];
     }
     for piece_idx in 0..12 {
         let mut bb = board.bitboards[piece_idx];
@@ -474,6 +495,36 @@ mod tests {
         for handle in handles {
             handle.join().unwrap();
         }
+    }
+
+    #[test]
+    fn zobrist_castling_rights_hash_test() {
+        let fen_service = crate::fen_service::FenService;
+        let board1 = fen_service.set_init_board();
+        let mut board2 = fen_service.set_init_board();
+
+        let hash1 = gen_hash(&board1);
+
+        // Remove White Kingside castling right
+        board2.white_possible_to_castle_short = false;
+        let hash2 = gen_hash(&board2);
+
+        assert_ne!(hash1, hash2, "Positions differing in castling rights must have distinct Zobrist hashes");
+    }
+
+    #[test]
+    fn zobrist_en_passant_hash_test() {
+        let fen_service = crate::fen_service::FenService;
+        let board1 = fen_service.set_fen("rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        let mut board2 = board1.clone();
+
+        let hash1 = gen_hash(&board1);
+
+        // Clear en passant square
+        board2.field_for_en_passante = -1;
+        let hash2 = gen_hash(&board2);
+
+        assert_ne!(hash1, hash2, "Positions differing in en passant target field must have distinct Zobrist hashes");
     }
 }
 

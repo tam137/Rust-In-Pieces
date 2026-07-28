@@ -557,21 +557,6 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
-                if config.enable_lazy_eval {
-                    let cheap_eval = service.eval.cheap_eval(board, config, &service.pawn_table);
-                    let cheap_eval_i32 = cheap_eval as i32;
-                    let alpha_i32 = alpha as i32;
-                    let beta_i32 = beta as i32;
-                    let margin = config.lazy_eval_margin as i32;
-
-                    if cheap_eval_i32 + margin <= alpha_i32 {
-                        return (None, cheap_eval);
-                    }
-                    if cheap_eval_i32 - margin >= beta_i32 {
-                        return (None, cheap_eval);
-                    }
-                }
-
                 stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
                 eval = stand_pat;
 
