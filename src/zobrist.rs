@@ -224,7 +224,7 @@ impl ZobristTable {
         let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
         let existing = TranspositionEntry::unpack(key1, data1);
 
-        if existing.depth == -1 || entry.depth >= existing.depth {
+        if existing.depth == -1 || existing.key != hash || entry.depth >= existing.depth {
             slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
             slot.key.store(hash, std::sync::atomic::Ordering::Release);
         }
@@ -344,22 +344,23 @@ mod tests {
             padding: [0; 2],
         };
         table.insert_entry(4, entry3);
-        assert!(table.get_entry(&4).is_none());
-        let ret_kept = table.get_entry(&2).unwrap();
-        assert_eq!(ret_kept.eval, 200);
+        let ret3 = table.get_entry(&4).unwrap();
+        assert_eq!(ret3.eval, 400);
+        assert_eq!(ret3.depth, 2);
+        assert!(table.get_entry(&2).is_none());
 
         let entry4 = TranspositionEntry {
-            key: 2,
+            key: 4,
             eval: 150,
             depth: 1,
             entry_type: TranspositionType::Exact,
             best_move: 0,
             padding: [0; 2],
         };
-        table.insert_entry(2, entry4);
-        let ret_kept_after_low_depth = table.get_entry(&2).unwrap();
-        assert_eq!(ret_kept_after_low_depth.eval, 200);
-        assert_eq!(ret_kept_after_low_depth.depth, 5);
+        table.insert_entry(4, entry4);
+        let ret_kept_after_low_depth = table.get_entry(&4).unwrap();
+        assert_eq!(ret_kept_after_low_depth.eval, 400);
+        assert_eq!(ret_kept_after_low_depth.depth, 2);
     }
 
     #[test]
