@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.8] - 2026-07-28
+
+### Changed
+- **Extended Futility Pruning Max Depth (`futility_max_depth = 4`)**:
+  - Increased `futility_max_depth` default value from `3` to `4` in `src/config.rs` and UCI options in `src/threads.rs`.
+  - Expands leaf/frontier Futility Pruning to quiet moves at search depths 1, 2, 3, and 4, further optimizing node count pruning efficiency while maintaining tactical safety guards.
+
+
+
 ## [V0.22.7] - 2026-07-28
 
 ### Added & Changed
