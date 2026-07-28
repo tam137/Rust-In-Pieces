@@ -1245,7 +1245,106 @@ mod tests {
         assert!(see_d1d4 > 0, "SEE of Qxd4 should be positive (reclaiming pawn)!");
     }
 
+    #[test]
+    fn test_futility_pruning_node_reduction() {
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
 
+        let mut config_enabled = Config::for_tests();
+        config_enabled.enable_futility_pruning = true;
+        config_enabled.futility_max_depth = 3;
+        config_enabled.futility_margin_base = 100;
+        config_enabled.futility_margin_slope = 80;
+
+        let mut config_disabled = Config::for_tests();
+        config_disabled.enable_futility_pruning = false;
+
+        let mut stats_enabled = Stats::new();
+        let mut stats_disabled = Stats::new();
+
+        service.search.get_moves(
+            &mut board,
+            5,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        service.search.get_moves(
+            &mut board,
+            5,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        assert!(
+            stats_enabled.calculated_nodes < stats_disabled.calculated_nodes,
+            "Enabled Futility Pruning nodes ({}) should be strictly less than disabled nodes ({})!",
+            stats_enabled.calculated_nodes,
+            stats_disabled.calculated_nodes
+        );
+    }
+
+    #[test]
+    fn test_futility_pruning_tactical_safety_guards() {
+        let fen = "r1bqk2r/pppp1ppp/2n2n2/4p3/1b2P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 4 5";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config = Config::for_tests();
+        config.enable_futility_pruning = true;
+        config.futility_max_depth = 3;
+
+        let mut stats = Stats::new();
+
+        let search_result = service.search.get_moves(
+            &mut board,
+            4,
+            true,
+            &mut stats,
+            &config,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        assert!(!search_result.variants.is_empty(), "SearchResult should contain at least one variant!");
+        assert!(search_result.variants[0].best_move.is_some(), "Search with Futility Pruning should return a valid move!");
+        assert!(search_result.best_score > -1000, "Score should remain reasonable, got {}", search_result.best_score);
+    }
 }
 
 
