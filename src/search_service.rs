@@ -693,7 +693,7 @@ impl SearchService {
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
 
-        let mut eval = if white { i16::MIN } else { i16::MAX };
+        let mut eval = if white { alpha } else { beta };
         let mut best_move: Option<Turn> = None;
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
@@ -990,9 +990,9 @@ impl SearchService {
             let mut stored_eval = eval;
             // Normalize mate score
             if eval > 30000 {
-                stored_eval = eval + ply as i16;
+                stored_eval = eval.saturating_add(ply as i16);
             } else if eval < -30000 {
-                stored_eval = eval - ply as i16;
+                stored_eval = eval.saturating_sub(ply as i16);
             }
 
             context.zobrist_table.insert_entry(
@@ -1264,9 +1264,9 @@ mod tests {
 
         let mut config_enabled = Config::for_tests();
         config_enabled.enable_futility_pruning = true;
-        config_enabled.futility_max_depth = 3;
+        config_enabled.futility_max_depth = 4;
         config_enabled.futility_margin_base = 100;
-        config_enabled.futility_margin_slope = 80;
+        config_enabled.futility_margin_slope = 70;
 
         let mut config_disabled = Config::for_tests();
         config_disabled.enable_futility_pruning = false;
@@ -1325,7 +1325,7 @@ mod tests {
 
         let mut config = Config::for_tests();
         config.enable_futility_pruning = true;
-        config.futility_max_depth = 3;
+        config.futility_max_depth = 4;
 
         let mut stats = Stats::new();
 
@@ -1344,6 +1344,58 @@ mod tests {
         assert!(!search_result.variants.is_empty(), "SearchResult should contain at least one variant!");
         assert!(search_result.variants[0].best_move.is_some(), "Search with Futility Pruning should return a valid move!");
         assert!(search_result.best_score > -1000, "Score should remain reasonable, got {}", search_result.best_score);
+    }
+
+    #[test]
+    fn test_mate_score_normalization_overflow_safety() {
+        // 1. Direct verification of saturating arithmetic boundary logic
+        let max_eval: i16 = i16::MAX - 5;
+        let high_ply: i16 = 100;
+        let saturated_add = max_eval.saturating_add(high_ply);
+        assert_eq!(saturated_add, i16::MAX, "Saturating addition should clamp at i16::MAX instead of overflowing!");
+
+        let min_eval: i16 = i16::MIN + 5;
+        let saturated_sub = min_eval.saturating_sub(high_ply);
+        assert_eq!(saturated_sub, i16::MIN, "Saturating subtraction should clamp at i16::MIN instead of overflowing!");
+
+        // 2. Search stability verification on a mate in 1 position with aggressive Futility Pruning
+        let fen = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config = Config::for_tests();
+        config.enable_futility_pruning = true;
+        config.futility_max_depth = 4;
+        config.futility_margin_base = 100;
+        config.futility_margin_slope = 70;
+
+        let mut stats = Stats::new();
+
+        let search_result = service.search.get_moves(
+            &mut board,
+            4,
+            true,
+            &mut stats,
+            &config,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        assert!(!search_result.variants.is_empty(), "Search should find mate variants!");
+        assert!(search_result.best_score > 30000, "Forced mate score should be > 30000, got {}", search_result.best_score);
     }
 }
 

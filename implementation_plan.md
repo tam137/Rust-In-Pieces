@@ -1,17 +1,26 @@
-# Implementation Plan - Futility Pruning Unit Tests & Release V0.22.2
+# Implementation Plan - Aggressive Futility Pruning Release V0.22.3
 
-This plan describes adding comprehensive unit tests for Futility Pruning (FP) and releasing version `v0.22.2`.
+This plan describes tuning Futility Pruning (FP) to be more aggressive and extending its maximum depth range to `depth <= 4`, releasing version `v0.22.3`.
 
 ---
 
 ## Proposed Changes
 
-### `src/search_service.rs`
-Add two dedicated unit tests in `mod tests`:
-1. `test_futility_pruning_node_reduction`:
-   - Verifies that `enable_futility_pruning: true` strictly reduces the total number of searched nodes compared to `enable_futility_pruning: false` at depth 4 on a standard quiet position.
-2. `test_futility_pruning_tactical_safety_guards`:
-   - Verifies that Futility Pruning operates safely on tactical positions without missing key moves or producing invalid scores.
+### 1. `src/config.rs`
+Adjust default Futility Pruning configuration parameters:
+- `futility_max_depth`: `4` (extended from 3)
+- `futility_margin_base`: `100` (reduced from 150)
+- `futility_margin_slope`: `70` (reduced from 100)
+
+*Marginal breakdown:*
+- Depth 1: 170 cp
+- Depth 2: 240 cp
+- Depth 3: 310 cp
+- Depth 4: 380 cp
+
+### 2. `src/search_service.rs`
+- Update unit tests in `mod tests` (`test_futility_pruning_node_reduction` and `test_futility_pruning_tactical_safety_guards`) to reflect `futility_max_depth = 4` and the updated margin parameters.
+- Add dedicated unit test `test_mate_score_normalization_overflow_safety` for saturating arithmetic and mate score TT normalization.
 
 ---
 
@@ -22,7 +31,7 @@ Add two dedicated unit tests in `mod tests`:
 2. **Release Binary Compilation:**
    - Execute `cargo build --release` locally.
 3. **Automated Pipeline Script:**
-   - Run `./build_and_release.sh "Add Futility Pruning unit tests for node reduction and tactical safety"`.
+   - Run `./build_and_release.sh "Aggressive Futility Pruning (futility_max_depth = 4, base = 100, slope = 70)"`.
 4. **Post-Release Finalization:**
    - Enrich `CHANGELOG.md` with technical explanations.
-   - Commit changes, create git tag `v0.22.2`, and push to origin master with tags.
+   - Commit changes, create git tag `v0.22.3`, and push to origin master with tags.
