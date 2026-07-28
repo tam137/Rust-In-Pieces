@@ -294,7 +294,7 @@ impl Config {
             enable_aspiration: true,
             enable_rfp: true,
             enable_futility_pruning: true,
-            futility_max_depth: 3,
+            futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,
             enable_delta_pruning: false,
