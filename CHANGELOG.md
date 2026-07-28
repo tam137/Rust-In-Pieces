@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.7] - 2026-07-28
+
+### Added & Changed
+- **Moderately Aggressive Futility Pruning Baseline (`src/config.rs`)**:
+  - Re-enabled Futility Pruning by default (`enable_futility_pruning: true`) in `Config::new()`.
+  - Configured moderately aggressive pruning thresholds to achieve optimal search tree node reduction while preserving full tactical safety:
+    - `futility_max_depth`: `3` (pruning unpromising quiet moves at shallow search depths 1, 2, and 3).
+    - `futility_margin_base`: `120` cp (between conservative 150 cp and aggressive 100 cp).
+    - `futility_margin_slope`: `80` cp per depth level (between conservative 100 cp and aggressive 70 cp).
+- **UCI Protocol Configuration Support (`src/threads.rs`, `src/game_handler.rs`)**:
+  - Exposed Futility Pruning configuration parameters via standard UCI `setoption` commands:
+    - `EnableFutilityPruning`: boolean check (default: `true`)
+    - `FutilityMaxDepth`: integer spin (default: `3`, range: 1–10)
+    - `FutilityMarginBase`: integer spin (default: `120`, range: 0–500)
+    - `FutilityMarginSlope`: integer spin (default: `80`, range: 0–300)
+  - Integrated full parameter normalization in `src/game_handler.rs` to allow case-insensitive and underscore/camelCase option configuration.
+- **Documentation (`README.md`)**:
+  - Updated `README.md` with complete technical definitions and references for Futility Pruning (FP) in the Core Search & Selective Pruning reference table.
+
+
+
 ## [V0.22.6] - 2026-07-28
 
 ### Added
