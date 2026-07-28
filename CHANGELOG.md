@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.6] - 2026-07-28
+
+### Added
+- Bugfix: Correct LMR divisor default to 225 and Zobrist transposition table replacement policy to fix Elo regression
+
+### Fixed
+
+
+
 ## [V0.22.5] - 2026-07-28
 
 ### Optimized & Fixed
