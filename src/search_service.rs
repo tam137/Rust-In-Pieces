@@ -186,23 +186,7 @@ impl SearchService {
                     search_result.second_best_score = min_max_eval;
                 }
 
-                // save min max eval in zobrist table for better move sorting, if depth = 2
-                if depth == 2 && config.use_zobrist {
-                    let mut stored_eval = min_max_eval;
-                    if min_max_eval > 30000 {
-                        stored_eval = min_max_eval + 1;
-                    } else if min_max_eval < -30000 {
-                        stored_eval = min_max_eval - 1;
-                    }
-                    zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                        key: board.cached_hash,
-                        eval: stored_eval,
-                        depth: 1,
-                        entry_type: crate::zobrist::TranspositionType::Exact,
-                        best_move: crate::zobrist::TranspositionEntry::compress_move(min_max_result.0),
-                        padding: [0; 2],
-                    });
-                }
+
 
                 board.undo_move(turn, mi);
                 if white {
@@ -385,6 +369,10 @@ impl SearchService {
 
         for slot in pv.iter_mut() {
             *slot = None;
+        }
+
+        if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            return (None, if white { i16::MIN } else { i16::MAX });
         }
 
         // Mate Distance Pruning at node entry
@@ -571,16 +559,7 @@ impl SearchService {
             if !in_check {
                 stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
                 eval = stand_pat;
-                if config.use_zobrist {
-                    context.zobrist_table.insert_entry(board.cached_hash, crate::zobrist::TranspositionEntry {
-                        key: board.cached_hash,
-                        eval: stand_pat,
-                        depth: 0,
-                        entry_type: crate::zobrist::TranspositionType::Exact,
-                        best_move: 0,
-                        padding: [0; 2],
-                    });
-                }
+
 
                 // Stand-pat cutoffs
                 if white {
@@ -817,7 +796,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             alpha, alpha + 1, stats, config, service, &current_context,
-                            true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval <= alpha {
                             searched = true;
@@ -826,7 +805,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             beta - 1, beta, stats, config, service, &current_context,
-                            true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval >= beta {
                             searched = true;
@@ -843,7 +822,7 @@ impl SearchService {
                             min_max_eval = self.minimax(
                                 board, current_turn, depth - 1, !white,
                                 alpha, alpha + 1, stats, config, service, &current_context,
-                                true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
                             
                             if min_max_eval > alpha && min_max_eval < beta {
@@ -857,7 +836,7 @@ impl SearchService {
                             min_max_eval = self.minimax(
                                 board, current_turn, depth - 1, !white,
                                 beta - 1, beta, stats, config, service, &current_context,
-                                true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
                             
                             if min_max_eval < beta && min_max_eval > alpha {
@@ -872,14 +851,14 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, depth - 1, !white,
                             alpha, beta, stats, config, service, &current_context,
-                            true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
                     min_max_eval = self.minimax(
                         board, current_turn, depth - 1, !white,
                         alpha, beta, stats, config, service, &current_context,
-                        true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
                 }
             }

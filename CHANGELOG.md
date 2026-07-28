@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.21.0] - 2026-07-28
+
+### Fixed & Changed
+- **Transposition Table Replacement Policy & Consistency**:
+  - Corrected the replacement policy in `insert_entry` within [zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) to check `existing.depth == -1 || entry.depth >= existing.depth`. This prevents lower-depth search results from overwriting higher-depth entries of the same position.
+  - Removed useless depth-0 writes to the Transposition Table in Quiescence Search (`depth <= 0` block in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs)). Since Quiescence Search does not read from the Transposition Table and main search requires `depth >= 1`, writing depth-0 entries was causing memory overhead and cache thrashing by overwriting valuable deeper entries.
+  - Removed a redundant and incorrect write in `get_moves` within [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) at `depth == 2`, which fälschlicherweise overwrote child bounds (`UpperBound`/`LowerBound`) as `Exact` in the Transposition Table.
+  - Adjusted unit tests in [zobrist.rs](file:///home/tam137/Rust-In-Pieces/src/zobrist.rs) (`zobrist_replacement_policy_test`) to verify that deeper entries are correctly preserved when writing lower-depth entries to the same key.
+- **Search Efficiency & Correctness**:
+  - Added a `stop_flag` check directly at the entry of `minimax` in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) to abort the recursive call hierarchy immediately upon timeout/signal, preventing redundant deep search tree traversals.
+  - Corrected the `is_pv` argument passed in recursive `minimax` calls in [search_service.rs](file:///home/tam137/Rust-In-Pieces/src/search_service.rs) for Late Move Reductions (LMR) and Principal Variation Search (PVS) null-window checks. By passing `false` for non-PV nodes instead of a hardcoded `true`, we avoid dampening LMR on non-PV moves, leading to much faster search speeds.
+
+
+
+
 ## [V0.19.4] - 2026-07-26
 
 ### Fixed & Changed
