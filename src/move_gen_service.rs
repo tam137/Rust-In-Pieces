@@ -365,7 +365,7 @@ impl MoveGenService {
         zobrist_table_read: &ZobristTable,
         force_skip_validation: bool,
     ) {
-        turn.hash = crate::zobrist::calc_incremental_hash(board, turn);
+        
         let move_info = board.do_move(turn);
         let mut valid = true;
 
@@ -374,7 +374,7 @@ impl MoveGenService {
         }
 
         if valid {
-            turn.hash = board.cached_hash;
+            
             if let Some(eval) = self.get_hash(board, config, zobrist_table_read) {
                 turn.eval = eval;
                 turn.has_hashed_eval = true;
@@ -472,7 +472,6 @@ impl MoveGenService {
                 promotion: 14,
                 gives_check: false,
                 eval: 0,
-                hash: 0,
                 has_hashed_eval: false,
                 rank: 0,
             })
@@ -484,7 +483,6 @@ impl MoveGenService {
                 promotion: 24,
                 gives_check: false,
                 eval: 0,
-                hash: 0,
                 has_hashed_eval: false,
                 rank: 0,
             })
