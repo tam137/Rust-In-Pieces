@@ -445,6 +445,20 @@ impl SearchService {
             }
         }
 
+        // Lazy Evaluation Pruning (Main Search)
+        if depth > 0 && !turn.gives_check && alpha + 1 == beta && (config.lazy_eval_mode == crate::config::LazyEvalMode::MainSearchOnly || config.lazy_eval_mode == crate::config::LazyEvalMode::Both) {
+            let cheap = service.eval.cheap_eval(board, config, &service.pawn_table);
+            if white {
+                if cheap + config.lazy_eval_margin <= alpha {
+                    return (None, cheap);
+                }
+            } else {
+                if cheap - config.lazy_eval_margin >= beta {
+                    return (None, cheap);
+                }
+            }
+        }
+
         // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
         let static_eval = if depth > 0 && !turn.gives_check {
             service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX)
@@ -569,6 +583,20 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
+                // Lazy Evaluation Pruning (Quiescence Search)
+                if alpha + 1 == beta && (config.lazy_eval_mode == crate::config::LazyEvalMode::QuiescenceOnly || config.lazy_eval_mode == crate::config::LazyEvalMode::Both) {
+                    let cheap = service.eval.cheap_eval(board, config, &service.pawn_table);
+                    if white {
+                        if cheap + config.lazy_eval_margin <= alpha {
+                            return (None, cheap);
+                        }
+                    } else {
+                        if cheap - config.lazy_eval_margin >= beta {
+                            return (None, cheap);
+                        }
+                    }
+                }
+
                 stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
                 eval = stand_pat;
 
