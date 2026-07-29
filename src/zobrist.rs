@@ -31,10 +31,10 @@ static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64, [u64; 16], [u64
     (table, white_to_move, castling_rights, en_passant_files)
 });
 
-static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| ZOBRIST_DATA.0);
-static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
-static CASTLING_RIGHTS: Lazy<[u64; 16]> = Lazy::new(|| ZOBRIST_DATA.2);
-static EN_PASSANT_FILE: Lazy<[u64; 8]> = Lazy::new(|| ZOBRIST_DATA.3);
+pub static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| ZOBRIST_DATA.0);
+pub static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
+pub static CASTLING_RIGHTS: Lazy<[u64; 16]> = Lazy::new(|| ZOBRIST_DATA.2);
+pub static EN_PASSANT_FILE: Lazy<[u64; 8]> = Lazy::new(|| ZOBRIST_DATA.3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -224,8 +224,17 @@ impl ZobristTable {
         let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
         let existing = TranspositionEntry::unpack(key1, data1);
 
+        // Replacement policy:
+        // 1. existing.depth == -1: The slot is empty, always store the new entry.
+        // 2. existing.key != hash: Index collision. Two different 64-bit Zobrist keys mapped to the same table index.
+        //    We use an "always replace" policy for collisions to prevent the table from being clogged with old,
+        //    deeply searched positions that are no longer relevant to the current game state (TT aging).
+        // 3. entry.depth >= existing.depth: Same position. Only overwrite if the new search is at least as deep.
         if existing.depth == -1 || existing.key != hash || entry.depth >= existing.depth {
+            // Invalidate the key before writing data to prevent a "torn read" by another thread.
+            slot.key.store(!hash, std::sync::atomic::Ordering::Release);
             slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
+            // Restore the correct key after data is written.
             slot.key.store(hash, std::sync::atomic::Ordering::Release);
         }
     }
@@ -529,3 +538,119 @@ mod tests {
     }
 }
 
+
+pub fn calc_incremental_hash(board: &Board, turn: &crate::model::Turn) -> u64 {
+    let mut hash = board.cached_hash;
+    let from = turn.from as usize;
+    let to = turn.to as usize;
+    let moved_piece = board.mailbox[from];
+    let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
+
+    // 1. Swap turn
+    hash ^= *WHITE_TO_MOVE;
+
+    // 2. Remove old en passant file if any
+    if board.field_for_en_passante >= 0 {
+        let file = (board.field_for_en_passante % 8) as usize;
+        hash ^= EN_PASSANT_FILE[file];
+    }
+    // Set new en passant file if any
+    if moved_piece == 10 && from / 8 == 1 && to / 8 == 3 {
+        hash ^= EN_PASSANT_FILE[((from + 8) % 8) as usize];
+    } else if moved_piece == 20 && from / 8 == 6 && to / 8 == 4 {
+        hash ^= EN_PASSANT_FILE[((from - 8) % 8) as usize];
+    }
+
+    // 3. Remove old castling rights
+    let old_castle_index = (if board.white_possible_to_castle_short { 1 } else { 0 })
+        | (if board.white_possible_to_castle_long { 2 } else { 0 })
+        | (if board.black_possible_to_castle_short { 4 } else { 0 })
+        | (if board.black_possible_to_castle_long { 8 } else { 0 });
+    hash ^= CASTLING_RIGHTS[old_castle_index];
+
+    // Compute new castling rights based on from/to
+    let mut w_short = board.white_possible_to_castle_short;
+    let mut w_long = board.white_possible_to_castle_long;
+    let mut b_short = board.black_possible_to_castle_short;
+    let mut b_long = board.black_possible_to_castle_long;
+    
+    match from {
+        56 => b_long = false,
+        63 => b_short = false,
+        60 => { b_long = false; b_short = false; }
+        0 => w_long = false,
+        7 => w_short = false,
+        4 => { w_long = false; w_short = false; }
+        _ => {}
+    }
+    match to {
+        56 => b_long = false,
+        63 => b_short = false,
+        0 => w_long = false,
+        7 => w_short = false,
+        _ => {}
+    }
+    let new_castle_index = (if w_short { 1 } else { 0 })
+        | (if w_long { 2 } else { 0 })
+        | (if b_short { 4 } else { 0 })
+        | (if b_long { 8 } else { 0 });
+    hash ^= CASTLING_RIGHTS[new_castle_index];
+
+    // 4. Move piece
+    hash ^= ZOBRIST_TABLE[from][moved_bb_idx]; // remove from 'from'
+    if turn.is_promotion() {
+        let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
+        hash ^= ZOBRIST_TABLE[to][promo_bb_idx]; // add promotion piece to 'to'
+    } else {
+        hash ^= ZOBRIST_TABLE[to][moved_bb_idx]; // add moved piece to 'to'
+    }
+
+    // 5. Handle capture
+    let mut actual_capture = turn.capture;
+    if actual_capture == 0 {
+        let piece_at_to = board.mailbox[to];
+        if piece_at_to != 0 && (10..=15).contains(&piece_at_to) != board.white_to_move {
+            actual_capture = piece_at_to;
+        } else if (moved_piece == 10 || moved_piece == 20) && (to as i8 == board.field_for_en_passante) {
+            actual_capture = if board.white_to_move { 20 } else { 10 };
+        }
+    }
+    if actual_capture != 0 {
+        let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == board.field_for_en_passante);
+        let capture_sq = if is_en_passant {
+            if board.white_to_move { to - 8 } else { to + 8 }
+        } else {
+            to
+        };
+        let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
+        hash ^= ZOBRIST_TABLE[capture_sq][capture_bb_idx];
+    }
+
+    // 6. Handle rook movement in castling
+    if moved_piece == 15 || moved_piece == 25 {
+        let is_castling = (to as i8 - from as i8).abs() == 2;
+        if is_castling {
+            match to {
+                6 => {
+                    hash ^= ZOBRIST_TABLE[7][crate::model::WHITE_ROOK];
+                    hash ^= ZOBRIST_TABLE[5][crate::model::WHITE_ROOK];
+                }
+                2 => {
+                    hash ^= ZOBRIST_TABLE[0][crate::model::WHITE_ROOK];
+                    hash ^= ZOBRIST_TABLE[3][crate::model::WHITE_ROOK];
+                }
+                62 => {
+                    hash ^= ZOBRIST_TABLE[63][crate::model::BLACK_ROOK];
+                    hash ^= ZOBRIST_TABLE[61][crate::model::BLACK_ROOK];
+                }
+                58 => {
+                    hash ^= ZOBRIST_TABLE[56][crate::model::BLACK_ROOK];
+                    hash ^= ZOBRIST_TABLE[59][crate::model::BLACK_ROOK];
+                }
+                _ => {}
+            }
+        }
+    }
+
+    hash
+}

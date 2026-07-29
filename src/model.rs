@@ -428,6 +428,7 @@ impl Board {
             _white_king_on_board,
             _black_king_on_board,
         };
+        board.cached_hash = zobrist::gen_hash(&board);
         board.pawn_key = zobrist::gen_pawn_hash(&board);
         board
     }
@@ -468,6 +469,7 @@ impl Board {
     /// It only panics if the from field is != 0
     /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
+        let old_cached_hash = self.cached_hash;
         let from = turn.from;
         let to = turn.to;
         let from_mask = 1u64 << from;
@@ -687,12 +689,13 @@ impl Board {
             self.pawn_key ^= zobrist::get_zobrist_val(capture_sq as usize, capture_bb_idx);
         }
 
-        MoveInformation::new(old_castle_information, self.cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
+        MoveInformation::new(old_castle_information, old_cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
-        self.cached_hash = 0;
+        let new_hash = self.cached_hash;
+        self.cached_hash = move_information.hash;
         self.pawn_key = move_information.pawn_key;
         self.pst_mg = move_information.old_pst_mg;
         self.pst_eg = move_information.old_pst_eg;
@@ -803,11 +806,11 @@ impl Board {
         self.occupied = self.white_pieces | self.black_pieces;
 
         // Update the move repetition map
-        if let Some(count) = self.move_repetition_map.get_mut(&move_information.hash) {
+        if let Some(count) = self.move_repetition_map.get_mut(&new_hash) {
             if *count > 1 {
                 *count -= 1;
             } else {
-                self.move_repetition_map.remove(&move_information.hash);
+                self.move_repetition_map.remove(&new_hash);
             }
         }
     }
@@ -1621,3 +1624,68 @@ mod tests {
         assert_eq!(board_ep.mailbox[35], 20);
     }
 }
+    #[test]
+    fn incremental_hash_complex_sequence_test() {
+        let fen_service = crate::fen_service::FenService;
+        let mut board = fen_service.set_init_board();
+        let move_gen = crate::move_gen_service::MoveGenService::new();
+        let mut stats = crate::model::Stats::default();
+        let config = crate::config::Config::for_tests();
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
+        
+        let context = crate::model::SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+        };
+
+        // Assert start position
+        assert_eq!(board.cached_hash, crate::zobrist::gen_hash(&board));
+
+        // Generate pseudo-random moves by repeatedly taking the first generated valid move
+        for _ in 0..20 {
+            let mut valid_moves = crate::model::MoveList::new();
+            move_gen.generate_valid_moves_list(&mut board, &mut stats, &config, &context, false, false, &mut valid_moves);
+            
+            if valid_moves.len == 0 {
+                break;
+            }
+
+            let turn = valid_moves.moves[0];
+            
+            // Check that move generation computed the incremental hash correctly
+            let manual_incremental = crate::zobrist::calc_incremental_hash(&board, &turn);
+            assert_eq!(turn.hash, manual_incremental, "Incremental hash calculated during move gen is wrong");
+            
+            let move_info = board.do_move(&turn);
+            let actual_hash = crate::zobrist::gen_hash(&board);
+            
+            if board.cached_hash != actual_hash {
+                println!("Move {} to {} piece {} capture {}", turn.from, turn.to, board.get_piece_at(turn.to), turn.capture);
+                println!("Cached hash: {}", board.cached_hash);
+                println!("Actual hash: {}", actual_hash);
+                println!("{:?}", board);
+                assert_eq!(board.cached_hash, actual_hash, "Incremental hash after do_move is wrong");
+            }
+            
+            assert_eq!(board.cached_hash, turn.hash, "Board cached hash must match turn hash after do_move");
+
+            // Check undo move
+            board.undo_move(&turn, move_info);
+            let hash_after_undo = crate::zobrist::gen_hash(&board);
+            assert_eq!(board.cached_hash, hash_after_undo, "Incremental hash after undo_move is wrong");
+            
+            // Do the move again to progress the sequence
+            board.do_move(&turn);
+        }
+    }

@@ -365,6 +365,7 @@ impl MoveGenService {
         zobrist_table_read: &ZobristTable,
         force_skip_validation: bool,
     ) {
+        turn.hash = crate::zobrist::calc_incremental_hash(board, turn);
         let move_info = board.do_move(turn);
         let mut valid = true;
 
