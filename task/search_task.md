@@ -14,22 +14,6 @@ Every new pruning or reduction feature **must** be fully configurable via the `C
 
 ## Active Search Tasks
 
-### 1. Late Move Pruning (LMP) / Move Count Pruning
-*   **Description**: Completely discards (prunes) quiet moves after a certain number of quiet moves have already been searched at low depths.
-*   **Metadata**: `[Impact: High]` `[Complexity: Low]`
-*   **Tasks**:
-    - `[ ]` Define an option in `Config` for LMP (`enable_lmp: bool` or `lmp_mode: LmrMode`).
-    - `[ ]` Add a parameter for LMP quiet move threshold formula coefficients (e.g., `lmp_base_moves: i32` and `lmp_depth_multiplier: i32`).
-    - `[ ]` In `search_service.rs` inside the move loop of `minimax`, check if the node is not in check, the depth is low, and the number of searched quiet moves exceeds the threshold. If so, prune the remaining quiet moves (`break`).
-
-### 2. Futility Pruning (FP) in the Move Loop
-*   **Description**: Prunes individual quiet moves in the move loop at very shallow depths ($depth \le 2$) if the static evaluation plus a safety margin cannot possibly raise alpha.
-*   **Metadata**: `[Impact: High]` `[Complexity: Medium]`
-*   **Tasks**:
-    - `[ ]` Add `enable_futility_pruning: bool` and `futility_margin_per_depth: i16` to `Config`.
-    - `[ ]` In the `minimax` move loop, for quiet moves at depth 1 or 2, calculate if `static_eval + margin * depth < alpha`. If true, skip/prune the move (`continue`).
-    - `[ ]` Ensure this is skipped if the node is in check or is a PV node.
-
 ### 3. SEE-Pruning in the Main Search (Bad Capture Pruning)
 *   **Description**: Currently, captures with $SEE < 0$ are sorted to the end of the move list. This task introduces hard pruning for extremely bad captures at low depths.
 *   **Metadata**: `[Impact: High]` `[Complexity: Medium]`
