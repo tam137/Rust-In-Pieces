@@ -123,9 +123,7 @@ pub struct Config {
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
-
     pub rook_on_seventh: i16,
-
     pub lazy_eval_margin: i16,
     pub lazy_eval_mode: LazyEvalMode,
     pub king_danger_weight_1: i16,
@@ -283,7 +281,7 @@ impl Config {
             rook_on_seventh: 33,
 
             lazy_eval_margin: 250,
-            lazy_eval_mode: LazyEvalMode::QuiescenceOnly,
+            lazy_eval_mode: LazyEvalMode::MainSearchOnly,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
             king_danger_weight_3: 100,
