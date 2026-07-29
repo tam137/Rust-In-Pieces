@@ -465,8 +465,12 @@ impl SearchService {
 
             // Make Null Move
             board.white_to_move = !board.white_to_move;
+            board.cached_hash ^= *crate::zobrist::WHITE_TO_MOVE;
+            if old_field_for_en_passante >= 0 {
+                let file = (old_field_for_en_passante % 8) as usize;
+                board.cached_hash ^= crate::zobrist::EN_PASSANT_FILE[file];
+            }
             board.field_for_en_passante = -1;
-            board.cached_hash = crate::zobrist::gen_hash(board);
 
             let dynamic_divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
             let reduction = config.nmp_reduction + (depth / dynamic_divisor);
