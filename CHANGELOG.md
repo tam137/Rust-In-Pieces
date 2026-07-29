@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.2] - 2026-07-29
+
+### Fixed
+- **Architectural Repair of Lazy Evaluation Pruning**: Fixed a major Elo regression (>500 Elo loss in v0.23.1 and ~200 Elo loss in v0.23.0) caused by node-level early returns in tree search. Removed invalid node-level cutoffs from `pvs` (main search) and `quiescence_search` in `src/search_service.rs` that were truncating search trees and causing tactical blindness.
+- **Static Evaluation Bound Pruning in `calc_eval`**: Shifted Lazy Evaluation logic directly into `calc_eval` in `src/eval_service.rs`. When `cheap_eval` (material + PST + pawn table) is far outside alpha/beta search bounds, `calc_eval` skips expensive positional evaluations (king danger, piece mobility, passed pawns) and returns `cheap_eval` directly as the static score, while allowing tree search and candidate move generation to proceed normally.
+- **Search Speed & Elo Recovery**: Restored Nodes Per Second (NPS) from 799 NPS up to 1725 NPS (>115% speed increase) and improved LCT-II tactical evaluation score to 2110 Elo (7/35 positions solved).
+
+
+
 ## [V0.23.1] - 2026-07-29
 
 ### Added
