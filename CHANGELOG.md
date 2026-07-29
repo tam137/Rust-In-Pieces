@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.9] - 2026-07-29
+
+### Changed
+- **Lazy Evaluation Min Game Phase Tuned**: Increased `lazy_eval_min_game_phase` from `30` to `40` in `src/config.rs`. This relaxes the endgame bypass threshold (`game_phase < 40`), allowing Lazy Evaluation cutoffs to run slightly further into transitional endgame positions while maintaining tactical precision.
+
+### Fixed
+
+
+
 ## [V0.23.8] - 2026-07-29
 
 ### Changed
