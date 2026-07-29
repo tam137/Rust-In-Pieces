@@ -39,7 +39,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
                             let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase()
                                 .replace("enablepositionalcap", "enable_positional_cap")
-                                .replace("enablelazyeval", "enable_lazy_eval")
+                                .replace("lazyevalmode", "lazy_eval_mode")
                                 .replace("lazyevalmargin", "lazy_eval_margin")
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enablefutilitypruning", "enable_futility_pruning")
@@ -55,6 +55,16 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
                                 } else {
                                     active_config.aggressiveness = crate::config::Aggressiveness::Normal;
+                                }
+                            } else if param_name == "lazy_eval_mode" {
+                                if val_str.to_lowercase() == "quiescenceonly" {
+                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::QuiescenceOnly;
+                                } else if val_str.to_lowercase() == "mainsearchonly" {
+                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::MainSearchOnly;
+                                } else if val_str.to_lowercase() == "both" {
+                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::Both;
+                                } else {
+                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::Disabled;
                                 }
                             } else if param_name == "enable_positional_cap" {
                                 active_config.enable_positional_cap = val_str.to_lowercase() == "true";

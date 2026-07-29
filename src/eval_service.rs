@@ -123,7 +123,6 @@ impl EvalService {
         ];
     }
 
-    #[allow(dead_code)]
     pub fn cheap_eval(&self, board: &Board, config: &Config, pawn_table: &crate::pawn_hash::PawnHashTable) -> i16 {
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.0] - 2026-07-29
+
+### Added & Optimized
+- **Lazy Evaluation Pruning Reactivation & Modularization**:
+  - Reintroduced robust Lazy Evaluation utilizing the extremely fast, O(1) `cheap_eval` estimation function (which computes basic material, incremental PSTs, pawn hash, and endgame scaling).
+  - Implemented stringent safety guards: Lazy Evaluation cutoffs are now exclusively triggered in Null-Window searches (`alpha + 1 == beta`) and strictly prohibited when the side to move is in check, completely eliminating tactical blindness risks.
+  - Eliminated the risk of Transposition Table (TT) pollution by bypassing all TT write operations when a search path terminates via a Lazy Evaluation cutoff, fixing historical depth-0 cache thrashing bugs.
+- **Configurable `LazyEvalMode` UCI Implementation**:
+  - Replaced the inflexible `enable_lazy_eval` boolean with a dynamic `LazyEvalMode` enum supporting multiple target granularities: `Disabled`, `QuiescenceOnly`, `MainSearchOnly`, and `Both`.
+  - Exposed `LazyEvalMode` as a UCI Combo option (replacing the old checkbox) to enable fine-grained testing and parameter tuning via GUI interfaces.
+  - Set the default operational mode to `QuiescenceOnly` for aggressive optimization testing in highly active search branches.
+
+
+
 ## [V0.22.11] - 2026-07-29
 
 ### Changed & Optimized
