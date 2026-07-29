@@ -280,7 +280,7 @@ impl Config {
 
             rook_on_seventh: 33,
 
-            lazy_eval_margin: 250,
+            lazy_eval_margin: 320,
             lazy_eval_mode: LazyEvalMode::MainSearchOnly,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
