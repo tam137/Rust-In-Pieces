@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.8] - 2026-07-29
+
+### Changed
+- **Lazy Evaluation Min Game Phase Tuned**: Decreased `lazy_eval_min_game_phase` from `50` to `30` in `src/config.rs`. This restricts Lazy Evaluation to earlier game phases with higher piece density, automatically bypassing lazy evaluation cutoffs in late endgames (`game_phase < 30`) where subtle positional nuances and king mobility dominate.
+
+### Fixed
+
+
+
 ## [V0.23.7] - 2026-07-29
 
 ### Changed

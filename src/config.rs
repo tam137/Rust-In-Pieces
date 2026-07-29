@@ -275,7 +275,7 @@ impl Config {
 
             lazy_eval_margin: 320,
             enable_lazy_eval: true,
-            lazy_eval_min_game_phase: 50,
+            lazy_eval_min_game_phase: 30,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
             king_danger_weight_3: 100,
