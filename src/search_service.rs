@@ -1157,7 +1157,6 @@ mod tests {
             rank: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
         };
         let see_val = service.search.see(&board, &mv, &config, &service.move_gen);
@@ -1174,7 +1173,6 @@ mod tests {
             rank: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
         };
         let see_val2 = service.search.see(&board2, &mv2, &config, &service.move_gen);
@@ -1191,7 +1189,6 @@ mod tests {
             rank: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
         };
         let see_val3 = service.search.see(&board3, &mv3, &config, &service.move_gen);

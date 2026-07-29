@@ -128,7 +128,6 @@ pub struct Turn {
     pub promotion: u8,
     pub gives_check: bool,
     pub eval: i16,
-    pub hash: u64,
     pub has_hashed_eval: bool,
     pub rank: i32,
 }
@@ -158,7 +157,6 @@ impl Turn {
             promotion,
             gives_check,
             eval,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         }
@@ -172,7 +170,6 @@ impl Turn {
             promotion: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         }
@@ -230,7 +227,6 @@ impl MoveList {
                 promotion: 0,
                 gives_check: false,
                 eval: 0,
-                hash: 0,
                 has_hashed_eval: false,
                 rank: 0,
             }; 256],
@@ -470,6 +466,7 @@ impl Board {
     /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
         let old_cached_hash = self.cached_hash;
+        let new_cached_hash = crate::zobrist::calc_incremental_hash(self, turn);
         let from = turn.from;
         let to = turn.to;
         let from_mask = 1u64 << from;
@@ -653,11 +650,7 @@ impl Board {
         self.occupied = self.white_pieces | self.black_pieces;
 
         // Calculate the board hash and update the move repetition map
-        if turn.hash == 0 {
-            self.cached_hash = self.hash();
-        } else {
-            self.cached_hash = turn.hash;
-        }
+        self.cached_hash = new_cached_hash;
         self.move_repetition_map
             .entry(self.cached_hash)
             .and_modify(|count| *count += 1)
@@ -1664,8 +1657,8 @@ mod tests {
             let turn = valid_moves.moves[0];
             
             // Check that move generation computed the incremental hash correctly
-            let manual_incremental = crate::zobrist::calc_incremental_hash(&board, &turn);
-            assert_eq!(turn.hash, manual_incremental, "Incremental hash calculated during move gen is wrong");
+            // manual_incremental check removed
+            // turn.hash is removed, hash calculation is tested natively in do_move now
             
             let move_info = board.do_move(&turn);
             let actual_hash = crate::zobrist::gen_hash(&board);
@@ -1678,7 +1671,7 @@ mod tests {
                 assert_eq!(board.cached_hash, actual_hash, "Incremental hash after do_move is wrong");
             }
             
-            assert_eq!(board.cached_hash, turn.hash, "Board cached hash must match turn hash after do_move");
+            assert_eq!(board.cached_hash, actual_hash, "Board cached hash must match full re-hash after do_move");
 
             // Check undo move
             board.undo_move(&turn, move_info);
