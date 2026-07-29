@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.9] - 2026-07-29
+
+### Fixed & Changed
+- **Re-aligned Late Move Reductions Divisor (`lmr_divisor = 185`)**:
+  - Restored default `lmr_divisor` value to **185** in `src/config.rs` and recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 185.0 / 100.0`).
+  - Aligned SPSA tuning parameter definitions in `tuning/parameters.json`, `tuning/server_parameters.json`, and `tuning/spsa_state_remote.json`.
+  - Re-establishes the optimal quiet move depth reduction scaling factor during search, optimizing search tree depth reach while preventing tactical horizon-effect pruning errors.
+
+
+
 ## [V0.22.8] - 2026-07-28
 
 ### Changed
