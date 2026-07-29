@@ -12,61 +12,21 @@ To get reliable real-world performance metrics, we must benchmark the **Alpha-Be
 
 When instructed to compare the performance of multiple engine versions (git tags or branches), follow these steps:
 
-### 1. The Benchmark Script
-Create a Python script (e.g., `parse_nps.py`) in the repository root that automates the checkout, build, and measurement process for all requested versions. 
+### 1. Using the Utility Script
+We now maintain a permanent, dedicated utility script in the repository for this exact purpose: `scripts/benchmark_nps.py`.
+This script automatically performs git checkouts, builds the engine in release mode, and parses the correct Alpha-Beta NPS output over the Kiwipete FEN.
 
-The script must:
-1. Iterate over the given list of git tags/branches.
-2. Check out the target version (`git checkout <tag> -q`).
-3. Compile the engine in release mode (`cargo build --release -q`).
-4. Execute the engine binary using a piped shell command to feed UCI commands.
-5. Extract the maximum NPS reached at a specific depth (e.g., `depth 7`).
-
-### 2. Python Script Template
-```python
-import subprocess
-import re
-
-# Add the versions to compare
-tags = ["v0.22.9", "v0.22.10", "v0.22.11"]
-
-for tag in tags:
-    # 1. Checkout and Build
-    subprocess.run(["git", "checkout", tag, "-q"], check=True)
-    subprocess.run(["cargo", "build", "--release", "-q"], check=True)
-    
-    # 2. Piped UCI Commands
-    # We turn off the opening book to enforce a real search!
-    # Kiwipete FEN is highly recommended for complex middlegame branching.
-    # Sleep is used to give the engine enough time to process and output the info strings before closing stdin.
-    cmd = '''(
-    echo "uci"
-    echo "setoption name OwnBook value false"
-    echo "isready"
-    echo "position fen r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
-    echo "go depth 8"
-    sleep 3
-    echo "quit"
-    ) | ./target/release/suprah'''
-    
-    p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    
-    # 3. Parse highest NPS from target depth
-    max_nps = 0
-    for line in p.stdout.split("\\n"):
-        if "info depth 7" in line and "nps" in line:
-            parts = line.split()
-            if "nps" in parts:
-                idx = parts.index("nps")
-                nps = int(parts[idx+1])
-                if nps > max_nps:
-                    max_nps = nps
-                
-    print(f"{tag}: {max_nps} NPS")
-
-# Cleanup: Return to master
-subprocess.run(["git", "checkout", "master", "-q"])
+To benchmark, simply run the script and pass the git tags or branches as arguments:
+```bash
+./scripts/benchmark_nps.py v0.22.9 v0.22.10 v0.22.11
 ```
+
+If you are writing a script yourself because the utility script is unavailable, here is what the script does:
+1. Iterates over the given list of git tags/branches.
+2. Checks out the target version (`git checkout <tag> -q`).
+3. Compiles the engine in release mode (`cargo build --release -q`).
+4. Executes the engine binary using a piped shell command to feed UCI commands (e.g. `setoption name OwnBook value false`, `position fen r3k2r...`, `go depth 8`).
+5. Extracts the maximum NPS reached at a specific depth (e.g., `depth 7`).
 
 ### 3. Key Considerations
 * **Disable OwnBook:** Always send `setoption name OwnBook value false`. If the engine has a book hit, it will return immediately without searching, breaking the benchmark.
