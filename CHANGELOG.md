@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.10] - 2026-07-29
+
+### Added & Optimized
+- **Incremental Zobrist Hashing Architecture (`src/zobrist.rs` & `src/move_gen_service.rs`)**:
+  - Implemented a purely incremental transition mechanism for `board.cached_hash` using `calc_incremental_hash` to completely bypass the expensive O(N) `gen_hash()` full-bitboard traversal.
+  - Refactored `Lazy` initialization constants in `zobrist.rs` to use `pub` fields, exposing direct XOR capabilities to external modules.
+  - **Move Generator Pre-Calculation**: The `MoveGenService` now efficiently pre-calculates the incremental hash upon `Turn` creation, seamlessly injecting the localized XOR adjustments (piece movement, castling rights, and en-passant tracking).
+  - **Null Move Search Performance**: Optimized the Null Move Pruning (NMP) branch in `search_service.rs` by replacing `gen_hash()` with targeted `WHITE_TO_MOVE` and `EN_PASSANT_FILE` XOR manipulations.
+
+### Fixed
+- **Critical Repetition Map Corruption Bug (`src/model.rs`)**:
+  - Identified and resolved a fatal regression where `undo_move` was erroneously decrementing the *new* hash from the `move_repetition_map` because `board.cached_hash` was reset to `0`, resulting in severe panics (`RIP move_repetition_map value 4`).
+  - `MoveInformation` now immutably tracks and stores the `old_cached_hash` prior to `do_move` mutation, allowing `undo_move` to perfectly restore the pre-move hash state and safely manage the 3-fold repetition map counts.
+- **Fuzz Testing & Verification**: Added the aggressive `incremental_hash_complex_sequence_test` fuzzing suite that executes deep pseudo-random move sequences to assert absolute cryptographic parity between incremental adjustments and full `gen_hash()` reconstruction.
+
+
+
 ## [V0.22.9] - 2026-07-29
 
 ### Fixed & Changed
