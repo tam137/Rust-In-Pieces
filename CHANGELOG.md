@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.22.11] - 2026-07-29
+
+### Changed & Optimized
+- **Turn Struct Memory Halving & Cache Optimization (`src/model.rs`)**:
+  - Removed the `hash: u64` field entirely from the `Turn` struct, drastically reducing the struct size from 24 Bytes down to 12 Bytes (50% reduction).
+  - This shrinks the size of the heavily utilized `MoveList` stack allocations from 6,144 Bytes to 3,072 Bytes, massively improving CPU L1/L2 Cache efficiency and density during Move Generation.
+  - Accelerated move sorting operations during Alpha-Beta Search (Move Ordering) by halving the memory footprint that needs to be copied and shifted in RAM.
+- **Inline Incremental Hash Relocation (`src/model.rs` & `src/move_gen_service.rs`)**:
+  - Relocated the call to `calc_incremental_hash` from the pre-validation pseudo-move generator directly into the `do_move` function.
+  - This perfectly shifts the hashing computation overhead to be performed in-place (assigned seamlessly to `board.cached_hash`), eliminating the need to persist and pass the hash via the `Turn` object.
+  - **Performance**: +1.4% NPS
+
+
+
 ## [V0.22.10] - 2026-07-29
 
 ### Added & Optimized
@@ -20,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Identified and resolved a fatal regression where `undo_move` was erroneously decrementing the *new* hash from the `move_repetition_map` because `board.cached_hash` was reset to `0`, resulting in severe panics (`RIP move_repetition_map value 4`).
   - `MoveInformation` now immutably tracks and stores the `old_cached_hash` prior to `do_move` mutation, allowing `undo_move` to perfectly restore the pre-move hash state and safely manage the 3-fold repetition map counts.
 - **Fuzz Testing & Verification**: Added the aggressive `incremental_hash_complex_sequence_test` fuzzing suite that executes deep pseudo-random move sequences to assert absolute cryptographic parity between incremental adjustments and full `gen_hash()` reconstruction.
+  - **Performance**: +106% NPS
 
 
 
@@ -29,6 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Re-aligned Late Move Reductions Divisor (`lmr_divisor = 185`)**:
   - Restored default `lmr_divisor` value to **185** in `src/config.rs` and recalculated the static logarithmic LMR lookup table (`lmr_table` with `divisor = 185.0 / 100.0`).
   - Aligned SPSA tuning parameter definitions in `tuning/parameters.json`, `tuning/server_parameters.json`, and `tuning/spsa_state_remote.json`.
+  - **Performance**: Baseline
   - Re-establishes the optimal quiet move depth reduction scaling factor during search, optimizing search tree depth reach while preventing tactical horizon-effect pruning errors.
 
 

@@ -162,7 +162,6 @@ impl TranspositionEntry {
             promotion,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         })
@@ -383,7 +382,6 @@ mod tests {
             promotion: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         };
@@ -413,7 +411,6 @@ mod tests {
             promotion: 14,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         };
@@ -440,7 +437,6 @@ mod tests {
             promotion: 0,
             gives_check: false,
             eval: 0,
-            hash: 0,
             has_hashed_eval: false,
             rank: 0,
         };
