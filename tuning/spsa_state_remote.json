@@ -62,7 +62,7 @@
         "threat_minor_attacks_rook": 12.997360451421434,
         "threat_minor_attacks_queen": 23.5562509175957,
         "threat_rook_attacks_queen": 19.924811332351513,
-        "lmr_divisor": 225.0,
+        "lmr_divisor": 185.0,
         "king_pawn_shield_kingside": 37.34699354758294,
         "king_pawn_shield_queenside": 24.96651821975671,
         "king_piece_shield_kingside": 15.359970040874027,
