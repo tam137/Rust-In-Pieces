@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.7] - 2026-07-29
+
+### Changed
+- **Lazy Evaluation Margin Tuned**: Adjusted default `lazy_eval_margin` from `360` to `320` in `src/config.rs`. This re-aligns the static evaluation cutoff threshold, striking an optimal balance between aggressive search tree pruning speed and positional evaluation stability.
+
+### Fixed
+
+
+
 ## [V0.23.6] - 2026-07-29
 
 ### Changed
