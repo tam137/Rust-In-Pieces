@@ -39,7 +39,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
                             let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase()
                                 .replace("enablepositionalcap", "enable_positional_cap")
-                                .replace("lazyevalmode", "lazy_eval_mode")
+                                .replace("enablelazyeval", "enable_lazy_eval")
+                                .replace("lazyevalmingamephase", "lazy_eval_min_game_phase")
                                 .replace("lazyevalmargin", "lazy_eval_margin")
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enablefutilitypruning", "enable_futility_pruning")
@@ -56,16 +57,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 } else {
                                     active_config.aggressiveness = crate::config::Aggressiveness::Normal;
                                 }
-                            } else if param_name == "lazy_eval_mode" {
-                                if val_str.to_lowercase() == "quiescenceonly" {
-                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::QuiescenceOnly;
-                                } else if val_str.to_lowercase() == "mainsearchonly" {
-                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::MainSearchOnly;
-                                } else if val_str.to_lowercase() == "both" {
-                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::Both;
-                                } else {
-                                    active_config.lazy_eval_mode = crate::config::LazyEvalMode::Disabled;
-                                }
+                            } else if param_name == "enable_lazy_eval" {
+                                active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
                             } else if param_name == "enable_positional_cap" {
                                 active_config.enable_positional_cap = val_str.to_lowercase() == "true";
                             } else if param_name == "move_overhead" {
@@ -181,6 +174,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
                                     "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
                                     "lazy_eval_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin = v; },
+                                    "lazy_eval_min_game_phase" => if let Ok(v) = val_str.parse::<u32>() { active_config.lazy_eval_min_game_phase = v; },
                                     "king_danger_weight_1" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_1 = v; },
                                     "king_danger_weight_2" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_2 = v; },
                                     "king_danger_weight_3" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_3 = v; },

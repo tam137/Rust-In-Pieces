@@ -148,7 +148,11 @@ impl EvalService {
 
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
         let cheap = self.cheap_eval(board, config, pawn_table);
-        if config.lazy_eval_mode != crate::config::LazyEvalMode::Disabled && alpha > i16::MIN + 2000 && beta < i16::MAX - 2000 {
+        let game_phase = self.get_game_phase(board);
+        let in_check = movegen.is_in_check(board);
+
+        // Skip Lazy Eval if disabled, if in check, or in deep endgame (game_phase < min_game_phase) where positional opposition & passed pawn dynamics dominate
+        if config.enable_lazy_eval && !in_check && game_phase >= config.lazy_eval_min_game_phase && alpha > i16::MIN + 2000 && beta < i16::MAX - 2000 {
             let margin = config.lazy_eval_margin;
             if cheap + margin <= alpha {
                 return cheap;

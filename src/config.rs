@@ -7,14 +7,6 @@ pub enum Aggressiveness {
     HighAggressive,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LazyEvalMode {
-    Disabled,
-    QuiescenceOnly,
-    MainSearchOnly,
-    Both,
-}
-
 #[derive(Clone)]
 pub struct Config {
     pub version: &'static str,
@@ -125,7 +117,8 @@ pub struct Config {
     pub king_in_double_check_malus: i16,
     pub rook_on_seventh: i16,
     pub lazy_eval_margin: i16,
-    pub lazy_eval_mode: LazyEvalMode,
+    pub enable_lazy_eval: bool,
+    pub lazy_eval_min_game_phase: u32,
     pub king_danger_weight_1: i16,
     pub king_danger_weight_2: i16,
     pub king_danger_weight_3: i16,
@@ -281,7 +274,8 @@ impl Config {
             rook_on_seventh: 33,
 
             lazy_eval_margin: 180,
-            lazy_eval_mode: LazyEvalMode::MainSearchOnly,
+            enable_lazy_eval: true,
+            lazy_eval_min_game_phase: 50,
             king_danger_weight_1: 10,
             king_danger_weight_2: 50,
             king_danger_weight_3: 100,
@@ -501,7 +495,8 @@ impl Config {
         msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
         msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
         msg.push_str(&format!("  lazy_eval_margin: {}\n", self.lazy_eval_margin));
-        msg.push_str(&format!("  lazy_eval_mode: {:?}\n", self.lazy_eval_mode));
+        msg.push_str(&format!("  enable_lazy_eval: {}\n", self.enable_lazy_eval));
+        msg.push_str(&format!("  lazy_eval_min_game_phase: {}\n", self.lazy_eval_min_game_phase));
         msg.push_str(&format!("  king_danger_weight_1: {}\n", self.king_danger_weight_1));
         msg.push_str(&format!("  king_danger_weight_2: {}\n", self.king_danger_weight_2));
         msg.push_str(&format!("  king_danger_weight_3: {}\n", self.king_danger_weight_3));

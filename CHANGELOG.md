@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.5] - 2026-07-29
+
+### Added
+- **Configurable `LazyEvalMinGamePhase`**: Introduced a new parameter and UCI spin option `LazyEvalMinGamePhase` (range 0-256, default 50) in `config.rs`. Lazy Evaluation is automatically bypassed in deep endgames (`game_phase < 50`) where positional factors like king opposition and dynamic passed pawn races dominate.
+
+### Changed
+- **Simplified `EnableLazyEval` UCI Option**: Converted the `LazyEvalMode` enum into a clean boolean check option `EnableLazyEval` (`true`/`false`, default `true`), enabling lazy evaluation uniformly across main search and quiescence search.
+
+### Fixed
+- **In-Check Guard**: Lazy Evaluation is now automatically bypassed whenever the position is in check (`in_check`), preventing tactical oversights and blunders during check evasions.
+
+
+
 ## [V0.23.4] - 2026-07-29
 
 ### Changed
