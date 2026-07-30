@@ -30,11 +30,15 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 1. Executes all cargo unit tests first (`cargo test`).
 2. Bumps the patch/minor version in `Cargo.toml` automatically only if all tests are green.
 3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
-4. Compiles the optimized production release binary.
-5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
-6. Outputs clear manual instructions for the next steps (benchmarks, manual changelog enrichment, and manual git commit/tagging/pushing) instead of automatically committing.
+4. Compiles the optimized HCE production release binary.
+5. Automatically deploys the resulting HCE artifact directly to `../matt-magie/engines/suprah-<new_version>`.
+6. Automatically checks out `feature/nnue-evaluation`, merges `master`, runs `cargo test`, compiles NNUE release binary, deploys to `../matt-magie/engines/suprah-<new_version>-nnue`, pushes `feature/nnue-evaluation` to `origin`, and switches back to `master`.
+7. Outputs clear manual instructions for the next steps (benchmarks, manual changelog enrichment, and manual git commit/tagging/pushing) instead of automatically committing.
 
 ## 4. Release Versioning Classification
+- **Mandatory Engine Naming Scheme (`id name` in UCI)**:
+  - For NNUE variants/releases (`use_nnue == true`), the engine MUST report its UCI name as `RIP V<version>-NNUE` (e.g., `RIP V0.23.12-NNUE`).
+  - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name as `Rust-In-Pieces V<version>` (e.g., `Rust-In-Pieces V0.23.12`).
 - **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh "Changelog entry"`.
 - **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh "Changelog entry"`.
 
