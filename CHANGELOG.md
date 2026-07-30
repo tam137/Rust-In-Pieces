@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.12] - 2026-07-30
+
+### Changed
+- **Ultra-Safe Lazy Evaluation Tuning**: Increased default `lazy_eval_margin` from `360` to `400` in `src/config.rs`. This ultra-conservative static evaluation cutoff threshold requires `cheap_eval` to differ from alpha/beta bounds by at least 4.0 pawns before skipping full positional evaluation, moving engine behavior even closer to v0.22.10 full-eval precision while maintaining high-speed cutoffs for overwhelming tactical positions.
+
+### Fixed
+
+
+
 ## [V0.23.11] - 2026-07-30
 
 ### Changed
