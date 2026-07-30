@@ -59,6 +59,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 }
                             } else if param_name == "enable_lazy_eval" {
                                 active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
+                            } else if param_name == "usennue" || param_name == "use_nnue" {
+                                active_config.use_nnue = val_str.to_lowercase() == "true";
+                            } else if param_name == "nnuemodelpath" || param_name == "nnue_model_path" {
+                                active_config.nnue_model_path = val_str.clone();
                             } else if param_name == "enable_positional_cap" {
                                 active_config.enable_positional_cap = val_str.to_lowercase() == "true";
                             } else if param_name == "move_overhead" {
