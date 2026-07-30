@@ -36,6 +36,7 @@ Rust-In-Pieces utilizes a state-of-the-art **Minimax Search with Alpha-Beta Prun
 | **Aspiration Windows** | Bounds the initial search using a narrow window centered on the previous iteration's score, dynamically widening the window if search scores fail low or high. | [Aspiration Windows](https://www.chessprogramming.org/Aspiration_Windows) |
 | **Quiescence Search (Q-Search)** | Extends leaf nodes recursively by searching only captures and promotions until a tactically stable position ("stand-pat") is reached, completely resolving the horizon effect. | [Quiescence Search](https://www.chessprogramming.org/Quiescence_Search) |
 | **Static Exchange Evaluation (SEE)** | Evaluates the material balance of capture sequences on a single target square. Used to prune losing quiet captures in Quiescence Search (`SEE < 0`) and demote blunder captures below quiet moves in standard search move ordering. | [Static Exchange Evaluation](https://www.chessprogramming.org/Static_Exchange_Evaluation) |
+| **Lazy Evaluation** | Skips expensive positional evaluation terms (king danger, piece mobility, passed pawn dynamics) when cheap evaluation (material + PST + pawn table) is far outside alpha/beta search bounds, while automatically bypassing cutoffs during checks and deep endgames. | [Lazy Evaluation](https://www.chessprogramming.org/Lazy_Evaluation) |
 
 ### Move Ordering Heuristics
 
