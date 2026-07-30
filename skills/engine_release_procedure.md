@@ -37,8 +37,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 ## 4. Release Versioning Classification
 - **Mandatory Engine Naming Scheme (`id name` in UCI)**:
   - For NNUE variants/releases (`use_nnue == true`), the engine MUST report its UCI name as `RIP-<version>-nnue` (e.g., `RIP-0.23.12-nnue`).
-  - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name as `RIP-<version>` (e.g., `RIP-0.23.12`).
-  - The short prefix `RIP-` is strictly used instead of the full name `Rust-In-Pieces` for release version reporting.
+  - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name in the original format `Rust-In-Pieces <version>` (e.g., `Rust-In-Pieces 0.23.12`).
 - **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh "Changelog entry"`.
 - **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh "Changelog entry"`.
 
