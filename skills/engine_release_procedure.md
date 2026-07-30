@@ -30,9 +30,10 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 1. Executes all cargo unit tests first (`cargo test`).
 2. Bumps the patch/minor version in `Cargo.toml` automatically only if all tests are green.
 3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
-4. Compiles the optimized production release binary.
-5. Automatically deploys the resulting artifact directly to `../matt-magie/engines/suprah-<new_version>`.
-6. Outputs clear manual instructions for the next steps (benchmarks, manual changelog enrichment, and manual git commit/tagging/pushing) instead of automatically committing.
+4. Compiles the optimized HCE production release binary.
+5. Automatically deploys the resulting HCE artifact directly to `../matt-magie/engines/suprah-<new_version>`.
+6. Automatically checks out `feature/nnue-evaluation`, merges `master`, runs `cargo test`, compiles NNUE release binary, deploys to `../matt-magie/engines/suprah-<new_version>-nnue`, pushes `feature/nnue-evaluation` to `origin`, and switches back to `master`.
+7. Outputs clear manual instructions for the next steps (benchmarks, manual changelog enrichment, and manual git commit/tagging/pushing) instead of automatically committing.
 
 ## 4. Release Versioning Classification
 - **Mandatory Engine Naming Scheme (`id name` in UCI)**:
