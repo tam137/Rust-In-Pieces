@@ -94,11 +94,24 @@ pub struct EvalService {
     _knight_moves: [i16; 8],
     attack_bonus_white: [(i16, i16, i16); 2],
     attack_bonus_black: [(i16, i16, i16); 2],
+    pub nnue_net: crate::nnue_service::NNUENetwork,
 }
 
 impl EvalService {
 
     pub fn new(config: &Config) -> Self {
+        let nnue_net = if config.use_nnue {
+            match crate::nnue_service::NNUENetwork::load_from_file(&config.nnue_model_path) {
+                Ok(net) => net,
+                Err(e) => {
+                    eprintln!("info string NNUE load warning: {}, falling back to HCE", e);
+                    crate::nnue_service::NNUENetwork::new_empty()
+                }
+            }
+        } else {
+            crate::nnue_service::NNUENetwork::new_empty()
+        };
+
         Self {
             _knight_moves: [-21, -19, -12, -8, 21, 19, 12, 8],
             attack_bonus_white: [
@@ -109,6 +122,7 @@ impl EvalService {
                 (11, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
                 (13, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
             ],
+            nnue_net,
         }
     }
 
@@ -147,6 +161,9 @@ impl EvalService {
     }
 
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
+        if config.use_nnue && self.nnue_net.loaded {
+            return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
+        }
         let cheap = self.cheap_eval(board, config, pawn_table);
         let game_phase = self.get_game_phase(board);
         let in_check = movegen.is_in_check(board);

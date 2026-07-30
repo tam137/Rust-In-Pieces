@@ -11,6 +11,8 @@ pub enum Aggressiveness {
 pub struct Config {
     pub version: &'static str,
     pub use_zobrist: bool,
+    pub use_nnue: bool,
+    pub nnue_model_path: String,
     pub use_book: bool,
     pub cache_book_in_ram: bool,
     pub book_file: String,
@@ -165,8 +167,10 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: concat!("V", env!("CARGO_PKG_VERSION")),
+            version: "0.23.0-nnue",
             use_zobrist: true,
+            use_nnue: false,
+            nnue_model_path: "eval_models/quantised.bin".to_string(),
             use_book: true,
             cache_book_in_ram: true,
             book_file: String::new(),
