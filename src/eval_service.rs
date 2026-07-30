@@ -1897,6 +1897,7 @@ mod tests {
         
         // 1. Normal Aggressiveness Test (Cap = 150)
         let mut config_normal = Config::new();
+        config_normal.use_nnue = false;
         config_normal.enable_positional_cap = true;
         config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
@@ -1906,6 +1907,7 @@ mod tests {
 
         // 2. Aggressive Test (Cap = 250)
         let mut config_aggressive = Config::new();
+        config_aggressive.use_nnue = false;
         config_aggressive.enable_positional_cap = true;
         config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
         config_aggressive.your_turn_bonus = 1000;
@@ -1915,6 +1917,7 @@ mod tests {
 
         // 3. HighAggressive Test (Cap = 400)
         let mut config_high = Config::new();
+        config_high.use_nnue = false;
         config_high.enable_positional_cap = true;
         config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
         config_high.your_turn_bonus = 1000;
