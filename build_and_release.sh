@@ -158,6 +158,61 @@ if [ $? -eq 0 ]; then
     rm -f Cargo.toml.bak CHANGELOG.md.bak
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
     
+    # Step 5b: Synchronize, test, build, and deploy NNUE Branch (feature/nnue-evaluation)
+    if git show-ref --verify --quiet refs/heads/feature/nnue-evaluation; then
+        echo -e "\n${YELLOW}[5b] Synchronizing master into feature/nnue-evaluation branch...${NC}"
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        
+        git checkout feature/nnue-evaluation
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to checkout feature/nnue-evaluation branch!${NC}"
+            git checkout "$CURRENT_BRANCH"
+            rollback
+            exit 1
+        fi
+        
+        git merge "$CURRENT_BRANCH" -m "Merge $CURRENT_BRANCH into feature/nnue-evaluation for release v$NEW_VERSION"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to merge $CURRENT_BRANCH into feature/nnue-evaluation!${NC}"
+            git checkout "$CURRENT_BRANCH"
+            rollback
+            exit 1
+        fi
+        
+        echo -e "${CYAN}Running tests on feature/nnue-evaluation branch...${NC}"
+        cargo test
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Tests failed on feature/nnue-evaluation branch!${NC}"
+            git checkout "$CURRENT_BRANCH"
+            rollback
+            exit 1
+        fi
+        
+        echo -e "${CYAN}Compiling NNUE release binary...${NC}"
+        cargo build --release
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: NNUE compilation failed!${NC}"
+            git checkout "$CURRENT_BRANCH"
+            rollback
+            exit 1
+        fi
+        
+        NNUE_COPY_TARGET="$TARGET_DIR/suprah-$NEW_VERSION-nnue"
+        cp "target/release/suprah" "$NNUE_COPY_TARGET"
+        chmod +x "$NNUE_COPY_TARGET"
+        
+        if [ -d "eval_models" ]; then
+            mkdir -p "$TARGET_DIR/eval_models"
+            cp -r eval_models/* "$TARGET_DIR/eval_models/"
+        fi
+        echo -e "${GREEN}Success: Deployed NNUE release to $NNUE_COPY_TARGET!${NC}"
+        
+        echo -e "${CYAN}Pushing feature/nnue-evaluation branch to origin...${NC}"
+        git push origin feature/nnue-evaluation
+        
+        git checkout "$CURRENT_BRANCH"
+    fi
+
     # Step 6: Remote ARM Server Compilation & Deployment
     if [ -z "$EODSERVERIP" ]; then
         echo -e "\n${YELLOW}Warning: Environment variable EODSERVERIP is not set.${NC}"
@@ -171,7 +226,7 @@ if [ $? -eq 0 ]; then
 
         # A. Package, upload, compile and deploy in a single SSH connection to avoid rate limiting / disconnections
         echo -e "${YELLOW}Packaging, uploading, and compiling suprah on remote server natively...${NC}"
-        tar -cf - Cargo.toml src | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && cd / && rm -rf ${REMOTE_TMP_DIR}"
+        tar -cf - Cargo.toml src eval_models 2>/dev/null | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && cd / && rm -rf ${REMOTE_TMP_DIR}"
         if [ $? -ne 0 ]; then
             echo -e "${RED}Error: Remote compilation and deployment failed!${NC}"
             rollback
