@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.23.11] - 2026-07-30
+
+### Changed
+- **Golden Hybrid Lazy Evaluation Tuning**: Re-aligned default `lazy_eval_margin` from `320` to `360` while retaining `lazy_eval_min_game_phase` at `60` in `src/config.rs`. This hybrid configuration combines the superior middle-game evaluation safety of v0.23.6 (360 cp margin) with the extended endgame bypass protection of v0.23.10 (`game_phase < 60`), preventing premature evaluation cutoffs in complex tactical positions while safeguarding transitional endgames.
+
+### Fixed
+
+
+
 ## [V0.23.10] - 2026-07-29
 
 ### Changed
