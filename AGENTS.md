@@ -9,7 +9,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 *   **Zero Compromise on Code Quality:** You firmly reject the idea that high performance requires messy "spaghetti" code. You write code that is elegant, modular, highly structured, and self-documenting. You write code that a human can easily maintain, but a compiler can optimize to the absolute limit.
 
 ## Mandatory Agent Compliance & Skills Usage
-*   **Strict Adherence to agents.md:** You MUST read and unconditionally obey every rule, guideline, and policy documented within this `agents.md` file. Ignorance of these rules is unacceptable.
+*   **Strict Adherence to AGENTS.md:** You MUST read and unconditionally obey every rule, guideline, and policy documented within this `AGENTS.md` file. Ignorance of these rules is unacceptable.
 *   **Skill Directory (`skills/`):** There is a dedicated `skills/` directory in the root of the project containing standardized operating procedures (SOPs) for various tasks. You MUST check for and utilize these skills when performing related tasks.
 *   **Release Procedure:** If the user requests a new release (patch or minor), you MUST execute the entire process exclusively according to the instructions in the `skills/engine_release_procedure.md` skill document.
 
@@ -19,7 +19,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
   1. **Brainstorm Options:** Analyze different architectural and technical paths.
   2. **Create a Detailed Plan / Release Plan:** Draft a structured plan with precise file paths, release classifications, and steps.
   3. **Use TDD (Test-Driven Development):** Write tests for every task.
-- **Mandatory Release Plan:** For **EVERY single change or edit** in the workspace, you MUST zwingend create a Release/Implementation Plan beforehand. This strict rule applies without exception to **all code changes** as well as **non-code files** (such as `agents.md`, `README.md`, or other markdown/documentation/config files).
+- **Mandatory Release Plan:** For **EVERY single change or edit** in the workspace, you MUST zwingend create a Release/Implementation Plan beforehand. This strict rule applies without exception to **all code changes** as well as **non-code files** (such as `AGENTS.md`, `README.md`, or other markdown/documentation/config files).
 - **Strict Rule:** Never skip a phase.
 
 ## Strict English Policy
@@ -51,6 +51,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Strict Limit on Git Operations:** The AI must NEVER automatically or preemptively execute `git commit` or `git push` commands.
 - **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
 - **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
+- **Helper Scripts Policy (`scripts/AGENTS.md`):** All helper, diagnostic, testing, and maintenance scripts placed in `scripts/` MUST be version-controlled in Git for reusability. Scripts MUST use relative path resolution (no absolute paths) and MUST NOT expose internal system structures, OS environment variable values/secrets, server IP addresses, login credentials, or personal information. Refer to [`scripts/AGENTS.md`](file:///home/tam137/Rust-In-Pieces/scripts/AGENTS.md) for full compliance details.
 
 
 ## Project Directory Structure
@@ -61,7 +62,7 @@ The Suprah repository is structured logically to separate core engine implementa
     *   `src/eval_service.rs` & `src/config.rs`: Static positional evaluation, King Safety shields, development penalties, Rook coordinations, and all hardcoded SPSA-tuned Centipawn parameters.
     *   `src/move_gen_service.rs` & `src/magic.rs`: High-performance move generator utilizing sliding-piece Magic Bitboards.
     *   `src/book.rs`: Built-in opening book and defense selection logic.
-*   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts. Key tools include:
+*   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts for testing, maintenance, and benchmarking. Governed strictly by [`scripts/AGENTS.md`](file:///home/tam137/Rust-In-Pieces/scripts/AGENTS.md). Key tools include:
     *   `scripts/run_perft_bench.py`: Fully automated benchmarking script to run depth searches on startpos (FEN with move counter = 5 to bypass the opening book) and output clean markdown tables for `perft.md`.
     *   `scripts/lct2_evaluator.py`: Automated Louguet Chess Test II (LCT II) evaluator to verify tactical, positional, and endgame solving capabilities on the release binary.
 *   **`tuning/` (SPSA Parameter Tuning)**: Automated tuning environment. Contains:

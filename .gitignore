@@ -8,7 +8,8 @@ rust-in-piece.log
 *.log
 start-x86.sh
 
-# Tuning and scratch files
+# Tuning, plan and scratch files
+implementation_plan.md
 harvest_tuning.py
 scratch/analyze_spsa_results.py
 scratch/analyze_terminations.py
