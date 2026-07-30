@@ -55,9 +55,9 @@ pub fn uci_command_processor(
 
                 if uci_token.trim() == "uci" {
                     let name_str = if active_use_nnue {
-                        format!("id name RIP-{}-nnue", config.version)
+                        format!("id name RIP V{}-NNUE", config.version)
                     } else {
-                        format!("id name Rust-In-Pieces {}", config.version)
+                        format!("id name Rust-In-Pieces V{}", config.version)
                     };
                     stdout.write(&name_str);
                     stdout.write("id author Jan Lange");
