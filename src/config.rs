@@ -169,7 +169,7 @@ impl Config {
         Config {
             version: env!("CARGO_PKG_VERSION"),
             use_zobrist: true,
-            use_nnue: false,
+            use_nnue: true,
             nnue_model_path: "eval_models/quantised.bin".to_string(),
             use_book: true,
             cache_book_in_ram: true,
@@ -348,6 +348,7 @@ impl Config {
     /// Sets turn_bonus and all tempo attack boni at 0
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
+        config.use_nnue = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.move_overhead = 0;
@@ -385,6 +386,7 @@ impl Config {
     /// Also ZOBRIST hash is disabled
     pub fn for_tests() -> Self {
         let mut config = Config::new();
+        config.use_nnue = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.print_info_string_during_search = false;
