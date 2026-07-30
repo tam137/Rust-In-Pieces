@@ -48,11 +48,18 @@ pub fn uci_command_processor(
     let uci_parser = Service::new().uci_parser;
     let benchmark_value = time_check::calculate_benchmark(&engine_state);
 
+    let mut active_use_nnue = config.use_nnue;
+
     while let Ok(uci_token) = rx_std_in.recv() {
         let logger = engine_state.log_sender.clone();
 
                 if uci_token.trim() == "uci" {
-                    stdout.write(&format!("id name Rust-In-Pieces {}", config.version));
+                    let name_str = if active_use_nnue {
+                        format!("id name RIP-{}-nnue", config.version)
+                    } else {
+                        format!("id name RIP-{}", config.version)
+                    };
+                    stdout.write(&name_str);
                     stdout.write("id author Jan Lange");
                     stdout.write("option name Hash type spin default 128 min 1 max 1024");
                     stdout.write("option name Threads type spin default 1 min 1 max 8");
@@ -170,7 +177,12 @@ pub fn uci_command_processor(
 
                 else if uci_token.trim().starts_with("setoption") {
                     let token_lower = uci_token.to_lowercase();
-                    if token_lower.contains("name threads") && token_lower.contains("value") {
+                    if token_lower.contains("usennue") || token_lower.contains("use_nnue") {
+                        let parts: Vec<&str> = uci_token.split_whitespace().collect();
+                        if let Some(val_str) = parts.last() {
+                            active_use_nnue = val_str.to_lowercase() == "true";
+                        }
+                    } else if token_lower.contains("name threads") && token_lower.contains("value") {
                         let parts: Vec<&str> = uci_token.split_whitespace().collect();
                         if let Some(val_str) = parts.last() {
                             if let Ok(threads) = val_str.parse::<i32>() {

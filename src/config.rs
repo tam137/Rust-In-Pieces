@@ -167,7 +167,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Config {
         Config {
-            version: "0.23.0-nnue",
+            version: env!("CARGO_PKG_VERSION"),
             use_zobrist: true,
             use_nnue: false,
             nnue_model_path: "eval_models/quantised.bin".to_string(),
