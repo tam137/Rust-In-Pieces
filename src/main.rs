@@ -20,6 +20,7 @@ mod time_check;
 mod magic;
 mod pst;
 pub mod polyglot;
+pub mod visualizer_service;
 
 
 

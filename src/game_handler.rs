@@ -20,9 +20,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     let mut book = Book::new();
     let logger = engine_state.log_sender.clone();
     let mut active_config = config.clone();
+    let mut recorded_frames: Vec<crate::visualizer_service::NNUEMoveFrame> = Vec::new();
+    let mut game_report_path: Option<String> = None;
 
     while let Ok(command) = rx_game_command.recv() {
         if command.trim() == "ucinewgame" {
+            recorded_frames.clear();
+            game_report_path = None;
             game = UciGame::new(service.fen.set_init_board());
             engine_state.stop_flag.store(false, Ordering::SeqCst);
             engine_state.pv_nodes.lock().unwrap().clear();
@@ -65,6 +69,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 active_config.nnue_model_path = val_str.clone();
                             } else if param_name == "enable_positional_cap" {
                                 active_config.enable_positional_cap = val_str.to_lowercase() == "true";
+                            } else if param_name == "nnue_visualizer" || param_name == "nnuevisualizer" {
+                                active_config.nnue_visualizer = val_str.to_lowercase() == "true";
                             } else if param_name == "move_overhead" {
                                 if let Ok(overhead) = val_str.parse::<u64>() { active_config.move_overhead = overhead; }
                             } else {
@@ -93,6 +99,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     },
                                     "enablepositionalcap" | "enable_positional_cap" => {
                                         active_config.enable_positional_cap = val_str == "true";
+                                    },
+                                    "nnuevisualizer" | "nnue_visualizer" => {
+                                        active_config.nnue_visualizer = val_str.to_lowercase() == "true";
                                     },
                                     "positionalcapdamping" | "positional_cap_damping" => {
                                         if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; }
@@ -200,15 +209,44 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 else if command.starts_with("board") {
                     let fen = command[6..].to_string();
                     game = UciGame::new(service.fen.set_fen(&fen));
+                    if active_config.nnue_visualizer {
+                        recorded_frames.clear();
+                        let fen_init = service.fen.get_fen(&game.board);
+                        if let Some(frame) = crate::nnue_service::NNUEService::extract_telemetry_frame(&game.board, &service.eval.nnue_net, 0, &fen_init, "Start") {
+                            recorded_frames.push(frame);
+                        }
+                    }
                 }
 
                 else if let Some(moves_str) = command.strip_prefix("moves") {
                     if command.len() <= 5 {
                         continue;
                     }
-                    let moves_iter = moves_str.split_whitespace();
-                    for mv in moves_iter {
-                        game.do_move(mv);
+                    if active_config.nnue_visualizer {
+                        if game_report_path.is_none() {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            game_report_path = Some(format!("reports/nnue_report_{}.html", timestamp));
+                        }
+                        let target_path = game_report_path.as_ref().unwrap().clone();
+
+                        let moves_iter = moves_str.split_whitespace();
+                        for mv in moves_iter {
+                            game.do_move(mv);
+                            let fen = service.fen.get_fen(&game.board);
+                            let ply = recorded_frames.len();
+                            if let Some(frame) = crate::nnue_service::NNUEService::extract_telemetry_frame(&game.board, &service.eval.nnue_net, ply, &fen, mv) {
+                                recorded_frames.push(frame);
+                            }
+                        }
+                        let _ = crate::visualizer_service::VisualizerService::generate_html_report_to_path(&recorded_frames, &target_path);
+                    } else {
+                        let moves_iter = moves_str.split_whitespace();
+                        for mv in moves_iter {
+                            game.do_move(mv);
+                        }
                     }                   
                 }
 

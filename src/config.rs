@@ -40,6 +40,7 @@ pub struct Config {
     pub enable_positional_cap: bool,
     pub positional_cap_damping: i16,
     pub move_overhead: u64,
+    pub nnue_visualizer: bool,
 
     pub is_hashed_rank_bonus: i32,
     pub give_check_rank_bonus: i32,
@@ -197,6 +198,7 @@ impl Config {
             enable_positional_cap: true,
             positional_cap_damping: 5,
             move_overhead: 0,
+            nnue_visualizer: false,
 
             is_hashed_rank_bonus: 4,
             give_check_rank_bonus: 5,

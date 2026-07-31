@@ -104,8 +104,15 @@ impl EvalService {
             match crate::nnue_service::NNUENetwork::load_from_file(&config.nnue_model_path) {
                 Ok(net) => net,
                 Err(e) => {
-                    eprintln!("info string NNUE load warning: {}, falling back to HCE", e);
-                    crate::nnue_service::NNUENetwork::new_empty()
+                    // Try fallback path relative to project workspace
+                    let fallback_path = "/home/tam137/Rust-In-Pieces/eval_models/quantised.bin";
+                    match crate::nnue_service::NNUENetwork::load_from_file(fallback_path) {
+                        Ok(net) => net,
+                        Err(_) => {
+                            eprintln!("info string NNUE load warning: {}, falling back to HCE", e);
+                            crate::nnue_service::NNUENetwork::new_empty()
+                        }
+                    }
                 }
             }
         } else {
