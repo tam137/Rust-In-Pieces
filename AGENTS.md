@@ -13,66 +13,33 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 *   **Skill Directory (`skills/`):** There is a dedicated `skills/` directory in the root of the project containing standardized operating procedures (SOPs) for various tasks. You MUST check for and utilize these skills when performing related tasks.
 *   **Release Procedure:** If the user requests a new release (patch or minor), you MUST execute the entire process exclusively according to the instructions in the `skills/engine_release_procedure.md` skill document.
 
-
 ## Superpowers & Implementation Workflow
 - **Development Directive:** You are now operating with Superpowers. Before any implementation or modification, you must:
   1. **Brainstorm Options:** Analyze different architectural and technical paths.
   2. **Create a Detailed Plan / Release Plan:** Draft a structured plan with precise file paths, release classifications, and steps.
   3. **Use TDD (Test-Driven Development):** Write tests for every task.
-- **Mandatory Release Plan:** For **EVERY single change or edit** in the workspace, you MUST zwingend create a Release/Implementation Plan beforehand. This strict rule applies without exception to **all code changes** as well as **non-code files** (such as `AGENTS.md`, `README.md`, or other markdown/documentation/config files).
-- **Strict Rule:** Never skip a phase.
+- **Mandatory Release Plan:** For **EVERY single change or edit** in the workspace, you MUST create a Release/Implementation Plan beforehand. This strict rule applies without exception to **all code changes** as well as **non-code files** (such as `AGENTS.md`, `README.md`, or other markdown/documentation/config files).
 
 ## Strict English Policy
 - **Primary Directive:** English is the mandatory language for all technical artifacts.
-- **GUI Labels:** Use standard English terminology (e.g., "Settings" instead of "Einstellungen", "Submit" instead of "Absenden").
-- **CLI Output:** Ensure all `console.log`, `print`, or logger statements use English.
-- **Exception:** Only communicate in German within the chat window if the user speaks in German. Everything written into project files must be English.
 
 ## Rust Coding Standards
 - **Edition:** Rust Edition 2024.
 - **Formatting:** Adhere to standard Rust formatting conventions.
 - **Documentation:** Write all docstrings and code comments in clear, technical English.
 
-## Automated Release & Build Policy
-- **Release Procedure:** The entire build, testing, benchmarking, and release pipeline must be executed according to the `skills/engine_release_procedure.md` skill document. You MUST review and follow this skill strictly whenever requested to release a new version of the engine.
-
-## Testing & Verification Policy
-- **Mandatory Feature Tests:** For every new feature, search optimization, or evaluation heuristic implemented in the codebase, you MUST add dedicated automated unit tests to verify its functional correctness, behavioral stability, and regression safety. Never implement a new feature without adding corresponding test coverage.
-- **Simple Implementations:** For standard development and simple implementations, only execute active unit tests (`cargo test`). Do NOT run heavy, ignored tests or the tournament verification script.
-- **Release Verification Requirement:** The heavy verification processes MUST only be executed when a release is explicitly requested by the USER:
-  1. Execute deep search/ignored tests (including `perft` tests) as step 2 of the Mandatory Release Sequence: `cargo test -- --ignored`.
-  2. Execute the live tournament verification matchup (`./run_verify.sh` in the `matt-magie` repository) ONLY if the USER explicitly requests or mentions it. Do NOT run the tournament verification script by default during a release unless explicitly asked.
-- **Mandatory Completion Waiting:** Whenever running asynchronous test commands (e.g., `cargo test` or `cargo test -- --ignored`) during a release procedure, the AI MUST explicitly wait for the background test execution to finish completely and verify 100% clean success (`test result: ok`) BEFORE proceeding to execute the build and release pipeline script (`./build_and_release.sh`). Never trigger build/release steps while background test tasks are still running.
-
-## Fail-Fast Policy for Engine Dependencies
-- **Strict Error Handling:** If any configured external resource or dependency (such as a PolyGlot opening book `.bin` file specified via `BookFile`) cannot be opened, read, or loaded, the engine MUST write a clear critical error log entry and immediately terminate execution via `std::process::exit(1)`. Silent fallbacks or masking errors during tournament play are strictly prohibited.
-
 ## Git & Version Control Policy
-- **Strict Limit on Git Operations:** The AI must NEVER automatically or preemptively execute `git commit` or `git push` commands.
-- **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit.
-- **Pushes Rule:** Only execute a Git push if the USER explicitly mentions push or explicitly tells the AI to perform a push.
-- **Helper Scripts Policy (`scripts/AGENTS.md`):** All helper, diagnostic, testing, and maintenance scripts placed in `scripts/` MUST be version-controlled in Git for reusability. Scripts MUST use relative path resolution (no absolute paths) and MUST NOT expose internal system structures, OS environment variable values/secrets, server IP addresses, login credentials, or personal information. Refer to [`scripts/AGENTS.md`](file:///home/tam137/Rust-In-Pieces/scripts/AGENTS.md) for full compliance details.
-
+- **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit, or when executed automatically inside the `./build_and_release.sh` pipeline script.
+- **Strict Relative Paths Policy:** Never use hardcoded absolute file paths (such as `/home/...` or `file:///home/...`) in documentation, markdown files, skill files, scripts, or source code. All file links, documentation references, and paths MUST strictly use relative path resolution.
 
 ## Project Directory Structure
 The Suprah repository is structured logically to separate core engine implementation, automated parameter tuning, diagnostic tooling, and standard operating procedures (SOPs):
 
-*   **`src/` (Core Chess Engine)**: Contains the main Rust chess engine source code (Rust 2024 Edition). Key modules include:
-    *   `src/search_service.rs`: Advanced iterative-deepening search loop with alpha-beta pruning, Principal Variation Search (PVS), Late Move Reductions (LMR), Aspiration Windows, Null Move Pruning (NMP), and Reverse Futility Pruning (RFP).
-    *   `src/eval_service.rs` & `src/config.rs`: Static positional evaluation, King Safety shields, development penalties, Rook coordinations, and all hardcoded SPSA-tuned Centipawn parameters.
-    *   `src/move_gen_service.rs` & `src/magic.rs`: High-performance move generator utilizing sliding-piece Magic Bitboards.
-    *   `src/book.rs`: Built-in opening book and defense selection logic.
-*   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts for testing, maintenance, and benchmarking. Governed strictly by [`scripts/AGENTS.md`](file:///home/tam137/Rust-In-Pieces/scripts/AGENTS.md). Key tools include:
-    *   `scripts/run_perft_bench.py`: Fully automated benchmarking script to run depth searches on startpos (FEN with move counter = 5 to bypass the opening book) and output clean markdown tables for `perft.md`.
-    *   `scripts/lct2_evaluator.py`: Automated Louguet Chess Test II (LCT II) evaluator to verify tactical, positional, and endgame solving capabilities on the release binary.
-*   **`tuning/` (SPSA Parameter Tuning)**: Automated tuning environment. Contains:
-    *   `tuning/tuning.sh`: Executes the SPSA tuning runner against the target compiled engine.
-    *   `tuning/parameters.json`: Contains the precise floating-point SPSA parameter targets and ranges.
+*   **`src/` (Core Chess Engine)**: Contains the main Rust chess engine source code (Rust 2024 Edition).
+*   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts for testing, maintenance, and benchmarking. Governed strictly by [`scripts/AGENTS.md`](scripts/AGENTS.md).
 *   **`skills/` (Standard Operating Procedures - SOPs)**: Standardized guidelines for specific development tasks:
     *   `skills/engine_release_procedure.md`: Release packaging, verification, and deployment instructions.
     *   `skills/engine_position_debugging.md`: Deep search tree and evaluation debugging steps.
 *   **Key Root Documentation**:
     *   `CHANGELOG.md`: Detailed technical changelogs detailing version releases, fixes, and architectural upgrades.
-    *   `perft.md`: Pre-release search tree benchmark results (Nodes, Time, NPS).
-    *   `LCT.md`: Historical Louguet Chess Test II scoreboard and ELO estimations.
 
