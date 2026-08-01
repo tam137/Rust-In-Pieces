@@ -16,24 +16,17 @@ This document outlines the mandatory procedure for building, testing, and releas
 
 ## 2. Mandatory Release Sequence & Procedure
 Whenever a release is explicitly requested by the USER (applicable for both **Patch** and **Minor** releases), the AI MUST execute the following steps in this exact chronological order:
-1. **Run Unit Tests & Check Warnings:** Execute the active unit tests first: `cargo test`. In addition to all tests passing (being green), the entire codebase MUST be completely free of compiler warnings. Crucially, it is strictly forbidden to use attributes or annotations that silence warnings (such as `#[allow(dead_code)]`, `#[allow(unused_variables)]`, etc.) to bypass these clean compilation requirements.
-2. **Compile Local Release Binary:** Compile the release binary locally to verify the build: `cargo build --release`.
-3. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh "Changelog entry"`.
+1. **Run Unit Tests & Check Warnings:** Execute active unit tests first: `cargo test`. Whenever running asynchronous test commands during a release procedure, the AI MUST explicitly wait for background test execution to finish completely and verify 100% clean success (`test result: ok`) BEFORE proceeding to execute `./build_and_release.sh`. In addition to all tests passing (being green), the entire codebase MUST be completely free of compiler warnings. Crucially, it is strictly forbidden to use attributes or annotations that silence warnings (such as `#[allow(dead_code)]`, `#[allow(unused_variables)]`, etc.) to bypass these clean compilation requirements.
+2. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh "Changelog entry"`.
 
 > [!NOTE]
 > **Performance / Perft Tests (`cargo test -- --ignored`)**: By default, long-running perft and ignored performance tests are **OMITTED** during the standard release procedure to save time. Do NOT run `cargo test -- --ignored` or document `perft.md` unless the USER explicitly requests or demands perft benchmarking beforehand. If the USER explicitly requests perft benchmarking, execute `cargo test -- --ignored` and follow Section 6.
 
 > [!NOTE]
-> **LCT II Tactical Tests**: By default, Louguet Chess Test II (LCT II) tests are **NOT** executed during the standard release procedure. Do not run or document LCT II tests unless the USER explicitly requests or mentions LCT II testing beforehand. If the USER explicitly requests LCT II testing, refer to the dedicated [LCT2 Evaluation Procedure](file:///home/tam137/git/suprah/skills/lct2_evaluation_procedure.md) skill to run and document LCT II results.
+> **LCT II Tactical Tests**: By default, Louguet Chess Test II (LCT II) tests are **NOT** executed during the standard release procedure. Do not run or document LCT II tests unless the USER explicitly requests or mentions LCT II testing beforehand. If the USER explicitly requests LCT II testing, refer to the dedicated [LCT2 Evaluation Procedure](skills/lct2_evaluation_procedure.md) skill to run and document LCT II results.
 
 ## 3. Pipeline Workflow
-1. Executes all cargo unit tests first (`cargo test`).
-2. Bumps the patch/minor version in `Cargo.toml` automatically only if all tests are green.
-3. Automatically updates `CHANGELOG.md` with the new version, date, and functional changes.
-4. Compiles the optimized HCE production release binary.
-5. Automatically deploys the resulting HCE artifact directly to `../matt-magie/engines/suprah-<new_version>`.
-6. Automatically checks out `feature/nnue-evaluation`, merges `master`, runs `cargo test`, compiles NNUE release binary, deploys to `../matt-magie/engines/suprah-<new_version>-nnue`, pushes `feature/nnue-evaluation` to `origin`, and switches back to `master`.
-7. Outputs clear manual instructions for the next steps (benchmarks, manual changelog enrichment, and manual git commit/tagging/pushing) instead of automatically committing.
+The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), updating `CHANGELOG.md`, compiling optimized production binaries (both HCE and NNUE), deploying them to `../matt-magie/engines/`, and handling rollback on test/build failures.
 
 ## 4. Release Versioning Classification
 - **Mandatory Engine Naming Scheme (`id name` in UCI)**:
@@ -46,7 +39,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 - **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!
 - **Mandatory Post-Deployment Sequence:** Immediately after the automated pipeline script `./build_and_release.sh` runs successfully, the AI MUST execute the following steps in order:
   1. **Enrich Changelog:** Manually open `CHANGELOG.md` and enrich the newly created release entry with premium, comprehensive, and highly detailed technical descriptions of all added features, optimizations, fixed bugs, and performance gains. Never leave the autogenerated brief logs or arguments as-is. **Do NOT include absolute file path hyperlinks (e.g. `[config.rs](file:///...)`) in the changelog**; reference files and configurations only as plain text (e.g. `config.rs` or `src/config.rs`).
-  2. **Commit & Tag Manually:** Execute the following git commands to finalize the release and push changes:
+  2. **Changelog Review & Proposed Git Commands:** Present the enriched `CHANGELOG.md` to the USER. Do NOT automatically execute `git commit` or `git push` commands afterwards unless the USER explicitly asks/instructs the AI to perform the release commit/push. If explicitly requested by the USER, execute:
      ```bash
      git add Cargo.toml CHANGELOG.md skills/engine_release_procedure.md
      git commit -m "Release vX.Y.Z: <Detailed description of release changes>"
