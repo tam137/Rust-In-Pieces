@@ -285,5 +285,18 @@ mod tests {
         // Startpos evaluation should be reasonable (close to 0 cp)
         assert!(eval.abs() < 200, "Startpos NNUE eval should be reasonable, got: {}", eval);
     }
+
+    #[test]
+    fn test_nnue_model_loading_missing_file() {
+        let missing_path = "eval_models/non_existent_model_file.bin";
+        let net_result = NNUENetwork::load_from_file(missing_path);
+        assert!(net_result.is_err());
+        let err_msg = net_result.err().unwrap();
+        assert!(
+            err_msg.contains("Failed to open NNUE file 'eval_models/non_existent_model_file.bin'"),
+            "Error message should mention missing file, got: {}",
+            err_msg
+        );
+    }
 }
 

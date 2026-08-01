@@ -104,8 +104,9 @@ impl EvalService {
             match crate::nnue_service::NNUENetwork::load_from_file(&config.nnue_model_path) {
                 Ok(net) => net,
                 Err(e) => {
-                    eprintln!("info string NNUE load warning: {}, falling back to HCE", e);
-                    crate::nnue_service::NNUENetwork::new_empty()
+                    let msg = format!("RIP Critical Error: Failed to load NNUE network file '{}': {}", config.nnue_model_path, e);
+                    eprintln!("{}", msg);
+                    std::process::exit(1);
                 }
             }
         } else {
@@ -2089,5 +2090,32 @@ mod tests {
 
             assert_eq!(eval_w, -eval_b, "Evaluation should be perfectly symmetric for White and Black knight attacks on king ring");
         }
+    }
+
+    #[test]
+    fn test_eval_service_nnue_missing_file_fail_fast() {
+        if std::env::var("TEST_NNUE_FAIL_FAST").is_ok() {
+            let mut config = Config::new();
+            config.use_nnue = true;
+            config.nnue_model_path = "eval_models/non_existent_model_file.bin".to_string();
+            let _ = super::EvalService::new(&config);
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("eval_service::tests::test_eval_service_nnue_missing_file_fail_fast")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env("TEST_NNUE_FAIL_FAST", "1")
+            .output()
+            .expect("Failed to execute subprocess test");
+
+        assert!(!output.status.success(), "Subprocess should fail fast with exit code 1");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("RIP Critical Error: Failed to load NNUE network file 'eval_models/non_existent_model_file.bin'"),
+            "Stderr should contain critical error log, got: {}",
+            stderr
+        );
     }
 }
