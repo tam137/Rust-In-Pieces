@@ -24,7 +24,7 @@ Two parameter sets are generated:
 Before these sets are finalized, every parameter is strictly clamped to its predefined `[min, max]` boundaries defined in `parameters.json`. This guarantees that the engine is never exposed to invalid or unstable parameter configurations.
 
 ### 3. Match Execution
-The script spawns a batch of matches (e.g., 500 games) using a parallelized thread pool. `Matt-Magie` acts as the match manager. The games are played with alternating colors:
+The script spawns a batch of matches (e.g., 2500 games) using a parallelized thread pool. `Matt-Magie` acts as the match manager. The games are played with alternating colors:
 - Even-indexed games: `theta_plus` plays as White, `theta_minus` as Black.
 - Odd-indexed games: `theta_minus` plays as White, `theta_plus` as Black.
 
@@ -34,7 +34,7 @@ Once the match batch is completed, the win rate (`score`) of `theta_plus` agains
 - `direction = -1.0` if `score < 0.50` (loss)
 - `direction = 0.0` if `score == 0.50` (draw)
 
-The parameter is updated by a fixed percentage of the mutation step size (`--lr`, default `10%`):
+The parameter is updated by a fixed percentage of the mutation step size (`--lr`, default `5%`):
 `update = (lr_pct / 100.0) * mutation_step * direction`
 The updated float parameters `theta` are then clamped to their legal boundaries (`min` / `max`).
 
@@ -48,14 +48,15 @@ The tuner is invoked via the command line, requiring paths to the engine and the
 Example usage (as seen in `tuning.sh`):
 ```bash
 python3 spsa_tuner.py \
-    --engine ../engines/suprah-0.15.1 \
+    --group all \
+    --engine ../engines/suprah-0.18.1 \
     --mm ../target/release/Matt-Magie \
-    --games 500 \
+    --games 2500 \
     --workers 4 \
-    --time 2 \
-    --inc 100 \
-    --mutate 4.0 \
-    --lr 3.0
+    --time 1 \
+    --inc 10 \
+    --mutate 10.0 \
+    --lr 5.0
 ```
 
 ### Logging and Telemetry

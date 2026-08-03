@@ -31,3 +31,5 @@ tuning/spsa_history_remote.csv
 .DS_Store
 Thumbs.db
 books/
+__pycache__/
+*.pyc
