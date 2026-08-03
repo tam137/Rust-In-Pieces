@@ -14,16 +14,6 @@
         "min": 9,
         "max": 36
     },
-    "give_promotion_rank_bonus_queen": {
-        "value": 17,
-        "min": 8,
-        "max": 34
-    },
-    "give_promotion_rank_bonus_knight": {
-        "value": 6,
-        "min": 0,
-        "max": 12
-    },
     "your_turn_bonus": {
         "value": 19,
         "min": 9,
@@ -373,11 +363,6 @@
         "value": 24,
         "min": 12,
         "max": 48
-    },
-    "lazy_eval_margin": {
-        "value": 400,
-        "min": 200,
-        "max": 800
     },
     "king_danger_weight_1": {
         "value": 10,
