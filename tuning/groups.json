@@ -85,19 +85,14 @@
         "is_hashed_rank_bonus",
         "give_check_rank_bonus",
         "is_pv_node_rank_bonus",
-        "give_promotion_rank_bonus_queen",
-        "give_promotion_rank_bonus_knight",
         "your_turn_bonus",
         "lmr_move_threshold",
-        "lmr_divisor",
-        "lazy_eval_margin"
+        "lmr_divisor"
     ],
     "all": [
         "is_hashed_rank_bonus",
         "give_check_rank_bonus",
         "is_pv_node_rank_bonus",
-        "give_promotion_rank_bonus_queen",
-        "give_promotion_rank_bonus_knight",
         "your_turn_bonus",
         "undeveloped_knight_malus",
         "undeveloped_bishop_malus",
@@ -168,7 +163,6 @@
         "opposite_bishops_draw_scale",
         "rook_behind_enemy_passed_pawn_mg",
         "rook_behind_enemy_passed_pawn_eg",
-        "lazy_eval_margin",
         "king_danger_weight_1",
         "king_danger_weight_2",
         "king_danger_weight_3",
