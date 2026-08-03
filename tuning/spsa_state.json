@@ -4,8 +4,6 @@
         "is_hashed_rank_bonus": 3.0,
         "give_check_rank_bonus": 5.0,
         "is_pv_node_rank_bonus": 15.0,
-        "give_promotion_rank_bonus_queen": 15.0,
-        "give_promotion_rank_bonus_knight": 6.0,
         "your_turn_bonus": 20.0,
         "undeveloped_knight_malus": 42.0,
         "undeveloped_bishop_malus": 30.0,
