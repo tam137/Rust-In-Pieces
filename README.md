@@ -4,6 +4,8 @@ Rust-In-Pieces is a chess engine written in **Rust** (Edition 2024). It features
 
 Rust-In-Pieces is engineered for computational speed, zero-allocation safety, and tactical strength, stabilizing at around **2000 - 2200 ELO** (on Lichess and the Louguet Chess Test II (LCT II) benchmark). Its primary limitation lies in long-term strategic decision-making, reflecting the author's modest chess knowledge rather than software engineering limits.
 
+Vibe-Coded with Gemini.
+
 ---
 
 ## Motivation & Background
@@ -133,7 +135,7 @@ The resulting binary will be located in `target/release/rust-in-pieces`.
 ### Automated Release Pipeline
 To bump versions, run all unit tests, update `CHANGELOG.md`, and compile production binaries, run:
 ```bash
-./build_and_release.sh "Release changelog entry"
+./build_and_release.sh
 ```
 
 ### Cross-Compiling for Windows (from Linux)

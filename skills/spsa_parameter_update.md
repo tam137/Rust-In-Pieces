@@ -57,7 +57,7 @@ Once the code and tuning files are updated:
 1. **Recompile and Deploy the Engine:**
    Run the automated build & release pipeline script to compile the binary and automatically deploy it locally and remotely:
    ```bash
-   ./build_and_release.sh "Release vX.Y.Z: Registered new tuning parameters"
+   ./build_and_release.sh
    ```
 2. **Update tuning.sh:**
    Open `tuning/tuning.sh` and update the `--engine` parameter to point to the newly released binary path (e.g., `../engines/suprah-X.Y.Z`), then upload it to the server:

@@ -7,7 +7,7 @@ use crate::model::{
 
 pub const NNUE_INPUT_SIZE: usize = 768;   // 64 squares * 6 piece types * 2 colors
 pub const NNUE_HIDDEN_SIZE: usize = 256;  // Hidden layer neurons per perspective
-pub const NNUE_INPUT_BUCKETS: usize = 10;  // King position buckets
+pub const NNUE_INPUT_BUCKETS: usize = 10; // King position buckets
 pub const NNUE_OUTPUT_BUCKETS: usize = 8; // Output buckets
 
 pub const NNUE_QA: i32 = 255;
