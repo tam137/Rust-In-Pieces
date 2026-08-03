@@ -36,10 +36,9 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 The Suprah repository is structured logically to separate core engine implementation, automated parameter tuning, diagnostic tooling, and standard operating procedures (SOPs):
 
 *   **`src/` (Core Chess Engine)**: Contains the main Rust chess engine source code (Rust 2024 Edition).
+*   **`tuning/` (Tuning Data & Configurations)**: Directory holding parameter tuning state, SPSA histories, and tuning logic.
+*   **`eval_models/` (Neural Network Evaluation Models)**: Contains neural network models (e.g. NNUE) used for position evaluation.
 *   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts for testing, maintenance, and benchmarking. Governed strictly by [`scripts/AGENTS.md`](scripts/AGENTS.md).
-*   **`skills/` (Standard Operating Procedures - SOPs)**: Standardized guidelines for specific development tasks:
-    *   `skills/engine_release_procedure.md`: Release packaging, verification, and deployment instructions.
-    *   `skills/engine_position_debugging.md`: Deep search tree and evaluation debugging steps.
-*   **Key Root Documentation**:
-    *   `CHANGELOG.md`: Detailed technical changelogs detailing version releases, fixes, and architectural upgrades.
+*   **`skills/` (Standard Operating Procedures - SOPs)**: Standardized guidelines for specific development tasks.
+*   **`CHANGELOG.md`**: Detailed technical changelogs detailing version releases, fixes, and architectural upgrades.
 

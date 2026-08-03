@@ -10,14 +10,13 @@ This document outlines the mandatory procedure for building, testing, and releas
 ## 1. Automated Release & Build Policy
 - **Build Directive:** Standard manual compilation commands like `cargo build` or `cargo build --release` are strictly forbidden for releasing the engine.
 - **Mandatory Script:** You MUST compile, version-bump, and deploy the engine solely using the automated pipeline script: `./build_and_release.sh`.
-- **Changelog Message:** You can pass an optional description of the functional changes as the first argument, e.g., `./build_and_release.sh "Added new search features"`. If no argument is provided, the script will automatically harvest recent git commit logs as changes.
-- **Git Branch Policy:** Do NOT create, checkout, or work on any new Git branches unless explicitly requested or commanded by the user. Git tags (e.g. `v0.21.0`) are excluded from this rule and must be created during release finalization. All work, commits, and releases must happen directly on the active branch (normally `master`) by default.
+- **Git Branch Policy:** Do NOT create, checkout, or work on any new Git branches unless explicitly requested or commanded by the user. Git tags (e.g. `v0.21.0`) are excluded from this rule and must be created during release finalization. All work, commits, and releases must happen directly on the active branch by default.
 
 
 ## 2. Mandatory Release Sequence & Procedure
 Whenever a release is explicitly requested by the USER (applicable for both **Patch** and **Minor** releases), the AI MUST execute the following steps in this exact chronological order:
 1. **Run Unit Tests & Check Warnings:** Execute active unit tests first: `cargo test`. Whenever running asynchronous test commands during a release procedure, the AI MUST explicitly wait for background test execution to finish completely and verify 100% clean success (`test result: ok`) BEFORE proceeding to execute `./build_and_release.sh`. In addition to all tests passing (being green), the entire codebase MUST be completely free of compiler warnings. Crucially, it is strictly forbidden to use attributes or annotations that silence warnings (such as `#[allow(dead_code)]`, `#[allow(unused_variables)]`, etc.) to bypass these clean compilation requirements.
-2. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh "Changelog entry"`.
+2. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh`.
 
 > [!NOTE]
 > **Performance / Perft Tests (`cargo test -- --ignored`)**: By default, long-running perft and ignored performance tests are **OMITTED** during the standard release procedure to save time. Do NOT run `cargo test -- --ignored` or document `perft.md` unless the USER explicitly requests or demands perft benchmarking beforehand. If the USER explicitly requests perft benchmarking, execute `cargo test -- --ignored` and follow Section 6.
@@ -32,8 +31,8 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
 - **Mandatory Engine Naming Scheme (`id name` in UCI)**:
   - For NNUE variants/releases (`use_nnue == true`), the engine MUST report its UCI name as `RIP V<version>-NNUE` (e.g., `RIP V0.23.12-NNUE`).
   - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name as `Rust-In-Pieces V<version>` (e.g., `Rust-In-Pieces V0.23.12`).
-- **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh "Changelog entry"`.
-- **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh "Changelog entry"`.
+- **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh`.
+- **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh`.
 
 ## 5. Post-Deployment
 - **Failure Safety:** If compilation or testing fails, the script will automatically rollback all changes in `Cargo.toml` and `CHANGELOG.md` to prevent corrupting the workspace. Do not bypass this script!
@@ -46,7 +45,6 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
      git tag -a "vX.Y.Z" -m "Release version vX.Y.Z"
      git push origin master --tags
      ```
-- **Execution Restriction:** Only execute the build and release script (`./build_and_release.sh`) or compile a new release binary when the USER explicitly requests or triggers a release. Do NOT automatically trigger or run a build/release after implementing changes unless explicitly asked.
 
 ## 6. Perft Release Documentation Rules (Optional / Upon User Request Only)
 - **Optional Documentation:** Perft performance benchmarks are **OMITTED** by default. Only run and document `perft.md` if the USER explicitly requests perft benchmarking.
@@ -55,3 +53,5 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
 - **Comparison History:** In `perft.md`, prepend the new version section to allow easy historical comparison.
 - **Language Policy:** The table headers and all text inside `perft.md` must be written in English.
 - **Perft Table Columns:** The table in `perft.md` must have exactly four columns: `Depth`, `Time`, `Nodes`, and `NPS`. The "Comment" or "Bewertung" column must be strictly excluded.
+
+## 7. After release remember the user to commit and push the changes.
