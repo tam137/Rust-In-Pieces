@@ -28,21 +28,18 @@ The script spawns a batch of matches (e.g., 500 games) using a parallelized thre
 - Even-indexed games: `theta_plus` plays as White, `theta_minus` as Black.
 - Odd-indexed games: `theta_minus` plays as White, `theta_plus` as Black.
 
-### 4. Gradient Estimation
-Once the match batch is completed, the win rate (score) of `theta_plus` against `theta_minus` is calculated. The difference in performance (`diff = 2.0 * score - 1.0`) is used to estimate the gradient `g_k` for all parameters simultaneously.
+### 4. Binary Direction & Parameter Update
+Once the match batch is completed, the win rate (`score`) of `theta_plus` against `theta_minus` determines the step direction:
+- `direction = +1.0` if `score > 0.50` (win)
+- `direction = -1.0` if `score < 0.50` (loss)
+- `direction = 0.0` if `score == 0.50` (draw)
 
-Because the calculation avoids dividing by the individual step sizes, the gradient directly reflects the shift in the objective function.
+The parameter is updated by a fixed percentage of the mutation step size (`--lr`, default `10%`):
+`update = (lr_pct / 100.0) * mutation_step * direction`
+The updated float parameters `theta` are then clamped to their legal boundaries (`min` / `max`).
 
-### 5. Momentum and Parameter Update (Adam-like SGDM)
-SPSA gradients are inherently noisy, especially when tuning 75 parameters simultaneously with a low game count. To stabilize the optimization trajectory, the script employs an Exponential Moving Average (EMA) momentum tracking:
-
-1. A raw update vector is calculated by multiplying the gradient with a dynamically decaying learning rate `a_k` and the parameter's current magnitude scale.
-2. The momentum vector `m` is updated: `m[k] = beta * m[k] + (1.0 - beta) * raw_update` (where `beta = 0.9`).
-3. The baseline parameters `theta` are updated using the smoothed momentum.
-4. Finally, the updated parameters are clamped again to their legal boundaries.
-
-### 6. State Persistence
-The current state of the tuning process (the iteration counter `k`, the parameter vector `theta`, and the momentum vector `m`) is serialized into `spsa_state.json`. A history of all scores and parameter trajectories is appended to `spsa_history.csv`. This allows the tuning process to be safely interrupted and resumed at any time.
+### 5. State Persistence
+The current state of the tuning process (the iteration counter `k` and the parameter vector `theta`) is serialized into `spsa_state.json`. A history of all scores and parameter trajectories is appended to `spsa_history.csv`. This allows the tuning process to be safely interrupted and resumed at any time.
 
 ## Usage
 

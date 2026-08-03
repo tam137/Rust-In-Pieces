@@ -100,14 +100,13 @@ Rust-In-Pieces utilizes Simultaneous Perturbation Stochastic Approximation (SPSA
 | :--- | :--- |
 | **Simultaneous Perturbation** | Evaluates gradient vectors across all parameters simultaneously using a random Bernoulli distribution ($\pm 1$), requiring only 2 game-batch evaluations per iteration regardless of parameter count. |
 | **Dynamic Scaling & Clamping** | Dynamically scales step sizes proportionally to each parameter's absolute magnitude, enforcing strict `[min, max]` boundary clamping to prevent unstable configurations. |
-| **SGDM & EMA Momentum** | Applies Stochastic Gradient Descent with Exponential Moving Average (EMA) momentum tracking ($\beta = 0.9$) to smooth out game-outcome noise and stabilize the optimization trajectory. |
 
 ### Infrastructure & Workflow Integration
 
 | Component | Technical Description |
 | :--- | :--- |
 | **Match Infrastructure & Fairness** | Integrates with the `Matt-Magie` match manager to execute parallel game batches (e.g., 500 games/iteration) with strict alternating color assignments to eliminate White/Black side bias. |
-| **State Persistence & Fault Tolerance** | Automatically serializes iteration state, parameter vectors ($\theta$), and momentum ($m$) to `spsa_state.json` and logs historical trajectories in `spsa_history.csv` for seamless pause and resume capability. |
+| **State Persistence & Fault Tolerance** | Automatically serializes iteration state and parameter vectors ($\theta$) to `spsa_state.json` and logs historical trajectories in `spsa_history.csv` for seamless pause and resume capability. |
 | **Parameter Schema & Scope** | Configures and tunes 75+ active evaluation parameters (piece values, pawn structures, king safety, mobility) defined in `parameters.json` without requiring manual per-parameter tuning loops. |
 | **Parameter Harvesting** | Post-tuning workflow extracts optimal converged parameters from `spsa_state.json` and integrates them back into `src/config.rs` for production engine builds. |
 
