@@ -11,7 +11,7 @@ import threading
 import sys
 
 class SPSATuner:
-    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=250, workers=8, time_ms=2000, inc_ms=100, mutate_pct=3.0, lr=2.0, logpath="", active_params=None, book_path="", group_name="all"):
+    def __init__(self, params_file, state_file, history_file, engine_path, mm_path, games_per_iter=2500, workers=8, time_ms=1000, inc_ms=10, mutate_pct=10.0, lr=5.0, logpath="", active_params=None, book_path="", group_name="all"):
         self.params_file = params_file
         self.state_file = state_file
         self.history_file = history_file
@@ -243,12 +243,12 @@ if __name__ == "__main__":
     parser.add_argument("--group", required=True, help="Mandatory tuning group (e.g. pawns, king_safety, pieces_and_outposts, rooks, tactics_and_threats, search_and_ordering, or all)")
     parser.add_argument("--engine", required=True)
     parser.add_argument("--mm", required=True)
-    parser.add_argument("--games", type=int, default=250)
+    parser.add_argument("--games", type=int, default=2500)
     parser.add_argument("--workers", type=int, default=8, help="Number of parallel games to run simultaneously")
-    parser.add_argument("--time", type=int, default=2, help="Time per game in seconds")
-    parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
-    parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%%)")
-    parser.add_argument("--lr", type=float, default=10.0, help="Learning rate as a percentage of mutation step size (e.g. 20 for 20%)")
+    parser.add_argument("--time", type=int, default=1, help="Time per game in seconds")
+    parser.add_argument("--inc", type=int, default=10, help="Increment per move in milliseconds")
+    parser.add_argument("--mutate", type=float, default=10.0, help="Perturbation percentage per parameter (e.g., 10 for 10%%)")
+    parser.add_argument("--lr", type=float, default=5.0, help="Learning rate as a percentage of mutation step size (e.g. 5 for 5%%)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
     parser.add_argument("--params", default="", help="Optional explicit comma-separated list of parameters to tune (overrides group)")
