@@ -26,12 +26,8 @@ class SPSATuner:
         self.book_path = book_path
         self.group_name = group_name
         
-        # SPSA Constants (Standard values)
-        self.a = lr     # Base learning rate (depends on gradient magnitude)
-        self.c = 3.0     # Base perturbation size
-        self.A = 100.0   # 10% of total iterations
-        self.alpha = 0.602
-        self.gamma = 0.101
+        # Learning rate percentage (e.g. 20.0 = 20% of mutation step size)
+        self.lr_pct = float(lr)
 
         with open(self.params_file, "r") as f:
             self.param_defs = json.load(f)
@@ -47,7 +43,6 @@ class SPSATuner:
         
         self.k = 1
         self.theta = {k: float(v["value"]) for k, v in self.param_defs.items()}
-        self.m = {k: 0.0 for k in self.param_names}
         
         # Load state if exists
         if os.path.exists(self.state_file):
@@ -55,22 +50,12 @@ class SPSATuner:
                 state = json.load(f)
                 self.k = state["k"]
                 self.theta = state["theta"]
-                if "m" in state:
-                    self.m = state["m"]
-                else:
-                    self.m = {k: 0.0 for k in self.param_names}
                 print(f"Loaded state from iteration {self.k}")
         else:
             # Initialize history file
             with open(self.history_file, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["Iteration", "Group", "Score"] + self.param_names)
-
-    def _get_a_k(self):
-        return self.a / ((self.A + self.k) ** self.alpha)
-
-    def _get_c_k(self):
-        return self.c / (self.k ** self.gamma)
 
     def format_uci_options(self, theta_rounded):
         return ",".join([f"{k}={v}" for k, v in theta_rounded.items()])
@@ -197,8 +182,6 @@ class SPSATuner:
         return (wins + 0.5 * draws) / total
 
     def step(self):
-        a_k = self._get_a_k()
-        
         # Bernoulli +-1
         delta = {k: random.choice([-1, 1]) for k in self.active_params}
         
@@ -224,23 +207,20 @@ class SPSATuner:
         
         score = self.run_match_batch(theta_plus, theta_minus)
         
-        # Gradient estimation
-        diff = 2.0 * score - 1.0
+        # Binary direction based on win (> 0.50), loss (< 0.50), or tie (== 0.50)
+        if score > 0.50:
+            direction = 1.0
+        elif score < 0.50:
+            direction = -1.0
+        else:
+            direction = 0.0
         
-        beta = 0.9
+        # Update parameters by (lr_pct % of mutation step size) in the winning direction
+        lr_ratio = self.lr_pct / 100.0
         for k in self.active_params:
-            # Gradient estimation without division by step size to prevent scaling cancellation
-            g_k = (diff * delta[k]) / 2.0
-            
-            # Scale learning rate by the current parameter's magnitude to prevent throttling
-            param_scale = max(1.0, abs(self.theta[k]))
-            a_k_scaled = a_k * param_scale
-            
-            raw_update = a_k_scaled * g_k
-            
-            # Apply momentum (EMA)
-            self.m[k] = beta * self.m[k] + (1.0 - beta) * raw_update
-            self.theta[k] += self.m[k]
+            mutation_step = step_sizes[k] * delta[k]
+            update = lr_ratio * mutation_step * direction
+            self.theta[k] += update
             
             # Apply bounds
             _min = self.param_defs[k]["min"]
@@ -250,7 +230,7 @@ class SPSATuner:
         # Save state
         self.k += 1
         with open(self.state_file, "w") as f:
-            json.dump({"k": self.k, "theta": self.theta, "m": self.m}, f, indent=4)
+            json.dump({"k": self.k, "theta": self.theta}, f, indent=4)
             
         # Save history
         with open(self.history_file, "a", newline="") as f:
@@ -268,7 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--time", type=int, default=2, help="Time per game in seconds")
     parser.add_argument("--inc", type=int, default=100, help="Increment per move in milliseconds")
     parser.add_argument("--mutate", type=float, default=3.0, help="Perturbation percentage per parameter (e.g., 3 for 3%%)")
-    parser.add_argument("--lr", type=float, default=2.0, help="Base learning rate (a)")
+    parser.add_argument("--lr", type=float, default=10.0, help="Learning rate as a percentage of mutation step size (e.g. 20 for 20%)")
     parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
     parser.add_argument("--params", default="", help="Optional explicit comma-separated list of parameters to tune (overrides group)")
