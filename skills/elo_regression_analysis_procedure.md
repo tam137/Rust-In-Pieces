@@ -75,5 +75,5 @@ A correct code change (like propagating `is_pv = false` to recursive searches) c
 
 1. **Apply the Fix:** Make the targeted logic or parameter correction in your working files.
 2. **Verify Node Stability:** Run the benchmark script again. Confirm that the node counts are either reduced or stable compared to the old baseline, and NPS is restored.
-3. **Execute Release Pipeline:** Run `./build_and_release.sh "Manual message describing the fix"` to bump the patch version, update `CHANGELOG.md`, compile the final release, and deploy it to the matchups folder.
+3. **Execute Release Pipeline:** Run `./build_and_release.sh` to bump the patch version, update `CHANGELOG.md`, compile the final release, and deploy it to the matchups folder.
 4. **Git Commit & Tag:** Stage, commit, and tag the release manually, then push to origin master with tags.

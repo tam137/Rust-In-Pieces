@@ -76,33 +76,7 @@ echo -e "${GREEN}Success: Cargo.toml updated to version $NEW_VERSION!${NC}"
 
 # Update CHANGELOG.md
 DATE=$(date +%Y-%m-%d)
-CHANGES=""
-
-# Use the first command-line argument as the changelog message if provided
-if [ -n "$1" ]; then
-    echo -e "${CYAN}Using manual changelog message from arguments...${NC}"
-    # Format the input message properly as bullet points
-    if [[ "$1" =~ ^- ]]; then
-        CHANGES="$1"
-    else
-        CHANGES="- $1"
-    fi
-else
-    echo -e "${CYAN}No manual changelog message provided. Fetching recent git commits for changelog...${NC}"
-    COMMITS=$(git log -n 5 --oneline | cut -d' ' -f2-)
-    while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        if [[ ! "$line" =~ "finalize" && ! "$line" =~ "bump" && ! "$line" =~ "release" ]]; then
-            CHANGES="$CHANGES\n- $line"
-        fi
-    done <<< "$COMMITS"
-fi
-
-if [ -z "$CHANGES" ]; then
-    CHANGES="\n- General improvements and updates"
-fi
-
-echo -e "Changelog Changes to be added:\n${CYAN}$CHANGES${NC}"
+CHANGES="- Release updates and improvements"
 
 # Insert into CHANGELOG.md using a robust python command
 python3 -c "
@@ -158,59 +132,10 @@ if [ $? -eq 0 ]; then
     rm -f Cargo.toml.bak CHANGELOG.md.bak
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
     
-    # Step 5b: Synchronize, test, build, and deploy NNUE Branch (feature/nnue-evaluation)
-    if git show-ref --verify --quiet refs/heads/feature/nnue-evaluation; then
-        echo -e "\n${YELLOW}[5b] Synchronizing master into feature/nnue-evaluation branch...${NC}"
-        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-        
-        git checkout feature/nnue-evaluation
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to checkout feature/nnue-evaluation branch!${NC}"
-            git checkout "$CURRENT_BRANCH"
-            rollback
-            exit 1
-        fi
-        
-        git merge "$CURRENT_BRANCH" -m "Merge $CURRENT_BRANCH into feature/nnue-evaluation for release v$NEW_VERSION"
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Failed to merge $CURRENT_BRANCH into feature/nnue-evaluation!${NC}"
-            git checkout "$CURRENT_BRANCH"
-            rollback
-            exit 1
-        fi
-        
-        echo -e "${CYAN}Running tests on feature/nnue-evaluation branch...${NC}"
-        cargo test
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Tests failed on feature/nnue-evaluation branch!${NC}"
-            git checkout "$CURRENT_BRANCH"
-            rollback
-            exit 1
-        fi
-        
-        echo -e "${CYAN}Compiling NNUE release binary...${NC}"
-        cargo build --release
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: NNUE compilation failed!${NC}"
-            git checkout "$CURRENT_BRANCH"
-            rollback
-            exit 1
-        fi
-        
-        NNUE_COPY_TARGET="$TARGET_DIR/suprah-$NEW_VERSION-nnue"
-        cp "target/release/suprah" "$NNUE_COPY_TARGET"
-        chmod +x "$NNUE_COPY_TARGET"
-        
-        if [ -d "eval_models" ]; then
-            mkdir -p "$TARGET_DIR/eval_models"
-            cp -r eval_models/* "$TARGET_DIR/eval_models/"
-        fi
-        echo -e "${GREEN}Success: Deployed NNUE release to $NNUE_COPY_TARGET!${NC}"
-        
-        echo -e "${CYAN}Pushing feature/nnue-evaluation branch to origin...${NC}"
-        git push origin feature/nnue-evaluation
-        
-        git checkout "$CURRENT_BRANCH"
+    if [ -d "eval_models" ]; then
+        mkdir -p "$TARGET_DIR/eval_models"
+        cp -r eval_models/* "$TARGET_DIR/eval_models/"
+        echo -e "${GREEN}Success: Deployed eval_models to $TARGET_DIR/eval_models!${NC}"
     fi
 
     # Step 6: Remote ARM Server Compilation & Deployment
