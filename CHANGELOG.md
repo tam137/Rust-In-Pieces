@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.24.2] - 2026-08-04
+
+### Changed
+- **Exposed 6 Search & Tuning Parameters for SPSA**: Refactored hardcoded search thresholds and margins into configurable parameters exposed via `Config` in `src/config.rs`, UCI `setoption` in `src/game_handler.rs`, and SPSA parameter manifests (`tuning/parameters.json`, `tuning/server_parameters.json`, `tuning/groups.json`, `tuning/spsa_state.json`):
+  - **`aspiration_window_initial_delta`**: Configurable initial Aspiration Window delta in centipawns (default `15`, range `7..30`).
+  - **`aspiration_window_multiplier`**: Configurable window expansion multiplier upon fail-low/fail-high (default `4`, range `0..10`).
+  - **`lmr_history_good_threshold`**: Configurable history score threshold to dampen LMR reduction for strong moves (default `4000`, range `2000..8000`).
+  - **`lmr_history_bad_threshold`**: Configurable history score threshold to amplify LMR reduction for weak moves (default `500`, range `250..1000`).
+  - **`rfp_margin_per_depth`**: Configurable Reverse Futility Pruning (RFP) static evaluation margin slope per depth level (default `80`, range `40..160`).
+  - **`rfp_max_depth`**: Configurable maximum search depth threshold for Reverse Futility Pruning (default `3`, range `0..10`).
+
+### Fixed
+
+
+
 ## [V0.24.1] - 2026-08-04
 
 ### Changed
