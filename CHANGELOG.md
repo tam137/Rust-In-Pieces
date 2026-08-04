@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.25.0] - 2026-08-04
+
+### Changed
+- **Architectural Move Generator Refactoring & Performance Overhaul**: Conducted a comprehensive 3-phase optimization of `src/move_gen_service.rs`, boosting overall engine move generation throughput from ~2.91M NPS to ~3.77M NPS (+29.5% NPS speedup) while maintaining 100% perft precision across 4,085,603 nodes.
+  - **Phase 1: Bitboard Iteration & Redundant Lookup Hoisting**: Replaced mailbox square loops (`0..=63`) in `generate_moves_list_for_piece` with direct `while piece_mask != 0` trailing-zero bitboard iterations over `board.white_pieces` / `board.black_pieces`. Hoisted opponent king square lookups (`opp_king_sq`) out of inner piece loops and applied bitwise king proximity masking (`targets &= !KING_ATTACKS[opp_king_sq]`).
+  - **Phase 2: Transposition Table Probing Removal & Streamlined Check Validation**: Removed redundant Transposition Table probing (`get_hash`) during move generation, eliminating dozens of unnecessary Zobrist lookups per movegen node. Streamlined `validate_and_add_move` to extract king square positions once per played move and evaluate move legality and check status (`gives_check`) in a single unified pass.
+  - **Phase 3: Staged Quiescence Move Generation**: Extended `generate_moves_list_for_piece` with an `only_captures: bool` parameter. When generating moves for Quiescence Search (`generate_valid_moves_list_capture`), non-tactical quiet moves (quiet pawn pushes, non-capturing piece jumps, castling) are filtered directly at bitboard attack mask level (`target_mask = opp_pieces`), avoiding allocation and pseudo-legal generation of quiet moves entirely.
+
+### Added
+- **Comprehensive Move Generator Unit Test Suite**: Added dedicated regression tests in `src/move_gen_service.rs` including `test_generate_moves_list_bitboard_consistency`, `test_king_attacks_proximity_masking`, `test_streamlined_move_validation_gives_check`, and `test_generate_moves_list_capture_only_filtering`.
+
+
+
 ## [V0.24.2] - 2026-08-04
 
 ### Changed
@@ -32,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 
+
 ## [V0.24.0] - 2026-08-04
 
 ### Changed
@@ -41,7 +55,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Tuned Turn Bonus (`your_turn_bonus = 18`)**: Adjusted positional side-to-move bonus from `19` to `18` centipawns in `src/config.rs` and parameter manifests.
 
 ### Fixed
-
 
 ## [V0.23.12] - 2026-07-30
 
