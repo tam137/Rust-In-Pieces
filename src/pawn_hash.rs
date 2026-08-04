@@ -91,3 +91,19 @@ impl PawnHashTable {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pawn_entry_size_test() {
+        assert_eq!(std::mem::size_of::<PawnEntry>(), 16, "PawnEntry must be 16 bytes due to alignment");
+        assert_eq!(std::mem::size_of::<Cell<PawnEntry>>(), 16, "Cell<PawnEntry> must be 16 bytes");
+
+        let entries_count: usize = 100_000_000;
+        let total_bytes = entries_count * std::mem::size_of::<PawnEntry>();
+        assert_eq!(total_bytes, 1_600_000_000, "100M PawnEntry items equal 1.6 GB (1,600,000,000 bytes)");
+    }
+}
+
