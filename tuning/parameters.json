@@ -15,7 +15,7 @@
         "max": 36
     },
     "your_turn_bonus": {
-        "value": 19,
+        "value": 18,
         "min": 9,
         "max": 38
     },
@@ -260,7 +260,7 @@
         "max": 10
     },
     "lmr_move_threshold": {
-        "value": 3,
+        "value": 2,
         "min": 0,
         "max": 10
     },
@@ -295,7 +295,7 @@
         "max": 40.0
     },
     "lmr_divisor": {
-        "value": 185,
+        "value": 166,
         "min": 92,
         "max": 370
     },
