@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.25.1] - 2026-08-04
+
+### Changed
+- **Zobrist & Pawn Hash Table Capacity Upgrades**:
+  - Increased default Transposition Table (Zobrist) capacity `max_zobrist_hash_entries` from `10,000,000` entries (~150 MB) to `50,000,000` entries (~800 MB RAM allocation) in `src/config.rs`. This significantly reduces entry eviction rate and hash collision thrashing during deep search trees in long time controls.
+  - Increased default Pawn Hash Table capacity `max_pawn_hash_entries` from `1,000,000` entries (~15 MB) to `10,000,000` entries (~150 MB RAM allocation) in `src/config.rs`, ensuring high hit rates for static pawn structure evaluation across deep branches.
+
+### Added
+- **Hash Entry Alignment & Memory Footprint Verification Tests**:
+  - Added unit test `zobrist_entry_size_test` in `src/zobrist.rs` verifying that `AtomicEntry` and `TranspositionEntry` remain strictly 16 bytes each (and 100M entries equal exactly 1.6 GB).
+  - Added unit test `pawn_entry_size_test` in `src/pawn_hash.rs` verifying that `PawnEntry` and `Cell<PawnEntry>` remain strictly 16 bytes each.
+
+
+
 ## [V0.25.0] - 2026-08-04
 
 ### Added

@@ -174,8 +174,8 @@ impl Config {
             use_book: true,
             cache_book_in_ram: true,
             book_file: String::new(),
-            max_zobrist_hash_entries: 10_000_000, // 1.000.000 = 75MB
-            max_pawn_hash_entries: 1_000_000,
+            max_zobrist_hash_entries: 50_000_000, // 800 MB
+            max_pawn_hash_entries: 10_000_000, // 150 MB
             search_depth: 4, // only used as default for tests
             max_depth: 99,
             truncate_bad_moves: 99,
