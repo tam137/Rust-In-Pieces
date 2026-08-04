@@ -54,4 +54,7 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
 - **Language Policy:** The table headers and all text inside `perft.md` must be written in English.
 - **Perft Table Columns:** The table in `perft.md` must have exactly four columns: `Depth`, `Time`, `Nodes`, and `NPS`. The "Comment" or "Bewertung" column must be strictly excluded.
 
-## 7. After release remember the user to commit and push the changes.
+## 7. After release
+
+- remember the user to commit and push the changes.
+- verifikation: tag X.X.X exists with use_nnue: 'false' and tag X.X.X-NNUE exists with 'use_nnue: true'
