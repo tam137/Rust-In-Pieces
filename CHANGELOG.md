@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.24.1] - 2026-08-04
+
+### Changed
+- **SPSA Tuning Optimization (LMR Divisor & Move Threshold)**: Updated SPSA parameters on the `feature/nnue-evaluation` branch to refine late move reduction behavior:
+  - **Re-aligned Late Move Reductions Divisor (`lmr_divisor = 170`)**: Re-aligned `lmr_divisor` to `170` (from `166`) in `src/config.rs`, `tuning/parameters.json`, and `tuning/server_parameters.json`. This provides a balanced logarithmic reduction curve ($1.70$ divisor) for quiet move depth reduction.
+  - **Restored LMR Move Threshold (`lmr_move_threshold = 3`)**: Restored quiet move LMR threshold to `3` (from `2`) in `src/config.rs` and parameter manifests, ensuring the first 3 quiet moves are searched at full depth before reductions trigger.
+  - **Retained Turn Bonus (`your_turn_bonus = 18`)**: Maintained side-to-move bonus at `18` centipawns.
+
+### Fixed
+
+
 ## [V0.24.0] - 2026-08-04
 
 ### Changed
