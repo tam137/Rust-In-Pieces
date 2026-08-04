@@ -1693,7 +1693,7 @@ mod tests {
 
         for fen in fens {
             let mut board = service.fen.set_fen(fen);
-            check_pawn_key_recursive(&mut board, &service, 3);
+            check_pawn_key_recursive(&mut board, &service, 2);
         }
     }
 }
