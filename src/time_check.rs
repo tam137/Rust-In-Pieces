@@ -72,7 +72,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
 
     println!("\nexpected <10µs>");
     let mut raw_moves = crate::model::MoveRawList::new();
-    time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0, &mut raw_moves));
+    time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves));
 
     println!("\nexpected ~60µs");
     let mut move_list = crate::model::MoveList::new();
