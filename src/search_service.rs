@@ -69,7 +69,7 @@ impl SearchService {
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
-        let mut delta = 15;
+        let mut delta = config.aspiration_window_initial_delta;
 
         if let Some(val) = prev_eval {
             // De-normalize mate score if present
@@ -249,7 +249,7 @@ impl SearchService {
             if best_score <= alpha || best_score >= beta {
                 alpha = best_score.saturating_sub(delta);
                 beta = best_score.saturating_add(delta);
-                delta = delta.saturating_mul(4);
+                delta = delta.saturating_mul(config.aspiration_window_multiplier);
                 continue;
             }
 
@@ -524,11 +524,11 @@ impl SearchService {
         // 0.5. Reverse Futility Pruning (RFP) / Static Null Move Pruning
         if config.enable_rfp 
             && depth > 0 
-            && depth <= 3 
+            && depth <= config.rfp_max_depth 
             && !turn.gives_check 
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
-            let margin = 80 * depth as i16;
+            let margin = config.rfp_margin_per_depth * depth as i16;
             
             if white {
                 if static_eval - margin >= beta {
@@ -824,9 +824,9 @@ impl SearchService {
 
                 // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
                 let hist_val = history_table[current_turn.from as usize][current_turn.to as usize];
-                if hist_val > 4000 {
+                if hist_val > config.lmr_history_good_threshold {
                     reduction = reduction.saturating_sub(1);
-                } else if hist_val < 500 {
+                } else if hist_val < config.lmr_history_bad_threshold {
                     reduction = reduction.saturating_add(1);
                 }
 

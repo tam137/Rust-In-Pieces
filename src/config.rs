@@ -160,6 +160,12 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
+    pub aspiration_window_initial_delta: i16,
+    pub aspiration_window_multiplier: i16,
+    pub lmr_history_good_threshold: u32,
+    pub lmr_history_bad_threshold: u32,
+    pub rfp_margin_per_depth: i16,
+    pub rfp_max_depth: i32,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -329,6 +335,12 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
+            aspiration_window_initial_delta: 15,
+            aspiration_window_multiplier: 4,
+            lmr_history_good_threshold: 4000,
+            lmr_history_bad_threshold: 500,
+            rfp_margin_per_depth: 80,
+            rfp_max_depth: 3,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -527,6 +539,12 @@ impl Config {
         msg.push_str(&format!("  futility_max_depth: {}\n", self.futility_max_depth));
         msg.push_str(&format!("  futility_margin_base: {}\n", self.futility_margin_base));
         msg.push_str(&format!("  futility_margin_slope: {}\n", self.futility_margin_slope));
+        msg.push_str(&format!("  aspiration_window_initial_delta: {}\n", self.aspiration_window_initial_delta));
+        msg.push_str(&format!("  aspiration_window_multiplier: {}\n", self.aspiration_window_multiplier));
+        msg.push_str(&format!("  lmr_history_good_threshold: {}\n", self.lmr_history_good_threshold));
+        msg.push_str(&format!("  lmr_history_bad_threshold: {}\n", self.lmr_history_bad_threshold));
+        msg.push_str(&format!("  rfp_margin_per_depth: {}\n", self.rfp_margin_per_depth));
+        msg.push_str(&format!("  rfp_max_depth: {}\n", self.rfp_max_depth));
         let _ = logger.send(msg);
     }
 }

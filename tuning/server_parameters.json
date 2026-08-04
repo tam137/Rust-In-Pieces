@@ -388,5 +388,35 @@
         "value": 200,
         "min": 0,
         "max": 450
+    },
+    "aspiration_window_initial_delta": {
+        "value": 15,
+        "min": 7,
+        "max": 30
+    },
+    "aspiration_window_multiplier": {
+        "value": 4,
+        "min": 0,
+        "max": 10
+    },
+    "lmr_history_good_threshold": {
+        "value": 4000,
+        "min": 2000,
+        "max": 8000
+    },
+    "lmr_history_bad_threshold": {
+        "value": 500,
+        "min": 250,
+        "max": 1000
+    },
+    "rfp_margin_per_depth": {
+        "value": 80,
+        "min": 40,
+        "max": 160
+    },
+    "rfp_max_depth": {
+        "value": 3,
+        "min": 0,
+        "max": 10
     }
 }
