@@ -175,7 +175,7 @@ impl Config {
         Config {
             version: env!("CARGO_PKG_VERSION"),
             use_zobrist: true,
-            use_nnue: false,
+            use_nnue: true,
             nnue_model_path: "eval_models/quantised.bin".to_string(),
             use_book: true,
             cache_book_in_ram: true,
