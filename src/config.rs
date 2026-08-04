@@ -204,7 +204,7 @@ impl Config {
             give_promotion_rank_bonus_queen: 17,
             give_promotion_rank_bonus_knight: 6,
 
-            your_turn_bonus: 19,
+            your_turn_bonus: 18,
 
             undeveloped_knight_malus: 31,
             undeveloped_bishop_malus: 31,
@@ -309,12 +309,12 @@ impl Config {
             killer_move_2_rank_bonus: 10000,
             counter_move_rank_bonus: 15000,
             history_max_threshold: 9000,
-            lmr_move_threshold: 3,
-            lmr_divisor: 185,
+            lmr_move_threshold: 2,
+            lmr_divisor: 166,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 185.0 / 100.0;
+                let divisor = 166.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
