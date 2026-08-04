@@ -936,10 +936,6 @@ impl Stats {
         self.eval_nodes += value;
     }
 
-    pub fn add_zobrist_hit(&mut self, value: usize) {
-        self.zobrist_hit += value;
-    }
-
     pub fn add_turn_nr_gt_threshold(&mut self, value: i32) {
         self.turn_number_gt_threshold += value;
     }

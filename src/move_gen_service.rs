@@ -8,7 +8,6 @@ use crate::model::{
     WHITE_PAWN, WHITE_ROOK, WHITE_KNIGHT, WHITE_BISHOP, WHITE_QUEEN, WHITE_KING,
     BLACK_PAWN, BLACK_ROOK, BLACK_KNIGHT, BLACK_BISHOP, BLACK_QUEEN, BLACK_KING,
 };
-use crate::zobrist::ZobristTable;
 
 
 static KNIGHT_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
@@ -92,7 +91,7 @@ impl MoveGenService {
             return;
         }
         let mut move_list = crate::model::MoveRawList::new();
-        self.generate_moves_list_for_piece(board, 0, &mut move_list);
+        self.generate_moves_list_for_piece(board, 0, true, &mut move_list);
         let start_len = valid_moves.len;
         self.get_valid_moves_from_move_list(&move_list, board, stats, config, true, context, do_move_ordering, force_skip_validation, valid_moves);
 
@@ -114,7 +113,7 @@ impl MoveGenService {
             return;
         }
         let mut move_list = crate::model::MoveRawList::new();
-        self.generate_moves_list_for_piece(board, 0, &mut move_list);
+        self.generate_moves_list_for_piece(board, 0, false, &mut move_list);
         self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, context, do_move_ordering, force_skip_validation, valid_moves);
     }
 
@@ -154,8 +153,6 @@ impl MoveGenService {
                 tt_best_move = entry.decompress_move(board);
             }
         }
-
-        let zobrist_table_read = context.zobrist_table;
 
         for i in (0..move_list.len).step_by(2) {
             let idx0 = move_list.moves[i];
@@ -232,7 +229,6 @@ impl MoveGenService {
                     config,
                     valid_moves,
                     white_turn,
-                    zobrist_table_read,
                     force_skip_validation,
                 );
             } else {
@@ -242,7 +238,6 @@ impl MoveGenService {
                     &mut move_turn,
                     config,
                     valid_moves,
-                    zobrist_table_read,
                     force_skip_validation,
                 );
             }
@@ -259,7 +254,6 @@ impl MoveGenService {
                         &mut turn,
                         config,
                         valid_moves,
-                        zobrist_table_read,
                         force_skip_validation,
                     );
                 }
@@ -358,33 +352,34 @@ impl MoveGenService {
     fn validate_and_add_move(
         &self,
         board: &mut Board,
-        stats: &mut Stats,
+        _stats: &mut Stats,
         turn: &mut Turn,
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
-        zobrist_table_read: &ZobristTable,
         force_skip_validation: bool,
     ) {
-        
         let move_info = board.do_move(turn);
         let mut valid = true;
 
-        if !force_skip_validation && self.gives_check(board) {
-            valid = false;
+        let king_positions = board.get_king_positions();
+        let own_white = !board.white_to_move;
+        let own_king_sq = if own_white { king_positions.0 } else { king_positions.1 };
+        let opp_king_sq = if own_white { king_positions.1 } else { king_positions.0 };
+
+        if !force_skip_validation && own_king_sq != -1 {
+            let own_attackers = self.get_attackers_mask(board, own_white, own_king_sq as u8, board.occupied);
+            if own_attackers != 0 {
+                valid = false;
+            }
         }
 
         if valid {
-            
-            if let Some(eval) = self.get_hash(board, config, zobrist_table_read) {
-                turn.eval = eval;
-                turn.has_hashed_eval = true;
-                turn.rank += config.is_hashed_rank_bonus * 10000;
-                stats.add_zobrist_hit(1);
-            }
-
-            if self.is_in_check(board) {
-                turn.gives_check = true;
-                turn.rank += config.give_check_rank_bonus * 10000;
+            if opp_king_sq != -1 {
+                let opp_attackers = self.get_attackers_mask(board, !own_white, opp_king_sq as u8, board.occupied);
+                if opp_attackers != 0 {
+                    turn.gives_check = true;
+                    turn.rank += config.give_check_rank_bonus * 10000;
+                }
             }
             valid_moves.push(*turn);
         }
@@ -399,7 +394,6 @@ impl MoveGenService {
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
-        zobrist_table_read: &ZobristTable,
         force_skip_validation: bool,
     ) {
         if config.use_underpromotions {
@@ -413,7 +407,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, force_skip_validation);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, force_skip_validation);
             }
         } else {
             let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
@@ -424,7 +418,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, zobrist_table_read, force_skip_validation);
+                self.validate_and_add_move(board, stats, turn, config, valid_moves, force_skip_validation);
             }
         }
     }
@@ -491,14 +485,7 @@ impl MoveGenService {
         }
     }
 
-    fn get_hash(&self, board: &mut Board, config: &Config, zobrist_table_read: &ZobristTable) -> Option<i16> {
-        if !config.use_zobrist {
-            return None;
-        }
-        zobrist_table_read.get_eval_for_hash(&board.cached_hash)
-    }
-
-    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32, moves: &mut crate::model::MoveRawList) {
+    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32, only_captures: bool, moves: &mut crate::model::MoveRawList) {
         let white = board.white_to_move;
         let king_sq = if white {
             board.bitboards[WHITE_KING].trailing_zeros()
@@ -516,33 +503,30 @@ impl MoveGenService {
         let own_pieces = if white { board.white_pieces } else { board.black_pieces };
         let opp_pieces = if white { board.black_pieces } else { board.white_pieces };
         let occupied = board.occupied;
+        let target_mask = if only_captures { opp_pieces } else { !own_pieces };
 
-        let single_sq = if idx > 0 { Some(idx as u8) } else { None };
-        let piece_range = if let Some(sq) = single_sq {
-            sq..=sq
+        let mut piece_mask = if idx > 0 {
+            1u64 << (idx as u8)
         } else {
-            0..=63
+            own_pieces
         };
 
-        for sq in piece_range {
-            if double_check {
-                let king_sq = if white {
-                    board.bitboards[WHITE_KING].trailing_zeros()
-                } else {
-                    board.bitboards[BLACK_KING].trailing_zeros()
-                } as u8;
-                if sq != king_sq {
-                    continue;
-                }
+        let opp_king_sq = if white {
+            board.bitboards[BLACK_KING].trailing_zeros()
+        } else {
+            board.bitboards[WHITE_KING].trailing_zeros()
+        } as usize;
+
+        while piece_mask != 0 {
+            let sq = piece_mask.trailing_zeros() as u8;
+            piece_mask &= piece_mask - 1;
+
+            if double_check && sq != king_sq {
+                continue;
             }
 
             let piece = board.get_piece_at(sq);
             if piece == 0 {
-                continue;
-            }
-
-            let is_white_piece = (10..=15).contains(&piece);
-            if is_white_piece != white {
                 continue;
             }
 
@@ -551,15 +535,17 @@ impl MoveGenService {
                     let rank = sq / 8;
                     let file = sq % 8;
                     if white {
-                        let to = sq + 8;
-                        if to < 64 && (occupied & (1u64 << to)) == 0 {
-                            moves.push(sq as i32);
-                            moves.push(to as i32);
-                            if rank == 1 {
-                                let to_double = sq + 16;
-                                if (occupied & (1u64 << to_double)) == 0 {
-                                    moves.push(sq as i32);
-                                    moves.push(to_double as i32);
+                        if !only_captures {
+                            let to = sq + 8;
+                            if to < 64 && (occupied & (1u64 << to)) == 0 {
+                                moves.push(sq as i32);
+                                moves.push(to as i32);
+                                if rank == 1 {
+                                    let to_double = sq + 16;
+                                    if (occupied & (1u64 << to_double)) == 0 {
+                                        moves.push(sq as i32);
+                                        moves.push(to_double as i32);
+                                    }
                                 }
                             }
                         }
@@ -578,15 +564,17 @@ impl MoveGenService {
                             }
                         }
                     } else {
-                        let to = sq - 8;
-                        if (occupied & (1u64 << to)) == 0 {
-                            moves.push(sq as i32);
-                            moves.push(to as i32);
-                            if rank == 6 {
-                                let to_double = sq - 16;
-                                if (occupied & (1u64 << to_double)) == 0 {
-                                    moves.push(sq as i32);
-                                    moves.push(to_double as i32);
+                        if !only_captures {
+                            let to = sq - 8;
+                            if (occupied & (1u64 << to)) == 0 {
+                                moves.push(sq as i32);
+                                moves.push(to as i32);
+                                if rank == 6 {
+                                    let to_double = sq - 16;
+                                    if (occupied & (1u64 << to_double)) == 0 {
+                                        moves.push(sq as i32);
+                                        moves.push(to_double as i32);
+                                    }
                                 }
                             }
                         }
@@ -607,7 +595,7 @@ impl MoveGenService {
                     }
                 }
                 12 | 22 => {
-                    let mut targets = KNIGHT_ATTACKS[sq as usize] & !own_pieces;
+                    let mut targets = KNIGHT_ATTACKS[sq as usize] & target_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -616,7 +604,7 @@ impl MoveGenService {
                     }
                 }
                 13 | 23 => {
-                    let mut targets = self.get_bishop_attacks(sq as usize, occupied) & !own_pieces;
+                    let mut targets = self.get_bishop_attacks(sq as usize, occupied) & target_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -625,7 +613,7 @@ impl MoveGenService {
                     }
                 }
                 11 | 21 => {
-                    let mut targets = self.get_rook_attacks(sq as usize, occupied) & !own_pieces;
+                    let mut targets = self.get_rook_attacks(sq as usize, occupied) & target_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -636,7 +624,7 @@ impl MoveGenService {
                 14 | 24 => {
                     let bishop_attacks = self.get_bishop_attacks(sq as usize, occupied);
                     let rook_attacks = self.get_rook_attacks(sq as usize, occupied);
-                    let mut targets = (bishop_attacks | rook_attacks) & !own_pieces;
+                    let mut targets = (bishop_attacks | rook_attacks) & target_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -645,54 +633,50 @@ impl MoveGenService {
                     }
                 }
                 15 | 25 => {
-                    let mut targets = KING_ATTACKS[sq as usize] & !own_pieces;
+                    let mut targets = KING_ATTACKS[sq as usize] & target_mask;
+                    if opp_king_sq < 64 {
+                        targets &= !KING_ATTACKS[opp_king_sq];
+                    }
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
-                        let opp_king_sq = if white {
-                            board.bitboards[BLACK_KING].trailing_zeros()
-                        } else {
-                            board.bitboards[WHITE_KING].trailing_zeros()
-                        } as usize;
-                        if opp_king_sq < 64 && (KING_ATTACKS[to as usize] & (1u64 << opp_king_sq)) != 0 {
-                            targets &= targets - 1;
-                            continue;
-                        }
                         moves.push(sq as i32);
                         moves.push(to as i32);
                         targets &= targets - 1;
                     }
 
-                    if white {
-                        if sq == 4 {
-                            if board.white_possible_to_castle_short
-                                && (occupied & ((1u64 << 5) | (1u64 << 6))) == 0
-                                && (board.bitboards[WHITE_ROOK] & (1u64 << 7)) != 0
-                            {
-                                moves.push(4);
-                                moves.push(6);
+                    if !only_captures {
+                        if white {
+                            if sq == 4 {
+                                if board.white_possible_to_castle_short
+                                    && (occupied & ((1u64 << 5) | (1u64 << 6))) == 0
+                                    && (board.bitboards[WHITE_ROOK] & (1u64 << 7)) != 0
+                                {
+                                    moves.push(4);
+                                    moves.push(6);
+                                }
+                                if board.white_possible_to_castle_long
+                                    && (occupied & ((1u64 << 1) | (1u64 << 2) | (1u64 << 3))) == 0
+                                    && (board.bitboards[WHITE_ROOK] & (1u64 << 0)) != 0
+                                {
+                                    moves.push(4);
+                                    moves.push(2);
+                                }
                             }
-                            if board.white_possible_to_castle_long
-                                && (occupied & ((1u64 << 1) | (1u64 << 2) | (1u64 << 3))) == 0
-                                && (board.bitboards[WHITE_ROOK] & (1u64 << 0)) != 0
+                        } else if sq == 60 {
+                            if board.black_possible_to_castle_short
+                                && (occupied & ((1u64 << 61) | (1u64 << 62))) == 0
+                                && (board.bitboards[BLACK_ROOK] & (1u64 << 63)) != 0
                             {
-                                moves.push(4);
-                                moves.push(2);
+                                moves.push(60);
+                                moves.push(62);
                             }
-                        }
-                    } else if sq == 60 {
-                        if board.black_possible_to_castle_short
-                            && (occupied & ((1u64 << 61) | (1u64 << 62))) == 0
-                            && (board.bitboards[BLACK_ROOK] & (1u64 << 63)) != 0
-                        {
-                            moves.push(60);
-                            moves.push(62);
-                        }
-                        if board.black_possible_to_castle_long
-                            && (occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59))) == 0
-                            && (board.bitboards[BLACK_ROOK] & (1u64 << 56)) != 0
-                        {
-                            moves.push(60);
-                            moves.push(58);
+                            if board.black_possible_to_castle_long
+                                && (occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59))) == 0
+                                && (board.bitboards[BLACK_ROOK] & (1u64 << 56)) != 0
+                            {
+                                moves.push(60);
+                                moves.push(58);
+                            }
                         }
                     }
                 }
@@ -929,11 +913,6 @@ impl MoveGenService {
         self.get_attack_idx_list(board, white, king_pos)
     }
 
-    /// Returns true if the side to move gives check, otherwise false.
-    pub fn gives_check(&self, board: &Board) -> bool {
-        self.__check_check(board, true)
-    }
-
     /// Returns true if the king of side to move is in check, otherwise false.
     pub fn is_in_check(&self, board: &Board) -> bool {
         self.__check_check(board, false)
@@ -963,6 +942,7 @@ impl MoveGenService {
 mod tests {
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
+    use crate::zobrist::ZobristTable;
     use std::collections::HashMap;
     use std::sync::Mutex;
     use super::*;
@@ -1136,7 +1116,7 @@ mod tests {
         // Test: Standard starting position
         let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         let mut raw_moves = crate::model::MoveRawList::new();
-        move_gen_service.generate_moves_list_for_piece(&board, 0, &mut raw_moves);
+        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
         let moves: Vec<i32> = raw_moves.moves[0..raw_moves.len].iter().map(|&x| x as i32).collect();
 
         let expected_moves_mailbox = vec![
@@ -1155,7 +1135,7 @@ mod tests {
         // Test: White in check and only a few moves are available for the king
         let board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
         let mut raw_moves_in_check = crate::model::MoveRawList::new();
-        move_gen_service.generate_moves_list_for_piece(&board, 0, &mut raw_moves_in_check);
+        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves_in_check);
         let moves_in_check: Vec<i32> = raw_moves_in_check.moves[0..raw_moves_in_check.len].iter().map(|&x| x as i32).collect();
 
         let expected_moves_in_check_mailbox = vec![95, 84, 95, 96];
@@ -1522,17 +1502,19 @@ mod tests {
         opponent_moves
     }
 
-    fn perft(board: &mut Board, depth: usize) -> u64 {
+    fn perft_fast(movegen: &MoveGenService, board: &mut Board, depth: usize, config: &Config, context: &SearchContext) -> u64 {
         if depth == 0 {
             return 1;
         }
 
         let mut nodes = 0;
-        let moves = generate_valid_moves_list(board);
+        let mut move_list = crate::model::MoveList::new();
+        movegen.generate_valid_moves_list(board, &mut Stats::new(), config, context, true, false, &mut move_list);
 
-        for turn in moves {
+        for i in 0..move_list.len {
+            let turn = move_list.moves[i];
             let mi = board.do_move(&turn);
-            nodes += perft(board, depth - 1);
+            nodes += perft_fast(movegen, board, depth - 1, config, context);
             board.undo_move(&turn, mi);
         }
 
@@ -1542,26 +1524,60 @@ mod tests {
     #[test]
     #[ignore]
     fn perft_startpos_test() {
-        let fen_service = Service::new().fen;
-        let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        
-        assert_eq!(perft(&mut board, 1), 20);
-        assert_eq!(perft(&mut board, 2), 400);
-        assert_eq!(perft(&mut board, 3), 8902);
-        assert_eq!(perft(&mut board, 4), 197281);
+        let service = Service::new();
+        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let config = Config::for_tests();
+        let zobrist_table = ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+        };
+
+        assert_eq!(perft_fast(&service.move_gen, &mut board, 1, &config, &context), 20);
+        assert_eq!(perft_fast(&service.move_gen, &mut board, 2, &config, &context), 400);
+        assert_eq!(perft_fast(&service.move_gen, &mut board, 3, &config, &context), 8902);
+        assert_eq!(perft_fast(&service.move_gen, &mut board, 4, &config, &context), 197281);
     }
 
     #[test]
     #[ignore]
     fn perft_kiwipete_test() {
-        let fen_service = Service::new().fen;
-        // Position 2: Kiwipete
-        let mut board = fen_service.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-        
-        assert_eq!(perft(&mut board, 1), 48);
-        assert_eq!(perft(&mut board, 2), 2039);
-        assert_eq!(perft(&mut board, 3), 97862);
-        assert_eq!(perft(&mut board, 4), 4085603);
+        let service = Service::new();
+        let mut board = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+        let config = Config::for_tests();
+        let zobrist_table = ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+        };
+
+        let start = std::time::Instant::now();
+        let nodes = perft_fast(&service.move_gen, &mut board, 4, &config, &context);
+        let elapsed = start.elapsed();
+        println!("Kiwipete Perft(4) = {} nodes in {:.3?}", nodes, elapsed);
+        assert_eq!(nodes, 4085603);
     }
 
     #[test]
@@ -1694,6 +1710,73 @@ mod tests {
         for fen in fens {
             let mut board = service.fen.set_fen(fen);
             check_pawn_key_recursive(&mut board, &service, 2);
+        }
+    }
+
+    #[test]
+    fn test_generate_moves_list_bitboard_consistency() {
+        let service = Service::new();
+        let fens = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+            "r1bqk2r/pp2bppp/2n1pn2/2pp2B1/3P4/2N1PN2/PPP1BPPP/R2QK2R w KQkq - 2 7"
+        ];
+        for fen in fens {
+            let board = service.fen.set_fen(fen);
+            let mut raw_moves = crate::model::MoveRawList::new();
+            service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
+            assert!(raw_moves.len > 0, "Move generation produced no moves for FEN: {}", fen);
+            assert_eq!(raw_moves.len % 2, 0, "Move list length must be even (from/to pairs)");
+        }
+    }
+
+    #[test]
+    fn test_king_attacks_proximity_masking() {
+        let service = Service::new();
+        // Kings on e4 (28) and e6 (44). White King on e4 should not be allowed to move to e5 (36), d5 (35), or f5 (37).
+        let board = service.fen.set_fen("8/8/4k3/8/4K3/8/8/8 w - - 0 1");
+        let mut raw_moves = crate::model::MoveRawList::new();
+        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
+        for i in (0..raw_moves.len).step_by(2) {
+            let from = raw_moves.moves[i];
+            let to = raw_moves.moves[i + 1];
+            if from == 28 { // White King
+                assert!(to != 35 && to != 36 && to != 37, "King move to illegal adjacent king square {} was generated", to);
+            }
+        }
+    }
+
+    #[test]
+    fn test_streamlined_move_validation_gives_check() {
+        let service = Service::new();
+        // White Rook on e1, Black King on e8. Move e1->e7 gives check.
+        let mut board = service.fen.set_fen("4k3/8/8/8/8/8/8/4R3 w - - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+        let gives_check_move = moves.iter().find(|m| m.from == 4 && m.to == 52); // e1e7
+        assert!(gives_check_move.is_some(), "e1e7 move should be generated");
+        assert!(gives_check_move.unwrap().gives_check, "e1e7 move should be marked as gives_check");
+    }
+
+    #[test]
+    fn test_generate_moves_list_capture_only_filtering() {
+        let service = Service::new();
+        // Kiwipete position
+        let board = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+        let mut raw_all_moves = crate::model::MoveRawList::new();
+        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_all_moves);
+
+        let mut raw_capture_moves = crate::model::MoveRawList::new();
+        service.move_gen.generate_moves_list_for_piece(&board, 0, true, &mut raw_capture_moves);
+
+        assert!(raw_capture_moves.len < raw_all_moves.len, "Captures-only raw move list should be smaller than all moves list");
+        assert!(raw_capture_moves.len > 0, "Captures-only list should find captures in Kiwipete position");
+
+        // Verify that every move in raw_capture_moves lands on an opponent piece
+        let opp_pieces = board.black_pieces;
+        for i in (0..raw_capture_moves.len).step_by(2) {
+            let to = raw_capture_moves.moves[i + 1] as u8;
+            assert_ne!(opp_pieces & (1u64 << to), 0, "Target square {} must be an opponent piece in captures-only mode", to);
         }
     }
 }
