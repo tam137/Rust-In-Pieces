@@ -28,9 +28,9 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), updating `CHANGELOG.md`, compiling optimized production binaries (both HCE and NNUE), deploying them to `../matt-magie/engines/`, and handling rollback on test/build failures.
 
 ## 4. Release Versioning Classification
-- **Mandatory Engine Naming Scheme (`id name` in UCI)**:
-  - For NNUE variants/releases (`use_nnue == true`), the engine MUST report its UCI name as `RIP V<version>-NNUE` (e.g., `RIP V0.23.12-NNUE`).
-  - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name as `Rust-In-Pieces V<version>` (e.g., `Rust-In-Pieces V0.23.12`).
+- **Mandatory Engine & Git Tag Naming Scheme**:
+  - For NNUE variants/releases (`use_nnue == true` or on branch `feature/nnue-evaluation`), the engine MUST report its UCI name as `RIP V<version>-NNUE` (e.g., `RIP V0.23.12-NNUE`) and Git tags MUST append `-NNUE` (e.g., `v0.25.0-NNUE`).
+  - For standard/HCE variants/releases (`use_nnue == false`), the engine MUST report its UCI name as `Rust-In-Pieces V<version>` (e.g., `Rust-In-Pieces V0.23.12`) and Git tags use `v<version>` (e.g., `v0.25.0`).
 - **Patch Release (x.y.z -> x.y.z+1):** Used for bug fixes, performance micro-optimizations, configuration adjustments, or minor refactorings. Run standard script: `./build_and_release.sh`.
 - **Minor Release (x.y.z -> x.y+1.0):** Used for major feature implementations (e.g. History Heuristics, Transposition Tables), significant architectural migrations (e.g. Bitboard architecture, Heap-Free stack search), or any changes expected to dramatically shift engine playing strength. Run with environment override: `OVERRIDE_VERSION="x.y+1.0" ./build_and_release.sh`.
 
@@ -42,8 +42,8 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
      ```bash
      git add Cargo.toml CHANGELOG.md skills/engine_release_procedure.md
      git commit -m "Release vX.Y.Z: <Detailed description of release changes>"
-     git tag -a "vX.Y.Z" -m "Release version vX.Y.Z"
-     git push origin master --tags
+     git tag -a "vX.Y.Z-NNUE" -m "Release version vX.Y.Z-NNUE" # Use -NNUE tag suffix on feature/nnue-evaluation branch
+     git push origin feature/nnue-evaluation --tags
      ```
 
 ## 6. Perft Release Documentation Rules (Optional / Upon User Request Only)
