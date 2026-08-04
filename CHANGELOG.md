@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.24.0] - 2026-08-04
+
+### Changed
+- **SPSA Parameter Harvest & LMR Tuning Integration**: Integrated automated SPSA parameter tuning results on the `feature/nnue-evaluation` branch to optimize search depth reduction and turn bonuses:
+  - **Re-aligned Late Move Reductions Divisor (`lmr_divisor = 166`)**: Lowered default `lmr_divisor` from `185` to `166` (corresponding to a scaling factor of 1.66) in `src/config.rs`, `tuning/parameters.json`, and `tuning/server_parameters.json`. This increases logarithmic depth reductions for late-searched quiet moves, pruning unpromising branches more aggressively at deeper search nodes.
+  - **Tuned LMR Move Threshold (`lmr_move_threshold = 2`)**: Lowered quiet move LMR threshold from `3` to `2` in `src/config.rs` and parameter manifests, triggering LMR depth reduction starting from the 3rd searched quiet move.
+  - **Tuned Turn Bonus (`your_turn_bonus = 18`)**: Adjusted positional side-to-move bonus from `19` to `18` centipawns in `src/config.rs` and parameter manifests.
+
+### Fixed
+
+
 ## [V0.23.12] - 2026-07-30
 
 ### Changed
