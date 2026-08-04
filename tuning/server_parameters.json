@@ -260,7 +260,7 @@
         "max": 101
     },
     "lmr_move_threshold": {
-        "value": 2,
+        "value": 3,
         "min": 0,
         "max": 103
     },
@@ -295,7 +295,7 @@
         "max": 80.0
     },
     "lmr_divisor": {
-        "value": 166,
+        "value": 170,
         "min": 100,
         "max": 300
     },
