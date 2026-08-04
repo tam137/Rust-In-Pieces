@@ -54,6 +54,12 @@
         "bishop_mobility_factor": 1.0,
         "rook_mobility_factor": 1.0,
         "lmr_depth_threshold": 3.0,
-        "lmr_move_threshold": 3.0
+        "lmr_move_threshold": 3.0,
+        "aspiration_window_initial_delta": 15.0,
+        "aspiration_window_multiplier": 4.0,
+        "lmr_history_good_threshold": 4000.0,
+        "lmr_history_bad_threshold": 500.0,
+        "rfp_margin_per_depth": 80.0,
+        "rfp_max_depth": 3.0
     }
 }
