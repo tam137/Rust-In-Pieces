@@ -238,10 +238,6 @@ impl ZobristTable {
         }
     }
 
-    pub fn get_eval_for_hash(&self, hash: &u64) -> Option<i16> {
-        self.get_entry(hash).map(|e| e.eval)
-    }
-
     pub fn _size(&self) -> usize {
         self.table.iter()
             .map(|slot| {
