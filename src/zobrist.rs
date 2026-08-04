@@ -309,6 +309,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn zobrist_entry_size_test() {
+        assert_eq!(std::mem::size_of::<AtomicEntry>(), 16, "AtomicEntry must be exactly 16 bytes");
+        assert_eq!(std::mem::size_of::<TranspositionEntry>(), 16, "TranspositionEntry must be exactly 16 bytes");
+
+        let entries_count: usize = 100_000_000;
+        let total_bytes = entries_count * std::mem::size_of::<AtomicEntry>();
+        assert_eq!(total_bytes, 1_600_000_000, "100M entries must equal 1.6 GB (1,600,000,000 bytes)");
+    }
+
+    #[test]
     fn zobrist_replacement_policy_test() {
         let table = ZobristTable::with_capacity(2);
 
