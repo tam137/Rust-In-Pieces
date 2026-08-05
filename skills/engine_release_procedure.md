@@ -57,4 +57,3 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
 ## 7. After release
 
 - remember the user to commit and push the changes.
-- verifikation: tag X.X.X exists with use_nnue: 'false' and tag X.X.X-NNUE exists with 'use_nnue: true'
