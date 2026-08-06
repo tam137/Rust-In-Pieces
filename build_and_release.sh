@@ -123,7 +123,15 @@ echo -e "\n${YELLOW}[5/6] Deploying release to Matt-Magie engines directory...${
 TARGET_DIR="../matt-magie/engines"
 mkdir -p "$TARGET_DIR"
 
-COPY_TARGET="$TARGET_DIR/suprah-$NEW_VERSION"
+# Determine engine binary filename suffix based on branch
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+BINARY_SUFFIX=""
+if [ "$GIT_BRANCH" = "feature/nnue-evaluation" ]; then
+    BINARY_SUFFIX="-nnue"
+fi
+ENGINE_FILENAME="suprah-${NEW_VERSION}${BINARY_SUFFIX}"
+
+COPY_TARGET="$TARGET_DIR/$ENGINE_FILENAME"
 cp "target/release/suprah" "$COPY_TARGET"
 chmod +x "$COPY_TARGET"
 
@@ -151,7 +159,7 @@ if [ $? -eq 0 ]; then
 
         # A. Package, upload, compile and deploy in a single SSH connection to avoid rate limiting / disconnections
         echo -e "${YELLOW}Packaging, uploading, and compiling suprah on remote server natively...${NC}"
-        tar -cf - Cargo.toml src eval_models 2>/dev/null | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && chmod +x ${REMOTE_DIR}/engines/suprah-${NEW_VERSION} && cd / && rm -rf ${REMOTE_TMP_DIR}"
+        tar -cf - Cargo.toml src eval_models 2>/dev/null | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/${ENGINE_FILENAME} && chmod +x ${REMOTE_DIR}/engines/${ENGINE_FILENAME} && cd / && rm -rf ${REMOTE_TMP_DIR}"
         if [ $? -ne 0 ]; then
             echo -e "${RED}Error: Remote compilation and deployment failed!${NC}"
             rollback
@@ -163,9 +171,9 @@ if [ $? -eq 0 ]; then
     # Git instructions (automatic commit and tag removed to ensure atomic commits after changelog enrichment/benchmarks)
     echo -e "\n${CYAN}================================================================${NC}"
     echo -e "${GREEN}${BOLD}RELEASE BUILD & DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
-    echo -e "Engine ${BOLD}suprah-$NEW_VERSION${NC} is now ready for matchups."
+    echo -e "Engine ${BOLD}${ENGINE_FILENAME}${NC} is now ready for matchups."
     if [ -n "$EODSERVERIP" ]; then
-        echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/suprah-$NEW_VERSION"
+        echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/${ENGINE_FILENAME}"
     fi
     echo -e "\n${YELLOW}${BOLD}Next Manual Steps to Finalize Release:${NC}"
     echo -e "1. Run perft benchmarks and prepend them to perft.md."
