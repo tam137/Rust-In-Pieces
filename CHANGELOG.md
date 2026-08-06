@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.25.2] - 2026-08-06
+
+### Changed
+- **SPSA Parameter Tuning Integration (Search & Pruning Alignment)**: Integrated harvested SPSA tuning results on the `feature/nnue-evaluation` branch to refine search tree pruning and aspiration window stability in `src/config.rs`:
+  - **Aggressive Late Move Reductions (`lmr_divisor = 140`)**: Reduced `lmr_divisor` from `170` to `140` (with corresponding update in precalculated `lmr_table` initialization), resulting in significantly stronger logarithmic depth reductions for late-searched quiet moves.
+  - **Earlier LMR Activation (`lmr_move_threshold = 2`)**: Lowered quiet move LMR threshold from `3` to `2`, triggering Late Move Reductions starting after the 2nd searched quiet move to prune unpromising branches faster.
+  - **Elevated Bad History Threshold (`lmr_history_bad_threshold = 550`)**: Increased bad history score threshold from `500` to `550`, categorizing a broader range of quiet moves as historically weak and applying an extra 1-ply depth reduction (`saturating_add(1)`).
+  - **Expanded Aspiration Windows (`aspiration_window_initial_delta = 16`, `multiplier = 5`)**: Slightly expanded initial search window delta from `15` to `16` centipawns and increased fail-high/fail-low window expansion multiplier from `4` to `5`, mitigating unnecessary re-searches while ensuring rapid score capture during re-searches.
+
+### Fixed
+- **Fixed Hardcoded Divisor in Config Initialization**: Corrected hardcoded `divisor = 170.0 / 100.0` in `Config::new()`'s `lmr_table` block in `src/config.rs` to dynamically match `lmr_divisor = 140` (`140.0 / 100.0`), resolving unit test mismatch in `test_logarithmic_lmr_table`.
+
+
+
+
 ## [V0.25.1] - 2026-08-04
 
 ### Changed
