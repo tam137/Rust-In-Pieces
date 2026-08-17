@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.26.2] - 2026-08-17
+
+### Changed
+- **Default Tactical Profile Set to HighAggressive**:
+  - Configured `Aggressiveness::HighAggressive` as the default engine profile in `Config::new()` (`src/config.rs`).
+  - Automatically doubles king attack danger weights (`king_ring_attack_*` by 2.0x), boosts queen dynamic attack bonuses (`queen_in_attack*` by 1.6x), piece mobility factors (`*_mobility_factor` by 1.4x), and raises the positional evaluation soft cap to 400 cp right at initialization.
+  - Set UCI option `Aggressiveness` default value to `HighAggressive` in `src/threads.rs`.
+
+
+
 ## [V0.26.1] - 2026-08-17
 
 ### Changed

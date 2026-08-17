@@ -68,7 +68,7 @@ pub fn uci_command_processor(
                     stdout.write("option name BookFile type string default <empty>");
                     stdout.write("option name OwnBook type check default true");
                     stdout.write("option name CacheBookInRam type check default true");
-                    stdout.write("option name Aggressiveness type string default Aggressive");
+                    stdout.write("option name Aggressiveness type string default HighAggressive");
                     stdout.write("option name EnablePositionalCap type check default true");
                     stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");
                     stdout.write("option name KingOpenFileMalus type spin default 40 min 0 max 500");
