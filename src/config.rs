@@ -165,7 +165,7 @@ pub struct Config {
 
 
 impl Config {
-    pub fn new() -> Config {
+    pub fn new_raw() -> Config {
         Config {
             version: env!("CARGO_PKG_VERSION"),
             use_zobrist: true,
@@ -345,35 +345,48 @@ impl Config {
         }
     }
 
-    pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
-        self.aggressiveness = aggressiveness;
-        self.apply_aggressiveness();
+    pub fn new() -> Config {
+        let mut config = Self::new_raw();
+        config.set_aggressiveness(Aggressiveness::Aggressive);
+        config
     }
 
-    pub fn apply_aggressiveness(&mut self) {
-        match self.aggressiveness {
-            Aggressiveness::Normal => {}
+    pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
+        let raw = Self::new_raw();
+        self.aggressiveness = aggressiveness;
+        match aggressiveness {
+            Aggressiveness::Normal => {
+                self.king_ring_attack_knight = raw.king_ring_attack_knight;
+                self.king_ring_attack_bishop = raw.king_ring_attack_bishop;
+                self.king_ring_attack_rook = raw.king_ring_attack_rook;
+                self.king_ring_attack_queen = raw.king_ring_attack_queen;
+                self.queen_in_attack = raw.queen_in_attack;
+                self.queen_in_attack_with_tempo = raw.queen_in_attack_with_tempo;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+            }
             Aggressiveness::Aggressive => {
-                self.king_ring_attack_knight = (self.king_ring_attack_knight * 15) / 10;
-                self.king_ring_attack_bishop = (self.king_ring_attack_bishop * 15) / 10;
-                self.king_ring_attack_rook = (self.king_ring_attack_rook * 15) / 10;
-                self.king_ring_attack_queen = (self.king_ring_attack_queen * 15) / 10;
-                self.queen_in_attack = (self.queen_in_attack * 13) / 10;
-                self.queen_in_attack_with_tempo = (self.queen_in_attack_with_tempo * 13) / 10;
-                self.knight_mobility_factor = (self.knight_mobility_factor * 12) / 10;
-                self.bishop_mobility_factor = (self.bishop_mobility_factor * 12) / 10;
-                self.rook_mobility_factor = (self.rook_mobility_factor * 12) / 10;
+                self.king_ring_attack_knight = (raw.king_ring_attack_knight * 15) / 10;
+                self.king_ring_attack_bishop = (raw.king_ring_attack_bishop * 15) / 10;
+                self.king_ring_attack_rook = (raw.king_ring_attack_rook * 15) / 10;
+                self.king_ring_attack_queen = (raw.king_ring_attack_queen * 15) / 10;
+                self.queen_in_attack = (raw.queen_in_attack * 13) / 10;
+                self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 13) / 10;
+                self.knight_mobility_factor = (raw.knight_mobility_factor * 12) / 10;
+                self.bishop_mobility_factor = (raw.bishop_mobility_factor * 12) / 10;
+                self.rook_mobility_factor = (raw.rook_mobility_factor * 12) / 10;
             }
             Aggressiveness::HighAggressive => {
-                self.king_ring_attack_knight *= 2;
-                self.king_ring_attack_bishop *= 2;
-                self.king_ring_attack_rook *= 2;
-                self.king_ring_attack_queen *= 2;
-                self.queen_in_attack = (self.queen_in_attack * 16) / 10;
-                self.queen_in_attack_with_tempo = (self.queen_in_attack_with_tempo * 16) / 10;
-                self.knight_mobility_factor = (self.knight_mobility_factor * 14) / 10;
-                self.bishop_mobility_factor = (self.bishop_mobility_factor * 14) / 10;
-                self.rook_mobility_factor = (self.rook_mobility_factor * 14) / 10;
+                self.king_ring_attack_knight = raw.king_ring_attack_knight * 2;
+                self.king_ring_attack_bishop = raw.king_ring_attack_bishop * 2;
+                self.king_ring_attack_rook = raw.king_ring_attack_rook * 2;
+                self.king_ring_attack_queen = raw.king_ring_attack_queen * 2;
+                self.queen_in_attack = (raw.queen_in_attack * 16) / 10;
+                self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 16) / 10;
+                self.knight_mobility_factor = (raw.knight_mobility_factor * 14) / 10;
+                self.bishop_mobility_factor = (raw.bishop_mobility_factor * 14) / 10;
+                self.rook_mobility_factor = (raw.rook_mobility_factor * 14) / 10;
             }
         }
     }
@@ -570,7 +583,7 @@ mod tests {
 
     #[test]
     fn test_config_aggressiveness_scaling() {
-        let base_config = Config::new();
+        let base_config = Config::new_raw();
         
         let mut normal_config = base_config.clone();
         normal_config.set_aggressiveness(Aggressiveness::Normal);
