@@ -347,7 +347,7 @@ impl Config {
 
     pub fn new() -> Config {
         let mut config = Self::new_raw();
-        config.set_aggressiveness(Aggressiveness::Aggressive);
+        config.set_aggressiveness(Aggressiveness::HighAggressive);
         config
     }
 
