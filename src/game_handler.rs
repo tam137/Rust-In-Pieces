@@ -51,11 +51,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                             if param_name == "aggressiveness" {
                                 if val_str.to_lowercase().contains("high") {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
                                 } else if val_str.to_lowercase().contains("aggressive") {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
                                 } else {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::Normal;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Normal);
                                 }
                             } else if param_name == "enable_lazy_eval" {
                                 active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
@@ -86,9 +86,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
-                                        "Normal" => active_config.aggressiveness = crate::config::Aggressiveness::Normal,
-                                        "Aggressive" => active_config.aggressiveness = crate::config::Aggressiveness::Aggressive,
-                                        "HighAggressive" => active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive,
+                                        "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
+                                        "Aggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive),
+                                        "HighAggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive),
                                         _ => {}
                                     },
                                     "enablepositionalcap" | "enable_positional_cap" => {

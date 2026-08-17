@@ -69,6 +69,7 @@ impl Default for TranspositionEntry {
 }
 
 impl TranspositionEntry {
+    #[inline(always)]
     pub fn pack(self) -> u64 {
         let mut val = 0u64;
         val |= (self.eval as u16 as u64) & 0xFFFF;
@@ -83,6 +84,7 @@ impl TranspositionEntry {
         val
     }
 
+    #[inline(always)]
     pub fn unpack(key: u64, data: u64) -> Self {
         let eval = (data & 0xFFFF) as u16 as i16;
         let best_move = ((data >> 16) & 0xFFFF) as u16;
@@ -102,6 +104,7 @@ impl TranspositionEntry {
         }
     }
 
+    #[inline(always)]
     pub fn compress_move(turn: Option<crate::model::Turn>) -> u16 {
         if let Some(t) = turn {
             let from = t.from as u16;
@@ -125,6 +128,7 @@ impl TranspositionEntry {
         }
     }
 
+    #[inline(always)]
     pub fn decompress_move(&self, board: &crate::model::Board) -> Option<crate::model::Turn> {
         let val = self.best_move;
         if val == 0 || (val & (1 << 15)) == 0 {
@@ -300,6 +304,7 @@ pub fn gen_pawn_hash(board: &Board) -> u64 {
     hash
 }
 
+#[inline(always)]
 pub fn get_zobrist_val(square: usize, piece_idx: usize) -> u64 {
     ZOBRIST_TABLE[square][piece_idx]
 }
@@ -541,6 +546,7 @@ mod tests {
 }
 
 
+#[inline(always)]
 pub fn calc_incremental_hash(board: &Board, turn: &crate::model::Turn) -> u64 {
     let mut hash = board.cached_hash;
     let from = turn.from as usize;

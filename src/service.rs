@@ -19,6 +19,7 @@ pub struct Service {
 
 impl Service {
     pub fn new() -> Self {
+        crate::magic::init();
         Service {
             fen: FenService,
             move_gen: MoveGenService::new(),

@@ -345,6 +345,39 @@ impl Config {
         }
     }
 
+    pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
+        self.aggressiveness = aggressiveness;
+        self.apply_aggressiveness();
+    }
+
+    pub fn apply_aggressiveness(&mut self) {
+        match self.aggressiveness {
+            Aggressiveness::Normal => {}
+            Aggressiveness::Aggressive => {
+                self.king_ring_attack_knight = (self.king_ring_attack_knight * 15) / 10;
+                self.king_ring_attack_bishop = (self.king_ring_attack_bishop * 15) / 10;
+                self.king_ring_attack_rook = (self.king_ring_attack_rook * 15) / 10;
+                self.king_ring_attack_queen = (self.king_ring_attack_queen * 15) / 10;
+                self.queen_in_attack = (self.queen_in_attack * 13) / 10;
+                self.queen_in_attack_with_tempo = (self.queen_in_attack_with_tempo * 13) / 10;
+                self.knight_mobility_factor = (self.knight_mobility_factor * 12) / 10;
+                self.bishop_mobility_factor = (self.bishop_mobility_factor * 12) / 10;
+                self.rook_mobility_factor = (self.rook_mobility_factor * 12) / 10;
+            }
+            Aggressiveness::HighAggressive => {
+                self.king_ring_attack_knight *= 2;
+                self.king_ring_attack_bishop *= 2;
+                self.king_ring_attack_rook *= 2;
+                self.king_ring_attack_queen *= 2;
+                self.queen_in_attack = (self.queen_in_attack * 16) / 10;
+                self.queen_in_attack_with_tempo = (self.queen_in_attack_with_tempo * 16) / 10;
+                self.knight_mobility_factor = (self.knight_mobility_factor * 14) / 10;
+                self.bishop_mobility_factor = (self.bishop_mobility_factor * 14) / 10;
+                self.rook_mobility_factor = (self.rook_mobility_factor * 14) / 10;
+            }
+        }
+    }
+
     /// Sets turn_bonus and all tempo attack boni at 0
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
@@ -528,5 +561,32 @@ impl Config {
         msg.push_str(&format!("  futility_margin_base: {}\n", self.futility_margin_base));
         msg.push_str(&format!("  futility_margin_slope: {}\n", self.futility_margin_slope));
         let _ = logger.send(msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_aggressiveness_scaling() {
+        let base_config = Config::new();
+        
+        let mut normal_config = base_config.clone();
+        normal_config.set_aggressiveness(Aggressiveness::Normal);
+        assert_eq!(normal_config.king_ring_attack_knight, base_config.king_ring_attack_knight);
+        assert_eq!(normal_config.queen_in_attack, base_config.queen_in_attack);
+
+        let mut aggressive_config = base_config.clone();
+        aggressive_config.set_aggressiveness(Aggressiveness::Aggressive);
+        assert_eq!(aggressive_config.king_ring_attack_knight, (base_config.king_ring_attack_knight * 15) / 10);
+        assert_eq!(aggressive_config.queen_in_attack, (base_config.queen_in_attack * 13) / 10);
+        assert_eq!(aggressive_config.knight_mobility_factor, (base_config.knight_mobility_factor * 12) / 10);
+
+        let mut high_aggressive_config = base_config.clone();
+        high_aggressive_config.set_aggressiveness(Aggressiveness::HighAggressive);
+        assert_eq!(high_aggressive_config.king_ring_attack_knight, base_config.king_ring_attack_knight * 2);
+        assert_eq!(high_aggressive_config.queen_in_attack, (base_config.queen_in_attack * 16) / 10);
+        assert_eq!(high_aggressive_config.knight_mobility_factor, (base_config.knight_mobility_factor * 14) / 10);
     }
 }
