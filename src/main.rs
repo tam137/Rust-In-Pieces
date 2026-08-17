@@ -37,8 +37,7 @@ use model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
-    
-    
+    crate::magic::init();
 
 
 

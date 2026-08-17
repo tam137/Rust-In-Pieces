@@ -180,38 +180,6 @@ impl EvalService {
             }
         }
 
-        let mut scaled_config;
-        let config = if config.aggressiveness == crate::config::Aggressiveness::Normal {
-            config
-        } else {
-            scaled_config = config.clone();
-            match config.aggressiveness {
-                crate::config::Aggressiveness::Normal => {}
-                crate::config::Aggressiveness::Aggressive => {
-                    scaled_config.king_ring_attack_knight = (config.king_ring_attack_knight * 15) / 10;
-                    scaled_config.king_ring_attack_bishop = (config.king_ring_attack_bishop * 15) / 10;
-                    scaled_config.king_ring_attack_rook = (config.king_ring_attack_rook * 15) / 10;
-                    scaled_config.king_ring_attack_queen = (config.king_ring_attack_queen * 15) / 10;
-                    scaled_config.queen_in_attack = (config.queen_in_attack * 13) / 10;
-                    scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 13) / 10;
-                    scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 12) / 10;
-                    scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 12) / 10;
-                    scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 12) / 10;
-                }
-                crate::config::Aggressiveness::HighAggressive => {
-                    scaled_config.king_ring_attack_knight = config.king_ring_attack_knight * 2;
-                    scaled_config.king_ring_attack_bishop = config.king_ring_attack_bishop * 2;
-                    scaled_config.king_ring_attack_rook = config.king_ring_attack_rook * 2;
-                    scaled_config.king_ring_attack_queen = config.king_ring_attack_queen * 2;
-                    scaled_config.queen_in_attack = (config.queen_in_attack * 16) / 10;
-                    scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 16) / 10;
-                    scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 14) / 10;
-                    scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 14) / 10;
-                    scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 14) / 10;
-                }
-            }
-            &scaled_config
-        };
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
@@ -1900,7 +1868,7 @@ mod tests {
         let mut config_normal = Config::new();
         config_normal.use_nnue = false;
         config_normal.enable_positional_cap = true;
-        config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
+        config_normal.set_aggressiveness(crate::config::Aggressiveness::Normal);
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
         let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 150 + (1000 - 150) / 5 = 150 + 170 = 320
@@ -1910,7 +1878,7 @@ mod tests {
         let mut config_aggressive = Config::new();
         config_aggressive.use_nnue = false;
         config_aggressive.enable_positional_cap = true;
-        config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
+        config_aggressive.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
         config_aggressive.your_turn_bonus = 1000;
         let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 250 + (1000 - 250) / 5 = 250 + 150 = 400
@@ -1920,7 +1888,7 @@ mod tests {
         let mut config_high = Config::new();
         config_high.use_nnue = false;
         config_high.enable_positional_cap = true;
-        config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+        config_high.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
         config_high.your_turn_bonus = 1000;
         let eval_high = eval_service.calc_eval(&board, &config_high, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
         // Soft cap calculation: 400 + (1000 - 400) / 5 = 400 + 120 = 520

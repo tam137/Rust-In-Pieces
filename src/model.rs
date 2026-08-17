@@ -429,6 +429,7 @@ impl Board {
         board
     }
 
+    #[inline(always)]
     pub fn piece_to_bb_idx(piece: u8) -> usize {
         match piece {
             10 => WHITE_PAWN,
