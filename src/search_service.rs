@@ -264,6 +264,7 @@ impl SearchService {
     }
     
 
+    #[inline(always)]
     fn get_piece_value(&self, piece: u8, _config: &Config) -> i16 {
         match piece {
             10 | 20 => crate::pst::PIECE_EVAL_PAWN,
@@ -314,6 +315,7 @@ impl SearchService {
         None
     }
 
+    #[inline(always)]
     pub fn see(&self, board: &Board, mv: &Turn, config: &Config, movegen: &MoveGenService) -> i16 {
         let from = mv.from as usize;
         let to = mv.to as usize;
@@ -350,6 +352,7 @@ impl SearchService {
         gain[0]
     }
 
+    #[inline(always)]
     pub fn see_ge(&self, board: &Board, mv: &Turn, threshold: i16, config: &Config, movegen: &MoveGenService) -> bool {
         self.see(board, mv, config, movegen) >= threshold
     }

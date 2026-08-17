@@ -396,10 +396,13 @@ impl MoveGenService {
         white_turn: bool,
         force_skip_validation: bool,
     ) {
+        let base_rank = turn.rank;
         if config.use_underpromotions {
             let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
             for &promotion in &promotion_types {
                 turn.promotion = promotion;
+                turn.gives_check = false;
+                turn.rank = base_rank;
                 match promotion {
                     11 | 21 => turn.rank += 0, // Rook promotion
                     12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
@@ -413,6 +416,8 @@ impl MoveGenService {
             let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
             for &promotion in &promotion_types {
                 turn.promotion = promotion;
+                turn.gives_check = false;
+                turn.rank = base_rank;
                 match promotion {
                     12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
@@ -1778,5 +1783,31 @@ mod tests {
             let to = raw_capture_moves.moves[i + 1] as u8;
             assert_ne!(opp_pieces & (1u64 << to), 0, "Target square {} must be an opponent piece in captures-only mode", to);
         }
+    }
+
+    #[test]
+    fn test_promotion_gives_check_independence() {
+        let service = Service::new();
+
+        // Position: White Pawn on a7, Black King on e8.
+        // Queen/Rook promotions on a8 give check along the 8th rank.
+        // Knight/Bishop promotions on a8 do NOT give check to e8.
+        let mut board = service.fen.set_fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        let queen_promo = moves.iter().find(|m| m.from == 48 && m.to == 56 && m.promotion == 14);
+        let knight_promo = moves.iter().find(|m| m.from == 48 && m.to == 56 && m.promotion == 12);
+        let rook_promo = moves.iter().find(|m| m.from == 48 && m.to == 56 && m.promotion == 11);
+        let bishop_promo = moves.iter().find(|m| m.from == 48 && m.to == 56 && m.promotion == 13);
+
+        assert!(queen_promo.is_some(), "Queen promotion should exist");
+        assert!(knight_promo.is_some(), "Knight promotion should exist");
+        assert!(rook_promo.is_some(), "Rook promotion should exist");
+        assert!(bishop_promo.is_some(), "Bishop promotion should exist");
+
+        assert!(queen_promo.unwrap().gives_check, "Queen promotion on a8 must give check to e8");
+        assert!(rook_promo.unwrap().gives_check, "Rook promotion on a8 must give check to e8");
+        assert!(!knight_promo.unwrap().gives_check, "Knight promotion on a8 must NOT give check to e8");
+        assert!(!bishop_promo.unwrap().gives_check, "Bishop promotion on a8 must NOT give check to e8");
     }
 }

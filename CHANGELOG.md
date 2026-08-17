@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.26.0] - 2026-08-17
+
+### Changed
+- **Magic Bitboard Inner Loop Optimization**:
+  - Removed redundant `init()` calls and `INIT.call_once` atomic synchronization barriers from the hot-paths of `get_bishop_attacks` and `get_rook_attacks` in `src/magic.rs`.
+  - Added explicit one-time startup initialization of magic bitboards in `Service::new()` (`src/service.rs`) and `main()` (`src/main.rs`), eliminating millions of atomic branch checks per second during search tree traversals.
+- **Evaluation Heap-Free Aggressiveness Handling**:
+  - Eliminated `config.clone()` in `calc_eval` within `src/eval_service.rs` when non-default aggressiveness profiles (`Aggressive`, `HighAggressive`) are configured.
+  - Added `set_aggressiveness` and `apply_aggressiveness` helper methods to `Config` (`src/config.rs`) and `src/game_handler.rs`, scaling evaluation weights in-place upon configuration updates and making leaf static evaluation 100% clone-free.
+- **Hot-Path Leaf Function Inlining**:
+  - Added `#[inline(always)]` annotations to central leaf routines across the engine, including `see`, `see_ge`, and `get_piece_value` in `src/search_service.rs`, `calc_incremental_hash`, `get_zobrist_val`, `pack`, `unpack`, `compress_move`, and `decompress_move` in `src/zobrist.rs`, and `piece_to_bb_idx` in `src/model.rs`.
+
+### Fixed
+- **Promotion Move Mutation State Bug**:
+  - Fixed an underpromotion loop mutation bug in `validate_and_add_promotion_moves` (`src/move_gen_service.rs`) where `turn.gives_check` and `turn.rank` were mutated during queen promotion without being reset before evaluating subsequent underpromotions (e.g. knight promotion). Now `base_rank` and `gives_check = false` are explicitly restored for each promotion candidate.
+
+### Added
+- **Config Aggressiveness & Movegen Promotion Regression Tests**:
+  - Added unit test `test_config_aggressiveness_scaling` in `src/config.rs` verifying that `Normal`, `Aggressive`, and `HighAggressive` profiles correctly scale all 9 evaluation factors in-place without requiring leaf heap clones.
+  - Added unit test `test_promotion_gives_check_independence` in `src/move_gen_service.rs` verifying that underpromotions (knight, bishop) maintain independent `gives_check` state and do not inherit check flags from queen promotions.
+
+
+
 ## [V0.25.1] - 2026-08-04
 
 ### Changed
