@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.0] - 2026-08-19
+
+### Added
+- **Insufficient Material Draw Detection (`is_insufficient_material`)**:
+  - Implemented an instant 1-cycle fast path (`(white_pawns | black_pawns) != 0`) in `src/eval_service.rs` at the entry points of both `cheap_eval` and `calc_eval`.
+  - Automatically identifies dead drawn material configurations ($KvK$, $KNvK$, $KBvK$, $KNNvK$, and same-color bishop endings $KBvKB$ without pawns) and returns `0.00` cp immediately.
+  - Eliminates catastrophic evaluation leaks in deep search trees where material advantages in dead drawn endgames previously led to incorrect horizon trade-downs (e.g., trading down into $K+N$ vs $K$ believing it was winning $+3.2$ pawns).
+- **Endgame Mop-Up Heuristics (`apply_endgame_mopup`)**:
+  - Implemented geometric king cornering and Chebyshev king-to-king proximity heuristics in `src/eval_service.rs` for winning pawnless endgames with minor/major pieces (`game_phase <= 60`, `eval.abs() >= 400`, `winning_non_pawns != 0`, `losing_pawns == 0`).
+  - Rewards driving the losing king from the center towards board edges and corners via Manhattan distance to center, combined with rewarding close Chebyshev king-to-king proximity (`(7 - king_dist) * mopup_proximity_weight`).
+  - Establishes a steep search gradient towards forced checkmate in simple pawnless endgames (such as $K+R$ vs $K$, $K+Q$ vs $K$, $K+B+B$ vs $K$), eliminating wandering king shuffles and 50-move rule draws.
+- **Configurable Mop-Up Parameterization & UCI Option Integration**:
+  - Added new configuration fields to `Config` in `src/config.rs`: `enable_endgame_mopup` (default: `true`), `mopup_center_weight` (default: `10`), `mopup_proximity_weight` (default: `15`), `mopup_eval_threshold` (default: `400`), and `mopup_max_game_phase` (default: `60`).
+  - Integrated dynamic UCI `setoption` command parsing for all Mop-Up parameters in `src/game_handler.rs` and included them in engine debug logging.
+- **HCE Endgame Test Suite & Monotonic Gradient Verification**:
+  - Added unit test `test_insufficient_material_detection` in `src/eval_service.rs` validating draw evaluations across $KvK$, $KNvK$, $KBvK$, $KNNvK$, and $KBvKB$ (same-color), while verifying that positions with pawns ($KPvK$) or rooks ($KRvK$) remain unsuppressed.
+  - Added unit test `test_endgame_mopup_heuristics` in `src/eval_service.rs` validating cornering advantage, pawn safety deactivation, and black-winning score symmetry.
+  - Added unit tests `test_endgame_mopup_edge_push_monotonic_gradient` and `test_endgame_mopup_king_proximity_monotonic_gradient` in `src/eval_service.rs` verifying strictly monotonic evaluation growth as the enemy king is driven from center to corner ($d4 \to c5 \to c8 \to a8$) and as the friendly king approaches the cornered king ($d=7 \to d=5 \to d=3 \to d=2 \to d=1$).
+
+
+
 ## [V0.26.3] - 2026-08-19
 
 ### Changed
