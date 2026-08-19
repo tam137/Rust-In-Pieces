@@ -175,7 +175,7 @@ impl Config {
             cache_book_in_ram: true,
             book_file: String::new(),
             max_zobrist_hash_entries: 50_000_000, // 800 MB
-            max_pawn_hash_entries: 10_000_000, // 150 MB
+            max_pawn_hash_entries: 1_000_000, // 15 MB
             search_depth: 4, // only used as default for tests
             max_depth: 99,
             truncate_bad_moves: 99,
@@ -346,9 +346,7 @@ impl Config {
     }
 
     pub fn new() -> Config {
-        let mut config = Self::new_raw();
-        config.set_aggressiveness(Aggressiveness::HighAggressive);
-        config
+        Self::new_raw()
     }
 
     pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
@@ -601,5 +599,13 @@ mod tests {
         assert_eq!(high_aggressive_config.king_ring_attack_knight, base_config.king_ring_attack_knight * 2);
         assert_eq!(high_aggressive_config.queen_in_attack, (base_config.queen_in_attack * 16) / 10);
         assert_eq!(high_aggressive_config.knight_mobility_factor, (base_config.knight_mobility_factor * 14) / 10);
+    }
+
+    #[test]
+    fn test_config_default_initialization() {
+        let config = Config::new();
+        assert_eq!(config.aggressiveness, Aggressiveness::Normal);
+        assert_eq!(config.max_pawn_hash_entries, 1_000_000);
+        assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
     }
 }
