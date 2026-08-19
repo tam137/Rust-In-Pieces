@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.26.3] - 2026-08-19
+
+### Changed
+- **Pawn Hash Table Capacity Restored to 16 MB (1,000,000 Entries)**:
+  - Reverted default Pawn Hash Table capacity `max_pawn_hash_entries` from `10,000,000` (~160 MB) back to `1,000,000` entries (~16 MB RAM allocation) in `src/config.rs`.
+  - Drastically shrinks working set memory footprint and eliminates CPU L3 cache pollution, TLB thrashing, and RAM bandwidth bottlenecks during high-speed parallel search and tournament match play.
+- **Default Tactical Profile Restored to Normal Baseline**:
+  - Restored `Aggressiveness::Normal` as the engine default profile in `Config::new()` (`src/config.rs`), re-aligning with the proven evaluation baseline from `v0.25.0`.
+  - Re-aligned UCI option `Aggressiveness` default value to `Normal` in `src/threads.rs`.
+
+### Added
+- **Default Configuration Initialization Test**:
+  - Added unit test `test_config_default_initialization` in `src/config.rs` verifying that default startup configuration enforces `max_pawn_hash_entries == 1,000,000`, `max_zobrist_hash_entries == 50,000,000`, and `aggressiveness == Aggressiveness::Normal`.
+
+
+
 ## [V0.26.2] - 2026-08-17
 
 ### Changed
