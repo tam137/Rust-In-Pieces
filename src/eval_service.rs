@@ -139,6 +139,10 @@ impl EvalService {
     }
 
     pub fn cheap_eval(&self, board: &Board, config: &Config, pawn_table: &crate::pawn_hash::PawnHashTable) -> i16 {
+        if Self::is_insufficient_material(board) {
+            return 0;
+        }
+
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
@@ -164,6 +168,9 @@ impl EvalService {
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
         if config.use_nnue && self.nnue_net.loaded {
             return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
+        }
+        if Self::is_insufficient_material(board) {
+            return 0;
         }
         let cheap = self.cheap_eval(board, config, pawn_table);
         let game_phase = self.get_game_phase(board);
@@ -552,6 +559,8 @@ impl EvalService {
         if Self::is_opposite_colored_bishops_endgame(board) {
             eval = (eval * config.opposite_bishops_draw_scale) / 100;
         }
+
+        eval = self.apply_endgame_mopup(eval, board, game_phase, config);
 
         eval = self.adjust_eval(eval, game_phase, config);
 
@@ -1493,6 +1502,129 @@ impl EvalService {
         false
     }
 
+    #[inline(always)]
+    pub fn is_insufficient_material(board: &Board) -> bool {
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+
+        // 1-cycle fast path: any pawns on board -> not insufficient material
+        if (white_pawns | black_pawns) != 0 {
+            return false;
+        }
+
+        let w_rooks = board.bitboards[crate::model::WHITE_ROOK];
+        let w_queens = board.bitboards[crate::model::WHITE_QUEEN];
+        let b_rooks = board.bitboards[crate::model::BLACK_ROOK];
+        let b_queens = board.bitboards[crate::model::BLACK_QUEEN];
+
+        if (w_rooks | w_queens | b_rooks | b_queens) != 0 {
+            return false;
+        }
+
+        let w_knights = board.bitboards[crate::model::WHITE_KNIGHT].count_ones();
+        let w_bishops = board.bitboards[crate::model::WHITE_BISHOP].count_ones();
+        let b_knights = board.bitboards[crate::model::BLACK_KNIGHT].count_ones();
+        let b_bishops = board.bitboards[crate::model::BLACK_BISHOP].count_ones();
+
+        let w_minors = w_knights + w_bishops;
+        let b_minors = b_knights + b_bishops;
+
+        // KvK
+        if w_minors + b_minors == 0 {
+            return true;
+        }
+
+        // KNvK or KBvK (one side has at most 1 minor piece, other side has 0)
+        if (w_minors <= 1 && b_minors == 0) || (b_minors <= 1 && w_minors == 0) {
+            return true;
+        }
+
+        // KNNvK (two knights vs bare king cannot force checkmate)
+        if (w_knights == 2 && w_bishops == 0 && b_minors == 0)
+            || (b_knights == 2 && b_bishops == 0 && w_minors == 0)
+        {
+            return true;
+        }
+
+        // KBvKB with same-color bishops (no pawns)
+        if w_bishops == 1 && w_knights == 0 && b_bishops == 1 && b_knights == 0 {
+            let w_sq = board.bitboards[crate::model::WHITE_BISHOP].trailing_zeros() as i32;
+            let b_sq = board.bitboards[crate::model::BLACK_BISHOP].trailing_zeros() as i32;
+            let w_color = (w_sq % 8 + w_sq / 8) % 2;
+            let b_color = (b_sq % 8 + b_sq / 8) % 2;
+            if w_color == b_color {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    #[inline(always)]
+    pub fn apply_endgame_mopup(&self, mut eval: i16, board: &Board, game_phase: i16, config: &Config) -> i16 {
+        if !config.enable_endgame_mopup
+            || game_phase > config.mopup_max_game_phase
+            || eval.abs() < config.mopup_eval_threshold
+        {
+            return eval;
+        }
+
+        let white_winning = eval > 0;
+        let (winning_non_pawns, losing_pawns) = if white_winning {
+            (
+                board.bitboards[crate::model::WHITE_KNIGHT]
+                    | board.bitboards[crate::model::WHITE_BISHOP]
+                    | board.bitboards[crate::model::WHITE_ROOK]
+                    | board.bitboards[crate::model::WHITE_QUEEN],
+                board.bitboards[crate::model::BLACK_PAWN],
+            )
+        } else {
+            (
+                board.bitboards[crate::model::BLACK_KNIGHT]
+                    | board.bitboards[crate::model::BLACK_BISHOP]
+                    | board.bitboards[crate::model::BLACK_ROOK]
+                    | board.bitboards[crate::model::BLACK_QUEEN],
+                board.bitboards[crate::model::WHITE_PAWN],
+            )
+        };
+
+        if winning_non_pawns != 0 && losing_pawns == 0 {
+            let winning_king_sq = if white_winning {
+                board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32
+            } else {
+                board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32
+            };
+            let losing_king_sq = if white_winning {
+                board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32
+            } else {
+                board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32
+            };
+
+            let losing_rank = losing_king_sq / 8;
+            let losing_file = losing_king_sq % 8;
+
+            // 1. Center distance of losing king (pushing to edge/corners)
+            let center_dist_rank = (losing_rank - 3).abs().max((losing_rank - 4).abs());
+            let center_dist_file = (losing_file - 3).abs().max((losing_file - 4).abs());
+            let push_to_edge_bonus =
+                (center_dist_rank + center_dist_file) * config.mopup_center_weight as i32;
+
+            // 2. Proximity between kings (Chebyshev distance)
+            let winning_rank = winning_king_sq / 8;
+            let winning_file = winning_king_sq % 8;
+            let king_dist = (winning_rank - losing_rank).abs().max((winning_file - losing_file).abs());
+            let close_kings_bonus = (7 - king_dist) * config.mopup_proximity_weight as i32;
+
+            let mopup_total = (push_to_edge_bonus + close_kings_bonus) as i16;
+            if white_winning {
+                eval += mopup_total;
+            } else {
+                eval -= mopup_total;
+            }
+        }
+        eval
+    }
+
 
     fn white_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
@@ -1704,7 +1836,8 @@ mod tests {
 
     #[test]
     fn unequal_position_test() {
-        eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
+        // Asymmetric King position with pawns on board (Black king centralized on c4 vs White on g3)
+        eval_between("8/p7/8/8/2k5/6K1/P7/8 w - - 0 1", -120, -60);
     }
 
     #[test]
@@ -2085,5 +2218,192 @@ mod tests {
             "Stderr should contain critical error log, got: {}",
             stderr
         );
+    }
+
+    #[test]
+    fn test_insufficient_material_detection() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // 1. KvK (Draw)
+        let board_kvk = fen_service.set_fen("8/8/8/4k3/8/8/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kvk));
+        assert_eq!(eval_service.calc_eval(&board_kvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+        assert_eq!(eval_service.cheap_eval(&board_kvk, &config, &pawn_table), 0);
+
+        // 2. KNvK (Draw)
+        let board_knvk = fen_service.set_fen("8/8/8/4k3/8/5N2/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_knvk));
+        assert_eq!(eval_service.calc_eval(&board_knvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+        assert_eq!(eval_service.cheap_eval(&board_knvk, &config, &pawn_table), 0);
+
+        // 3. KBvK (Draw)
+        let board_kbvk = fen_service.set_fen("8/8/8/4k3/8/5B2/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kbvk));
+        assert_eq!(eval_service.calc_eval(&board_kbvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+        assert_eq!(eval_service.cheap_eval(&board_kbvk, &config, &pawn_table), 0);
+
+        // 4. KNNvK (Draw)
+        let board_knnvk = fen_service.set_fen("8/8/8/4k3/8/5NN1/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_knnvk));
+        assert_eq!(eval_service.calc_eval(&board_knnvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+        assert_eq!(eval_service.cheap_eval(&board_knnvk, &config, &pawn_table), 0);
+
+        // 5. KBvKB same-color bishops (Draw)
+        // c1 is dark (2+0=2%2=0), f4 is dark (5+3=8%2=0) -> same color
+        let board_kbvkb_same = fen_service.set_fen("8/8/8/8/5b2/8/4K3/2B1k3 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kbvkb_same));
+        assert_eq!(eval_service.calc_eval(&board_kbvkb_same, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+
+        // 6. KBvKB opposite-color bishops (NOT insufficient material directly, but opposite bishops draw scale applies)
+        // c1 is dark (2+0=2%2=0), c4 is light (2+3=5%2=1) -> opposite color
+        let board_kbvkb_opp = fen_service.set_fen("8/8/8/8/2b5/8/4K3/2B1k3 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_kbvkb_opp));
+
+        // 7. KPvK (Pawns present -> NOT insufficient material)
+        let board_kpvk = fen_service.set_fen("8/8/8/4k3/8/5P2/4K3/8 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_kpvk));
+        assert_ne!(eval_service.calc_eval(&board_kpvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+
+        // 8. KRvK (Rooks present -> NOT insufficient material)
+        let board_krvk = fen_service.set_fen("8/8/8/4k3/8/5R2/4K3/8 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_krvk));
+        assert_ne!(eval_service.calc_eval(&board_krvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX), 0);
+    }
+
+    #[test]
+    fn test_endgame_mopup_heuristics() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White K+R vs Black K. Black King is on a8 (corner, rank 7, file 0) and White King is on b6 (close, rank 5, file 1).
+        let board_cornered = fen_service.set_fen("k7/8/1K6/8/8/8/1R6/8 w - - 0 1");
+        let eval_cornered = eval_service.calc_eval(&board_cornered, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Position B: White K+R vs Black K. Black King is on d4 (center, rank 3, file 3) and White King is on h1 (distant).
+        let board_centered = fen_service.set_fen("8/8/8/8/3k4/8/1R6/7K w - - 0 1");
+        let eval_centered = eval_service.calc_eval(&board_centered, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_cornered > eval_centered + 50,
+            "Cornered and closely contained enemy king should have significantly higher score due to Mop-Up (got cornered={}, centered={})",
+            eval_cornered,
+            eval_centered
+        );
+
+        // Test Mop-Up disabled when losing side has pawns
+        let board_with_black_pawn = fen_service.set_fen("k7/p7/1K6/8/8/8/1R6/8 w - - 0 1");
+        let mut config_no_mop = config.clone();
+        config_no_mop.enable_endgame_mopup = false;
+
+        let eval_with_pawn = eval_service.calc_eval(&board_with_black_pawn, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+        let eval_with_pawn_no_mop = eval_service.calc_eval(&board_with_black_pawn, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX);
+        assert_eq!(
+            eval_with_pawn, eval_with_pawn_no_mop,
+            "Mop-Up should not be applied if the losing side still has pawns"
+        );
+
+        // Test Black winning Mop-Up symmetry
+        let board_black_winning = fen_service.set_fen("8/1r6/8/8/8/1k6/8/K7 b - - 0 1");
+        let eval_black_winning = eval_service.calc_eval(&board_black_winning, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+        assert!(
+            eval_black_winning < -500,
+            "Black winning in pawnless endgame should have a strongly negative evaluation"
+        );
+    }
+
+    #[test]
+    fn test_endgame_mopup_edge_push_monotonic_gradient() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Black King at different positions with White King at b1 and Rook at b2:
+        // 1. Center (d4: rank 3, file 3 -> center dist = 0+0 = 0)
+        let board_center = fen_service.set_fen("8/8/8/8/3k4/8/1R6/1K6 w - - 0 1");
+        let eval_center = eval_service.calc_eval(&board_center, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // 2. Semi-Center (c5: rank 4, file 2 -> center dist = 0+1 = 1)
+        let board_semi = fen_service.set_fen("8/8/8/2k5/8/8/1R6/1K6 w - - 0 1");
+        let eval_semi = eval_service.calc_eval(&board_semi, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // 3. Edge (c8: rank 7, file 2 -> center dist = 3+1 = 4)
+        let board_edge = fen_service.set_fen("2k5/8/8/8/8/8/1R6/1K6 w - - 0 1");
+        let eval_edge = eval_service.calc_eval(&board_edge, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // 4. Corner (a8: rank 7, file 0 -> center dist = 3+3 = 6)
+        let board_corner = fen_service.set_fen("k7/8/8/8/8/8/1R6/1K6 w - - 0 1");
+        let eval_corner = eval_service.calc_eval(&board_corner, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_center < eval_semi,
+            "Semi-center king position should evaluate higher than pure center (center={}, semi={})",
+            eval_center, eval_semi
+        );
+        assert!(
+            eval_semi < eval_edge,
+            "Edge king position should evaluate higher than semi-center (semi={}, edge={})",
+            eval_semi, eval_edge
+        );
+        assert!(
+            eval_edge < eval_corner,
+            "Corner king position should evaluate higher than edge (edge={}, corner={})",
+            eval_edge, eval_corner
+        );
+    }
+
+    #[test]
+    fn test_endgame_mopup_king_proximity_monotonic_gradient() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        let get_mopup_bonus = |fen: &str| -> i16 {
+            let board = fen_service.set_fen(fen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+            let mut config_no_mop = config.clone();
+            config_no_mop.enable_endgame_mopup = false;
+            let eval_without = eval_service.calc_eval(&board, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX);
+            eval_with - eval_without
+        };
+
+        // Enemy King fixed at a8, White Rook on h2.
+        // White King moves progressively closer from distance 7 down to distance 1:
+        // 1. Dist = 7 (White King at h1): proximity bonus = (7 - 7) * 15 = 0
+        let mop_d7 = get_mopup_bonus("k7/8/8/8/8/8/7R/7K w - - 0 1");
+
+        // 2. Dist = 5 (White King at f3): proximity bonus = (7 - 5) * 15 = 30
+        let mop_d5 = get_mopup_bonus("k7/8/8/8/8/5K2/7R/8 w - - 0 1");
+
+        // 3. Dist = 3 (White King at d5): proximity bonus = (7 - 3) * 15 = 60
+        let mop_d3 = get_mopup_bonus("k7/8/8/3K4/8/8/7R/8 w - - 0 1");
+
+        // 4. Dist = 2 (White King at c6): proximity bonus = (7 - 2) * 15 = 75
+        let mop_d2 = get_mopup_bonus("k7/8/2K5/8/8/8/7R/8 w - - 0 1");
+
+        // 5. Dist = 1 (White King at b7): proximity bonus = (7 - 1) * 15 = 90
+        let mop_d1 = get_mopup_bonus("k7/1K6/8/8/8/8/7R/8 w - - 0 1");
+
+        assert!(mop_d7 < mop_d5, "d5 bonus must exceed d7: {} vs {}", mop_d5, mop_d7);
+        assert!(mop_d5 < mop_d3, "d3 bonus must exceed d5: {} vs {}", mop_d3, mop_d5);
+        assert!(mop_d3 < mop_d2, "d2 bonus must exceed d3: {} vs {}", mop_d2, mop_d3);
+        assert!(mop_d2 < mop_d1, "d1 bonus must exceed d2: {} vs {}", mop_d1, mop_d2);
     }
 }
