@@ -115,6 +115,11 @@ pub struct Config {
     pub bishop_outpost_true_mg: i16,
     pub bishop_outpost_true_eg: i16,
     pub opposite_bishops_draw_scale: i16,
+    pub enable_endgame_mopup: bool,
+    pub mopup_center_weight: i16,
+    pub mopup_proximity_weight: i16,
+    pub mopup_eval_threshold: i16,
+    pub mopup_max_game_phase: i16,
     pub rook_behind_enemy_passed_pawn_mg: i16,
     pub rook_behind_enemy_passed_pawn_eg: i16,
     pub king_trapp_at_baseline_malus: i16,
@@ -272,6 +277,11 @@ impl Config {
             bishop_outpost_true_mg: 21,
             bishop_outpost_true_eg: 11,
             opposite_bishops_draw_scale: 51,
+            enable_endgame_mopup: true,
+            mopup_center_weight: 10,
+            mopup_proximity_weight: 15,
+            mopup_eval_threshold: 400,
+            mopup_max_game_phase: 60,
             rook_behind_enemy_passed_pawn_mg: 10,
             rook_behind_enemy_passed_pawn_eg: 24,
             king_trapp_at_baseline_malus: 71,
@@ -396,6 +406,7 @@ impl Config {
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
         config.use_nnue = false;
+        config.enable_endgame_mopup = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.move_overhead = 0;
@@ -434,6 +445,7 @@ impl Config {
     pub fn for_tests() -> Self {
         let mut config = Config::new();
         config.use_nnue = false;
+        config.enable_endgame_mopup = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.print_info_string_during_search = false;
@@ -542,6 +554,11 @@ impl Config {
         msg.push_str(&format!("  bishop_outpost_true_mg: {}\n", self.bishop_outpost_true_mg));
         msg.push_str(&format!("  bishop_outpost_true_eg: {}\n", self.bishop_outpost_true_eg));
         msg.push_str(&format!("  opposite_bishops_draw_scale: {}\n", self.opposite_bishops_draw_scale));
+        msg.push_str(&format!("  enable_endgame_mopup: {}\n", self.enable_endgame_mopup));
+        msg.push_str(&format!("  mopup_center_weight: {}\n", self.mopup_center_weight));
+        msg.push_str(&format!("  mopup_proximity_weight: {}\n", self.mopup_proximity_weight));
+        msg.push_str(&format!("  mopup_eval_threshold: {}\n", self.mopup_eval_threshold));
+        msg.push_str(&format!("  mopup_max_game_phase: {}\n", self.mopup_max_game_phase));
         msg.push_str(&format!("  rook_behind_enemy_passed_pawn_mg: {}\n", self.rook_behind_enemy_passed_pawn_mg));
         msg.push_str(&format!("  rook_behind_enemy_passed_pawn_eg: {}\n", self.rook_behind_enemy_passed_pawn_eg));
         msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
