@@ -560,9 +560,9 @@ impl EvalService {
             eval = (eval * config.opposite_bishops_draw_scale) / 100;
         }
 
-        eval = self.apply_endgame_mopup(eval, board, game_phase, config);
-
         eval = self.adjust_eval(eval, game_phase, config);
+
+        eval = self.apply_endgame_mopup(eval, board, game_phase, config);
 
         if config.print_eval_per_figure {
             println!("{}", eval);
@@ -1570,12 +1570,16 @@ impl EvalService {
         }
 
         let white_winning = eval > 0;
-        let (winning_non_pawns, losing_pawns) = if white_winning {
+        let (winning_non_pawns, losing_non_pawns, losing_pawns) = if white_winning {
             (
                 board.bitboards[crate::model::WHITE_KNIGHT]
                     | board.bitboards[crate::model::WHITE_BISHOP]
                     | board.bitboards[crate::model::WHITE_ROOK]
                     | board.bitboards[crate::model::WHITE_QUEEN],
+                board.bitboards[crate::model::BLACK_KNIGHT]
+                    | board.bitboards[crate::model::BLACK_BISHOP]
+                    | board.bitboards[crate::model::BLACK_ROOK]
+                    | board.bitboards[crate::model::BLACK_QUEEN],
                 board.bitboards[crate::model::BLACK_PAWN],
             )
         } else {
@@ -1584,11 +1588,15 @@ impl EvalService {
                     | board.bitboards[crate::model::BLACK_BISHOP]
                     | board.bitboards[crate::model::BLACK_ROOK]
                     | board.bitboards[crate::model::BLACK_QUEEN],
+                board.bitboards[crate::model::WHITE_KNIGHT]
+                    | board.bitboards[crate::model::WHITE_BISHOP]
+                    | board.bitboards[crate::model::WHITE_ROOK]
+                    | board.bitboards[crate::model::WHITE_QUEEN],
                 board.bitboards[crate::model::WHITE_PAWN],
             )
         };
 
-        if winning_non_pawns != 0 && losing_pawns == 0 {
+        if winning_non_pawns != 0 && losing_non_pawns == 0 && losing_pawns == 0 {
             let winning_king_sq = if white_winning {
                 board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32
             } else {
@@ -2405,5 +2413,44 @@ mod tests {
         assert!(mop_d5 < mop_d3, "d3 bonus must exceed d5: {} vs {}", mop_d3, mop_d5);
         assert!(mop_d3 < mop_d2, "d2 bonus must exceed d3: {} vs {}", mop_d2, mop_d3);
         assert!(mop_d2 < mop_d1, "d1 bonus must exceed d2: {} vs {}", mop_d1, mop_d2);
+    }
+
+    #[test]
+    fn test_endgame_mopup_disabled_when_losing_side_has_pieces() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        let verify_mopup_inactive = |fen: &str, description: &str| {
+            let board = fen_service.set_fen(fen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+            let mut config_no_mop = config.clone();
+            config_no_mop.enable_endgame_mopup = false;
+            let eval_without = eval_service.calc_eval(&board, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX);
+            assert_eq!(
+                eval_with, eval_without,
+                "Mop-Up should be disabled when defending side has pieces: {}",
+                description
+            );
+        };
+
+        // 1. KQ vs KR (Black has Rook)
+        verify_mopup_inactive("k7/8/8/8/8/8/1r6/1K1Q4 w - - 0 1", "KQ vs KR");
+
+        // 2. KRB vs KR (Black has Rook)
+        verify_mopup_inactive("k7/8/8/8/8/8/1r6/1KBR4 w - - 0 1", "KRB vs KR");
+
+        // 3. KQ vs KQ (Black has Queen)
+        verify_mopup_inactive("k7/8/8/8/8/8/1q6/1K1Q4 w - - 0 1", "KQ vs KQ");
+
+        // 4. KR vs KN (Black has Knight)
+        verify_mopup_inactive("k7/8/8/8/8/8/1n6/1K1R4 w - - 0 1", "KR vs KN");
+
+        // 5. KR vs KB (Black has Bishop)
+        verify_mopup_inactive("k7/8/8/8/8/8/1b6/1K1R4 w - - 0 1", "KR vs KB");
     }
 }

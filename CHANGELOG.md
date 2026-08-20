@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.1] - 2026-08-20
+
+### Fixed
+- **Bare-King Mop-Up Activation Guard (`apply_endgame_mopup`)**:
+  - Fixed a critical activation defect in `src/eval_service.rs` where Mop-Up heuristics were previously triggered whenever `winning_non_pawns != 0 && losing_pawns == 0`, ignoring whether the defending side possessed active pieces (`losing_non_pawns`).
+  - In pawnless piece endgames (e.g. $Q$ vs $R$, $R+B$ vs $R$, $Q$ vs $Q$, $R$ vs $R$), this defect falsely rewarded marching the winning king toward enemy pieces with up to $+90$ cp, exposing the king to skewers, forks, checks, and tactical counterplay.
+  - Strictly enforced `winning_non_pawns != 0 && losing_non_pawns == 0 && losing_pawns == 0`, ensuring Mop-Up activates exclusively against a true bare King ($K$).
+- **Mop-Up Evaluation Scaling Order in Search Pipeline (`calc_eval`)**:
+  - Reordered the evaluation pipeline in `src/eval_service.rs` to execute `adjust_eval` prior to `apply_endgame_mopup`.
+  - In deep endgames (`game_phase <= 60`), `adjust_eval` applies dynamic multiplier scaling of up to $2.0\times$ (`mult = 255 / (game_phase + 100)`). Executing Mop-Up post-adjustment prevents double-amplification from blowing up the $+170$ cp geometric bonus to $+340$ cp (over a full minor piece), preserving genuine material and tactical evaluation balances.
+
+### Added
+- **Piece Endgame Deactivation Test Suite**:
+  - Added unit test `test_endgame_mopup_disabled_when_losing_side_has_pieces` in `src/eval_service.rs` verifying that pawnless endgames where the defending side retains pieces ($K+Q$ vs $K+R$, $K+R+B$ vs $K+R$, $K+Q$ vs $K+Q$, $K+R$ vs $K+N$, $K+R$ vs $K+B$) maintain identical evaluations with or without `enable_endgame_mopup`.
+
+
+
 ## [V0.27.0] - 2026-08-19
 
 ### Added
