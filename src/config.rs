@@ -141,6 +141,11 @@ pub struct Config {
     pub rook_mobility_factor: i16,
     pub queen_mobility_factor: i16,
     pub king_passer_dist_weight: i16,
+    pub king_open_file_heavy_threat_malus: i16,
+    pub rook_open_file_attacks_king: i16,
+    pub rook_open_file_attacks_queen: i16,
+    pub pawn_phalanx_mg: i16,
+    pub pawn_phalanx_eg: i16,
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
@@ -307,6 +312,11 @@ impl Config {
             rook_mobility_factor: 2,
             queen_mobility_factor: 1,
             king_passer_dist_weight: 12,
+            king_open_file_heavy_threat_malus: 15,
+            rook_open_file_attacks_king: 15,
+            rook_open_file_attacks_queen: 10,
+            pawn_phalanx_mg: 8,
+            pawn_phalanx_eg: 4,
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
@@ -427,6 +437,11 @@ impl Config {
         config.threat_rook_attacks_queen = 0;
         config.king_open_file_malus = 0;
         config.king_half_open_file_malus = 0;
+        config.king_open_file_heavy_threat_malus = 0;
+        config.rook_open_file_attacks_king = 0;
+        config.rook_open_file_attacks_queen = 0;
+        config.pawn_phalanx_mg = 0;
+        config.pawn_phalanx_eg = 0;
         config.undeveloped_knight_malus = 0;
         config.undeveloped_bishop_malus = 0;
         config.undeveloped_king_malus = 0;
@@ -592,6 +607,11 @@ impl Config {
 
         msg.push_str(&format!("  king_open_file_malus: {}\n", self.king_open_file_malus));
         msg.push_str(&format!("  king_half_open_file_malus: {}\n", self.king_half_open_file_malus));
+        msg.push_str(&format!("  king_open_file_heavy_threat_malus: {}\n", self.king_open_file_heavy_threat_malus));
+        msg.push_str(&format!("  rook_open_file_attacks_king: {}\n", self.rook_open_file_attacks_king));
+        msg.push_str(&format!("  rook_open_file_attacks_queen: {}\n", self.rook_open_file_attacks_queen));
+        msg.push_str(&format!("  pawn_phalanx_mg: {}\n", self.pawn_phalanx_mg));
+        msg.push_str(&format!("  pawn_phalanx_eg: {}\n", self.pawn_phalanx_eg));
         msg.push_str(&format!("  king_ring_defender_value: {}\n", self.king_ring_defender_value));
         msg.push_str(&format!("  threat_minor_attacks_rook: {}\n", self.threat_minor_attacks_rook));
         msg.push_str(&format!("  threat_minor_attacks_queen: {}\n", self.threat_minor_attacks_queen));

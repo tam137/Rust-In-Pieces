@@ -662,6 +662,14 @@ impl EvalService {
             e_eval -= config.pawn_backward_malus + 10;
         }
 
+        let has_phalanx = (file > 0 && ((1u64 << (sq - 1)) & white_pawns) != 0) ||
+                          (file < 7 && ((1u64 << (sq + 1)) & white_pawns) != 0);
+        if has_phalanx && (3..=5).contains(&rank) {
+            let advancement = (rank - 2) as i16;
+            o_eval += config.pawn_phalanx_mg * advancement;
+            e_eval += config.pawn_phalanx_eg * advancement;
+        }
+
         (o_eval, e_eval)
     }
 
@@ -753,6 +761,14 @@ impl EvalService {
             e_eval += config.pawn_backward_malus + 10;
         }
 
+        let has_phalanx = (file > 0 && ((1u64 << (sq - 1)) & black_pawns) != 0) ||
+                          (file < 7 && ((1u64 << (sq + 1)) & black_pawns) != 0);
+        if has_phalanx && (2..=4).contains(&rank) {
+            let advancement = (5 - rank) as i16;
+            o_eval -= config.pawn_phalanx_mg * advancement;
+            e_eval -= config.pawn_phalanx_eg * advancement;
+        }
+
         (o_eval, e_eval)
     }
 
@@ -776,6 +792,15 @@ impl EvalService {
                 // Half-open file
                 o_eval += config.rook_half_open_file;
                 e_eval += config.rook_half_open_file + 5;
+            }
+
+            let black_king = board.bitboards[crate::model::BLACK_KING];
+            let black_queen = board.bitboards[crate::model::BLACK_QUEEN];
+            if (black_king & file_mask) != 0 {
+                o_eval += config.rook_open_file_attacks_king;
+            }
+            if (black_queen & file_mask) != 0 {
+                o_eval += config.rook_open_file_attacks_queen;
             }
         }
 
@@ -867,6 +892,15 @@ impl EvalService {
                 // Half-open file
                 o_eval -= config.rook_half_open_file;
                 e_eval -= config.rook_half_open_file + 5;
+            }
+
+            let white_king = board.bitboards[crate::model::WHITE_KING];
+            let white_queen = board.bitboards[crate::model::WHITE_QUEEN];
+            if (white_king & file_mask) != 0 {
+                o_eval -= config.rook_open_file_attacks_king;
+            }
+            if (white_queen & file_mask) != 0 {
+                o_eval -= config.rook_open_file_attacks_queen;
             }
         }
 
@@ -1252,10 +1286,17 @@ impl EvalService {
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
         let file_mask = 0x0101010101010101u64 << file;
         if (file_mask & white_pawns) == 0 {
+            let opp_heavy_on_file = (board.bitboards[crate::model::BLACK_ROOK] | board.bitboards[crate::model::BLACK_QUEEN]) & file_mask != 0;
             if (file_mask & black_pawns) == 0 {
                 o_eval -= config.king_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval -= config.king_open_file_heavy_threat_malus;
+                }
             } else {
                 o_eval -= config.king_half_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval -= config.king_open_file_heavy_threat_malus / 2;
+                }
             }
         }
         if file > 0 && sq + 7 < 64 {
@@ -1325,10 +1366,17 @@ impl EvalService {
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
         let file_mask = 0x0101010101010101u64 << file;
         if (file_mask & black_pawns) == 0 {
+            let opp_heavy_on_file = (board.bitboards[crate::model::WHITE_ROOK] | board.bitboards[crate::model::WHITE_QUEEN]) & file_mask != 0;
             if (file_mask & white_pawns) == 0 {
                 o_eval += config.king_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval += config.king_open_file_heavy_threat_malus;
+                }
             } else {
                 o_eval += config.king_half_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval += config.king_open_file_heavy_threat_malus / 2;
+                }
             }
         }
         if file > 0 && sq >= 9 {
@@ -1605,7 +1653,19 @@ impl EvalService {
             return true;
         }
 
-        // KBvKB with same-color bishops (no pawns)
+        // KN vs KN (one knight each, no pawns or other pieces)
+        if w_knights == 1 && w_bishops == 0 && b_knights == 1 && b_bishops == 0 {
+            return true;
+        }
+
+        // KB vs KN and KN vs KB (one minor piece each, no pawns or other pieces)
+        if (w_bishops == 1 && w_knights == 0 && b_knights == 1 && b_bishops == 0)
+            || (w_knights == 1 && w_bishops == 0 && b_bishops == 1 && b_knights == 0)
+        {
+            return true;
+        }
+
+        // KB vs KB with same-color bishops (no pawns)
         if w_bishops == 1 && w_knights == 0 && b_bishops == 1 && b_knights == 0 {
             let w_sq = board.bitboards[crate::model::WHITE_BISHOP].trailing_zeros() as i32;
             let b_sq = board.bitboards[crate::model::BLACK_BISHOP].trailing_zeros() as i32;
@@ -2608,6 +2668,124 @@ mod tests {
             eval_w, -eval_b,
             "White and Black king passer proximity must be numerically symmetric: eval_w={}, eval_b={}",
             eval_w, eval_b
+        );
+    }
+
+    #[test]
+    fn test_extended_insufficient_material_detection() {
+        let fen_service = Service::new().fen;
+
+        // 1. KN vs KN
+        let b_kn_kn = fen_service.set_fen("8/8/8/8/8/5n2/8/K1N4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kn_kn), "KN vs KN must be insufficient material (draw)");
+
+        // 2. KB vs KN
+        let b_kb_kn = fen_service.set_fen("8/8/8/8/8/5n2/8/K1B4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kb_kn), "KB vs KN must be insufficient material (draw)");
+
+        // 3. KN vs KB
+        let b_kn_kb = fen_service.set_fen("8/8/8/8/8/5b2/8/K1N4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kn_kb), "KN vs KB must be insufficient material (draw)");
+
+        // 4. KB vs KB (same-color bishops is draw; opposite-colored is scaled by opposite_bishops_draw_scale)
+        let b_kb_kb_same = fen_service.set_fen("5b1k/8/8/8/8/8/8/2B4K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kb_kb_same), "Same-colored KB vs KB must be insufficient material (draw)");
+
+        let b_kb_kb_opp = fen_service.set_fen("4b2k/8/8/8/8/8/8/2B4K w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&b_kb_kb_opp), "Opposite-colored KB vs KB is not insufficient material directly");
+    }
+
+    #[test]
+    fn test_pawn_phalanx_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White pawn phalanx on d4 + e4 (rank 4)
+        let board_phalanx = fen_service.set_fen("7k/8/8/8/3PP3/8/8/K7 w - - 0 1");
+        let eval_phalanx = eval_service.calc_eval(&board_phalanx, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Position B: Disjoint White pawns on d4 + a4 (no phalanx duo)
+        let board_disjoint = fen_service.set_fen("7k/8/8/8/P2P4/8/8/K7 w - - 0 1");
+        let eval_disjoint = eval_service.calc_eval(&board_disjoint, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_phalanx > eval_disjoint,
+            "Pawn phalanx on d4+e4 must score higher than disjoint pawns on d4+a4 (phalanx={}, disjoint={})",
+            eval_phalanx, eval_disjoint
+        );
+    }
+
+    #[test]
+    fn test_pawn_phalanx_black_white_symmetry() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White phalanx on d4 + e4 (rank 4), kings on h1/h8
+        let board_w = fen_service.set_fen("7k/8/8/8/3PP3/8/8/7K w - - 0 1");
+        let eval_w = eval_service.calc_eval(&board_w, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Black phalanx on d5 + e5 (rank 5), kings on h8/h1
+        let board_b = fen_service.set_fen("7k/8/8/3pp3/8/8/8/7K b - - 0 1");
+        let eval_b = eval_service.calc_eval(&board_b, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert_eq!(
+            eval_w, -eval_b,
+            "White and Black pawn phalanx must be numerically symmetric: eval_w={}, eval_b={}",
+            eval_w, eval_b
+        );
+    }
+
+    #[test]
+    fn test_rook_open_file_attacks_king_and_queen() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Rook on e1 on open e-file facing Black Queen on e8
+        let board_aligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/4R1K1 w - - 0 1");
+        let (eval_aligned_q, _, _) = eval_service.white_rook(4, &board_aligned_q, &config, 150, movegen, 0, 0, board_aligned_q.white_pieces);
+
+        // Position B: White Rook on d1 on open d-file with Black Queen on e8 (not aligned)
+        let board_unaligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/3R2K1 w - - 0 1");
+        let (eval_unaligned_q, _, _) = eval_service.white_rook(3, &board_unaligned_q, &config, 150, movegen, 0, 0, board_unaligned_q.white_pieces);
+
+        assert!(
+            eval_aligned_q > eval_unaligned_q,
+            "Rook aligned with enemy Queen on open file must evaluate higher than unaligned rook (aligned={}, unaligned={})",
+            eval_aligned_q, eval_unaligned_q
+        );
+    }
+
+    #[test]
+    fn test_king_open_file_heavy_threat_penalty() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White King on e1 with open e-file facing Black Rook on e8 (heavy piece threat)
+        let board_threat = fen_service.set_fen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_threat, _, _) = eval_service.white_king(4, &board_threat, &config, 150, movegen);
+
+        // Position B: White King on e1 with open e-file facing Black Knight on e8 (no heavy piece on file)
+        let board_no_threat = fen_service.set_fen("4n2k/8/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_no_threat, _, _) = eval_service.white_king(4, &board_no_threat, &config, 150, movegen);
+
+        assert!(
+            eval_threat < eval_no_threat,
+            "King facing enemy Rook on open file must receive heavier malus than facing Knight (threat={}, no_threat={})",
+            eval_threat, eval_no_threat
         );
     }
 }

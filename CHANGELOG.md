@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.3] - 2026-08-20
+
+### Added
+- **Enemy Heavy-Piece Penetration & Threat on King Open Files (`king_open_file_heavy_threat_malus`)**:
+  - Enhanced king safety evaluation in `white_king` and `black_king` in `src/eval_service.rs` to dynamically penalize open and half-open files when opposing heavy pieces (Rooks or Queens) actively occupy that file (`opp_heavy_on_file`).
+  - Differentiates between harmless empty open files in simplified endgames and lethal heavy-piece assault batteries bearing down directly on the King during the opening and middlegame.
+  - Fully parameterized via `king_open_file_heavy_threat_malus: i16 = 15` cp in `src/config.rs` and dynamically tunable via UCI `setoption name KingOpenFileHeavyThreatMalus value <v>`.
+- **Rook Battery & X-Ray Alignment on Open / Semi-Open Files (`rook_open_file_attacks_king`, `rook_open_file_attacks_queen`)**:
+  - Integrated attacking pressure evaluation into `white_rook` and `black_rook` in `src/eval_service.rs` when a Rook occupies an open or semi-open file that directly aligns with the enemy King (`rook_open_file_attacks_king: i16 = 15` cp) or the enemy Queen (`rook_open_file_attacks_queen: i16 = 10` cp).
+  - Rewards establishing vertical batteries and pinning enemy pieces along active file corridors.
+  - Configurable in `src/config.rs` and tunable via UCI `setoption name RookOpenFileAttacksKing value <v>` and `RookOpenFileAttacksQueen`.
+- **Pawn Phalanx (Dynamic Duos) Structural Evaluation (`pawn_phalanx_mg`, `pawn_phalanx_eg`)**:
+  - Implemented Pawn Phalanx formation evaluation in `white_pawn_structure_score` and `black_pawn_structure_score` in `src/eval_service.rs` for horizontally adjacent friendly pawns on the same rank ($f \pm 1$) across ranks 3–5 for White and ranks 2–4 for Black (e.g. d4+e4, c5+d5, f4+g4).
+  - Scales dynamically with advancement rank factor:
+    $$\text{Phalanx Bonus} = \text{pawn\_phalanx\_mg} \times (\text{Advancement Rank} - 2)$$
+  - Evaluated in both middlegame and endgame, providing an incentive for building space-gaining pawn duos that deny enemy outposts.
+  - Configurable via `pawn_phalanx_mg: i16 = 8` cp and `pawn_phalanx_eg: i16 = 4` cp in `src/config.rs` and tunable via UCI `setoption name PawnPhalanxMg value <v>` / `PawnPhalanxEg`.
+- **Extended Theoretical Insufficient Material Dead-Draw Recognition (`is_insufficient_material`)**:
+  - Extended the 1-cycle fast-path insufficient material cutoff in `src/eval_service.rs` to detect additional theoretical dead-draw configurations without pawns:
+    - $K+N$ vs $K+N$ (one minor knight each, 0 pawns)
+    - $K+B$ vs $K+N$ / $K+N$ vs $K+B$ (one bishop vs one knight, 0 pawns)
+    - $K+B$ vs $K+B$ on same-colored squares without pawns
+  - Immediately prunes leaf and root nodes to `0.00` cp in both `cheap_eval` and `calc_eval`, eliminating wasted depth exploration in guaranteed draw endgames.
+- **Classical Evaluation & Insufficient Material Test Suite**:
+  - Added unit test `test_extended_insufficient_material_detection` in `src/eval_service.rs` validating draw recognition for $KN$ vs $KN$, $KB$ vs $KN$, and same-color $KB$ vs $KB$.
+  - Added unit test `test_pawn_phalanx_evaluation` in `src/eval_service.rs` validating that central phalanxes ($d4+e4$) score higher than disjointed pawns ($d4+a4$).
+  - Added unit test `test_pawn_phalanx_black_white_symmetry` in `src/eval_service.rs` verifying exact numerical score symmetry between White and Black phalanxes.
+  - Added unit test `test_rook_open_file_attacks_king_and_queen` in `src/eval_service.rs` validating tactical bonuses for Rooks aligned with opposing heavy pieces.
+  - Added unit test `test_king_open_file_heavy_threat_penalty` in `src/eval_service.rs` verifying penalties when open files facing the King are occupied by opposing Rooks.
+
+
+
 ## [V0.27.2] - 2026-08-20
 
 ### Added
