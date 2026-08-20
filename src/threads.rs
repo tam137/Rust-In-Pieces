@@ -171,7 +171,7 @@ pub fn uci_command_processor(
 
                     *engine_state.logger.write().unwrap() = logger_function;
 
-                    logger.send(format!("Engine startet: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                    logger.send(format!("Engine started: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     logger.send(format!("Benchmark Value: {}", benchmark_value)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 }
 
@@ -249,7 +249,7 @@ pub fn uci_command_processor(
 
                 else {
                     if !uci_token.is_empty() {
-                        logger.send("cmd unknown".to_string() + &uci_token).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                        logger.send(format!("cmd unknown: {}", uci_token)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     }                        
                     thread::sleep(Duration::from_millis(5));
                 }

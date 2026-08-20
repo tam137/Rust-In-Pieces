@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.4] - 2026-08-20
+
+### Added
+- **Per-Completed-Depth Search Calculation Metrics in Engine Logs**:
+  - Enhanced iterative deepening in `src/game_handler.rs` (both standard `go` and `infinite` search loops) to log structured, high-density calculation metrics whenever a depth iteration successfully completes.
+  - Format: `Depth <D> completed | score <cp/mate> | time <T>ms | nodes <N> | nps <NPS> | pv <PV>`.
+  - Intelligently formats evaluation as centipawns (`cp +45`) or exact checkmate distance (`mate 3` / `mate -2`).
+  - Computes and logs true Nodes Per Second (`nps`) alongside total nodes and iteration runtime.
+  - Enriched final move selection logging to record total elapsed search time: `final move: bestmove <mv> (total time: <T>ms)`.
+
+### Fixed
+- **Eliminated Massive Parameter Dump Log Spam**:
+  - Removed repetitive 64-line static parameter dumps (`log_all_parameters`) previously triggered on every move (`go` command) and every `setoption` command, eliminating megabytes of redundant log spam during tournaments.
+  - Removed dead `log_all_parameters` method from `src/config.rs`.
+- **Log Formatting & Typo Cleanups**:
+  - Fixed typo `"Engine startet: {}"` to `"Engine started: {}"` in `src/threads.rs`.
+  - Fixed typo `"incomming go cmd"` to `"Incoming go command"` in `src/game_handler.rs`.
+  - Fixed missing space in unrecognized UCI command handling in `src/threads.rs` (`cmd unknown: <cmd>`).
+
+
+
 ## [V0.27.3] - 2026-08-20
 
 ### Added
