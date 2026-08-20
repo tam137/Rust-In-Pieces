@@ -144,6 +144,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "rook_behind_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_endgame = v; },
                                     "rook_on_seventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh = v; },
                                     "rook_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_mobility_factor = v; },
+                                    "queen_mobility_factor" | "queenmobilityfactor" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_mobility_factor = v; },
+                                    "king_passer_dist_weight" | "kingpasserdistweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_passer_dist_weight = v; },
                                     "undeveloped_king_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_king_malus = v; },
                                     "king_ring_attack_knight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_knight = v; },
                                     "king_ring_attack_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_bishop = v; },
