@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.2] - 2026-08-20
+
+### Added
+- **Unified Safe Mobility Evaluation (Safe Squares Masking)**:
+  - Ported advanced classical evaluation concepts from Cassandra.jl into Suprah HCE in `src/eval_service.rs`.
+  - Implemented unified bitwise safe square masking: `safe_mask = !(opp_pawn_attacks | friendly_pieces)`. All piece mobility counts (Knights, Bishops, Rooks, and Queens) now strictly exclude squares occupied by friendly pieces and squares attacked by enemy pawns.
+  - Implemented branchless parallel pawn attack bitboard generation:
+    - `get_white_pawn_attacks(wp)`: `((wp & !FILE_A) << 7) | ((wp & !FILE_H) << 9)`
+    - `get_black_pawn_attacks(bp)`: `((bp & !FILE_H) >> 7) | ((bp & !FILE_A) >> 9)`
+- **Safe Queen Mobility (`queen_mobility_factor`)**:
+  - Integrated safe Queen mobility calculation into `white_queen` and `black_queen` in `src/eval_service.rs`, evaluating Queen mobility across legal slider rays masked against enemy pawn attacks and friendly pieces.
+  - Configurable via `queen_mobility_factor: i16 = 1` cp in `src/config.rs` and dynamically tunable via UCI `setoption name QueenMobilityFactor value <v>`.
+- **Advanced Dynamic King-Passer Proximity Heuristics (`king_passer_proximity_score`)**:
+  - Replaced crude legacy hardcoded distance constants with dynamic endgame king-passer proximity scoring in `src/eval_service.rs`.
+  - Computes the Chebyshev distance delta: $\Delta D = D(\text{EnemyKing}, \text{Pawn}) - D(\text{FriendlyKing}, \text{Pawn})$, scaled by pawn advancement rank factor ($R+1$ for White, $8-R$ for Black):
+    $$\text{Bonus} = \frac{\Delta D \times \text{king\_passer\_dist\_weight} \times \text{RankFactor}}{8}$$
+  - Added directly to endgame evaluation (`e_eval`) and smoothly tapered across game phases via `calculate_weighted_eval`.
+  - Tunable via `king_passer_dist_weight: i16 = 12` cp in `src/config.rs` and UCI `setoption name KingPasserDistWeight value <v>`.
+- **Classical Safe Mobility & Proximity Test Suite**:
+  - Added unit test `test_safe_mobility_excludes_enemy_pawn_attacks` verifying Knight safe mobility reduction when landing squares are controlled by opposing pawns.
+  - Added unit test `test_safe_mobility_excludes_friendly_blockers` verifying Rook mobility exclusion of friendly blocking pieces.
+  - Added unit test `test_queen_mobility_evaluation` validating central active Queens vs trapped corner Queens.
+  - Added unit test `test_king_passer_proximity_monotonic_gradient` verifying strictly monotonic evaluation growth as the friendly king escorts advanced passed pawns.
+  - Added unit test `test_king_passer_proximity_black_white_symmetry` validating exact numerical score symmetry between White and Black passed pawn positions.
+
+### Fixed
+- **Knight Mobility Static Attack Count Bug**:
+  - Fixed a legacy evaluation bug in `white_knight` and `black_knight` in `src/eval_service.rs` where knight mobility was calculated using unmasked pseudolegal moves (`movegen.get_knight_attacks(sq).count_ones()`), producing an invariant static constant ($2 \dots 8$) redundant with Piece-Square Tables (PST) regardless of whether squares were blocked by friendly pieces or controlled by enemy pawns.
+- **Black Minor Piece Malus Sign Defect**:
+  - Corrected sign inversions in `black_knight` and `black_bishop` in `src/eval_service.rs` where positional penalties (`knight_on_rim_malus`, `undeveloped_knight_malus`, `undeveloped_bishop_malus`, `bishop_trapped_at_rim_malus`) were previously subtracted (`o_eval -= malus`) instead of added (`o_eval += malus`), erroneously rewarding Black for undeveloped and rim-trapped minor pieces.
+- **Mobility Parameter Stabilization across Aggressiveness Profiles**:
+  - Standardized mobility factors across all engine profiles to balanced defaults ($N=3, B=3, R=2, Q=1$ cp), keeping mobility factors invariant across `Normal`, `Aggressive`, and `HighAggressive` profiles in `src/config.rs`.
+
+
+
 ## [V0.27.1] - 2026-08-20
 
 ### Fixed
