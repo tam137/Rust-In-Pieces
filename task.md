@@ -1,0 +1,154 @@
+# Suprah Engine Strength Enhancement Roadmap (`task.md`)
+
+This document defines the technical roadmap and architectural specifications for the three highest-impact performance and playing-strength enhancements for **Suprah**.
+
+---
+
+## 🎯 Executive Summary & Elo Projection
+
+| Milestone | Core Domain | Architectural Focus | Expected NPS Impact | Projected Elo Gain |
+| :--- | :--- | :--- | :--- | :--- |
+| **Milestone 1** | **Move Generation & Picker** | Pseudo-legal Movegen, Staged `MovePicker`, Zero-allocation Board state | **+300% to +600% NPS** | **+150 to +250 Elo** |
+| **Milestone 2** | **Search Architecture** | Negamax Refactor, Singular Extensions, LMP, QSearch TT | **-40% Branching Factor** | **+120 to +200 Elo** |
+| **Milestone 3** | **Neural Evaluation (NNUE)** | Incremental Accumulator Stack, AVX2/NEON SIMD Vectorization | **+2000% NNUE Eval Speed** | **+200 to +350 Elo** |
+| **Total** | **Combined Engine Upgrade** | **Full System Modernization** | **Multi-tier Scaling** | **+470 to +800 Elo** |
+
+---
+
+## 🏗️ Milestone 1: Move Generation & Staged Move Picker Architecture
+
+### 1.1 Architectural Problem Analysis
+* **Full Pre-validation Overhead**: In `src/move_gen_service.rs`, `generate_valid_moves_list` generates all pseudo-legal moves and immediately executes `board.do_move()` + `board.undo_move()` + dual `get_attackers_mask()` checks on every candidate move to confirm absolute legality and check flags before searching.
+* **Wasted Computation on Cut Nodes**: Over 85–90% of Alpha-Beta search nodes produce an immediate beta-cutoff on the first candidate move (TT Best Move or Killer Move). Pre-validating 30+ moves per node wastes >80% of CPU search time.
+* **Heap Contention in Search Inner Loop**: `Board` maintains `move_repetition_map: HashMap<u64, i32>`, causing heap lookups/insertions on every `do_move` and `undo_move`. Additionally, `pv_nodes` mutex locks are acquired during move generation.
+
+### 1.2 Target Architecture & Specifications
+
+#### 1.2.1 Pure Pseudo-Legal Move Generation
+* Refactor `MoveGenService` to produce strictly **pseudo-legal moves** directly from bitboards without simulating `do_move`/`undo_move` or running check validations during generation.
+* Legality verification is deferred until a move is actually selected in search. In `do_move`, verify if the moving side's king is left in check; if illegal, reject and proceed to the next move.
+
+#### 1.2.2 Staged `MovePicker` State Machine
+Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
+```
+ Stage 0: TT Hash Move (from Transposition Table)
+    ↓ (if no cutoff)
+ Stage 1: Good Captures & Queen Promotions (Generated on-the-fly, ordered by MVV-LVA / SEE >= 0)
+    ↓ (if no cutoff)
+ Stage 2: Killer Moves (Killer 1, Killer 2) & Counter Move
+    ↓ (if no cutoff)
+ Stage 3: Quiet Moves (Generated on-the-fly, ordered by History Heuristic)
+    ↓ (if no cutoff)
+ Stage 4: Bad Captures (Captures with SEE < 0)
+```
+
+#### 1.2.3 Zero-Allocation Board & State Tracking
+* Replace `HashMap<u64, i32>` in `Board` with a flat, stack-allocated 1D history array `history_hashes: [u64; 256]` indexed by game/search ply.
+* Remove `pv_nodes` mutex locking from the move generator inner loop.
+
+### 1.3 Acceptance & TDD Criteria
+- `[ ]` **Perft Correctness**: All standard Perft positions (Initial position, Kiwipete, Position 3, 4, 5) match exact node counts at depth 1 to 6.
+- `[ ]` **Zero Allocation**: `do_move` and `undo_move` perform zero heap allocations in release builds.
+- `[ ]` **NPS Benchmark**: Nodes per second (NPS) increases by at least 3.0x on standard midgame bench positions.
+
+---
+
+## ⚡ Milestone 2: Negamax Search Refactoring & Selective Pruning Extensions
+
+### 2.1 Architectural Problem Analysis
+* **Minimax Code Duplication**: `src/search_service.rs` uses an asymmetric `minimax` structure with parallel `if white { ... } else { ... }` blocks across all pruning rules, PVS null-windows, and TT updates. This increases maintenance complexity and risks boundary bugs.
+* **Missing Singular Extensions (SE)**: When a TT move is uniquely superior to all alternative moves, the engine does not extend the search depth, risking tactical blindness in sharp forcing sequences.
+* **Missing Late Move Pruning (LMP)**: Quiet moves late in the move loop at shallow depths ($d \le 4$) are searched rather than pruned.
+* **Missing TT in Quiescence Search (QSearch)**: `QuiescenceSearch` does not probe or store into the Transposition Table, causing repeated evaluations of identical tactical capture positions.
+
+### 2.2 Target Architecture & Specifications
+
+#### 2.2.1 Clean Negamax Formulation
+Refactor the search core into canonical Negamax:
+$$\text{eval} = -\text{negamax}(\text{board}, -\beta, -\alpha, \text{depth} - 1, \dots)$$
+* Symmetric score bounds where $\alpha$ and $\beta$ are always relative to the side to move.
+* Unified Transposition Table storage and retrieval using relative perspective values.
+
+#### 2.2.2 Singular Extensions (SE)
+* **Trigger Condition**: At non-root PV nodes with depth $\ge 8$, when a TT entry exists with `depth >= search_depth - 3`, `entry_type == LowerBound | Exact`, and a valid TT best move.
+* **Verification Search**: Perform a shallow, reduced search ($\text{depth} = (\text{depth} - 1) / 2$) with a singular window:
+  $$[\text{tt\_eval} - s, \text{tt\_eval} - s + 1]$$
+  where $s = 2 \cdot \text{depth}$. Exclude the TT move from this verification search.
+* **Action**: If no other move meets the threshold (fail-low), extend the TT move search depth by $+1$ ply.
+
+#### 2.2.3 Late Move Pruning (LMP)
+* At low depths ($1 \le \text{depth} \le 4$), when not in check and after searching $N$ quiet moves, prune all subsequent quiet moves:
+  $$\text{QuietMoveCountThreshold}(\text{depth}) = 3 + 2 \cdot \text{depth}^2$$
+
+#### 2.2.4 TT Probing & Storage in Quiescence Search
+* Probe the Transposition Table at the start of QSearch. If a valid entry with `depth >= 0` meets the cutoff criteria, return immediately.
+* Store exact/bound evaluations upon QSearch completion.
+
+### 2.3 Acceptance & TDD Criteria
+- `[ ]` **Negamax Symmetry**: Search results and evaluations are strictly symmetric between White and Black across mirrored positions.
+- `[ ]` **Singular Extension Trigger**: Tactical test suite confirms $+1$ ply extension on forced tactical moves.
+- `[ ]` **QSearch Node Reduction**: QSearch node count decreases by 15–30% with Transposition Table caching enabled.
+
+---
+
+## 🧠 Milestone 3: NNUE Incremental Accumulator Pipeline & SIMD Vectorization
+
+### 3.1 Architectural Problem Analysis
+* **Full Recomputation Bottleneck**: In `src/nnue_service.rs`, `NNUEService::evaluate` calls `compute_accumulator`, looping over all 64 squares and 12 bitboards on **every single leaf evaluation**.
+* **Scalar Inference**: The forward pass and SCReLU activations are computed in scalar integer loops without SIMD hardware vectorization (AVX2, SSE4.1, or ARM NEON).
+* **Default Disabled**: Because NNUE full recomputation is computationally expensive, `Config::use_nnue` is disabled by default, leaving the engine on handcrafted evaluation (HCE).
+
+### 3.2 Target Architecture & Specifications
+
+#### 3.2.1 Incremental Accumulator Stack (`AccumulatorStack`)
+Maintain a persistent accumulator stack along the search path:
+```rust
+pub struct Accumulator {
+    pub white: [i16; 256],
+    pub black: [i16; 256],
+    pub computed: bool,
+}
+```
+* **Normal Move**: Accumulator delta update:
+  $$\text{Acc}_{\text{new}} = \text{Acc}_{\text{old}} - \mathbf{W}[\text{piece}, \text{from}] + \mathbf{W}[\text{piece}, \text{to}]$$
+* **Capture Move**:
+  $$\text{Acc}_{\text{new}} = \text{Acc}_{\text{old}} - \mathbf{W}[\text{piece}, \text{from}] + \mathbf{W}[\text{piece}, \text{to}] - \mathbf{W}[\text{captured\_piece}, \text{to}]$$
+* **King Moves**: When a king changes buckets, trigger a full perspective refresh; otherwise maintain incremental updates.
+
+#### 3.2.2 SIMD Vectorization (AVX2 / SSE4.1 / NEON)
+* Implement vector intrinsics for feature addition/subtraction (`_mm256_add_epi16`, `_mm256_sub_epi16`).
+* Implement vectorized SCReLU squared clipped activation and output dot-product:
+  $$\text{output} = \sum \text{clamp}(x, 0, 255)^2 \cdot w_i$$
+  using `_mm256_madd_epi16` and horizontal sum accumulators.
+
+#### 3.2.3 Default NNUE Engine Configuration
+* Integrate `use_nnue: true` as the primary evaluation pipeline in `src/config.rs`.
+* Provide seamless fallback to HCE if model file loading fails gracefully.
+
+### 3.3 Acceptance & TDD Criteria
+- `[ ]` **Bit-for-Bit Accumulator Equivalence**: Invariant test confirming incrementally updated accumulators match fully recomputed accumulators on all legal move sequences.
+- `[ ]` **Evaluation Throughput**: NNUE leaf evaluation throughput reaches $> 10,\!000,\!000$ evaluations/second on modern x86_64 / ARM64 processors.
+- `[ ]` **UCI Stability**: `quantised.bin` network loads reliably at startup without search latency spikes.
+
+---
+
+## 📋 Implementation Checklist
+
+### Phase 1: Move Generation & Move Picker
+- [ ] Implement `src/move_gen_service.rs` pseudo-legal move generation for all piece types.
+- [ ] Implement `MovePicker` with staged state machine in `src/move_gen_service.rs` and `src/search_service.rs`.
+- [ ] Refactor `Board` struct in `src/model.rs` to eliminate `HashMap` heap allocations.
+- [ ] Validate with full Perft suite.
+
+### Phase 2: Search Architecture Refactoring
+- [ ] Convert `SearchService::minimax` to unified `negamax` in `src/search_service.rs`.
+- [ ] Implement Transposition Table probing and storage in Quiescence Search.
+- [ ] Implement Late Move Pruning (LMP) at depths $1 \le d \le 4$.
+- [ ] Implement Singular Extensions (SE) at depths $d \ge 8$.
+- [ ] Add configurable parameters to `Config` in `src/config.rs`.
+
+### Phase 3: NNUE Incremental & SIMD Pipeline
+- [ ] Add `AccumulatorStack` to `Board` and update in `do_move`/`undo_move`.
+- [ ] Implement AVX2 / NEON vector intrinsics for accumulator updates and SCReLU forward pass.
+- [ ] Validate incremental accumulator against full recomputation.
+- [ ] Set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
