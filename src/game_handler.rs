@@ -204,7 +204,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 }
                             }
                             logger.send(format!("Received option: {} = {}\n", param_name, val_str)).ok();
-                            active_config.log_all_parameters(&logger);
                         }
                     }
                 }
@@ -225,7 +224,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command == "infinite" {
-                    active_config.log_all_parameters(&logger);
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
 
                     let mut best_result: Option<SearchResult> = None;
@@ -243,6 +241,35 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if search_result.completed {
                             best_result = Some(search_result.clone());
                             service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
+
+                            let mut stats_calc = stats.clone();
+                            stats_calc.calculate();
+                            let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
+                            let score_str = if cp.abs() > 30000 {
+                                let mate_plies = 32001 - cp.abs();
+                                let mate_moves = (mate_plies + 1) / 2;
+                                if cp > 0 {
+                                    format!("mate {}", mate_moves)
+                                } else {
+                                    format!("mate -{}", mate_moves)
+                                }
+                            } else {
+                                format!("cp {:+}", cp)
+                            };
+                            let nps = if stats_calc.calc_time_ms > 0 {
+                                (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                            } else {
+                                stats_calc.created_nodes as u64 * 1000
+                            };
+                            logger.send(format!(
+                                "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
+                                search_result.calculated_depth,
+                                score_str,
+                                stats_calc.calc_time_ms,
+                                stats_calc.created_nodes,
+                                nps,
+                                search_result.get_best_move_row()
+                            )).ok();
                         }
 
                         if engine_state.stop_flag.load(Ordering::SeqCst) { break; }
@@ -254,8 +281,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command.starts_with("go") {
-                    active_config.log_all_parameters(&logger);
-                    logger.send("incomming go cmd".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                    logger.send("Incoming go command".to_string()).ok();
 
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
                     
@@ -340,7 +366,34 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 best_result = Some(search_result.clone());
                                 service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
 
-
+                                let mut stats_calc = stats.clone();
+                                stats_calc.calculate();
+                                let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
+                                let score_str = if cp.abs() > 30000 {
+                                    let mate_plies = 32001 - cp.abs();
+                                    let mate_moves = (mate_plies + 1) / 2;
+                                    if cp > 0 {
+                                        format!("mate {}", mate_moves)
+                                    } else {
+                                        format!("mate -{}", mate_moves)
+                                    }
+                                } else {
+                                    format!("cp {:+}", cp)
+                                };
+                                let nps = if stats_calc.calc_time_ms > 0 {
+                                    (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                                } else {
+                                    stats_calc.created_nodes as u64 * 1000
+                                };
+                                logger.send(format!(
+                                    "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
+                                    search_result.calculated_depth,
+                                    score_str,
+                                    stats_calc.calc_time_ms,
+                                    stats_calc.created_nodes,
+                                    nps,
+                                    search_result.get_best_move_row()
+                                )).ok();
 
                                 let mut pv_guard = engine_state.pv_nodes.lock().unwrap();
                                 pv_guard.clear();
@@ -351,8 +404,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     old_board.do_move(&turn);
                                 }
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
-
-
                             }
 
                             if time_info.time_mode == TimeMode::Depth && depth >= time_info.depth {
@@ -370,7 +421,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(res) = best_result {
                             stdout.write(&format!("bestmove {}", res.get_best_move_algebraic()));
                             game.do_move(&res.get_best_move_algebraic());
-                            logger.send(format!("final move: bestmove {}", res.get_best_move_algebraic())).ok();
+                            logger.send(format!(
+                                "final move: bestmove {} (total time: {}ms)",
+                                res.get_best_move_algebraic(),
+                                go_start_time.elapsed().as_millis()
+                            )).ok();
 
                         } else {
                             let mut stats = Stats::default();
