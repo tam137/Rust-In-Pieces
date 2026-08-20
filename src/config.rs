@@ -139,6 +139,8 @@ pub struct Config {
     pub knight_mobility_factor: i16,
     pub bishop_mobility_factor: i16,
     pub rook_mobility_factor: i16,
+    pub queen_mobility_factor: i16,
+    pub king_passer_dist_weight: i16,
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
@@ -300,9 +302,11 @@ impl Config {
             king_danger_weight_5: 200,
             pawn_isolated_malus: 9,
             pawn_backward_malus: 11,
-            knight_mobility_factor: 2,
-            bishop_mobility_factor: 1,
-            rook_mobility_factor: 1,
+            knight_mobility_factor: 3,
+            bishop_mobility_factor: 3,
+            rook_mobility_factor: 2,
+            queen_mobility_factor: 1,
+            king_passer_dist_weight: 12,
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
@@ -376,6 +380,7 @@ impl Config {
                 self.knight_mobility_factor = raw.knight_mobility_factor;
                 self.bishop_mobility_factor = raw.bishop_mobility_factor;
                 self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
             }
             Aggressiveness::Aggressive => {
                 self.king_ring_attack_knight = (raw.king_ring_attack_knight * 15) / 10;
@@ -384,9 +389,10 @@ impl Config {
                 self.king_ring_attack_queen = (raw.king_ring_attack_queen * 15) / 10;
                 self.queen_in_attack = (raw.queen_in_attack * 13) / 10;
                 self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 13) / 10;
-                self.knight_mobility_factor = (raw.knight_mobility_factor * 12) / 10;
-                self.bishop_mobility_factor = (raw.bishop_mobility_factor * 12) / 10;
-                self.rook_mobility_factor = (raw.rook_mobility_factor * 12) / 10;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
             }
             Aggressiveness::HighAggressive => {
                 self.king_ring_attack_knight = raw.king_ring_attack_knight * 2;
@@ -395,9 +401,10 @@ impl Config {
                 self.king_ring_attack_queen = raw.king_ring_attack_queen * 2;
                 self.queen_in_attack = (raw.queen_in_attack * 16) / 10;
                 self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 16) / 10;
-                self.knight_mobility_factor = (raw.knight_mobility_factor * 14) / 10;
-                self.bishop_mobility_factor = (raw.bishop_mobility_factor * 14) / 10;
-                self.rook_mobility_factor = (raw.rook_mobility_factor * 14) / 10;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
             }
         }
     }
@@ -577,6 +584,8 @@ impl Config {
         msg.push_str(&format!("  knight_mobility_factor: {}\n", self.knight_mobility_factor));
         msg.push_str(&format!("  bishop_mobility_factor: {}\n", self.bishop_mobility_factor));
         msg.push_str(&format!("  rook_mobility_factor: {}\n", self.rook_mobility_factor));
+        msg.push_str(&format!("  queen_mobility_factor: {}\n", self.queen_mobility_factor));
+        msg.push_str(&format!("  king_passer_dist_weight: {}\n", self.king_passer_dist_weight));
         msg.push_str(&format!("  rook_on_seventh: {}\n", self.rook_on_seventh));
         msg.push_str(&format!("  lmr_move_threshold: {}\n", self.lmr_move_threshold));
         msg.push_str(&format!("  lmr_divisor: {}\n", self.lmr_divisor));
@@ -607,18 +616,22 @@ mod tests {
         normal_config.set_aggressiveness(Aggressiveness::Normal);
         assert_eq!(normal_config.king_ring_attack_knight, base_config.king_ring_attack_knight);
         assert_eq!(normal_config.queen_in_attack, base_config.queen_in_attack);
+        assert_eq!(normal_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(normal_config.queen_mobility_factor, base_config.queen_mobility_factor);
 
         let mut aggressive_config = base_config.clone();
         aggressive_config.set_aggressiveness(Aggressiveness::Aggressive);
         assert_eq!(aggressive_config.king_ring_attack_knight, (base_config.king_ring_attack_knight * 15) / 10);
         assert_eq!(aggressive_config.queen_in_attack, (base_config.queen_in_attack * 13) / 10);
-        assert_eq!(aggressive_config.knight_mobility_factor, (base_config.knight_mobility_factor * 12) / 10);
+        assert_eq!(aggressive_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(aggressive_config.queen_mobility_factor, base_config.queen_mobility_factor);
 
         let mut high_aggressive_config = base_config.clone();
         high_aggressive_config.set_aggressiveness(Aggressiveness::HighAggressive);
         assert_eq!(high_aggressive_config.king_ring_attack_knight, base_config.king_ring_attack_knight * 2);
         assert_eq!(high_aggressive_config.queen_in_attack, (base_config.queen_in_attack * 16) / 10);
-        assert_eq!(high_aggressive_config.knight_mobility_factor, (base_config.knight_mobility_factor * 14) / 10);
+        assert_eq!(high_aggressive_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(high_aggressive_config.queen_mobility_factor, base_config.queen_mobility_factor);
     }
 
     #[test]
