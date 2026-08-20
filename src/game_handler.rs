@@ -194,7 +194,12 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "enablefutilitypruning" | "enable_futility_pruning" => { active_config.enable_futility_pruning = val_str.to_lowercase() == "true"; },
                                     "futilitymaxdepth" | "futility_max_depth" => if let Ok(v) = val_str.parse::<i32>() { active_config.futility_max_depth = v; },
                                     "futilitymarginbase" | "futility_margin_base" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_base = v; },
-                                    "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
+                                     "king_open_file_heavy_threat_malus" | "kingopenfileheavythreatmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_heavy_threat_malus = v; },
+                                     "rook_open_file_attacks_king" | "rookopenfileattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_king = v; },
+                                     "rook_open_file_attacks_queen" | "rookopenfileattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_queen = v; },
+                                     "pawn_phalanx_mg" | "pawnphalanxmg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_mg = v; },
+                                     "pawn_phalanx_eg" | "pawnphalanxeg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_eg = v; },
+                                     "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
                                     _ => {}
                                 }
                             }
