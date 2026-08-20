@@ -642,10 +642,29 @@ impl EvalService {
                 e_eval += config.protected_passed_pawn_endgame;
             }
 
-
+            // Passed pawn blockade: enemy piece on square directly in front
+            let front_sq = sq + 8;
+            if front_sq < 64 && ((1u64 << front_sq) & board.black_pieces) != 0 {
+                o_eval -= config.passed_pawn_blockaded_malus / 2;
+                e_eval -= config.passed_pawn_blockaded_malus;
+            }
 
             e_eval += bonus;
             o_eval += bonus / 3;
+        } else {
+            // Candidate passed pawn: no opposing pawn on this file in front, and supported by friendly adjacent pawns
+            let front_file_mask = (0x0101010101010101u64 << file) & !((1u64 << (sq + 1)) - 1);
+            let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+            if (black_pawns & front_file_mask) == 0 && (3..=5).contains(&rank) {
+                let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+                let friendly_adj_pawns = (white_pawns & adjacent_files).count_ones();
+                let enemy_adj_pawns = (black_pawns & adjacent_files & !((1u64 << (sq + 1)) - 1)).count_ones();
+                if friendly_adj_pawns >= enemy_adj_pawns {
+                    let advancement = (rank - 2) as i16;
+                    o_eval += (config.candidate_passed_pawn_bonus * advancement) / 2;
+                    e_eval += config.candidate_passed_pawn_bonus * advancement;
+                }
+            }
         }
 
         let adjacent_files = ADJACENT_FILES_MASK[file as usize];
@@ -741,10 +760,29 @@ impl EvalService {
                 e_eval -= config.protected_passed_pawn_endgame;
             }
 
-
+            // Passed pawn blockade: enemy piece on square directly in front
+            let front_sq = sq - 8;
+            if front_sq >= 0 && ((1u64 << front_sq) & board.white_pieces) != 0 {
+                o_eval += config.passed_pawn_blockaded_malus / 2;
+                e_eval += config.passed_pawn_blockaded_malus;
+            }
 
             e_eval -= bonus;
             o_eval -= bonus / 3;
+        } else {
+            // Candidate passed pawn: no opposing pawn on this file in front, and supported by friendly adjacent pawns
+            let front_file_mask = (0x0101010101010101u64 << file) & ((1u64 << sq) - 1);
+            let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+            if (white_pawns & front_file_mask) == 0 && (2..=4).contains(&rank) {
+                let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+                let friendly_adj_pawns = (black_pawns & adjacent_files).count_ones();
+                let enemy_adj_pawns = (white_pawns & adjacent_files & ((1u64 << sq) - 1)).count_ones();
+                if friendly_adj_pawns >= enemy_adj_pawns {
+                    let advancement = (5 - rank) as i16;
+                    o_eval -= (config.candidate_passed_pawn_bonus * advancement) / 2;
+                    e_eval -= config.candidate_passed_pawn_bonus * advancement;
+                }
+            }
         }
 
         let adjacent_files = ADJACENT_FILES_MASK[file as usize];
@@ -844,6 +882,19 @@ impl EvalService {
         if rank == 6 {
             o_eval += config.rook_on_seventh;
             e_eval += config.rook_on_seventh + 15;
+
+            // Enemy King cut off on 8th rank
+            let black_king = board.bitboards[crate::model::BLACK_KING];
+            if (black_king & 0xFF00000000000000u64) != 0 {
+                o_eval += config.rook_on_seventh_king_cutoff / 2;
+                e_eval += config.rook_on_seventh_king_cutoff;
+            }
+
+            // Doubled rooks on the 7th rank (Pigs on the 7th)
+            if (white_rooks & 0x00FF000000000000u64).count_ones() >= 2 {
+                o_eval += config.rooks_doubled_on_seventh;
+                e_eval += config.rooks_doubled_on_seventh;
+            }
         }
 
         // Safe Rook mobility (excluding friendly blockers and squares attacked by enemy pawns)
@@ -940,10 +991,23 @@ impl EvalService {
             file_white_pawns &= file_white_pawns - 1;
         }
 
-        // Rook on 7th Rank
+        // Rook on 7th Rank (rank 1 for Black)
         if rank == 1 {
             o_eval -= config.rook_on_seventh;
             e_eval -= config.rook_on_seventh + 15;
+
+            // Enemy King cut off on 1st rank
+            let white_king = board.bitboards[crate::model::WHITE_KING];
+            if (white_king & 0x00000000000000FFu64) != 0 {
+                o_eval -= config.rook_on_seventh_king_cutoff / 2;
+                e_eval -= config.rook_on_seventh_king_cutoff;
+            }
+
+            // Doubled rooks on the 2nd rank
+            if (black_rooks & 0x000000000000FF00u64).count_ones() >= 2 {
+                o_eval -= config.rooks_doubled_on_seventh;
+                e_eval -= config.rooks_doubled_on_seventh;
+            }
         }
 
         // Safe Rook mobility (excluding friendly blockers and squares attacked by enemy pawns)
@@ -1137,6 +1201,17 @@ impl EvalService {
             e_eval += config.bishop_outpost_true_eg;
         }
 
+        // Bishop diagonal X-Ray alignment with enemy King or Queen on empty board ray
+        let diag_ray = movegen.get_bishop_attacks(sq as usize, 0);
+        let black_king = board.bitboards[crate::model::BLACK_KING];
+        let black_queen = board.bitboards[crate::model::BLACK_QUEEN];
+        if (diag_ray & black_king) != 0 {
+            o_eval += config.bishop_diagonal_attacks_king;
+        }
+        if (diag_ray & black_queen) != 0 {
+            o_eval += config.bishop_diagonal_attacks_queen;
+        }
+
         // King ring attacks
         let attacks_on_ring = (attacks & opp_king_ring).count_ones() as i16;
         let attackers = if attacks_on_ring > 0 { 1 } else { 0 };
@@ -1183,6 +1258,17 @@ impl EvalService {
         if stands_on_outpost || attacks_outpost {
             o_eval -= config.bishop_outpost_true_mg;
             e_eval -= config.bishop_outpost_true_eg;
+        }
+
+        // Bishop diagonal X-Ray alignment with enemy King or Queen on empty board ray
+        let diag_ray = movegen.get_bishop_attacks(sq as usize, 0);
+        let white_king = board.bitboards[crate::model::WHITE_KING];
+        let white_queen = board.bitboards[crate::model::WHITE_QUEEN];
+        if (diag_ray & white_king) != 0 {
+            o_eval -= config.bishop_diagonal_attacks_king;
+        }
+        if (diag_ray & white_queen) != 0 {
+            o_eval -= config.bishop_diagonal_attacks_queen;
         }
 
         // King ring attacks
@@ -1613,9 +1699,12 @@ impl EvalService {
     pub fn is_insufficient_material(board: &Board) -> bool {
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        let w_pawn_count = white_pawns.count_ones();
+        let b_pawn_count = black_pawns.count_ones();
+        let total_pawns = w_pawn_count + b_pawn_count;
 
-        // 1-cycle fast path: any pawns on board -> not insufficient material
-        if (white_pawns | black_pawns) != 0 {
+        // Fast path: multiple pawns on board -> not insufficient material
+        if total_pawns > 1 {
             return false;
         }
 
@@ -1635,6 +1724,55 @@ impl EvalService {
 
         let w_minors = w_knights + w_bishops;
         let b_minors = b_knights + b_bishops;
+
+        // Single pawn endgame check: Wrong-colored bishop + rook pawn (KBP vs K dead draw)
+        if total_pawns == 1 {
+            // White KBP vs Black K
+            if w_pawn_count == 1 && b_pawn_count == 0 && w_bishops == 1 && w_knights == 0 && b_minors == 0 {
+                let p_sq = white_pawns.trailing_zeros() as i32;
+                let p_file = p_sq % 8;
+                if p_file == 0 || p_file == 7 {
+                    let prom_sq = if p_file == 0 { 56 } else { 63 };
+                    let prom_color = (prom_sq % 8 + prom_sq / 8) % 2;
+                    let b_sq = board.bitboards[crate::model::WHITE_BISHOP].trailing_zeros() as i32;
+                    let b_color = (b_sq % 8 + b_sq / 8) % 2;
+                    if b_color != prom_color {
+                        let bk_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+                        let bk_file = bk_sq % 8;
+                        let bk_rank = bk_sq / 8;
+                        let prom_file = prom_sq % 8;
+                        let prom_rank = prom_sq / 8;
+                        let dist_to_prom = (bk_file - prom_file).abs().max((bk_rank - prom_rank).abs());
+                        if dist_to_prom <= 1 || (bk_file == p_file && bk_rank > p_sq / 8) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Black KBP vs White K
+            if b_pawn_count == 1 && w_pawn_count == 0 && b_bishops == 1 && b_knights == 0 && w_minors == 0 {
+                let p_sq = black_pawns.trailing_zeros() as i32;
+                let p_file = p_sq % 8;
+                if p_file == 0 || p_file == 7 {
+                    let prom_sq = if p_file == 0 { 0 } else { 7 };
+                    let prom_color = (prom_sq % 8 + prom_sq / 8) % 2;
+                    let b_sq = board.bitboards[crate::model::BLACK_BISHOP].trailing_zeros() as i32;
+                    let b_color = (b_sq % 8 + b_sq / 8) % 2;
+                    if b_color != prom_color {
+                        let wk_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+                        let wk_file = wk_sq % 8;
+                        let wk_rank = wk_sq / 8;
+                        let prom_file = prom_sq % 8;
+                        let prom_rank = prom_sq / 8;
+                        let dist_to_prom = (wk_file - prom_file).abs().max((wk_rank - prom_rank).abs());
+                        if dist_to_prom <= 1 || (wk_file == p_file && wk_rank < p_sq / 8) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
 
         // KvK
         if w_minors + b_minors == 0 {
@@ -1801,6 +1939,18 @@ impl EvalService {
             e_eval += Self::king_passer_proximity_score(sq as u8, true, white_king_sq, black_king_sq, config);
         }
 
+        // Pawn Storm against enemy castled king
+        let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+        let bk_file = black_king_sq % 8;
+        let bk_rank = black_king_sq / 8;
+        if bk_rank >= 5 {
+            if bk_file >= 5 && file >= 5 && rank >= 3 {
+                o_eval += config.pawn_storm_bonus * (rank - 2) as i16;
+            } else if bk_file <= 2 && file <= 2 && rank >= 3 {
+                o_eval += config.pawn_storm_bonus * (rank - 2) as i16;
+            }
+        }
+
         (o_eval, e_eval)
     }
 
@@ -1849,6 +1999,18 @@ impl EvalService {
             let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
             let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
             e_eval -= Self::king_passer_proximity_score(sq as u8, false, white_king_sq, black_king_sq, config);
+        }
+
+        // Pawn Storm against enemy castled king
+        let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+        let wk_file = white_king_sq % 8;
+        let wk_rank = white_king_sq / 8;
+        if wk_rank <= 2 {
+            if wk_file >= 5 && file >= 5 && rank <= 4 {
+                o_eval -= config.pawn_storm_bonus * (5 - rank) as i16;
+            } else if wk_file <= 2 && file <= 2 && rank <= 4 {
+                o_eval -= config.pawn_storm_bonus * (5 - rank) as i16;
+            }
         }
 
         (o_eval, e_eval)
@@ -2786,6 +2948,168 @@ mod tests {
             eval_threat < eval_no_threat,
             "King facing enemy Rook on open file must receive heavier malus than facing Knight (threat={}, no_threat={})",
             eval_threat, eval_no_threat
+        );
+    }
+
+    #[test]
+    fn test_bishop_diagonal_attacks_king_and_queen() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Bishop on b2 on open diagonal targeting Black King on g7 (aligned)
+        let board_aligned_k = fen_service.set_fen("8/6k1/8/8/8/8/1B6/7K w - - 0 1");
+        let (eval_aligned_k, _, _) = eval_service.white_bishop(9, &board_aligned_k, &config, 150, movegen, 0, 0, 0, board_aligned_k.white_pieces);
+
+        // Position B: White Bishop on b2 with Black King on h7 (not on b2 diagonal)
+        let board_unaligned_k = fen_service.set_fen("8/7k/8/8/8/8/1B6/7K w - - 0 1");
+        let (eval_unaligned_k, _, _) = eval_service.white_bishop(9, &board_unaligned_k, &config, 150, movegen, 0, 0, 0, board_unaligned_k.white_pieces);
+
+        assert!(
+            eval_aligned_k > eval_unaligned_k,
+            "Bishop diagonally aligned with enemy King must evaluate higher than unaligned bishop (aligned={}, unaligned={})",
+            eval_aligned_k, eval_unaligned_k
+        );
+    }
+
+    #[test]
+    fn test_rook_on_seventh_king_cutoff_and_doubled() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Rook on a7 with Black King cut off on e8 (8th rank)
+        let board_cutoff = fen_service.set_fen("4k3/R7/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_cutoff, _, _) = eval_service.white_rook(48, &board_cutoff, &config, 150, movegen, 0, 0, board_cutoff.white_pieces);
+
+        // Position B: White Rook on a7 with Black King active on e6 (6th rank, not trapped on 8th)
+        let board_nocutoff = fen_service.set_fen("8/R7/4k3/8/8/8/8/4K3 w - - 0 1");
+        let (eval_nocutoff, _, _) = eval_service.white_rook(48, &board_nocutoff, &config, 150, movegen, 0, 0, board_nocutoff.white_pieces);
+
+        assert!(
+            eval_cutoff > eval_nocutoff,
+            "Rook on 7th rank with enemy King cut off on 8th rank must score higher (cutoff={}, nocutoff={})",
+            eval_cutoff, eval_nocutoff
+        );
+    }
+
+    #[test]
+    fn test_passed_pawn_blockade_penalty() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White passed pawn on e5 with Black Knight blockading on e6
+        let board_blockaded = fen_service.set_fen("7k/8/4n3/4P3/8/8/8/7K w - - 0 1");
+        let eval_blockaded = eval_service.calc_eval(&board_blockaded, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Position B: White passed pawn on e5 with Black Knight unaligned on a6 (unblockaded)
+        let board_free = fen_service.set_fen("7k/8/n7/4P3/8/8/8/7K w - - 0 1");
+        let eval_free = eval_service.calc_eval(&board_free, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_free > eval_blockaded,
+            "Free passed pawn must evaluate higher than blockaded passed pawn (free={}, blockaded={})",
+            eval_free, eval_blockaded
+        );
+    }
+
+    #[test]
+    fn test_candidate_passed_pawn_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White has candidate passed pawn on c4 supported by b3 and d3 against single Black pawn on b5 (2 vs 1 majority)
+        let board_candidate = fen_service.set_fen("7k/8/8/1p6/2P5/1P1P4/8/7K w - - 0 1");
+        let eval_candidate = eval_service.calc_eval(&board_candidate, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Position B: Symmetrical pawns (no candidate passer)
+        let board_equal = fen_service.set_fen("7k/8/8/1p1p4/2P5/1P1P4/8/7K w - - 0 1");
+        let eval_equal = eval_service.calc_eval(&board_equal, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_candidate > eval_equal,
+            "Candidate passed pawn with wing majority must score higher (candidate={}, equal={})",
+            eval_candidate, eval_equal
+        );
+    }
+
+    #[test]
+    fn test_pawn_storm_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White pawn storming on g4/h4 against Black King castled on g8
+        let board_storm = fen_service.set_fen("6k1/8/8/8/6PP/8/8/7K w - - 0 1");
+        let eval_storm = eval_service.calc_eval(&board_storm, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Position B: White pawns on a4/b4 on opposite wing (no storm against g8 king)
+        let board_nostorm = fen_service.set_fen("6k1/8/8/8/PP6/8/8/7K w - - 0 1");
+        let eval_nostorm = eval_service.calc_eval(&board_nostorm, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert!(
+            eval_storm > eval_nostorm,
+            "Flank pawn storm against enemy castled king must evaluate higher (storm={}, nostorm={})",
+            eval_storm, eval_nostorm
+        );
+    }
+
+    #[test]
+    fn test_wrong_colored_bishop_rook_pawn_dead_draw() {
+        let fen_service = Service::new().fen;
+
+        // Position 1: White a-pawn (a5) + light-squared Bishop (c4, color 1) vs Black King on a8 (color 1).
+        // C4 is light (sq 26: 2+3=5, color 1), A8 is light (sq 56: 0+7=7, color 1). Correct bishop controlling promotion square.
+        let b_correct_bishop = fen_service.set_fen("k7/8/8/P7/2B5/8/8/7K w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&b_correct_bishop), "Correct bishop controlling promotion square must not be insufficient material");
+
+        // Position 2: White a-pawn (a5) + dark-squared Bishop (c3, color 0) vs Black King on a8 (color 1).
+        // A8 is light (color 1), c3 is dark (sq 18: 2+2=4, color 0). Wrong-colored bishop + Black king in corner a8!
+        let b_wrong_bishop = fen_service.set_fen("k7/8/8/P7/8/2B5/8/7K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_wrong_bishop), "Wrong-colored bishop + rook pawn with enemy king in corner must be recognized as draw");
+
+        // Position 3: Black h-pawn (h4) + dark-squared Bishop (c3, color 0) vs White King on h1 (color 1).
+        // H1 is light (sq 7: 7+0=7, color 1), c3 is dark (sq 18: 2+2=4, color 0). Wrong-colored bishop + White king on h1!
+        let b_wrong_black = fen_service.set_fen("7k/8/8/8/7p/2b5/8/7K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_wrong_black), "Black wrong-colored bishop + rook pawn with White king on h1 must be recognized as draw");
+    }
+
+    #[test]
+    fn test_all_new_eval_features_black_white_symmetry() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White pawn storm g4/h4 against g8 king
+        let board_w = fen_service.set_fen("6k1/8/8/8/6PP/8/8/7K w - - 0 1");
+        let eval_w = eval_service.calc_eval(&board_w, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        // Black pawn storm g5/h5 against g1 king
+        let board_b = fen_service.set_fen("7k/8/8/6pp/8/8/8/6K1 b - - 0 1");
+        let eval_b = eval_service.calc_eval(&board_b, &config, movegen, &pawn_table, i16::MIN, i16::MAX);
+
+        assert_eq!(
+            eval_w, -eval_b,
+            "White and Black evaluation must be numerically symmetric: eval_w={}, eval_b={}",
+            eval_w, eval_b
         );
     }
 }

@@ -199,6 +199,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "rook_open_file_attacks_queen" | "rookopenfileattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_queen = v; },
                                      "pawn_phalanx_mg" | "pawnphalanxmg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_mg = v; },
                                      "pawn_phalanx_eg" | "pawnphalanxeg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_eg = v; },
+                                     "bishop_diagonal_attacks_king" | "bishopdiagonalattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_king = v; },
+                                     "bishop_diagonal_attacks_queen" | "bishopdiagonalattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_queen = v; },
+                                     "rook_on_seventh_king_cutoff" | "rookonseventhkingcutoff" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh_king_cutoff = v; },
+                                     "rooks_doubled_on_seventh" | "rooksdoubledonseventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rooks_doubled_on_seventh = v; },
+                                     "passed_pawn_blockaded_malus" | "passedpawnblockadedmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.passed_pawn_blockaded_malus = v; },
+                                     "candidate_passed_pawn_bonus" | "candidatepassedpawnbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.candidate_passed_pawn_bonus = v; },
+                                     "pawn_storm_bonus" | "pawnstormbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_storm_bonus = v; },
                                      "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
                                     _ => {}
                                 }
