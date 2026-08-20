@@ -146,6 +146,13 @@ pub struct Config {
     pub rook_open_file_attacks_queen: i16,
     pub pawn_phalanx_mg: i16,
     pub pawn_phalanx_eg: i16,
+    pub bishop_diagonal_attacks_king: i16,
+    pub bishop_diagonal_attacks_queen: i16,
+    pub rook_on_seventh_king_cutoff: i16,
+    pub rooks_doubled_on_seventh: i16,
+    pub passed_pawn_blockaded_malus: i16,
+    pub candidate_passed_pawn_bonus: i16,
+    pub pawn_storm_bonus: i16,
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
@@ -317,6 +324,13 @@ impl Config {
             rook_open_file_attacks_queen: 10,
             pawn_phalanx_mg: 8,
             pawn_phalanx_eg: 4,
+            bishop_diagonal_attacks_king: 15,
+            bishop_diagonal_attacks_queen: 10,
+            rook_on_seventh_king_cutoff: 20,
+            rooks_doubled_on_seventh: 25,
+            passed_pawn_blockaded_malus: 15,
+            candidate_passed_pawn_bonus: 8,
+            pawn_storm_bonus: 6,
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
@@ -442,6 +456,13 @@ impl Config {
         config.rook_open_file_attacks_queen = 0;
         config.pawn_phalanx_mg = 0;
         config.pawn_phalanx_eg = 0;
+        config.bishop_diagonal_attacks_king = 0;
+        config.bishop_diagonal_attacks_queen = 0;
+        config.rook_on_seventh_king_cutoff = 0;
+        config.rooks_doubled_on_seventh = 0;
+        config.passed_pawn_blockaded_malus = 0;
+        config.candidate_passed_pawn_bonus = 0;
+        config.pawn_storm_bonus = 0;
         config.undeveloped_knight_malus = 0;
         config.undeveloped_bishop_malus = 0;
         config.undeveloped_king_malus = 0;

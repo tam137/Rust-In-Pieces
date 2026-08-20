@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.27.5] - 2026-08-20
+
+### Added
+- **Bishop Diagonal Alignment & X-Ray (`bishop_diagonal_attacks_king`, `bishop_diagonal_attacks_queen`)**:
+  - Implemented diagonal X-Ray and alignment heuristics for Bishops in `white_bishop` and `black_bishop` inside `src/eval_service.rs`.
+  - Evaluates empty-board diagonal slider rays (`movegen.get_bishop_attacks(sq, 0)`) targeting enemy Kings (`bishop_diagonal_attacks_king: i16 = 15` cp) and Queens (`bishop_diagonal_attacks_queen: i16 = 10` cp), rewarding long-diagonal pressure, tactical pins, and king attack battery setups.
+  - Parameterized in `src/config.rs` and dynamically tunable via UCI `setoption name BishopDiagonalAttacksKing value <v>` / `BishopDiagonalAttacksQueen`.
+- **Rook 7th-Rank King Cut-Off & Doubled Rooks ("Pigs on the 7th")**:
+  - Enhanced 7th-rank rook evaluation in `white_rook` and `black_rook` (`src/eval_service.rs`):
+    - **King Cut-Off (`rook_on_seventh_king_cutoff: i16 = 20` cp)**: Rewards trapping the opposing King on the back rank (8th rank for Black, 1st rank for White), restricting king escape routes and endgame counterplay.
+    - **Doubled Rooks on 7th (`rooks_doubled_on_seventh: i16 = 25` cp)**: Implements decisive synergy evaluation when two rooks simultaneously control the 7th rank (rank 6 for White, rank 1 for Black).
+  - Parameterized in `src/config.rs` and tunable via UCI `setoption name RookOnSeventhKingCutoff value <v>` / `RooksDoubledOnSeventh`.
+- **Passed Pawn Nimzowitsch Blockade Penalty (`passed_pawn_blockaded_malus`)**:
+  - Integrated passed pawn blockade detection into `white_pawn_structure_score` and `black_pawn_structure_score` in `src/eval_service.rs`.
+  - Penalizes stalled passed pawns when an opposing piece directly occupies the front square ($sq \pm 8$) ahead of the pawn (`passed_pawn_blockaded_malus: i16 = 15` cp in endgame, `7` cp in middlegame), preventing overestimation of immobilized passers.
+  - Parameterized in `src/config.rs` and tunable via UCI `setoption name PassedPawnBlockadedMalus value <v>`.
+- **Candidate Passed Pawn Heuristic (`candidate_passed_pawn_bonus`)**:
+  - Implemented candidate passed pawn detection in `white_pawn_structure_score` and `black_pawn_structure_score` in `src/eval_service.rs` for non-passed pawns that have a clear front file corridor and friendly adjacent pawn majority support.
+  - Dynamically scales candidate bonus with rank advancement factor: $\text{Bonus} = \text{candidate\_passed\_pawn\_bonus} \times (\text{Advancement Rank} - 2)$.
+  - Parameterized via `candidate_passed_pawn_bonus: i16 = 8` cp in `src/config.rs` and tunable via UCI `setoption name CandidatePassedPawnBonus value <v>`.
+- **Flank Pawn Storm on Enemy Castled King (`pawn_storm_bonus`)**:
+  - Integrated dynamic wing pawn storm heuristics into `white_pawn_dynamic_score` and `black_pawn_dynamic_score` in `src/eval_service.rs`.
+  - Rewards advancing flank pawns ($f, g, h$ against kingside castled king, or $a, b, c$ against queenside castled king) to break open shelter barriers during opening and middlegame phases (`pawn_storm_bonus: i16 = 6` cp per advancement rank).
+  - Parameterized in `src/config.rs` and tunable via UCI `setoption name PawnStormBonus value <v>`.
+- **Theoretical Dead-Draw Recognition for Wrong-Colored Bishop & Rook Pawn ($K+B+P$ vs $K$)**:
+  - Extended the 1-cycle fast-path insufficient material cutoff in `is_insufficient_material` (`src/eval_service.rs`) to detect classical theoretical dead draws where one side has a bare King + 1 Bishop + 1 Rook Pawn ($a$- or $h$-file) and the opposing King controls the corner promotion square while the bishop cannot control the promotion square (wrong square color).
+  - Instantly evaluates to `0.00` cp in search tree traversals, eliminating horizon errors and preventing erroneous trade-downs into drawn endgames.
+- **Classical Evaluation Test Suite Expansion**:
+  - Added 6 dedicated unit tests in `src/eval_service.rs`: `test_bishop_diagonal_attacks_king_and_queen`, `test_rook_on_seventh_king_cutoff_and_doubled`, `test_passed_pawn_blockade_penalty`, `test_candidate_passed_pawn_evaluation`, `test_pawn_storm_evaluation`, `test_wrong_colored_bishop_rook_pawn_dead_draw`, and `test_all_new_eval_features_black_white_symmetry`.
+
+
+
 ## [V0.27.4] - 2026-08-20
 
 ### Added
