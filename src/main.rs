@@ -37,10 +37,7 @@ use model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
-    
-    
-
-
+    crate::magic::init();
 
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();

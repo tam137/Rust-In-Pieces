@@ -139,6 +139,10 @@ impl EvalService {
     }
 
     pub fn cheap_eval(&self, board: &Board, config: &Config, pawn_table: &crate::pawn_hash::PawnHashTable) -> i16 {
+        if Self::is_insufficient_material(board) {
+            return 0;
+        }
+
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
@@ -161,7 +165,10 @@ impl EvalService {
         eval
     }
 
-    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16) -> i16 {
+    pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16) -> i16 {
+        if Self::is_insufficient_material(board) {
+            return 0;
+        }
         if config.use_nnue && self.nnue_net.loaded {
             return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
         }
@@ -170,48 +177,15 @@ impl EvalService {
         let in_check = movegen.is_in_check(board);
 
         // Skip Lazy Eval if disabled, if in check, or in deep endgame (game_phase < min_game_phase) where positional opposition & passed pawn dynamics dominate
-        if config.enable_lazy_eval && !in_check && game_phase >= config.lazy_eval_min_game_phase && alpha > i16::MIN + 2000 && beta < i16::MAX - 2000 {
-            let margin = config.lazy_eval_margin;
-            if cheap + margin <= alpha {
+        if config.enable_lazy_eval && !in_check && game_phase >= config.lazy_eval_min_game_phase {
+            if alpha > i16::MIN + 2000 && cheap + margin <= alpha {
                 return cheap;
             }
-            if cheap - margin >= beta {
+            if beta < i16::MAX - 2000 && cheap - margin >= beta {
                 return cheap;
             }
         }
 
-        let mut scaled_config;
-        let config = if config.aggressiveness == crate::config::Aggressiveness::Normal {
-            config
-        } else {
-            scaled_config = config.clone();
-            match config.aggressiveness {
-                crate::config::Aggressiveness::Normal => {}
-                crate::config::Aggressiveness::Aggressive => {
-                    scaled_config.king_ring_attack_knight = (config.king_ring_attack_knight * 15) / 10;
-                    scaled_config.king_ring_attack_bishop = (config.king_ring_attack_bishop * 15) / 10;
-                    scaled_config.king_ring_attack_rook = (config.king_ring_attack_rook * 15) / 10;
-                    scaled_config.king_ring_attack_queen = (config.king_ring_attack_queen * 15) / 10;
-                    scaled_config.queen_in_attack = (config.queen_in_attack * 13) / 10;
-                    scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 13) / 10;
-                    scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 12) / 10;
-                    scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 12) / 10;
-                    scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 12) / 10;
-                }
-                crate::config::Aggressiveness::HighAggressive => {
-                    scaled_config.king_ring_attack_knight = config.king_ring_attack_knight * 2;
-                    scaled_config.king_ring_attack_bishop = config.king_ring_attack_bishop * 2;
-                    scaled_config.king_ring_attack_rook = config.king_ring_attack_rook * 2;
-                    scaled_config.king_ring_attack_queen = config.king_ring_attack_queen * 2;
-                    scaled_config.queen_in_attack = (config.queen_in_attack * 16) / 10;
-                    scaled_config.queen_in_attack_with_tempo = (config.queen_in_attack_with_tempo * 16) / 10;
-                    scaled_config.knight_mobility_factor = (config.knight_mobility_factor * 14) / 10;
-                    scaled_config.bishop_mobility_factor = (config.bishop_mobility_factor * 14) / 10;
-                    scaled_config.rook_mobility_factor = (config.rook_mobility_factor * 14) / 10;
-                }
-            }
-            &scaled_config
-        };
         let game_phase = self.get_game_phase(board) as i16;
         let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
 
@@ -315,6 +289,9 @@ impl EvalService {
             }
         }
 
+        let white_pawn_attacks = Self::get_white_pawn_attacks(white_pawns);
+        let black_pawn_attacks = Self::get_black_pawn_attacks(black_pawns);
+
         let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
         let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
         let white_king_ring = self.get_king_ring(white_king_sq);
@@ -328,7 +305,7 @@ impl EvalService {
         let mut temp_w_rook = board.bitboards[crate::model::WHITE_ROOK];
         while temp_w_rook != 0 {
             let sq = temp_w_rook.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_rook(sq, board, config, game_phase, movegen, black_king_ring);
+            let (eval_for_piece, attackers, danger) = self.white_rook(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t11,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
@@ -338,7 +315,7 @@ impl EvalService {
         let mut temp_w_knight = board.bitboards[crate::model::WHITE_KNIGHT];
         while temp_w_knight != 0 {
             let sq = temp_w_knight.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts);
+            let (eval_for_piece, attackers, danger) = self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t12,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
@@ -348,7 +325,7 @@ impl EvalService {
         let mut temp_w_bishop = board.bitboards[crate::model::WHITE_BISHOP];
         while temp_w_bishop != 0 {
             let sq = temp_w_bishop.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts);
+            let (eval_for_piece, attackers, danger) = self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t13,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
@@ -358,7 +335,7 @@ impl EvalService {
         let mut temp_w_queen = board.bitboards[crate::model::WHITE_QUEEN];
         while temp_w_queen != 0 {
             let sq = temp_w_queen.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_queen(sq, board, config, game_phase, movegen, black_king_ring);
+            let (eval_for_piece, attackers, danger) = self.white_queen(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t14,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
@@ -377,7 +354,7 @@ impl EvalService {
         let mut temp_b_rook = board.bitboards[crate::model::BLACK_ROOK];
         while temp_b_rook != 0 {
             let sq = temp_b_rook.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_rook(sq, board, config, game_phase, movegen, white_king_ring);
+            let (eval_for_piece, attackers, danger) = self.black_rook(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t21,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
@@ -387,7 +364,7 @@ impl EvalService {
         let mut temp_b_knight = board.bitboards[crate::model::BLACK_KNIGHT];
         while temp_b_knight != 0 {
             let sq = temp_b_knight.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts);
+            let (eval_for_piece, attackers, danger) = self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t22,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
@@ -397,7 +374,7 @@ impl EvalService {
         let mut temp_b_bishop = board.bitboards[crate::model::BLACK_BISHOP];
         while temp_b_bishop != 0 {
             let sq = temp_b_bishop.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts);
+            let (eval_for_piece, attackers, danger) = self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t23,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
@@ -407,7 +384,7 @@ impl EvalService {
         let mut temp_b_queen = board.bitboards[crate::model::BLACK_QUEEN];
         while temp_b_queen != 0 {
             let sq = temp_b_queen.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_queen(sq, board, config, game_phase, movegen, white_king_ring);
+            let (eval_for_piece, attackers, danger) = self.black_queen(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t24,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
@@ -587,6 +564,8 @@ impl EvalService {
 
         eval = self.adjust_eval(eval, game_phase, config);
 
+        eval = self.apply_endgame_mopup(eval, board, game_phase, config);
+
         if config.print_eval_per_figure {
             println!("{}", eval);
         }
@@ -662,10 +641,29 @@ impl EvalService {
                 e_eval += config.protected_passed_pawn_endgame;
             }
 
-
+            // Passed pawn blockade: enemy piece on square directly in front
+            let front_sq = sq + 8;
+            if front_sq < 64 && ((1u64 << front_sq) & board.black_pieces) != 0 {
+                o_eval -= config.passed_pawn_blockaded_malus / 2;
+                e_eval -= config.passed_pawn_blockaded_malus;
+            }
 
             e_eval += bonus;
             o_eval += bonus / 3;
+        } else {
+            // Candidate passed pawn: no opposing pawn on this file in front, and supported by friendly adjacent pawns
+            let front_file_mask = (0x0101010101010101u64 << file) & !((1u64 << (sq + 1)) - 1);
+            let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+            if (black_pawns & front_file_mask) == 0 && (3..=5).contains(&rank) {
+                let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+                let friendly_adj_pawns = (white_pawns & adjacent_files).count_ones();
+                let enemy_adj_pawns = (black_pawns & adjacent_files & !((1u64 << (sq + 1)) - 1)).count_ones();
+                if friendly_adj_pawns >= enemy_adj_pawns {
+                    let advancement = (rank - 2) as i16;
+                    o_eval += (config.candidate_passed_pawn_bonus * advancement) / 2;
+                    e_eval += config.candidate_passed_pawn_bonus * advancement;
+                }
+            }
         }
 
         let adjacent_files = ADJACENT_FILES_MASK[file as usize];
@@ -680,6 +678,14 @@ impl EvalService {
         if is_backward {
             o_eval -= config.pawn_backward_malus;
             e_eval -= config.pawn_backward_malus + 10;
+        }
+
+        let has_phalanx = (file > 0 && ((1u64 << (sq - 1)) & white_pawns) != 0) ||
+                          (file < 7 && ((1u64 << (sq + 1)) & white_pawns) != 0);
+        if has_phalanx && (3..=5).contains(&rank) {
+            let advancement = (rank - 2) as i16;
+            o_eval += config.pawn_phalanx_mg * advancement;
+            e_eval += config.pawn_phalanx_eg * advancement;
         }
 
         (o_eval, e_eval)
@@ -753,10 +759,29 @@ impl EvalService {
                 e_eval -= config.protected_passed_pawn_endgame;
             }
 
-
+            // Passed pawn blockade: enemy piece on square directly in front
+            let front_sq = sq - 8;
+            if front_sq >= 0 && ((1u64 << front_sq) & board.white_pieces) != 0 {
+                o_eval += config.passed_pawn_blockaded_malus / 2;
+                e_eval += config.passed_pawn_blockaded_malus;
+            }
 
             e_eval -= bonus;
             o_eval -= bonus / 3;
+        } else {
+            // Candidate passed pawn: no opposing pawn on this file in front, and supported by friendly adjacent pawns
+            let front_file_mask = (0x0101010101010101u64 << file) & ((1u64 << sq) - 1);
+            let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+            if (white_pawns & front_file_mask) == 0 && (2..=4).contains(&rank) {
+                let adjacent_files = ADJACENT_FILES_MASK[file as usize];
+                let friendly_adj_pawns = (black_pawns & adjacent_files).count_ones();
+                let enemy_adj_pawns = (white_pawns & adjacent_files & ((1u64 << sq) - 1)).count_ones();
+                if friendly_adj_pawns >= enemy_adj_pawns {
+                    let advancement = (5 - rank) as i16;
+                    o_eval -= (config.candidate_passed_pawn_bonus * advancement) / 2;
+                    e_eval -= config.candidate_passed_pawn_bonus * advancement;
+                }
+            }
         }
 
         let adjacent_files = ADJACENT_FILES_MASK[file as usize];
@@ -773,10 +798,18 @@ impl EvalService {
             e_eval += config.pawn_backward_malus + 10;
         }
 
+        let has_phalanx = (file > 0 && ((1u64 << (sq - 1)) & black_pawns) != 0) ||
+                          (file < 7 && ((1u64 << (sq + 1)) & black_pawns) != 0);
+        if has_phalanx && (2..=4).contains(&rank) {
+            let advancement = (5 - rank) as i16;
+            o_eval -= config.pawn_phalanx_mg * advancement;
+            e_eval -= config.pawn_phalanx_eg * advancement;
+        }
+
         (o_eval, e_eval)
     }
 
-    fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
+    fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let rank = sq / 8;
@@ -796,6 +829,15 @@ impl EvalService {
                 // Half-open file
                 o_eval += config.rook_half_open_file;
                 e_eval += config.rook_half_open_file + 5;
+            }
+
+            let black_king = board.bitboards[crate::model::BLACK_KING];
+            let black_queen = board.bitboards[crate::model::BLACK_QUEEN];
+            if (black_king & file_mask) != 0 {
+                o_eval += config.rook_open_file_attacks_king;
+            }
+            if (black_queen & file_mask) != 0 {
+                o_eval += config.rook_open_file_attacks_queen;
             }
         }
 
@@ -839,15 +881,29 @@ impl EvalService {
         if rank == 6 {
             o_eval += config.rook_on_seventh;
             e_eval += config.rook_on_seventh + 15;
+
+            // Enemy King cut off on 8th rank
+            let black_king = board.bitboards[crate::model::BLACK_KING];
+            if (black_king & 0xFF00000000000000u64) != 0 {
+                o_eval += config.rook_on_seventh_king_cutoff / 2;
+                e_eval += config.rook_on_seventh_king_cutoff;
+            }
+
+            // Doubled rooks on the 7th rank (Pigs on the 7th)
+            if (white_rooks & 0x00FF000000000000u64).count_ones() >= 2 {
+                o_eval += config.rooks_doubled_on_seventh;
+                e_eval += config.rooks_doubled_on_seventh;
+            }
         }
 
-        // Rook mobility
+        // Safe Rook mobility (excluding friendly blockers and squares attacked by enemy pawns)
         let attacks = movegen.get_rook_attacks(sq as usize, board.occupied);
         
         // Threat Matrix: Rook attacks Queen
         let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
         o_eval += attacked_black_queens * config.threat_rook_attacks_queen;
-        let mobility = attacks.count_ones() as i16;
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval += mobility * config.rook_mobility_factor;
         e_eval += mobility * (config.rook_mobility_factor + 3);
 
@@ -866,7 +922,7 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn black_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
+    fn black_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let rank = sq / 8;
@@ -886,6 +942,15 @@ impl EvalService {
                 // Half-open file
                 o_eval -= config.rook_half_open_file;
                 e_eval -= config.rook_half_open_file + 5;
+            }
+
+            let white_king = board.bitboards[crate::model::WHITE_KING];
+            let white_queen = board.bitboards[crate::model::WHITE_QUEEN];
+            if (white_king & file_mask) != 0 {
+                o_eval -= config.rook_open_file_attacks_king;
+            }
+            if (white_queen & file_mask) != 0 {
+                o_eval -= config.rook_open_file_attacks_queen;
             }
         }
 
@@ -925,19 +990,33 @@ impl EvalService {
             file_white_pawns &= file_white_pawns - 1;
         }
 
-        // Rook on 7th Rank
+        // Rook on 7th Rank (rank 1 for Black)
         if rank == 1 {
             o_eval -= config.rook_on_seventh;
             e_eval -= config.rook_on_seventh + 15;
+
+            // Enemy King cut off on 1st rank
+            let white_king = board.bitboards[crate::model::WHITE_KING];
+            if (white_king & 0x00000000000000FFu64) != 0 {
+                o_eval -= config.rook_on_seventh_king_cutoff / 2;
+                e_eval -= config.rook_on_seventh_king_cutoff;
+            }
+
+            // Doubled rooks on the 2nd rank
+            if (black_rooks & 0x000000000000FF00u64).count_ones() >= 2 {
+                o_eval -= config.rooks_doubled_on_seventh;
+                e_eval -= config.rooks_doubled_on_seventh;
+            }
         }
 
-        // Rook mobility
+        // Safe Rook mobility (excluding friendly blockers and squares attacked by enemy pawns)
         let attacks = movegen.get_rook_attacks(sq as usize, board.occupied);
         
         // Threat Matrix: Rook attacks Queen
         let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
         o_eval -= attacked_white_queens * config.threat_rook_attacks_queen;
-        let mobility = attacks.count_ones() as i16;
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval -= mobility * config.rook_mobility_factor;
         e_eval -= mobility * (config.rook_mobility_factor + 3);
 
@@ -956,7 +1035,7 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64) -> (i16, u8, i16) {
+    fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -983,8 +1062,9 @@ impl EvalService {
             }
         }
 
-        // Knight mobility
-        let mobility = attacks.count_ones() as i16;
+        // Safe Knight mobility (excluding friendly blockers and squares attacked by enemy pawns)
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval += mobility * config.knight_mobility_factor;
         e_eval += mobility * config.knight_mobility_factor;
 
@@ -1018,7 +1098,7 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64) -> (i16, u8, i16) {
+    fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1045,8 +1125,9 @@ impl EvalService {
             }
         }
 
-        // Knight mobility
-        let mobility = attacks.count_ones() as i16;
+        // Safe Knight mobility (excluding friendly blockers and squares attacked by enemy pawns)
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval -= mobility * config.knight_mobility_factor;
         e_eval -= mobility * config.knight_mobility_factor;
 
@@ -1080,7 +1161,7 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64) -> (i16, u8, i16) {
+    fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1099,7 +1180,7 @@ impl EvalService {
             o_eval -= config.bishop_trapped_at_rim_malus;
         }
 
-        // Bishop mobility
+        // Safe Bishop mobility (excluding friendly blockers and squares attacked by enemy pawns)
         let attacks = movegen.get_bishop_attacks(sq as usize, board.occupied);
         
         // Threat Matrix: Bishop attacks Rook/Queen
@@ -1107,7 +1188,8 @@ impl EvalService {
         let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
         o_eval += attacked_black_rooks * config.threat_minor_attacks_rook;
         o_eval += attacked_black_queens * config.threat_minor_attacks_queen;
-        let mobility = attacks.count_ones() as i16;
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval += mobility * config.bishop_mobility_factor;
         e_eval += mobility * config.bishop_mobility_factor;
 
@@ -1116,6 +1198,17 @@ impl EvalService {
         if stands_on_outpost || attacks_outpost {
             o_eval += config.bishop_outpost_true_mg;
             e_eval += config.bishop_outpost_true_eg;
+        }
+
+        // Bishop diagonal X-Ray alignment with enemy King or Queen on empty board ray
+        let diag_ray = movegen.get_bishop_attacks(sq as usize, 0);
+        let black_king = board.bitboards[crate::model::BLACK_KING];
+        let black_queen = board.bitboards[crate::model::BLACK_QUEEN];
+        if (diag_ray & black_king) != 0 {
+            o_eval += config.bishop_diagonal_attacks_king;
+        }
+        if (diag_ray & black_queen) != 0 {
+            o_eval += config.bishop_diagonal_attacks_queen;
         }
 
         // King ring attacks
@@ -1127,7 +1220,7 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64) -> (i16, u8, i16) {
+    fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1146,7 +1239,7 @@ impl EvalService {
             o_eval += config.bishop_trapped_at_rim_malus;
         }
 
-        // Bishop mobility
+        // Safe Bishop mobility (excluding friendly blockers and squares attacked by enemy pawns)
         let attacks = movegen.get_bishop_attacks(sq as usize, board.occupied);
         
         // Threat Matrix: Bishop attacks Rook/Queen
@@ -1154,7 +1247,8 @@ impl EvalService {
         let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
         o_eval -= attacked_white_rooks * config.threat_minor_attacks_rook;
         o_eval -= attacked_white_queens * config.threat_minor_attacks_queen;
-        let mobility = attacks.count_ones() as i16;
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
         o_eval -= mobility * config.bishop_mobility_factor;
         e_eval -= mobility * config.bishop_mobility_factor;
 
@@ -1163,6 +1257,17 @@ impl EvalService {
         if stands_on_outpost || attacks_outpost {
             o_eval -= config.bishop_outpost_true_mg;
             e_eval -= config.bishop_outpost_true_eg;
+        }
+
+        // Bishop diagonal X-Ray alignment with enemy King or Queen on empty board ray
+        let diag_ray = movegen.get_bishop_attacks(sq as usize, 0);
+        let white_king = board.bitboards[crate::model::WHITE_KING];
+        let white_queen = board.bitboards[crate::model::WHITE_QUEEN];
+        if (diag_ray & white_king) != 0 {
+            o_eval -= config.bishop_diagonal_attacks_king;
+        }
+        if (diag_ray & white_queen) != 0 {
+            o_eval -= config.bishop_diagonal_attacks_queen;
         }
 
         // King ring attacks
@@ -1174,8 +1279,9 @@ impl EvalService {
         (eval, attackers, danger)
     }
 
-    fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
+    fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
+        let mut e_eval = 0;
 
         let attackers_mask = movegen.get_attackers_mask_for_see(board, true, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -1184,17 +1290,24 @@ impl EvalService {
         }
 
         // King ring attacks for queen
-        let attacks = movegen.get_rook_attacks(sq as usize, board.occupied) | movegen.get_bishop_attacks(sq as usize, board.occupied);        // King ring attacks
+        let attacks = movegen.get_rook_attacks(sq as usize, board.occupied) | movegen.get_bishop_attacks(sq as usize, board.occupied);
         let attacks_on_ring = (attacks & opp_king_ring).count_ones() as i16;
         let attackers = if attacks_on_ring > 0 { 1 } else { 0 };
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
-        let eval = self.calculate_weighted_eval(o_eval, 0, game_phase);
+        // Safe Queen mobility (excluding friendly blockers and squares attacked by enemy pawns)
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
+        o_eval += mobility * config.queen_mobility_factor;
+        e_eval += mobility * config.queen_mobility_factor;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         (eval, attackers, danger)
     }
 
-    fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64) -> (i16, u8, i16) {
+    fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
         let mut o_eval = 0;
+        let mut e_eval = 0;
 
         let attackers_mask = movegen.get_attackers_mask_for_see(board, false, sq, board.occupied);
         let num_attackers = attackers_mask.count_ones() as i16;
@@ -1203,12 +1316,18 @@ impl EvalService {
         }
 
         // King ring attacks for queen
-        let attacks = movegen.get_rook_attacks(sq as usize, board.occupied) | movegen.get_bishop_attacks(sq as usize, board.occupied);        // King ring attacks
+        let attacks = movegen.get_rook_attacks(sq as usize, board.occupied) | movegen.get_bishop_attacks(sq as usize, board.occupied);
         let attacks_on_ring = (attacks & opp_king_ring).count_ones() as i16;
         let attackers = if attacks_on_ring > 0 { 1 } else { 0 };
         let danger = attacks_on_ring * config.king_ring_attack_queen;
 
-        let eval = self.calculate_weighted_eval(o_eval, 0, game_phase);
+        // Safe Queen mobility (excluding friendly blockers and squares attacked by enemy pawns)
+        let safe_mask = !(opp_pawn_attacks | friendly_pieces);
+        let mobility = (attacks & safe_mask).count_ones() as i16;
+        o_eval -= mobility * config.queen_mobility_factor;
+        e_eval -= mobility * config.queen_mobility_factor;
+
+        let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
         (eval, attackers, danger)
     }
  
@@ -1252,10 +1371,17 @@ impl EvalService {
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
         let file_mask = 0x0101010101010101u64 << file;
         if (file_mask & white_pawns) == 0 {
+            let opp_heavy_on_file = (board.bitboards[crate::model::BLACK_ROOK] | board.bitboards[crate::model::BLACK_QUEEN]) & file_mask != 0;
             if (file_mask & black_pawns) == 0 {
                 o_eval -= config.king_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval -= config.king_open_file_heavy_threat_malus;
+                }
             } else {
                 o_eval -= config.king_half_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval -= config.king_open_file_heavy_threat_malus / 2;
+                }
             }
         }
         if file > 0 && sq + 7 < 64 {
@@ -1325,10 +1451,17 @@ impl EvalService {
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
         let file_mask = 0x0101010101010101u64 << file;
         if (file_mask & black_pawns) == 0 {
+            let opp_heavy_on_file = (board.bitboards[crate::model::WHITE_ROOK] | board.bitboards[crate::model::WHITE_QUEEN]) & file_mask != 0;
             if (file_mask & white_pawns) == 0 {
                 o_eval += config.king_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval += config.king_open_file_heavy_threat_malus;
+                }
             } else {
                 o_eval += config.king_half_open_file_malus;
+                if opp_heavy_on_file {
+                    o_eval += config.king_open_file_heavy_threat_malus / 2;
+                }
             }
         }
         if file > 0 && sq >= 9 {
@@ -1402,6 +1535,42 @@ impl EvalService {
             }
         }
         eval        
+    }
+
+    #[inline(always)]
+    pub fn get_white_pawn_attacks(white_pawns: u64) -> u64 {
+        ((white_pawns & !0x0101010101010101u64) << 7) | ((white_pawns & !0x8080808080808080u64) << 9)
+    }
+
+    #[inline(always)]
+    pub fn get_black_pawn_attacks(black_pawns: u64) -> u64 {
+        ((black_pawns & !0x8080808080808080u64) >> 7) | ((black_pawns & !0x0101010101010101u64) >> 9)
+    }
+
+    #[inline(always)]
+    pub fn king_passer_proximity_score(
+        sq: u8,
+        is_white: bool,
+        wk_sq: u8,
+        bk_sq: u8,
+        config: &Config,
+    ) -> i16 {
+        if config.king_passer_dist_weight == 0 {
+            return 0;
+        }
+        let p_rank = (sq / 8) as i32;
+        let p_file = (sq % 8) as i32;
+        let wk_rank = (wk_sq / 8) as i32;
+        let wk_file = (wk_sq % 8) as i32;
+        let bk_rank = (bk_sq / 8) as i32;
+        let bk_file = (bk_sq % 8) as i32;
+
+        let w_dist = (p_rank - wk_rank).abs().max((p_file - wk_file).abs());
+        let b_dist = (p_rank - bk_rank).abs().max((p_file - bk_file).abs());
+
+        let rank_factor = if is_white { p_rank + 1 } else { 8 - p_rank };
+        let delta_dist = if is_white { b_dist - w_dist } else { w_dist - b_dist };
+        ((delta_dist * (config.king_passer_dist_weight as i32) * rank_factor) / 8) as i16
     }
 
     #[inline(always)]
@@ -1525,6 +1694,201 @@ impl EvalService {
         false
     }
 
+    #[inline(always)]
+    pub fn is_insufficient_material(board: &Board) -> bool {
+        let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
+        let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
+        let w_pawn_count = white_pawns.count_ones();
+        let b_pawn_count = black_pawns.count_ones();
+        let total_pawns = w_pawn_count + b_pawn_count;
+
+        // Fast path: multiple pawns on board -> not insufficient material
+        if total_pawns > 1 {
+            return false;
+        }
+
+        let w_rooks = board.bitboards[crate::model::WHITE_ROOK];
+        let w_queens = board.bitboards[crate::model::WHITE_QUEEN];
+        let b_rooks = board.bitboards[crate::model::BLACK_ROOK];
+        let b_queens = board.bitboards[crate::model::BLACK_QUEEN];
+
+        if (w_rooks | w_queens | b_rooks | b_queens) != 0 {
+            return false;
+        }
+
+        let w_knights = board.bitboards[crate::model::WHITE_KNIGHT].count_ones();
+        let w_bishops = board.bitboards[crate::model::WHITE_BISHOP].count_ones();
+        let b_knights = board.bitboards[crate::model::BLACK_KNIGHT].count_ones();
+        let b_bishops = board.bitboards[crate::model::BLACK_BISHOP].count_ones();
+
+        let w_minors = w_knights + w_bishops;
+        let b_minors = b_knights + b_bishops;
+
+        // Single pawn endgame check: Wrong-colored bishop + rook pawn (KBP vs K dead draw)
+        if total_pawns == 1 {
+            // White KBP vs Black K
+            if w_pawn_count == 1 && b_pawn_count == 0 && w_bishops == 1 && w_knights == 0 && b_minors == 0 {
+                let p_sq = white_pawns.trailing_zeros() as i32;
+                let p_file = p_sq % 8;
+                if p_file == 0 || p_file == 7 {
+                    let prom_sq = if p_file == 0 { 56 } else { 63 };
+                    let prom_color = (prom_sq % 8 + prom_sq / 8) % 2;
+                    let b_sq = board.bitboards[crate::model::WHITE_BISHOP].trailing_zeros() as i32;
+                    let b_color = (b_sq % 8 + b_sq / 8) % 2;
+                    if b_color != prom_color {
+                        let bk_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+                        let bk_file = bk_sq % 8;
+                        let bk_rank = bk_sq / 8;
+                        let prom_file = prom_sq % 8;
+                        let prom_rank = prom_sq / 8;
+                        let dist_to_prom = (bk_file - prom_file).abs().max((bk_rank - prom_rank).abs());
+                        if dist_to_prom <= 1 || (bk_file == p_file && bk_rank > p_sq / 8) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Black KBP vs White K
+            if b_pawn_count == 1 && w_pawn_count == 0 && b_bishops == 1 && b_knights == 0 && w_minors == 0 {
+                let p_sq = black_pawns.trailing_zeros() as i32;
+                let p_file = p_sq % 8;
+                if p_file == 0 || p_file == 7 {
+                    let prom_sq = if p_file == 0 { 0 } else { 7 };
+                    let prom_color = (prom_sq % 8 + prom_sq / 8) % 2;
+                    let b_sq = board.bitboards[crate::model::BLACK_BISHOP].trailing_zeros() as i32;
+                    let b_color = (b_sq % 8 + b_sq / 8) % 2;
+                    if b_color != prom_color {
+                        let wk_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+                        let wk_file = wk_sq % 8;
+                        let wk_rank = wk_sq / 8;
+                        let prom_file = prom_sq % 8;
+                        let prom_rank = prom_sq / 8;
+                        let dist_to_prom = (wk_file - prom_file).abs().max((wk_rank - prom_rank).abs());
+                        if dist_to_prom <= 1 || (wk_file == p_file && wk_rank < p_sq / 8) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // KvK
+        if w_minors + b_minors == 0 {
+            return true;
+        }
+
+        // KNvK or KBvK (one side has at most 1 minor piece, other side has 0)
+        if (w_minors <= 1 && b_minors == 0) || (b_minors <= 1 && w_minors == 0) {
+            return true;
+        }
+
+        // KNNvK (two knights vs bare king cannot force checkmate)
+        if (w_knights == 2 && w_bishops == 0 && b_minors == 0)
+            || (b_knights == 2 && b_bishops == 0 && w_minors == 0)
+        {
+            return true;
+        }
+
+        // KN vs KN (one knight each, no pawns or other pieces)
+        if w_knights == 1 && w_bishops == 0 && b_knights == 1 && b_bishops == 0 {
+            return true;
+        }
+
+        // KB vs KN and KN vs KB (one minor piece each, no pawns or other pieces)
+        if (w_bishops == 1 && w_knights == 0 && b_knights == 1 && b_bishops == 0)
+            || (w_knights == 1 && w_bishops == 0 && b_bishops == 1 && b_knights == 0)
+        {
+            return true;
+        }
+
+        // KB vs KB with same-color bishops (no pawns)
+        if w_bishops == 1 && w_knights == 0 && b_bishops == 1 && b_knights == 0 {
+            let w_sq = board.bitboards[crate::model::WHITE_BISHOP].trailing_zeros() as i32;
+            let b_sq = board.bitboards[crate::model::BLACK_BISHOP].trailing_zeros() as i32;
+            let w_color = (w_sq % 8 + w_sq / 8) % 2;
+            let b_color = (b_sq % 8 + b_sq / 8) % 2;
+            if w_color == b_color {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    #[inline(always)]
+    pub fn apply_endgame_mopup(&self, mut eval: i16, board: &Board, game_phase: i16, config: &Config) -> i16 {
+        if !config.enable_endgame_mopup
+            || game_phase > config.mopup_max_game_phase
+            || eval.abs() < config.mopup_eval_threshold
+        {
+            return eval;
+        }
+
+        let white_winning = eval > 0;
+        let (winning_non_pawns, losing_non_pawns, losing_pawns) = if white_winning {
+            (
+                board.bitboards[crate::model::WHITE_KNIGHT]
+                    | board.bitboards[crate::model::WHITE_BISHOP]
+                    | board.bitboards[crate::model::WHITE_ROOK]
+                    | board.bitboards[crate::model::WHITE_QUEEN],
+                board.bitboards[crate::model::BLACK_KNIGHT]
+                    | board.bitboards[crate::model::BLACK_BISHOP]
+                    | board.bitboards[crate::model::BLACK_ROOK]
+                    | board.bitboards[crate::model::BLACK_QUEEN],
+                board.bitboards[crate::model::BLACK_PAWN],
+            )
+        } else {
+            (
+                board.bitboards[crate::model::BLACK_KNIGHT]
+                    | board.bitboards[crate::model::BLACK_BISHOP]
+                    | board.bitboards[crate::model::BLACK_ROOK]
+                    | board.bitboards[crate::model::BLACK_QUEEN],
+                board.bitboards[crate::model::WHITE_KNIGHT]
+                    | board.bitboards[crate::model::WHITE_BISHOP]
+                    | board.bitboards[crate::model::WHITE_ROOK]
+                    | board.bitboards[crate::model::WHITE_QUEEN],
+                board.bitboards[crate::model::WHITE_PAWN],
+            )
+        };
+
+        if winning_non_pawns != 0 && losing_non_pawns == 0 && losing_pawns == 0 {
+            let winning_king_sq = if white_winning {
+                board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32
+            } else {
+                board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32
+            };
+            let losing_king_sq = if white_winning {
+                board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32
+            } else {
+                board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32
+            };
+
+            let losing_rank = losing_king_sq / 8;
+            let losing_file = losing_king_sq % 8;
+
+            // 1. Center distance of losing king (pushing to edge/corners)
+            let center_dist_rank = (losing_rank - 3).abs().max((losing_rank - 4).abs());
+            let center_dist_file = (losing_file - 3).abs().max((losing_file - 4).abs());
+            let push_to_edge_bonus =
+                (center_dist_rank + center_dist_file) * config.mopup_center_weight as i32;
+
+            // 2. Proximity between kings (Chebyshev distance)
+            let winning_rank = winning_king_sq / 8;
+            let winning_file = winning_king_sq % 8;
+            let king_dist = (winning_rank - losing_rank).abs().max((winning_file - losing_file).abs());
+            let close_kings_bonus = (7 - king_dist) * config.mopup_proximity_weight as i32;
+
+            let mopup_total = (push_to_edge_bonus + close_kings_bonus) as i16;
+            if white_winning {
+                eval += mopup_total;
+            } else {
+                eval -= mopup_total;
+            }
+        }
+        eval
+    }
+
 
     fn white_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
@@ -1569,21 +1933,21 @@ impl EvalService {
 
         let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
         if is_passed {
-            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
-            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
-            let wk_rank = white_king_sq / 8;
-            let wk_file = white_king_sq % 8;
-            let bk_rank = black_king_sq / 8;
-            let bk_file = black_king_sq % 8;
-            
-            let dist_to_own_king = (rank - wk_rank).abs().max((file - wk_file).abs());
-            let dist_to_opp_king = (rank - bk_rank).abs().max((file - bk_file).abs());
-            
-            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
-            e_eval += own_k_bonus;
-            
-            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
-            e_eval -= opp_k_malus;
+            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
+            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
+            e_eval += Self::king_passer_proximity_score(sq as u8, true, white_king_sq, black_king_sq, config);
+        }
+
+        // Pawn Storm against enemy castled king
+        let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
+        let bk_file = black_king_sq % 8;
+        let bk_rank = black_king_sq / 8;
+        if bk_rank >= 5 {
+            if bk_file >= 5 && file >= 5 && rank >= 3 {
+                o_eval += config.pawn_storm_bonus * (rank - 2) as i16;
+            } else if bk_file <= 2 && file <= 2 && rank >= 3 {
+                o_eval += config.pawn_storm_bonus * (rank - 2) as i16;
+            }
         }
 
         (o_eval, e_eval)
@@ -1631,21 +1995,21 @@ impl EvalService {
 
         let is_passed = (1u64 << sq) & precalculated_passed_pawns != 0;
         if is_passed {
-            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
-            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as i32;
-            let wk_rank = white_king_sq / 8;
-            let wk_file = white_king_sq % 8;
-            let bk_rank = black_king_sq / 8;
-            let bk_file = black_king_sq % 8;
-            
-            let dist_to_own_king = (rank - bk_rank).abs().max((file - bk_file).abs());
-            let dist_to_opp_king = (rank - wk_rank).abs().max((file - wk_file).abs());
-            
-            let own_k_bonus = ((6 - dist_to_own_king).max(0) * 15) as i16;
-            e_eval -= own_k_bonus;
-            
-            let opp_k_malus = ((6 - dist_to_opp_king).max(0) * 12) as i16;
-            e_eval += opp_k_malus;
+            let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
+            let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
+            e_eval -= Self::king_passer_proximity_score(sq as u8, false, white_king_sq, black_king_sq, config);
+        }
+
+        // Pawn Storm against enemy castled king
+        let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as i32;
+        let wk_file = white_king_sq % 8;
+        let wk_rank = white_king_sq / 8;
+        if wk_rank <= 2 {
+            if wk_file >= 5 && file >= 5 && rank <= 4 {
+                o_eval -= config.pawn_storm_bonus * (5 - rank) as i16;
+            } else if wk_file <= 2 && file <= 2 && rank <= 4 {
+                o_eval -= config.pawn_storm_bonus * (5 - rank) as i16;
+            }
         }
 
         (o_eval, e_eval)
@@ -1717,16 +2081,16 @@ mod tests {
         let config = &Config::new();
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval1 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval1 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/2p3Nr/3B3p/q7/1RP3P1/3NPP1P/3QK2R b Kq - 0 19");
-        let eval2 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval2 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
         let board = fen_service.set_fen("rnb1k1n1/pp4p1/6Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19");
-        let eval3 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval3 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
         let board = fen_service.set_fen("rnb1k3/pp2n1p1/7r/3p3p/q4N2/1RP3P1/3NPP1P/3QK2R w Kq - 2 21");
-        let eval4 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval4 = eval_service.calc_eval(&board, config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
         println!("{}", eval1);
         println!("{}", eval2);
@@ -1736,7 +2100,8 @@ mod tests {
 
     #[test]
     fn unequal_position_test() {
-        eval_between("8/8/8/8/2k5/6K1/8/8 w - - 0 1", -120, -60);
+        // Asymmetric King position with pawns on board (Black king centralized on c4 vs White on g3)
+        eval_between("8/p7/8/8/2k5/6K1/P7/8 w - - 0 1", -120, -60);
     }
 
     #[test]
@@ -1839,8 +2204,8 @@ mod tests {
 
         let board1 = fen.set_fen(fen1);
         let board2 = fen.set_fen(fen2);
-        let eval1 = eval.calc_eval(&board1, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-        let eval2 = eval.calc_eval(&board2, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval1 = eval.calc_eval(&board1, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+        let eval2 = eval.calc_eval(&board2, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
         println!("FIB: eval1={} eval2={} diff={} | fen1='{}' fen2='{}'", eval1, eval2, eval1 - eval2, fen1, fen2);
 
@@ -1858,8 +2223,8 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-        assert!(eval.abs() <= 10, "Eval {} is not close to 0", eval);
+        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+        assert!(eval.abs() <= 10, "FEN: {} | Eval {} is not close to 0", fen, eval);
     }
 
     fn eval_between(fen: &str, lower: i16, higher: i16) {
@@ -1870,7 +2235,7 @@ mod tests {
 
         let config = &Config::_for_evel_equal_tests();
         let board = &fen_service.set_fen(fen);
-        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval = eval_service.calc_eval(board, config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         println!("Eval: {}", eval);
         assert!(eval >= lower);
         assert!(eval <= higher);
@@ -1884,7 +2249,7 @@ mod tests {
         let board = &fen_service.set_fen(fen);
         let mut config = Config::new();
         config.print_eval_per_figure = true;
-        eval_service.calc_eval(board, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        eval_service.calc_eval(board, &config, &movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         println!("------------");
     }
 
@@ -1900,9 +2265,9 @@ mod tests {
         let mut config_normal = Config::new();
         config_normal.use_nnue = false;
         config_normal.enable_positional_cap = true;
-        config_normal.aggressiveness = crate::config::Aggressiveness::Normal;
+        config_normal.set_aggressiveness(crate::config::Aggressiveness::Normal);
         config_normal.your_turn_bonus = 1000; // Enormous positional bonus to force capping
-        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval_normal = eval_service.calc_eval(&board, &config_normal, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         // Soft cap calculation: 150 + (1000 - 150) / 5 = 150 + 170 = 320
         assert_eq!(eval_normal, 320, "Normal aggressiveness eval should be soft capped at 320");
 
@@ -1910,9 +2275,9 @@ mod tests {
         let mut config_aggressive = Config::new();
         config_aggressive.use_nnue = false;
         config_aggressive.enable_positional_cap = true;
-        config_aggressive.aggressiveness = crate::config::Aggressiveness::Aggressive;
+        config_aggressive.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
         config_aggressive.your_turn_bonus = 1000;
-        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval_aggressive = eval_service.calc_eval(&board, &config_aggressive, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         // Soft cap calculation: 250 + (1000 - 250) / 5 = 250 + 150 = 400
         assert_eq!(eval_aggressive, 400, "Aggressive eval should be soft capped at 400");
 
@@ -1920,9 +2285,9 @@ mod tests {
         let mut config_high = Config::new();
         config_high.use_nnue = false;
         config_high.enable_positional_cap = true;
-        config_high.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+        config_high.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
         config_high.your_turn_bonus = 1000;
-        let eval_high = eval_service.calc_eval(&board, &config_high, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+        let eval_high = eval_service.calc_eval(&board, &config_high, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         // Soft cap calculation: 400 + (1000 - 400) / 5 = 400 + 120 = 520
         assert_eq!(eval_high, 520, "High aggressive eval should be soft capped at 520");
     }
@@ -1940,11 +2305,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.connected_passed_pawn_mg = 50;
             config.connected_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.connected_passed_pawn_mg = 0;
             config.connected_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
             
             // Expected bonus: 2 connected pawns, each gets EG bonus (100) = 200 total
             let diff = eval_with - eval_without;
@@ -1959,11 +2324,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             // Phase = 1 (1 Knight = 1/24 * 255 = 10) -> mostly endgame (eg weight is 246/256)
             // Expected bonus: weighted outpost bonus ~ 30
@@ -1974,11 +2339,11 @@ mod tests {
             let board_att = fen_service.set_fen("8/8/8/8/2NP4/k7/8/K7 w - - 0 1");
             config.knight_outpost_true_mg = 60;
             config.knight_outpost_true_eg = 30;
-            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_with_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.knight_outpost_true_mg = 0;
             config.knight_outpost_true_eg = 0;
-            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_without_att = eval_service.calc_eval(&board_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             let diff_att = eval_with_att - eval_without_att;
             assert!(diff_att >= 25 && diff_att <= 35, "True outpost control bonus not applied correctly, diff={}", diff_att);
@@ -1998,15 +2363,15 @@ mod tests {
             let board_qs_mg = fen_service.set_fen("q7/8/8/8/8/k7/PPP5/2K3Q1 w - - 0 1");
 
             // Evaluate with shields active
-            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_ks = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+            let eval_qs = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.king_pawn_shield_kingside = 0;
             config.king_pawn_shield_queenside = 0;
 
             // Evaluate without shields
-            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_ks_no = eval_service.calc_eval(&board_ks_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+            let eval_qs_no = eval_service.calc_eval(&board_qs_mg, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             let ks_diff = eval_ks - eval_ks_no;
             let qs_diff = eval_qs - eval_qs_no;
@@ -2021,10 +2386,10 @@ mod tests {
             config.max_eval_mult = 1.0;
             
             config.opposite_bishops_draw_scale = 100;
-            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_unscaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.opposite_bishops_draw_scale = 50;
-            let eval_scaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_scaled = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             assert_eq!(eval_scaled, eval_unscaled / 2, "Opposite-colored bishops endgame evaluation not scaled correctly");
         }
@@ -2037,11 +2402,11 @@ mod tests {
             config.max_eval_mult = 1.0;
             config.rook_behind_enemy_passed_pawn_mg = 50;
             config.rook_behind_enemy_passed_pawn_eg = 100;
-            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             config.rook_behind_enemy_passed_pawn_mg = 0;
             config.rook_behind_enemy_passed_pawn_eg = 0;
-            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_without = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             // phase is 2 rooks = 4/24 * 255 = 42 -> mostly endgame
             let diff = eval_with - eval_without;
@@ -2059,8 +2424,8 @@ mod tests {
             let board_connected = fen_service.set_fen("8/8/8/4PP2/8/k7/8/K7 w - - 0 1");
             let board_isolated = fen_service.set_fen("8/8/8/P3P3/8/k7/8/K7 w - - 0 1");
 
-            let eval_connected = eval_service.calc_eval(&board_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-            let eval_isolated = eval_service.calc_eval(&board_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_connected = eval_service.calc_eval(&board_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+            let eval_isolated = eval_service.calc_eval(&board_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             assert!(eval_connected > eval_isolated, "Connected passed pawns should evaluate higher than isolated passed pawns");
 
@@ -2068,8 +2433,8 @@ mod tests {
             let board_b_connected = fen_service.set_fen("8/8/8/K7/4pp2/8/8/k7 b - - 0 1");
             let board_b_isolated = fen_service.set_fen("8/8/8/K7/p3p3/8/8/k7 b - - 0 1");
 
-            let eval_b_connected = eval_service.calc_eval(&board_b_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-            let eval_b_isolated = eval_service.calc_eval(&board_b_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_b_connected = eval_service.calc_eval(&board_b_connected, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+            let eval_b_isolated = eval_service.calc_eval(&board_b_isolated, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             assert!(eval_b_connected < eval_b_isolated, "Black connected passed pawns should give a lower (more negative for White) eval than isolated");
         }
@@ -2085,8 +2450,8 @@ mod tests {
             let board_white_att = fen_service.set_fen("4k3/8/8/5N2/8/8/8/4K3 w - - 0 1");
             let board_black_att = fen_service.set_fen("4k3/8/8/8/5n2/8/8/4K3 b - - 0 1");
 
-            let eval_w = eval_service.calc_eval(&board_white_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
-            let eval_b = eval_service.calc_eval(&board_black_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX);
+            let eval_w = eval_service.calc_eval(&board_white_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+            let eval_b = eval_service.calc_eval(&board_black_att, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
 
             assert_eq!(eval_w, -eval_b, "Evaluation should be perfectly symmetric for White and Black knight attacks on king ring");
         }
@@ -2116,6 +2481,634 @@ mod tests {
             stderr.contains("RIP Critical Error: Failed to load NNUE network file 'eval_models/non_existent_model_file.bin'"),
             "Stderr should contain critical error log, got: {}",
             stderr
+        );
+    }
+
+    #[test]
+    fn test_insufficient_material_detection() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // 1. KvK (Draw)
+        let board_kvk = fen_service.set_fen("8/8/8/4k3/8/8/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kvk));
+        assert_eq!(eval_service.calc_eval(&board_kvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+        assert_eq!(eval_service.cheap_eval(&board_kvk, &config, &pawn_table), 0);
+
+        // 2. KNvK (Draw)
+        let board_knvk = fen_service.set_fen("8/8/8/4k3/8/5N2/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_knvk));
+        assert_eq!(eval_service.calc_eval(&board_knvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+        assert_eq!(eval_service.cheap_eval(&board_knvk, &config, &pawn_table), 0);
+
+        // 3. KBvK (Draw)
+        let board_kbvk = fen_service.set_fen("8/8/8/4k3/8/5B2/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kbvk));
+        assert_eq!(eval_service.calc_eval(&board_kbvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+        assert_eq!(eval_service.cheap_eval(&board_kbvk, &config, &pawn_table), 0);
+
+        // 4. KNNvK (Draw)
+        let board_knnvk = fen_service.set_fen("8/8/8/4k3/8/5NN1/4K3/8 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_knnvk));
+        assert_eq!(eval_service.calc_eval(&board_knnvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+        assert_eq!(eval_service.cheap_eval(&board_knnvk, &config, &pawn_table), 0);
+
+        // 5. KBvKB same-color bishops (Draw)
+        // c1 is dark (2+0=2%2=0), f4 is dark (5+3=8%2=0) -> same color
+        let board_kbvkb_same = fen_service.set_fen("8/8/8/8/5b2/8/4K3/2B1k3 w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&board_kbvkb_same));
+        assert_eq!(eval_service.calc_eval(&board_kbvkb_same, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+
+        // 6. KBvKB opposite-color bishops (NOT insufficient material directly, but opposite bishops draw scale applies)
+        // c1 is dark (2+0=2%2=0), c4 is light (2+3=5%2=1) -> opposite color
+        let board_kbvkb_opp = fen_service.set_fen("8/8/8/8/2b5/8/4K3/2B1k3 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_kbvkb_opp));
+
+        // 7. KPvK (Pawns present -> NOT insufficient material)
+        let board_kpvk = fen_service.set_fen("8/8/8/4k3/8/5P2/4K3/8 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_kpvk));
+        assert_ne!(eval_service.calc_eval(&board_kpvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+
+        // 8. KRvK (Rooks present -> NOT insufficient material)
+        let board_krvk = fen_service.set_fen("8/8/8/4k3/8/5R2/4K3/8 w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&board_krvk));
+        assert_ne!(eval_service.calc_eval(&board_krvk, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180), 0);
+    }
+
+    #[test]
+    fn test_endgame_mopup_heuristics() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White K+R vs Black K. Black King is on a8 (corner, rank 7, file 0) and White King is on b6 (close, rank 5, file 1).
+        let board_cornered = fen_service.set_fen("k7/8/1K6/8/8/8/1R6/8 w - - 0 1");
+        let eval_cornered = eval_service.calc_eval(&board_cornered, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Position B: White K+R vs Black K. Black King is on d4 (center, rank 3, file 3) and White King is on h1 (distant).
+        let board_centered = fen_service.set_fen("8/8/8/8/3k4/8/1R6/7K w - - 0 1");
+        let eval_centered = eval_service.calc_eval(&board_centered, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_cornered > eval_centered + 50,
+            "Cornered and closely contained enemy king should have significantly higher score due to Mop-Up (got cornered={}, centered={})",
+            eval_cornered,
+            eval_centered
+        );
+
+        // Test Mop-Up disabled when losing side has pawns
+        let board_with_black_pawn = fen_service.set_fen("k7/p7/1K6/8/8/8/1R6/8 w - - 0 1");
+        let mut config_no_mop = config.clone();
+        config_no_mop.enable_endgame_mopup = false;
+
+        let eval_with_pawn = eval_service.calc_eval(&board_with_black_pawn, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+        let eval_with_pawn_no_mop = eval_service.calc_eval(&board_with_black_pawn, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+        assert_eq!(
+            eval_with_pawn, eval_with_pawn_no_mop,
+            "Mop-Up should not be applied if the losing side still has pawns"
+        );
+
+        // Test Black winning Mop-Up symmetry
+        let board_black_winning = fen_service.set_fen("8/1r6/8/8/8/1k6/8/K7 b - - 0 1");
+        let eval_black_winning = eval_service.calc_eval(&board_black_winning, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+        assert!(
+            eval_black_winning < -500,
+            "Black winning in pawnless endgame should have a strongly negative evaluation"
+        );
+    }
+
+    #[test]
+    fn test_endgame_mopup_edge_push_monotonic_gradient() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Black King at different positions with White King at b1 and Rook at b2:
+        // 1. Center (d4: rank 3, file 3 -> center dist = 0+0 = 0)
+        let board_center = fen_service.set_fen("8/8/8/8/3k4/8/1R6/1K6 w - - 0 1");
+        let eval_center = eval_service.calc_eval(&board_center, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // 2. Semi-Center (c5: rank 4, file 2 -> center dist = 0+1 = 1)
+        let board_semi = fen_service.set_fen("8/8/8/2k5/8/8/1R6/1K6 w - - 0 1");
+        let eval_semi = eval_service.calc_eval(&board_semi, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // 3. Edge (c8: rank 7, file 2 -> center dist = 3+1 = 4)
+        let board_edge = fen_service.set_fen("2k5/8/8/8/8/8/1R6/1K6 w - - 0 1");
+        let eval_edge = eval_service.calc_eval(&board_edge, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // 4. Corner (a8: rank 7, file 0 -> center dist = 3+3 = 6)
+        let board_corner = fen_service.set_fen("k7/8/8/8/8/8/1R6/1K6 w - - 0 1");
+        let eval_corner = eval_service.calc_eval(&board_corner, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_center < eval_semi,
+            "Semi-center king position should evaluate higher than pure center (center={}, semi={})",
+            eval_center, eval_semi
+        );
+        assert!(
+            eval_semi < eval_edge,
+            "Edge king position should evaluate higher than semi-center (semi={}, edge={})",
+            eval_semi, eval_edge
+        );
+        assert!(
+            eval_edge < eval_corner,
+            "Corner king position should evaluate higher than edge (edge={}, corner={})",
+            eval_edge, eval_corner
+        );
+    }
+
+    #[test]
+    fn test_endgame_mopup_king_proximity_monotonic_gradient() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        let get_mopup_bonus = |fen: &str| -> i16 {
+            let board = fen_service.set_fen(fen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            let mut config_no_mop = config.clone();
+            config_no_mop.enable_endgame_mopup = false;
+            let eval_without = eval_service.calc_eval(&board, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            eval_with - eval_without
+        };
+
+        // Enemy King fixed at a8, White Rook on h2.
+        // White King moves progressively closer from distance 7 down to distance 1:
+        // 1. Dist = 7 (White King at h1): proximity bonus = (7 - 7) * 15 = 0
+        let mop_d7 = get_mopup_bonus("k7/8/8/8/8/8/7R/7K w - - 0 1");
+
+        // 2. Dist = 5 (White King at f3): proximity bonus = (7 - 5) * 15 = 30
+        let mop_d5 = get_mopup_bonus("k7/8/8/8/8/5K2/7R/8 w - - 0 1");
+
+        // 3. Dist = 3 (White King at d5): proximity bonus = (7 - 3) * 15 = 60
+        let mop_d3 = get_mopup_bonus("k7/8/8/3K4/8/8/7R/8 w - - 0 1");
+
+        // 4. Dist = 2 (White King at c6): proximity bonus = (7 - 2) * 15 = 75
+        let mop_d2 = get_mopup_bonus("k7/8/2K5/8/8/8/7R/8 w - - 0 1");
+
+        // 5. Dist = 1 (White King at b7): proximity bonus = (7 - 1) * 15 = 90
+        let mop_d1 = get_mopup_bonus("k7/1K6/8/8/8/8/7R/8 w - - 0 1");
+
+        assert!(mop_d7 < mop_d5, "d5 bonus must exceed d7: {} vs {}", mop_d5, mop_d7);
+        assert!(mop_d5 < mop_d3, "d3 bonus must exceed d5: {} vs {}", mop_d3, mop_d5);
+        assert!(mop_d3 < mop_d2, "d2 bonus must exceed d3: {} vs {}", mop_d2, mop_d3);
+        assert!(mop_d2 < mop_d1, "d1 bonus must exceed d2: {} vs {}", mop_d1, mop_d2);
+    }
+
+    #[test]
+    fn test_endgame_mopup_disabled_when_losing_side_has_pieces() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.enable_endgame_mopup = true;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        let verify_mopup_inactive = |fen: &str, description: &str| {
+            let board = fen_service.set_fen(fen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            let mut config_no_mop = config.clone();
+            config_no_mop.enable_endgame_mopup = false;
+            let eval_without = eval_service.calc_eval(&board, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            assert_eq!(
+                eval_with, eval_without,
+                "Mop-Up should be disabled when defending side has pieces: {}",
+                description
+            );
+        };
+
+        // 1. KQ vs KR (Black has Rook)
+        verify_mopup_inactive("k7/8/8/8/8/8/1r6/1K1Q4 w - - 0 1", "KQ vs KR");
+
+        // 2. KRB vs KR (Black has Rook)
+        verify_mopup_inactive("k7/8/8/8/8/8/1r6/1KBR4 w - - 0 1", "KRB vs KR");
+
+        // 3. KQ vs KQ (Black has Queen)
+        verify_mopup_inactive("k7/8/8/8/8/8/1q6/1K1Q4 w - - 0 1", "KQ vs KQ");
+
+        // 4. KR vs KN (Black has Knight)
+        verify_mopup_inactive("k7/8/8/8/8/8/1n6/1K1R4 w - - 0 1", "KR vs KN");
+
+        // 5. KR vs KB (Black has Bishop)
+        verify_mopup_inactive("k7/8/8/8/8/8/1b6/1K1R4 w - - 0 1", "KR vs KB");
+    }
+
+    #[test]
+    fn test_safe_mobility_excludes_enemy_pawn_attacks() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Knight on d4 with free squares (Black pawns on a7/h7 far away)
+        let board_free_knight = fen_service.set_fen("7k/p6p/8/8/3N4/8/8/K7 w - - 0 1");
+        let free_pawn_attacks = super::EvalService::get_black_pawn_attacks(board_free_knight.bitboards[crate::model::BLACK_PAWN]);
+        let (free_knight_eval, _, _) = eval_service.white_knight(27, &board_free_knight, &config, 100, movegen, 0, 0, free_pawn_attacks, board_free_knight.white_pieces);
+
+        // Position B: Black pawns on c6 and e6 control knight landing squares - restricting safe mobility
+        let board_guarded = fen_service.set_fen("7k/8/2p1p3/8/3N4/8/8/K7 w - - 0 1");
+        let guarded_pawn_attacks = super::EvalService::get_black_pawn_attacks(board_guarded.bitboards[crate::model::BLACK_PAWN]);
+        let (guarded_knight_eval, _, _) = eval_service.white_knight(27, &board_guarded, &config, 100, movegen, 0, 0, guarded_pawn_attacks, board_guarded.white_pieces);
+
+        assert!(
+            free_knight_eval > guarded_knight_eval,
+            "Knight with safe mobility should score higher than knight restricted by enemy pawns (free={}, guarded={})",
+            free_knight_eval, guarded_knight_eval
+        );
+    }
+
+    #[test]
+    fn test_safe_mobility_excludes_friendly_blockers() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Rook on d4 on open board
+        let board_open_rook = fen_service.set_fen("7k/8/8/8/3R4/8/8/K7 w - - 0 1");
+        let (open_rook_eval, _, _) = eval_service.white_rook(27, &board_open_rook, &config, 100, movegen, 0, 0, board_open_rook.white_pieces);
+
+        // Position B: White Rook on d4 hemmed in by friendly pawns on d3, d5, c4, e4
+        let board_blocked_rook = fen_service.set_fen("7k/8/8/3P4/2PRP3/3P4/8/K7 w - - 0 1");
+        let (blocked_rook_eval, _, _) = eval_service.white_rook(27, &board_blocked_rook, &config, 100, movegen, 0, 0, board_blocked_rook.white_pieces);
+
+        assert!(
+            open_rook_eval > blocked_rook_eval,
+            "Open rook must have higher mobility evaluation than blocked rook (open={}, blocked={})",
+            open_rook_eval, blocked_rook_eval
+        );
+    }
+
+    #[test]
+    fn test_queen_mobility_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        let board_open_queen = fen_service.set_fen("7k/8/8/8/3Q4/8/8/K7 w - - 0 1");
+        let board_trapped_queen = fen_service.set_fen("7k/8/8/8/8/8/1PP5/KPQ5 w - - 0 1");
+
+        let (open_q_eval, _, _) = eval_service.white_queen(27, &board_open_queen, &config, 128, movegen, 0, 0, board_open_queen.white_pieces);
+        let (trapped_q_eval, _, _) = eval_service.white_queen(2, &board_trapped_queen, &config, 128, movegen, 0, 0, board_trapped_queen.white_pieces);
+
+        assert!(
+            open_q_eval > trapped_q_eval,
+            "Central open Queen must evaluate with higher mobility than trapped corner Queen (open={}, trapped={})",
+            open_q_eval, trapped_q_eval
+        );
+    }
+
+    #[test]
+    fn test_king_passer_proximity_monotonic_gradient() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.king_passer_dist_weight = 12;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White passed pawn on e5 (sq 36). Black king fixed far on h8.
+        // Move White king progressively closer from a1 (dist 4) to d4 (dist 1):
+        // 1. Dist = 4 (White king at a1, sq 0): w_dist = max(|4-0|, |4-0|) = 4
+        let b1 = fen_service.set_fen("7k/8/8/4P3/8/8/8/K7 w - - 0 1");
+        let e1 = eval_service.calc_eval(&b1, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // 2. Dist = 2 (White king at c3, sq 18): w_dist = max(|4-2|, |4-2|) = 2
+        let b2 = fen_service.set_fen("7k/8/8/4P3/8/2K5/8/8 w - - 0 1");
+        let e2 = eval_service.calc_eval(&b2, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // 3. Dist = 1 (White king at d4, sq 27): w_dist = max(|4-3|, |4-3|) = 1
+        let b3 = fen_service.set_fen("7k/8/8/4P3/3K4/8/8/8 w - - 0 1");
+        let e3 = eval_service.calc_eval(&b3, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(e1 < e2, "Proximity distance 2 must exceed distance 4: e1={}, e2={}", e1, e2);
+        assert!(e2 < e3, "Proximity distance 1 must exceed distance 2: e2={}, e3={}", e2, e3);
+    }
+
+    #[test]
+    fn test_king_passer_proximity_black_white_symmetry() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        config.king_passer_dist_weight = 12;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White passed pawn on e5, White king on d4, Black king on h8
+        let board_white = fen_service.set_fen("7k/8/8/4P3/3K4/8/8/8 w - - 0 1");
+        let eval_w = eval_service.calc_eval(&board_white, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Mirror: Black passed pawn on e4, Black king on d5, White king on h1
+        let board_black = fen_service.set_fen("8/8/8/3k4/4p3/8/8/7K b - - 0 1");
+        let eval_b = eval_service.calc_eval(&board_black, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert_eq!(
+            eval_w, -eval_b,
+            "White and Black king passer proximity must be numerically symmetric: eval_w={}, eval_b={}",
+            eval_w, eval_b
+        );
+    }
+
+    #[test]
+    fn test_extended_insufficient_material_detection() {
+        let fen_service = Service::new().fen;
+
+        // 1. KN vs KN
+        let b_kn_kn = fen_service.set_fen("8/8/8/8/8/5n2/8/K1N4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kn_kn), "KN vs KN must be insufficient material (draw)");
+
+        // 2. KB vs KN
+        let b_kb_kn = fen_service.set_fen("8/8/8/8/8/5n2/8/K1B4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kb_kn), "KB vs KN must be insufficient material (draw)");
+
+        // 3. KN vs KB
+        let b_kn_kb = fen_service.set_fen("8/8/8/8/8/5b2/8/K1N4k w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kn_kb), "KN vs KB must be insufficient material (draw)");
+
+        // 4. KB vs KB (same-color bishops is draw; opposite-colored is scaled by opposite_bishops_draw_scale)
+        let b_kb_kb_same = fen_service.set_fen("5b1k/8/8/8/8/8/8/2B4K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_kb_kb_same), "Same-colored KB vs KB must be insufficient material (draw)");
+
+        let b_kb_kb_opp = fen_service.set_fen("4b2k/8/8/8/8/8/8/2B4K w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&b_kb_kb_opp), "Opposite-colored KB vs KB is not insufficient material directly");
+    }
+
+    #[test]
+    fn test_pawn_phalanx_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White pawn phalanx on d4 + e4 (rank 4)
+        let board_phalanx = fen_service.set_fen("7k/8/8/8/3PP3/8/8/K7 w - - 0 1");
+        let eval_phalanx = eval_service.calc_eval(&board_phalanx, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Position B: Disjoint White pawns on d4 + a4 (no phalanx duo)
+        let board_disjoint = fen_service.set_fen("7k/8/8/8/P2P4/8/8/K7 w - - 0 1");
+        let eval_disjoint = eval_service.calc_eval(&board_disjoint, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_phalanx > eval_disjoint,
+            "Pawn phalanx on d4+e4 must score higher than disjoint pawns on d4+a4 (phalanx={}, disjoint={})",
+            eval_phalanx, eval_disjoint
+        );
+    }
+
+    #[test]
+    fn test_pawn_phalanx_black_white_symmetry() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White phalanx on d4 + e4 (rank 4), kings on h1/h8
+        let board_w = fen_service.set_fen("7k/8/8/8/3PP3/8/8/7K w - - 0 1");
+        let eval_w = eval_service.calc_eval(&board_w, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Black phalanx on d5 + e5 (rank 5), kings on h8/h1
+        let board_b = fen_service.set_fen("7k/8/8/3pp3/8/8/8/7K b - - 0 1");
+        let eval_b = eval_service.calc_eval(&board_b, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert_eq!(
+            eval_w, -eval_b,
+            "White and Black pawn phalanx must be numerically symmetric: eval_w={}, eval_b={}",
+            eval_w, eval_b
+        );
+    }
+
+    #[test]
+    fn test_rook_open_file_attacks_king_and_queen() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Rook on e1 on open e-file facing Black Queen on e8
+        let board_aligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/4R1K1 w - - 0 1");
+        let (eval_aligned_q, _, _) = eval_service.white_rook(4, &board_aligned_q, &config, 150, movegen, 0, 0, board_aligned_q.white_pieces);
+
+        // Position B: White Rook on d1 on open d-file with Black Queen on e8 (not aligned)
+        let board_unaligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/3R2K1 w - - 0 1");
+        let (eval_unaligned_q, _, _) = eval_service.white_rook(3, &board_unaligned_q, &config, 150, movegen, 0, 0, board_unaligned_q.white_pieces);
+
+        assert!(
+            eval_aligned_q > eval_unaligned_q,
+            "Rook aligned with enemy Queen on open file must evaluate higher than unaligned rook (aligned={}, unaligned={})",
+            eval_aligned_q, eval_unaligned_q
+        );
+    }
+
+    #[test]
+    fn test_king_open_file_heavy_threat_penalty() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White King on e1 with open e-file facing Black Rook on e8 (heavy piece threat)
+        let board_threat = fen_service.set_fen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_threat, _, _) = eval_service.white_king(4, &board_threat, &config, 150, movegen);
+
+        // Position B: White King on e1 with open e-file facing Black Knight on e8 (no heavy piece on file)
+        let board_no_threat = fen_service.set_fen("4n2k/8/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_no_threat, _, _) = eval_service.white_king(4, &board_no_threat, &config, 150, movegen);
+
+        assert!(
+            eval_threat < eval_no_threat,
+            "King facing enemy Rook on open file must receive heavier malus than facing Knight (threat={}, no_threat={})",
+            eval_threat, eval_no_threat
+        );
+    }
+
+    #[test]
+    fn test_bishop_diagonal_attacks_king_and_queen() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Bishop on b2 on open diagonal targeting Black King on g7 (aligned)
+        let board_aligned_k = fen_service.set_fen("8/6k1/8/8/8/8/1B6/7K w - - 0 1");
+        let (eval_aligned_k, _, _) = eval_service.white_bishop(9, &board_aligned_k, &config, 150, movegen, 0, 0, 0, board_aligned_k.white_pieces);
+
+        // Position B: White Bishop on b2 with Black King on h7 (not on b2 diagonal)
+        let board_unaligned_k = fen_service.set_fen("8/7k/8/8/8/8/1B6/7K w - - 0 1");
+        let (eval_unaligned_k, _, _) = eval_service.white_bishop(9, &board_unaligned_k, &config, 150, movegen, 0, 0, 0, board_unaligned_k.white_pieces);
+
+        assert!(
+            eval_aligned_k > eval_unaligned_k,
+            "Bishop diagonally aligned with enemy King must evaluate higher than unaligned bishop (aligned={}, unaligned={})",
+            eval_aligned_k, eval_unaligned_k
+        );
+    }
+
+    #[test]
+    fn test_rook_on_seventh_king_cutoff_and_doubled() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // Position A: White Rook on a7 with Black King cut off on e8 (8th rank)
+        let board_cutoff = fen_service.set_fen("4k3/R7/8/8/8/8/8/4K3 w - - 0 1");
+        let (eval_cutoff, _, _) = eval_service.white_rook(48, &board_cutoff, &config, 150, movegen, 0, 0, board_cutoff.white_pieces);
+
+        // Position B: White Rook on a7 with Black King active on e6 (6th rank, not trapped on 8th)
+        let board_nocutoff = fen_service.set_fen("8/R7/4k3/8/8/8/8/4K3 w - - 0 1");
+        let (eval_nocutoff, _, _) = eval_service.white_rook(48, &board_nocutoff, &config, 150, movegen, 0, 0, board_nocutoff.white_pieces);
+
+        assert!(
+            eval_cutoff > eval_nocutoff,
+            "Rook on 7th rank with enemy King cut off on 8th rank must score higher (cutoff={}, nocutoff={})",
+            eval_cutoff, eval_nocutoff
+        );
+    }
+
+    #[test]
+    fn test_passed_pawn_blockade_penalty() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White passed pawn on e5 with Black Knight blockading on e6
+        let board_blockaded = fen_service.set_fen("7k/8/4n3/4P3/8/8/8/7K w - - 0 1");
+        let eval_blockaded = eval_service.calc_eval(&board_blockaded, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Position B: White passed pawn on e5 with Black Knight unaligned on a6 (unblockaded)
+        let board_free = fen_service.set_fen("7k/8/n7/4P3/8/8/8/7K w - - 0 1");
+        let eval_free = eval_service.calc_eval(&board_free, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_free > eval_blockaded,
+            "Free passed pawn must evaluate higher than blockaded passed pawn (free={}, blockaded={})",
+            eval_free, eval_blockaded
+        );
+    }
+
+    #[test]
+    fn test_candidate_passed_pawn_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White has candidate passed pawn on c4 supported by b3 and d3 against single Black pawn on b5 (2 vs 1 majority)
+        let board_candidate = fen_service.set_fen("7k/8/8/1p6/2P5/1P1P4/8/7K w - - 0 1");
+        let eval_candidate = eval_service.calc_eval(&board_candidate, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Position B: Symmetrical pawns (no candidate passer)
+        let board_equal = fen_service.set_fen("7k/8/8/1p1p4/2P5/1P1P4/8/7K w - - 0 1");
+        let eval_equal = eval_service.calc_eval(&board_equal, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_candidate > eval_equal,
+            "Candidate passed pawn with wing majority must score higher (candidate={}, equal={})",
+            eval_candidate, eval_equal
+        );
+    }
+
+    #[test]
+    fn test_pawn_storm_evaluation() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // Position A: White pawn storming on g4/h4 against Black King castled on g8
+        let board_storm = fen_service.set_fen("6k1/8/8/8/6PP/8/8/7K w - - 0 1");
+        let eval_storm = eval_service.calc_eval(&board_storm, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Position B: White pawns on a4/b4 on opposite wing (no storm against g8 king)
+        let board_nostorm = fen_service.set_fen("6k1/8/8/8/PP6/8/8/7K w - - 0 1");
+        let eval_nostorm = eval_service.calc_eval(&board_nostorm, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert!(
+            eval_storm > eval_nostorm,
+            "Flank pawn storm against enemy castled king must evaluate higher (storm={}, nostorm={})",
+            eval_storm, eval_nostorm
+        );
+    }
+
+    #[test]
+    fn test_wrong_colored_bishop_rook_pawn_dead_draw() {
+        let fen_service = Service::new().fen;
+
+        // Position 1: White a-pawn (a5) + light-squared Bishop (c4, color 1) vs Black King on a8 (color 1).
+        // C4 is light (sq 26: 2+3=5, color 1), A8 is light (sq 56: 0+7=7, color 1). Correct bishop controlling promotion square.
+        let b_correct_bishop = fen_service.set_fen("k7/8/8/P7/2B5/8/8/7K w - - 0 1");
+        assert!(!super::EvalService::is_insufficient_material(&b_correct_bishop), "Correct bishop controlling promotion square must not be insufficient material");
+
+        // Position 2: White a-pawn (a5) + dark-squared Bishop (c3, color 0) vs Black King on a8 (color 1).
+        // A8 is light (color 1), c3 is dark (sq 18: 2+2=4, color 0). Wrong-colored bishop + Black king in corner a8!
+        let b_wrong_bishop = fen_service.set_fen("k7/8/8/P7/8/2B5/8/7K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_wrong_bishop), "Wrong-colored bishop + rook pawn with enemy king in corner must be recognized as draw");
+
+        // Position 3: Black h-pawn (h4) + dark-squared Bishop (c3, color 0) vs White King on h1 (color 1).
+        // H1 is light (sq 7: 7+0=7, color 1), c3 is dark (sq 18: 2+2=4, color 0). Wrong-colored bishop + White king on h1!
+        let b_wrong_black = fen_service.set_fen("7k/8/8/8/7p/2b5/8/7K w - - 0 1");
+        assert!(super::EvalService::is_insufficient_material(&b_wrong_black), "Black wrong-colored bishop + rook pawn with White king on h1 must be recognized as draw");
+    }
+
+    #[test]
+    fn test_all_new_eval_features_black_white_symmetry() {
+        let fen_service = Service::new().fen;
+        let eval_service = Service::new().eval;
+        let movegen = &Service::new().move_gen;
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+
+        // White pawn storm g4/h4 against g8 king
+        let board_w = fen_service.set_fen("6k1/8/8/8/6PP/8/8/7K w - - 0 1");
+        let eval_w = eval_service.calc_eval(&board_w, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        // Black pawn storm g5/h5 against g1 king
+        let board_b = fen_service.set_fen("7k/8/8/6pp/8/8/8/6K1 b - - 0 1");
+        let eval_b = eval_service.calc_eval(&board_b, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+
+        assert_eq!(
+            eval_w, -eval_b,
+            "White and Black evaluation must be numerically symmetric: eval_w={}, eval_b={}",
+            eval_w, eval_b
         );
     }
 }
