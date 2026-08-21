@@ -348,7 +348,7 @@ impl Config {
             enable_aspiration: true,
             enable_rfp: true,
             enable_futility_pruning: true,
-            enable_qs_tt: true,
+            enable_qs_tt: false,
             futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,

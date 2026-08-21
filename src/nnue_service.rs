@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Result as IoResult};
+use std::io::Read;
 use crate::model::{
     Board, WHITE_PAWN, WHITE_ROOK, WHITE_KNIGHT, WHITE_BISHOP, WHITE_QUEEN, WHITE_KING,
     BLACK_PAWN, BLACK_ROOK, BLACK_KNIGHT, BLACK_BISHOP, BLACK_QUEEN, BLACK_KING,
@@ -35,6 +35,8 @@ pub struct NNUENetwork {
 }
 
 impl NNUENetwork {
+    pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised.bin");
+
     pub fn new_empty() -> Self {
         Self {
             ft_weights: vec![[[0i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
@@ -45,56 +47,68 @@ impl NNUENetwork {
         }
     }
 
-    pub fn load_from_file(path: &str) -> Result<Self, String> {
-        let mut file = File::open(path).map_err(|e| format!("Failed to open NNUE file '{}': {}", path, e))?;
-        let metadata = file.metadata().map_err(|e| format!("Failed to read metadata for '{}': {}", path, e))?;
-        
+    pub fn load_embedded() -> Result<Self, String> {
+        Self::load_from_bytes(Self::EMBEDDED_NET_BYTES)
+    }
+
+    pub fn load_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let expected_data_size = NNUE_INPUT_BUCKETS * NNUE_INPUT_SIZE * NNUE_HIDDEN_SIZE * 2
             + NNUE_HIDDEN_SIZE * 2
             + NNUE_OUTPUT_BUCKETS * 2 * NNUE_HIDDEN_SIZE * 2
             + NNUE_OUTPUT_BUCKETS * 2;
         let expected_file_size = expected_data_size + 48;
 
-        if metadata.len() != expected_file_size as u64 {
+        if bytes.len() != expected_file_size {
             return Err(format!(
-                "NNUE file size mismatch! Got {} bytes, expected {} bytes",
-                metadata.len(),
+                "NNUE byte size mismatch! Got {} bytes, expected {} bytes",
+                bytes.len(),
                 expected_file_size
             ));
         }
 
         let mut net = Self::new_empty();
+        let mut offset = 0;
 
-        let read_i16_slice = |file: &mut File, buf: &mut [i16]| -> IoResult<()> {
+        let mut read_i16_slice = |buf: &mut [i16]| -> Result<(), String> {
             let byte_len = buf.len() * 2;
-            let mut byte_buf = vec![0u8; byte_len];
-            file.read_exact(&mut byte_buf)?;
-            for i in 0..buf.len() {
-                buf[i] = i16::from_le_bytes([byte_buf[i * 2], byte_buf[i * 2 + 1]]);
+            if offset + byte_len > bytes.len() {
+                return Err("Unexpected end of NNUE buffer".to_string());
             }
+            for (i, item) in buf.iter_mut().enumerate() {
+                let idx = offset + i * 2;
+                *item = i16::from_le_bytes([bytes[idx], bytes[idx + 1]]);
+            }
+            offset += byte_len;
             Ok(())
         };
 
         for bucket in 0..NNUE_INPUT_BUCKETS {
             for i in 0..NNUE_INPUT_SIZE {
-                read_i16_slice(&mut file, &mut net.ft_weights[bucket][i])
+                read_i16_slice(&mut net.ft_weights[bucket][i])
                     .map_err(|e| format!("Failed to read feature transformer weights: {}", e))?;
             }
         }
 
-        read_i16_slice(&mut file, net.ft_biases.as_mut_slice())
+        read_i16_slice(net.ft_biases.as_mut_slice())
             .map_err(|e| format!("Failed to read feature transformer biases: {}", e))?;
 
         for bucket in 0..NNUE_OUTPUT_BUCKETS {
-            read_i16_slice(&mut file, &mut net.output_weights[bucket])
+            read_i16_slice(&mut net.output_weights[bucket])
                 .map_err(|e| format!("Failed to read output weights for bucket {}: {}", bucket, e))?;
         }
 
-        read_i16_slice(&mut file, net.output_biases.as_mut_slice())
+        read_i16_slice(net.output_biases.as_mut_slice())
             .map_err(|e| format!("Failed to read output biases: {}", e))?;
 
         net.loaded = true;
         Ok(net)
+    }
+
+    pub fn load_from_file(path: &str) -> Result<Self, String> {
+        let mut file = File::open(path).map_err(|e| format!("Failed to open NNUE file '{}': {}", path, e))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map_err(|e| format!("Failed to read NNUE file '{}': {}", path, e))?;
+        Self::load_from_bytes(&bytes)
     }
 }
 
