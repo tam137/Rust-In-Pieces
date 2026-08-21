@@ -86,6 +86,12 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "give_promotion_rank_bonus_queen" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_queen = v; },
                                     "give_promotion_rank_bonus_knight" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_knight = v; },
                                     "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
+                                    "aspiration_window_initial_delta" | "aspirationwindowinitialdelta" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_initial_delta = v; },
+                                    "aspiration_window_multiplier" | "aspirationwindowmultiplier" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_multiplier = v; },
+                                    "lmr_history_good_threshold" | "lmrhistorygoodthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_good_threshold = v; },
+                                    "lmr_history_bad_threshold" | "lmrhistorybadthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_bad_threshold = v; },
+                                    "rfp_margin_per_depth" | "rfpmarginperdepth" => if let Ok(v) = val_str.parse::<i16>() { active_config.rfp_margin_per_depth = v; },
+                                    "rfp_max_depth" | "rfpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.rfp_max_depth = v; },
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
                                         "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
