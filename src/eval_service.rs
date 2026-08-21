@@ -101,12 +101,23 @@ impl EvalService {
 
     pub fn new(config: &Config) -> Self {
         let nnue_net = if config.use_nnue {
-            match crate::nnue_service::NNUENetwork::load_from_file(&config.nnue_model_path) {
-                Ok(net) => net,
-                Err(e) => {
-                    let msg = format!("RIP Critical Error: Failed to load NNUE network file '{}': {}", config.nnue_model_path, e);
-                    eprintln!("{}", msg);
-                    std::process::exit(1);
+            if config.nnue_model_path.is_empty() || config.nnue_model_path == "eval_models/quantised.bin" {
+                match crate::nnue_service::NNUENetwork::load_embedded() {
+                    Ok(net) => net,
+                    Err(e) => {
+                        let msg = format!("RIP Critical Error: Failed to load embedded NNUE model: {}", e);
+                        eprintln!("{}", msg);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match crate::nnue_service::NNUENetwork::load_from_file(&config.nnue_model_path) {
+                    Ok(net) => net,
+                    Err(e) => {
+                        let msg = format!("RIP Critical Error: Failed to load NNUE network file '{}': {}", config.nnue_model_path, e);
+                        eprintln!("{}", msg);
+                        std::process::exit(1);
+                    }
                 }
             }
         } else {

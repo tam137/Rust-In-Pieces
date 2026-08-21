@@ -1,0 +1,102 @@
+# SOP: NNUE Porting & Release Procedure
+
+## Purpose & Trigger
+Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, search optimizations, move generation upgrades, or logging improvements from `master` need to be merged/ported into the `feature/nnue-evaluation` branch without regressing NNUE evaluation or overwriting SPSA-tuned parameters.
+
+---
+
+## Phase 1: Pre-Sync Inspection
+1. **Ensure Clean Working Tree on Feature Branch**:
+   ```bash
+   git checkout feature/nnue-evaluation
+   git status
+   ```
+2. **Inspect Changed Files Between Branches**:
+   ```bash
+   git diff --stat master..feature/nnue-evaluation
+   ```
+
+---
+
+## Phase 2: Critical Code Synchronization Checklist
+
+### 1. `src/eval_service.rs` (Evaluation Priority & Dead Draws)
+- **Dead-Draw Rule Guard First**: Place `if Self::is_insufficient_material(board) { return 0; }` at the top of `calc_eval`.
+- **NNUE Evaluation Hook Second**:
+  ```rust
+  if config.use_nnue && self.nnue_net.loaded {
+      return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
+  }
+  ```
+- **Classical Fallback**: Preserve master's complete classical evaluation suite below the NNUE hook.
+
+### 2. `src/config.rs` (Protected Parameters vs. Master Sync)
+- **Protected NNUE Flags**:
+  - `use_nnue = true` (default in `new_raw()`).
+  - `nnue_model_path = "eval_models/quantised.bin"`.
+  - `max_pawn_hash_entries = 1_000_000` (16 MB optimal cache footprint).
+- **Protected SPSA Search Tuning Parameters**:
+  - `lmr_divisor = 140` (with corresponding `lmr_table` initialization).
+  - `lmr_move_threshold = 2`.
+  - `lmr_history_bad_threshold = 550`.
+  - `aspiration_window_initial_delta = 16`.
+  - `aspiration_window_multiplier = 5`.
+  - `rfp_margin_per_depth = 80`.
+  - `rfp_max_depth = 3`.
+  - `your_turn_bonus = 18`.
+- **Master Additions**: Adopt all new non-conflicting config fields (e.g. `enable_qs_tt`, `lazy_eval_margin_search = 180`, `lazy_eval_margin_qs = 120`, classical term weights, and `set_aggressiveness()` method).
+
+### 3. `src/search_service.rs` (Dynamic Binding & QS TT)
+- **Dynamic SPSA Binding**: Ensure search features use `config` fields rather than hardcoded literals:
+  - Aspiration windows: `config.aspiration_window_initial_delta`, `config.aspiration_window_multiplier`.
+  - RFP: `config.rfp_margin_per_depth`, `config.rfp_max_depth`.
+  - LMR History Gating: `config.lmr_history_good_threshold`, `config.lmr_history_bad_threshold`.
+- **Quiescence Search TT (QS TT)**:
+  - Maintain TT probing and cutoffs under `config.enable_qs_tt`.
+  - Symmetrical mate score normalization (`eval.saturating_add(ply)` / `eval.saturating_sub(ply)`).
+  - TT capture rank boost (`rank = 1_000_000`).
+  - Stand-pat and leaf TT entry storage.
+  - Aspiration baseline probe guard (`entry.depth > 0`).
+
+### 4. `src/zobrist.rs` (TT Collision Protection)
+- In `ZobristTable::insert_entry`, ensure shallow QS entries (`entry.depth <= 0`) cannot evict deep search entries (`existing.depth >= 1`) on index collisions:
+  ```rust
+  if existing.key != 0 && existing.key != hash && existing.depth >= 1 && entry.depth <= 0 {
+      return;
+  }
+  ```
+
+### 5. `src/move_gen_service.rs` (Capture TT Bypass & Promotion Isolation)
+- Guard TT lookups in `generate_valid_moves_from_move_list` with `if !only_captures && config.use_zobrist`.
+- In `add_promotion_variants`, reset `turn.gives_check = false` and `turn.rank = base_rank` for each variant.
+
+### 6. `src/game_handler.rs` & `src/threads.rs` (Logging & UCI Options)
+- Maintain clean per-depth logs (`Depth {:2} completed | ...`) and total time in `bestmove`.
+- Ensure `setoption` match arms cover all SPSA parameters (`aspiration_window_*`, `rfp_*`, `lmr_history_*`, `usennue`, `nnuemodelpath`).
+
+---
+
+## Phase 3: Verification & Release
+
+1. **Run Full Test Suite**:
+   ```bash
+   cargo test
+   ```
+   *Requirement: 100% passing tests, 0 failures, 0 compiler warnings.*
+
+2. **Execute Release Pipeline**:
+   ```bash
+   OVERRIDE_VERSION="<VERSION>" ./build_and_release.sh
+   ```
+   *The pipeline automatically compiles `suprah-<VERSION>-nnue`, copies neural net weights to `../matt-magie/engines/`, and bumps `Cargo.toml`.*
+
+3. **Enrich Changelog**:
+   Open `CHANGELOG.md` and enrich the new `## [V<VERSION>]` section with detailed technical release notes.
+
+4. **Commit, Tag & Push**:
+   ```bash
+   git add Cargo.toml CHANGELOG.md scripts/ src/ skills/
+   git commit -m "Release v<VERSION>-NNUE: <Detailed Description>"
+   git tag -a "v<VERSION>-NNUE" -m "Release version v<VERSION>-NNUE"
+   git push origin feature/nnue-evaluation --tags
+   ```
