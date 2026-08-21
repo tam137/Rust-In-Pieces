@@ -87,7 +87,9 @@
         "is_pv_node_rank_bonus",
         "your_turn_bonus",
         "lmr_move_threshold",
-        "lmr_divisor"
+        "lmr_divisor",
+        "lazy_eval_margin_search",
+        "lazy_eval_margin_qs"
     ],
     "all": [
         "is_hashed_rank_bonus",
@@ -167,6 +169,8 @@
         "king_danger_weight_2",
         "king_danger_weight_3",
         "king_danger_weight_4",
-        "king_danger_weight_5"
+        "king_danger_weight_5",
+        "lazy_eval_margin_search",
+        "lazy_eval_margin_qs"
     ]
 }

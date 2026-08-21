@@ -41,7 +41,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("enablepositionalcap", "enable_positional_cap")
                                 .replace("enablelazyeval", "enable_lazy_eval")
                                 .replace("lazyevalmingamephase", "lazy_eval_min_game_phase")
-                                .replace("lazyevalmargin", "lazy_eval_margin")
+                                .replace("lazyevalmarginsearch", "lazy_eval_margin_search")
+                                .replace("lazyevalmarginqs", "lazy_eval_margin_qs")
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enablefutilitypruning", "enable_futility_pruning")
                                 .replace("futilitymaxdepth", "futility_max_depth")
@@ -184,7 +185,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "knight_attacks_bishop_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop_tempo = v; },
                                     "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
                                     "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
-                                    "lazy_eval_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin = v; },
+                                    "lazy_eval_margin_search" | "lazyevalmarginsearch" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_search = v; },
+                                    "lazy_eval_margin_qs" | "lazyevalmarginqs" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_qs = v; },
                                     "lazy_eval_min_game_phase" => if let Ok(v) = val_str.parse::<u32>() { active_config.lazy_eval_min_game_phase = v; },
                                     "king_danger_weight_1" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_1 = v; },
                                     "king_danger_weight_2" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_2 = v; },

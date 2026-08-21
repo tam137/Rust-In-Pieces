@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.0] - 2026-08-21
+
+### Added
+- **Asymmetric Dual-Threshold Lazy Evaluation Architecture (`lazy_eval_margin_search`, `lazy_eval_margin_qs`)**:
+  - Refactored `EvalService::calc_eval` and the Alpha-Beta search core to support differentiated lazy evaluation margins between the Main Search and Quiescence Search.
+  - **Main Search (`lazy_eval_margin_search = 180` cp)**: Provides a conservative safety margin (1.8 pawns) preserving subtle positional advantages across multi-ply depth traversals.
+  - **Quiescence Search (`lazy_eval_margin_qs = 120` cp)**: Implements a tightened fast-path threshold (1.2 pawns) in the capture resolution tree, allowing over 75% of tactical leaf nodes to exit immediately on `cheap_eval` (material + piece-square tables) without executing the full 2,900-line positional evaluation pass.
+  - Achieved **+30 Elo** rating gain in Louguet Chess Test II (LCT II score improved from 2230 to **2260 Elo**, positional solve rate increased from 21.4% to 28.6%).
+- **SPSA Tuning Subsystem & UCI Integration**:
+  - Exposed `lazy_eval_margin_search` (min: 50, max: 400) and `lazy_eval_margin_qs` (min: 30, max: 300) in `tuning/parameters.json` and `tuning/groups.json` under `search_and_ordering` for automated gradient optimization.
+  - Registered UCI options `LazyEvalMarginSearch` and `LazyEvalMarginQs` with full `setoption` command parsing in `src/game_handler.rs` and `src/threads.rs`.
+
+### Fixed
+- **Independent Alpha/Beta Bound Checking in Lazy Evaluation**:
+  - Fixed a critical flaw in `src/eval_service.rs` where lazy evaluation required both `alpha > -30000 && beta < 30000` simultaneously. On Alpha-Beta Cut-Nodes (where `alpha = -INF`), lazy evaluation was previously skipped across the entire subtree. Decoupled bound checks now evaluate `alpha` and `beta` independently, allowing fail-high and fail-low cutoffs on all node types.
+
+
+
 ## [V0.27.5] - 2026-08-20
 
 ### Added

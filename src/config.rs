@@ -126,7 +126,8 @@ pub struct Config {
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
     pub rook_on_seventh: i16,
-    pub lazy_eval_margin: i16,
+    pub lazy_eval_margin_search: i16,
+    pub lazy_eval_margin_qs: i16,
     pub enable_lazy_eval: bool,
     pub lazy_eval_min_game_phase: u32,
     pub king_danger_weight_1: i16,
@@ -304,7 +305,8 @@ impl Config {
 
             rook_on_seventh: 33,
 
-            lazy_eval_margin: 400,
+            lazy_eval_margin_search: 180,
+            lazy_eval_margin_qs: 120,
             enable_lazy_eval: true,
             lazy_eval_min_game_phase: 60,
             king_danger_weight_1: 10,
