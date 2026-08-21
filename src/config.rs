@@ -348,7 +348,7 @@ impl Config {
             enable_aspiration: true,
             enable_rfp: true,
             enable_futility_pruning: true,
-            enable_qs_tt: false,
+            enable_qs_tt: true,
             futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,
@@ -591,6 +591,7 @@ mod tests {
         assert_eq!(config.max_pawn_hash_entries, 1_000_000);
         assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
         assert!(config.use_nnue);
+        assert!(config.enable_qs_tt);
         assert_eq!(config.lmr_divisor, 140);
         assert_eq!(config.lmr_move_threshold, 2);
     }

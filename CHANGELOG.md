@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.4] - 2026-08-21
+
+### Changed
+- **Quiescence Search TT Enabled by Default (`enable_qs_tt = true`)**:
+  - Re-enabled Quiescence Search Transposition Table by default in `src/config.rs` (`Config::new_raw()`) and `src/threads.rs` (`option name EnableQsTt type check default true`).
+  - Restores full TT move ordering (`t.rank = 1_000_000`) and collision-safe TT cutoffs in Quiescence Search, restoring the proven +35 Elo advantage (+40 wins vs v0.28.3, 2008 Elo in tournament play).
+
+### Fixed
+- **Quiescence Search TT Move-Ordering Recovery**:
+  - Eliminated the tactical blindness regression in v0.28.3 caused by simultaneous deactivation of `enable_qs_tt` and capture TT bypass (`!only_captures`) in `MoveGenService`.
+
+
+
 ## [V0.28.3] - 2026-08-21
 
 ### Added
