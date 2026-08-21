@@ -41,9 +41,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("enablepositionalcap", "enable_positional_cap")
                                 .replace("enablelazyeval", "enable_lazy_eval")
                                 .replace("lazyevalmingamephase", "lazy_eval_min_game_phase")
-                                .replace("lazyevalmargin", "lazy_eval_margin")
+                                .replace("lazyevalmarginsearch", "lazy_eval_margin_search")
+                                .replace("lazyevalmarginqs", "lazy_eval_margin_qs")
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enablefutilitypruning", "enable_futility_pruning")
+                                .replace("enableqstt", "enable_qs_tt")
                                 .replace("futilitymaxdepth", "futility_max_depth")
                                 .replace("futilitymarginbase", "futility_margin_base")
                                 .replace("futilitymarginslope", "futility_margin_slope");
@@ -51,11 +53,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                             if param_name == "aggressiveness" {
                                 if val_str.to_lowercase().contains("high") {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
                                 } else if val_str.to_lowercase().contains("aggressive") {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::Aggressive;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
                                 } else {
-                                    active_config.aggressiveness = crate::config::Aggressiveness::Normal;
+                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Normal);
                                 }
                             } else if param_name == "enable_lazy_eval" {
                                 active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
@@ -92,9 +94,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "rfp_max_depth" | "rfpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.rfp_max_depth = v; },
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
-                                        "Normal" => active_config.aggressiveness = crate::config::Aggressiveness::Normal,
-                                        "Aggressive" => active_config.aggressiveness = crate::config::Aggressiveness::Aggressive,
-                                        "HighAggressive" => active_config.aggressiveness = crate::config::Aggressiveness::HighAggressive,
+                                        "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
+                                        "Aggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive),
+                                        "HighAggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive),
                                         _ => {}
                                     },
                                     "enablepositionalcap" | "enable_positional_cap" => {
@@ -150,6 +152,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "rook_behind_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_endgame = v; },
                                     "rook_on_seventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh = v; },
                                     "rook_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_mobility_factor = v; },
+                                    "queen_mobility_factor" | "queenmobilityfactor" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_mobility_factor = v; },
+                                    "king_passer_dist_weight" | "kingpasserdistweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_passer_dist_weight = v; },
                                     "undeveloped_king_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_king_malus = v; },
                                     "king_ring_attack_knight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_knight = v; },
                                     "king_ring_attack_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_bishop = v; },
@@ -168,8 +172,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "knight_outpost_true_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_outpost_true_eg = v; },
                                     "bishop_outpost_true_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_outpost_true_mg = v; },
                                     "bishop_outpost_true_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_outpost_true_eg = v; },
-                                    "opposite_bishops_draw_scale" => if let Ok(v) = val_str.parse::<i16>() { active_config.opposite_bishops_draw_scale = v; },
-                                    "rook_behind_enemy_passed_pawn_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_enemy_passed_pawn_mg = v; },
+                                     "opposite_bishops_draw_scale" => if let Ok(v) = val_str.parse::<i16>() { active_config.opposite_bishops_draw_scale = v; },
+                                     "enable_endgame_mopup" | "enableendgamemopup" => { active_config.enable_endgame_mopup = val_str.to_lowercase() == "true"; },
+                                     "mopup_center_weight" | "mopupcenterweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_center_weight = v; },
+                                     "mopup_proximity_weight" | "mopupproximityweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_proximity_weight = v; },
+                                     "mopup_eval_threshold" | "mopupevalthreshold" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_eval_threshold = v; },
+                                     "mopup_max_game_phase" | "mopupmaxgamephase" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_max_game_phase = v; },
+                                     "rook_behind_enemy_passed_pawn_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_enemy_passed_pawn_mg = v; },
                                     "rook_behind_enemy_passed_pawn_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_enemy_passed_pawn_eg = v; },
                                     "king_trapp_at_baseline_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_trapp_at_baseline_malus = v; },
                                     "king_in_check_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_in_check_malus = v; },
@@ -183,7 +192,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "knight_attacks_bishop_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop_tempo = v; },
                                     "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
                                     "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
-                                    "lazy_eval_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin = v; },
+                                    "lazy_eval_margin_search" | "lazyevalmarginsearch" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_search = v; },
+                                    "lazy_eval_margin_qs" | "lazyevalmarginqs" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_qs = v; },
                                     "lazy_eval_min_game_phase" => if let Ok(v) = val_str.parse::<u32>() { active_config.lazy_eval_min_game_phase = v; },
                                     "king_danger_weight_1" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_1 = v; },
                                     "king_danger_weight_2" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_2 = v; },
@@ -191,14 +201,26 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "king_danger_weight_4" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_4 = v; },
                                     "king_danger_weight_5" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_5 = v; },
                                     "enablefutilitypruning" | "enable_futility_pruning" => { active_config.enable_futility_pruning = val_str.to_lowercase() == "true"; },
+                                    "enableqstt" | "enable_qs_tt" => { active_config.enable_qs_tt = val_str.to_lowercase() == "true"; },
                                     "futilitymaxdepth" | "futility_max_depth" => if let Ok(v) = val_str.parse::<i32>() { active_config.futility_max_depth = v; },
                                     "futilitymarginbase" | "futility_margin_base" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_base = v; },
-                                    "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
+                                     "king_open_file_heavy_threat_malus" | "kingopenfileheavythreatmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_heavy_threat_malus = v; },
+                                     "rook_open_file_attacks_king" | "rookopenfileattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_king = v; },
+                                     "rook_open_file_attacks_queen" | "rookopenfileattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_queen = v; },
+                                     "pawn_phalanx_mg" | "pawnphalanxmg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_mg = v; },
+                                     "pawn_phalanx_eg" | "pawnphalanxeg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_eg = v; },
+                                     "bishop_diagonal_attacks_king" | "bishopdiagonalattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_king = v; },
+                                     "bishop_diagonal_attacks_queen" | "bishopdiagonalattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_queen = v; },
+                                     "rook_on_seventh_king_cutoff" | "rookonseventhkingcutoff" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh_king_cutoff = v; },
+                                     "rooks_doubled_on_seventh" | "rooksdoubledonseventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rooks_doubled_on_seventh = v; },
+                                     "passed_pawn_blockaded_malus" | "passedpawnblockadedmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.passed_pawn_blockaded_malus = v; },
+                                     "candidate_passed_pawn_bonus" | "candidatepassedpawnbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.candidate_passed_pawn_bonus = v; },
+                                     "pawn_storm_bonus" | "pawnstormbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_storm_bonus = v; },
+                                     "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
                                     _ => {}
                                 }
                             }
                             logger.send(format!("Received option: {} = {}\n", param_name, val_str)).ok();
-                            active_config.log_all_parameters(&logger);
                         }
                     }
                 }
@@ -219,7 +241,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command == "infinite" {
-                    active_config.log_all_parameters(&logger);
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
 
                     let mut best_result: Option<SearchResult> = None;
@@ -237,6 +258,35 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if search_result.completed {
                             best_result = Some(search_result.clone());
                             service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
+
+                            let mut stats_calc = stats.clone();
+                            stats_calc.calculate();
+                            let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
+                            let score_str = if cp.abs() > 30000 {
+                                let mate_plies = 32001 - cp.abs();
+                                let mate_moves = (mate_plies + 1) / 2;
+                                if cp > 0 {
+                                    format!("mate {}", mate_moves)
+                                } else {
+                                    format!("mate -{}", mate_moves)
+                                }
+                            } else {
+                                format!("cp {:+}", cp)
+                            };
+                            let nps = if stats_calc.calc_time_ms > 0 {
+                                (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                            } else {
+                                stats_calc.created_nodes as u64 * 1000
+                            };
+                            logger.send(format!(
+                                "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
+                                search_result.calculated_depth,
+                                score_str,
+                                stats_calc.calc_time_ms,
+                                stats_calc.created_nodes,
+                                nps,
+                                search_result.get_best_move_row()
+                            )).ok();
                         }
 
                         if engine_state.stop_flag.load(Ordering::SeqCst) { break; }
@@ -248,8 +298,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command.starts_with("go") {
-                    active_config.log_all_parameters(&logger);
-                    logger.send("incomming go cmd".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                    logger.send("Incoming go command".to_string()).ok();
 
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
                     
@@ -334,7 +383,34 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 best_result = Some(search_result.clone());
                                 service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
 
-
+                                let mut stats_calc = stats.clone();
+                                stats_calc.calculate();
+                                let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
+                                let score_str = if cp.abs() > 30000 {
+                                    let mate_plies = 32001 - cp.abs();
+                                    let mate_moves = (mate_plies + 1) / 2;
+                                    if cp > 0 {
+                                        format!("mate {}", mate_moves)
+                                    } else {
+                                        format!("mate -{}", mate_moves)
+                                    }
+                                } else {
+                                    format!("cp {:+}", cp)
+                                };
+                                let nps = if stats_calc.calc_time_ms > 0 {
+                                    (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                                } else {
+                                    stats_calc.created_nodes as u64 * 1000
+                                };
+                                logger.send(format!(
+                                    "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
+                                    search_result.calculated_depth,
+                                    score_str,
+                                    stats_calc.calc_time_ms,
+                                    stats_calc.created_nodes,
+                                    nps,
+                                    search_result.get_best_move_row()
+                                )).ok();
 
                                 let mut pv_guard = engine_state.pv_nodes.lock().unwrap();
                                 pv_guard.clear();
@@ -345,8 +421,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     old_board.do_move(&turn);
                                 }
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
-
-
                             }
 
                             if time_info.time_mode == TimeMode::Depth && depth >= time_info.depth {
@@ -364,7 +438,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         if let Some(res) = best_result {
                             stdout.write(&format!("bestmove {}", res.get_best_move_algebraic()));
                             game.do_move(&res.get_best_move_algebraic());
-                            logger.send(format!("final move: bestmove {}", res.get_best_move_algebraic())).ok();
+                            logger.send(format!(
+                                "final move: bestmove {} (total time: {}ms)",
+                                res.get_best_move_algebraic(),
+                                go_start_time.elapsed().as_millis()
+                            )).ok();
 
                         } else {
                             let mut stats = Stats::default();

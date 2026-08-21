@@ -93,7 +93,8 @@ pub fn uci_command_processor(
                     stdout.write("option name RookBehindEnemyPassedPawnEg type spin default 25 min -500 max 500");
                     stdout.write("option name EnableLazyEval type check default true");
                     stdout.write("option name LazyEvalMinGamePhase type spin default 50 min 0 max 256");
-                    stdout.write("option name LazyEvalMargin type spin default 250 min 10 max 1000");
+                    stdout.write("option name LazyEvalMarginSearch type spin default 180 min 10 max 1000");
+                    stdout.write("option name LazyEvalMarginQs type spin default 120 min 10 max 1000");
                     stdout.write("option name EnableFutilityPruning type check default true");
                     stdout.write("option name FutilityMaxDepth type spin default 4 min 1 max 10");
                     stdout.write("option name FutilityMarginBase type spin default 120 min 0 max 500");
@@ -171,7 +172,7 @@ pub fn uci_command_processor(
 
                     *engine_state.logger.write().unwrap() = logger_function;
 
-                    logger.send(format!("Engine startet: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                    logger.send(format!("Engine started: {}", config.version)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     logger.send(format!("Benchmark Value: {}", benchmark_value)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                 }
 
@@ -249,7 +250,7 @@ pub fn uci_command_processor(
 
                 else {
                     if !uci_token.is_empty() {
-                        logger.send("cmd unknown".to_string() + &uci_token).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
+                        logger.send(format!("cmd unknown: {}", uci_token)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                     }                        
                     thread::sleep(Duration::from_millis(5));
                 }
