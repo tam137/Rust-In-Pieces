@@ -89,7 +89,13 @@
         "lmr_move_threshold",
         "lmr_divisor",
         "lazy_eval_margin_search",
-        "lazy_eval_margin_qs"
+        "lazy_eval_margin_qs",
+        "aspiration_window_initial_delta",
+        "aspiration_window_multiplier",
+        "lmr_history_good_threshold",
+        "lmr_history_bad_threshold",
+        "rfp_margin_per_depth",
+        "rfp_max_depth"
     ],
     "all": [
         "is_hashed_rank_bonus",
@@ -171,6 +177,12 @@
         "king_danger_weight_4",
         "king_danger_weight_5",
         "lazy_eval_margin_search",
-        "lazy_eval_margin_qs"
+        "lazy_eval_margin_qs",
+        "aspiration_window_initial_delta",
+        "aspiration_window_multiplier",
+        "lmr_history_good_threshold",
+        "lmr_history_bad_threshold",
+        "rfp_margin_per_depth",
+        "rfp_max_depth"
     ]
 }

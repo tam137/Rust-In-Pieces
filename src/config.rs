@@ -184,6 +184,12 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
+    pub aspiration_window_initial_delta: i16,
+    pub aspiration_window_multiplier: i16,
+    pub lmr_history_good_threshold: u32,
+    pub lmr_history_bad_threshold: u32,
+    pub rfp_margin_per_depth: i16,
+    pub rfp_max_depth: i32,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -374,6 +380,12 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
+            aspiration_window_initial_delta: 15,
+            aspiration_window_multiplier: 4,
+            lmr_history_good_threshold: 4000,
+            lmr_history_bad_threshold: 500,
+            rfp_margin_per_depth: 80,
+            rfp_max_depth: 3,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -576,5 +588,14 @@ mod tests {
         assert_eq!(config.aggressiveness, Aggressiveness::Normal);
         assert_eq!(config.max_pawn_hash_entries, 1_000_000);
         assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
+        assert!(!config.use_nnue);
+        assert_eq!(config.lmr_divisor, 185);
+        assert_eq!(config.lmr_move_threshold, 3);
+        assert_eq!(config.aspiration_window_initial_delta, 15);
+        assert_eq!(config.aspiration_window_multiplier, 4);
+        assert_eq!(config.rfp_margin_per_depth, 80);
+        assert_eq!(config.rfp_max_depth, 3);
+        assert_eq!(config.lmr_history_good_threshold, 4000);
+        assert_eq!(config.lmr_history_bad_threshold, 500);
     }
 }

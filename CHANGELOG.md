@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.4] - 2026-08-21
+
+### Added
+- **SPSA-Tunable Search Parameterization Subsystem**:
+  - Parametrisation of 6 core search thresholds and margins across Aspiration Windows, Reverse Futility Pruning (RFP), and Late Move Reduction (LMR) History Heuristics in `src/config.rs` and `src/search_service.rs`.
+  - **Aspiration Window (`aspiration_window_initial_delta: i16 = 15`, `aspiration_window_multiplier: i16 = 4`)**: Exposes the root aspiration delta and geometric widening multiplier, allowing fine-tuning of search stability vs re-search frequency.
+  - **Reverse Futility Pruning (`rfp_margin_per_depth: i16 = 80`, `rfp_max_depth: i32 = 3`)**: Parameterizes the maximum depth and centipawn margin slope for static null-move / RFP early cutoffs.
+  - **LMR History Heuristic Coupling (`lmr_history_good_threshold: u32 = 4000`, `lmr_history_bad_threshold: u32 = 500`)**: Exposes the dynamic reduction dampening/increasing thresholds tied to historical move success in `history_table`.
+- **UCI Dynamic Option Registration & Parameter Parsing**:
+  - Registered UCI `setoption` command parsing for all 6 search parameters in `src/game_handler.rs` (`aspiration_window_initial_delta`, `aspiration_window_multiplier`, `rfp_margin_per_depth`, `rfp_max_depth`, `lmr_history_good_threshold`, `lmr_history_bad_threshold`).
+- **SPSA Automated Tuning Integration**:
+  - Added all 6 search parameters to `tuning/groups.json` under `search_and_ordering` and `all`, and configured tuning bounds in `tuning/parameters.json` and `tuning/server_parameters.json`.
+
+### Changed
+- **Strict Master HCE Parameter Integrity**:
+  - Initialized all newly exposed search parameters to match the proven, hardcoded master constants (`15`, `4`, `80`, `3`, `4000`, `500`), preserving 100% baseline search behavior while unlocking automated tuning capabilities.
+
+
+
 ## [V0.28.2] - 2026-08-21
 
 ### Fixed
