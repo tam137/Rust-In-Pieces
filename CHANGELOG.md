@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.3] - 2026-08-21
+
+### Added
+- **Embedded Default NNUE Network (`include_bytes!`)**:
+  - Embedded the quantized neural network weights (`eval_models/quantised.bin`, ~3.75 MB) directly into the binary using `include_bytes!` in `src/nnue_service.rs` (`NNUENetwork::EMBEDDED_NET_BYTES`).
+  - Added in-memory byte buffer deserialization via `NNUENetwork::load_from_bytes()` and `NNUENetwork::load_embedded()`.
+  - Updated `EvalService::new()` in `src/eval_service.rs` to load the embedded network by default when `config.nnue_model_path` is empty or set to `"eval_models/quantised.bin"`, while preserving `load_from_file()` for custom user-specified model paths.
+  - Eliminated working directory path sensitivity and startup failures (`os error 2`) when executing the binary from arbitrary external directories (GUIs, tournament managers, or servers).
+
+### Changed
+- **Quiescence Search TT Disabled by Default (`enable_qs_tt = false`)**:
+  - Changed default configuration in `src/config.rs` (`Config::new_raw()`) to `enable_qs_tt = false`.
+  - Resolves a critical ~50-100 Elo playing strength regression caused by premature Quiescence Search Stand-Pat TT cutoffs that skipped tactical counter-captures in alternative search windows.
+- **UCI Option Registration Alignment**:
+  - Corrected `src/threads.rs` to output `option name UseNNUE type check default true` to match engine configuration defaults.
+  - Added `option name EnableQsTt type check default false` to the UCI option catalog.
+
+### Fixed
+- **Quiescence Search Tactical Capture Pruning Bug**:
+  - Fixed severe tactical blunders caused by Quiescence Search recording Stand-Pat evaluations as UpperBound/LowerBound in TT, which triggered invalid cutoffs in subsequent search paths.
+
+
+
 ## [V0.28.2] - 2026-08-21
 
 ### Added
