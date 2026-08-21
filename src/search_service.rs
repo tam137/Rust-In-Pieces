@@ -63,7 +63,9 @@ impl SearchService {
         let mut prev_eval = None;
         if depth > 2 && config.use_zobrist && config.enable_aspiration {
             if let Some(entry) = zobrist_table.get_entry(&board.cached_hash) {
-                prev_eval = Some(entry.eval);
+                if entry.depth > 0 {
+                    prev_eval = Some(entry.eval);
+                }
             }
         }
 
@@ -566,31 +568,117 @@ impl SearchService {
         if depth <= 0 {
             stats.add_eval_nodes(1);
 
+            let orig_alpha = alpha;
+            let orig_beta = beta;
+            let mut tt_move = None;
+
+            // 1. Transposition Table Lookup in Quiescence Search
+            if config.use_zobrist && config.enable_qs_tt {
+                if board.cached_hash == 0 {
+                    board.cached_hash = crate::zobrist::gen_hash(board);
+                }
+                if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                    tt_move = entry.decompress_move(board);
+                    if entry.depth >= 0 {
+                        let mut entry_eval = entry.eval;
+                        // De-normalize mate score
+                        if entry_eval > 30000 {
+                            entry_eval -= ply as i16;
+                        } else if entry_eval < -30000 {
+                            entry_eval += ply as i16;
+                        }
+
+                        match entry.entry_type {
+                            crate::zobrist::TranspositionType::Exact => {
+                                if let Some(m) = tt_move {
+                                    pv[0] = Some(m);
+                                }
+                                return (tt_move, entry_eval);
+                            }
+                            crate::zobrist::TranspositionType::LowerBound => {
+                                alpha = alpha.max(entry_eval);
+                                if alpha >= beta {
+                                    if let Some(m) = tt_move {
+                                        pv[0] = Some(m);
+                                    }
+                                    return (tt_move, entry_eval);
+                                }
+                            }
+                            crate::zobrist::TranspositionType::UpperBound => {
+                                beta = beta.min(entry_eval);
+                                if alpha >= beta {
+                                    if let Some(m) = tt_move {
+                                        pv[0] = Some(m);
+                                    }
+                                    return (tt_move, entry_eval);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
             let mut eval = if white { i16::MIN } else { i16::MAX };
+            let mut best_move: Option<Turn> = None;
 
             if !in_check {
                 stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_qs);
                 eval = stand_pat;
 
-
                 // Stand-pat cutoffs
                 if white {
                     if stand_pat >= beta {
+                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            let mut stored_eval = stand_pat;
+                            if stand_pat > 30000 {
+                                stored_eval = stand_pat.saturating_add(ply as i16);
+                            } else if stand_pat < -30000 {
+                                stored_eval = stand_pat.saturating_sub(ply as i16);
+                            }
+                            context.zobrist_table.insert_entry(
+                                board.cached_hash,
+                                crate::zobrist::TranspositionEntry {
+                                    key: board.cached_hash,
+                                    eval: stored_eval,
+                                    depth: 0,
+                                    entry_type: crate::zobrist::TranspositionType::LowerBound,
+                                    best_move: 0,
+                                    padding: [0; 2],
+                                },
+                            );
+                        }
                         return (None, stand_pat);
                     }
                     alpha = alpha.max(stand_pat);
                 } else {
                     if stand_pat <= alpha {
+                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            let mut stored_eval = stand_pat;
+                            if stand_pat > 30000 {
+                                stored_eval = stand_pat.saturating_add(ply as i16);
+                            } else if stand_pat < -30000 {
+                                stored_eval = stand_pat.saturating_sub(ply as i16);
+                            }
+                            context.zobrist_table.insert_entry(
+                                board.cached_hash,
+                                crate::zobrist::TranspositionEntry {
+                                    key: board.cached_hash,
+                                    eval: stored_eval,
+                                    depth: 0,
+                                    entry_type: crate::zobrist::TranspositionType::UpperBound,
+                                    best_move: 0,
+                                    padding: [0; 2],
+                                },
+                            );
+                        }
                         return (None, stand_pat);
                     }
                     beta = beta.min(stand_pat);
                 }
             }
 
-            
             let mut turns = crate::model::MoveList::new();
             if in_check {
                 service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
@@ -608,6 +696,16 @@ impl SearchService {
                     };
                 }
                 return (None, stand_pat);
+            }
+
+            // Move ordering: If tt_move matches a generated turn, prioritize it with top rank
+            if let Some(tt_m) = tt_move {
+                for t in turns.moves.iter_mut().take(turns.len) {
+                    if *t == tt_m {
+                        t.rank = 1_000_000;
+                        break;
+                    }
+                }
             }
 
             let mut child_pv = [None; 128];
@@ -652,10 +750,10 @@ impl SearchService {
                     if let Some(target) = context.target_time {
                         let mut dynamic_target = target;
                         let searched = context.root_moves_searched;
-                    let total = context.root_moves_total;
-                    if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
-                        dynamic_target = (target * 13) / 10;
-                    }
+                        let total = context.root_moves_total;
+                        if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+                            dynamic_target = (target * 13) / 10;
+                        }
                         if elapsed >= dynamic_target {
                             context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
@@ -677,12 +775,14 @@ impl SearchService {
                     if eval < min_max_eval {
                         eval = min_max_eval;
                         alpha = alpha.max(min_max_eval);
+                        best_move = Some(*capture_turn);
                         pv[0] = Some(*capture_turn);
                         pv[1..].copy_from_slice(&child_pv[..127]);
                     }
                 } else if eval > min_max_eval {
                     eval = min_max_eval;
                     beta = beta.min(min_max_eval);
+                    best_move = Some(*capture_turn);
                     pv[0] = Some(*capture_turn);
                     pv[1..].copy_from_slice(&child_pv[..127]);
                 }
@@ -692,7 +792,38 @@ impl SearchService {
                 }
             }
 
-            return (None, eval);
+            // Transposition Table Write for Quiescence Search
+            if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                let entry_type = if eval <= orig_alpha {
+                    crate::zobrist::TranspositionType::UpperBound
+                } else if eval >= orig_beta {
+                    crate::zobrist::TranspositionType::LowerBound
+                } else {
+                    crate::zobrist::TranspositionType::Exact
+                };
+
+                let mut stored_eval = eval;
+                // Normalize mate score
+                if eval > 30000 {
+                    stored_eval = eval.saturating_add(ply as i16);
+                } else if eval < -30000 {
+                    stored_eval = eval.saturating_sub(ply as i16);
+                }
+
+                context.zobrist_table.insert_entry(
+                    board.cached_hash,
+                    crate::zobrist::TranspositionEntry {
+                        key: board.cached_hash,
+                        eval: stored_eval,
+                        depth: 0,
+                        entry_type,
+                        best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
+                        padding: [0; 2],
+                    },
+                );
+            }
+
+            return (best_move, eval);
         }
 
         // Standard Search (depth > 0)
@@ -1400,6 +1531,199 @@ mod tests {
 
         assert!(!search_result.variants.is_empty(), "Search should find mate variants!");
         assert!(search_result.best_score > 30000, "Forced mate score should be > 30000, got {}", search_result.best_score);
+    }
+
+    #[test]
+    fn test_qs_tt_probe_cutoff() {
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+        board.cached_hash = crate::zobrist::gen_hash(&board);
+
+        let table = Arc::new(ZobristTable::with_capacity(100));
+        let test_entry = crate::zobrist::TranspositionEntry {
+            key: board.cached_hash,
+            eval: 125,
+            depth: 0,
+            entry_type: crate::zobrist::TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(board.cached_hash, test_entry);
+
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(table.clone()),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_qs_tt = true;
+
+        let history_table = [[0u32; 64]; 64];
+        let context = crate::model::SearchContext {
+            zobrist_table: &table,
+            stop_flag: &engine_state.stop_flag,
+            pv_nodes: &engine_state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+        };
+
+        let mut stats = Stats::new();
+        let mut pv = [None; 128];
+        let mut killer_moves = [[None; 2]; 128];
+        let mut history_table_mut = [[0u32; 64]; 64];
+        let mut counter_moves = [[None; 64]; 64];
+        let dummy_turn = Turn::new(0, 0, 0, 0, false, 0);
+
+        let (ret_move, ret_eval) = service.search.minimax(
+            &mut board,
+            &dummy_turn,
+            0, // Quiescence search depth
+            true, // white
+            -30000,
+            30000,
+            &mut stats,
+            &config,
+            &service,
+            &context,
+            false,
+            false,
+            false,
+            &mut pv,
+            1,
+            &mut killer_moves,
+            &mut history_table_mut,
+            &mut counter_moves,
+        );
+
+        assert_eq!(ret_eval, 125, "QS TT hit should return exact evaluation 125!");
+        assert!(ret_move.is_none());
+        assert_eq!(stats.calculated_nodes, 0, "No child nodes should be explored on immediate QS TT cutoff");
+    }
+
+    #[test]
+    fn test_qs_tt_mate_normalization() {
+        // Mate-in-1 position: White to move and play Qxf7#
+        let fen = "r1bqkb1r/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4";
+        let mut board = Service::new().fen.set_fen(fen);
+        let service = Service::new();
+        
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_qs_tt = true;
+
+        let mut stats = Stats::new();
+        let search_result = service.search.get_moves(
+            &mut board,
+            3,
+            true,
+            &mut stats,
+            &config,
+            &service,
+            &engine_state,
+            std::time::Instant::now(),
+            None,
+        );
+
+        assert!(search_result.best_score > 32000, "Should detect mate in 1, score: {}", search_result.best_score);
+        let best = search_result.variants[0].best_move.expect("Should produce a best move");
+        assert_eq!(best.from, 39, "Queen should move from h5 (sq 39)");
+        assert_eq!(best.to, 53, "Queen should move to f7 (sq 53)");
+    }
+
+    #[test]
+    fn test_qs_tt_search_consistency_and_node_reduction() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        let mut board_enabled = Service::new().fen.set_fen(fen);
+        let mut board_disabled = board_enabled.clone();
+        let service = Service::new();
+
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state_enabled = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(500_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log.clone(),
+        });
+        let engine_state_disabled = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(500_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let mut config_enabled = Config::for_tests();
+        config_enabled.use_zobrist = true;
+        config_enabled.enable_qs_tt = true;
+
+        let mut config_disabled = Config::for_tests();
+        config_disabled.use_zobrist = true;
+        config_disabled.enable_qs_tt = false;
+
+        let mut stats_enabled = Stats::new();
+        let mut stats_disabled = Stats::new();
+
+        let res_enabled = service.search.get_moves(
+            &mut board_enabled,
+            5,
+            true,
+            &mut stats_enabled,
+            &config_enabled,
+            &service,
+            &engine_state_enabled,
+            std::time::Instant::now(),
+            None,
+        );
+
+        let res_disabled = service.search.get_moves(
+            &mut board_disabled,
+            5,
+            true,
+            &mut stats_disabled,
+            &config_disabled,
+            &service,
+            &engine_state_disabled,
+            std::time::Instant::now(),
+            None,
+        );
+
+        assert!(res_enabled.variants.first().and_then(|v| v.best_move).is_some());
+        assert!(res_disabled.variants.first().and_then(|v| v.best_move).is_some());
+        assert!(
+            stats_enabled.calculated_nodes < stats_disabled.calculated_nodes,
+            "QS TT enabled nodes ({}) should be strictly less than disabled nodes ({})",
+            stats_enabled.calculated_nodes,
+            stats_disabled.calculated_nodes
+        );
     }
 }
 

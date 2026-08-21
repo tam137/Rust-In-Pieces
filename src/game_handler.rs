@@ -45,6 +45,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("lazyevalmarginqs", "lazy_eval_margin_qs")
                                 .replace("positionalcapdamping", "positional_cap_damping")
                                 .replace("enablefutilitypruning", "enable_futility_pruning")
+                                .replace("enableqstt", "enable_qs_tt")
                                 .replace("futilitymaxdepth", "futility_max_depth")
                                 .replace("futilitymarginbase", "futility_margin_base")
                                 .replace("futilitymarginslope", "futility_margin_slope");
@@ -194,6 +195,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "king_danger_weight_4" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_4 = v; },
                                     "king_danger_weight_5" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_5 = v; },
                                     "enablefutilitypruning" | "enable_futility_pruning" => { active_config.enable_futility_pruning = val_str.to_lowercase() == "true"; },
+                                    "enableqstt" | "enable_qs_tt" => { active_config.enable_qs_tt = val_str.to_lowercase() == "true"; },
                                     "futilitymaxdepth" | "futility_max_depth" => if let Ok(v) = val_str.parse::<i32>() { active_config.futility_max_depth = v; },
                                     "futilitymarginbase" | "futility_margin_base" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_base = v; },
                                      "king_open_file_heavy_threat_malus" | "kingopenfileheavythreatmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_heavy_threat_malus = v; },
