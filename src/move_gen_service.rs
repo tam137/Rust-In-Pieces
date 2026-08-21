@@ -145,7 +145,7 @@ impl MoveGenService {
         }
 
         let mut tt_best_move = None;
-        if !only_captures && config.use_zobrist {
+        if config.use_zobrist {
             if board.cached_hash == 0 {
                 board.cached_hash = zobrist::gen_hash(board);
             }
