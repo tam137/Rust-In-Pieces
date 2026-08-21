@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.2] - 2026-08-21
+
+### Fixed
+- **Eliminated Redundant Transposition Table Lookup in Capture Move Generation**:
+  - Fixed a redundant TT lookup inside `MoveGenService::generate_valid_moves_from_move_list` when generating capture moves (`only_captures = true`) in `src/move_gen_service.rs`.
+  - Restored `if !only_captures && config.use_zobrist` guard so that capture-only move generation relies on the already-probed `tt_move` from `SearchService::minimax` (which assigns top rank `1_000_000`), eliminating duplicate atomic hash table operations and memory cache-line pressure across all Quiescence Search leaf nodes.
+
+
+
 ## [V0.28.1] - 2026-08-21
 
 ### Added
