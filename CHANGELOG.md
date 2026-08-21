@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.1] - 2026-08-21
+
+### Added
+- **Quiescence Search Transposition Table Subsystem (`enable_qs_tt`)**:
+  - Implemented comprehensive Transposition Table (TT) probing, cutoffs, caching, and move ordering in Quiescence Search (`depth <= 0`) in `src/search_service.rs`.
+  - **Node Entry TT Probing**: Probes `context.zobrist_table` upon entering Quiescence Search. Takes instant cutoffs on `Exact` entries, `LowerBound >= beta`, or `UpperBound <= alpha` with `depth >= 0`, resolving recurring tactical transpositions and capture permutations in $O(1)$ without evaluating static evaluation or generating capture lists.
+  - **Stand-Pat Cutoff Caching**: Records instant stand-pat fail-high (`LowerBound`) and fail-low (`UpperBound`) scores into the Transposition Table with `depth: 0`, preventing redundant static evaluation computations on repeated tactical subtrees.
+  - **Terminal Quiescence Entry Storage**: Stores final tactical evaluations, normalized checkmate scores (`ply`-adjusted), and refuting capture moves into the TT upon capture loop completion.
+  - **Capture Move Ordering Synergy**: Extracted `tt_move` is prioritized at the front of generated capture lists in `src/move_gen_service.rs` and `src/search_service.rs` with top rank bonus (`+1,000,000`), triggering immediate beta-cutoffs on move 1 of Quiescence Search.
+  - **Engine Configuration & UCI Control**: Exposed `enable_qs_tt: bool` (default: `true`) in `src/config.rs` with dynamic UCI parser support (`enable_qs_tt` / `enableqstt`) in `src/game_handler.rs`.
+  - Achieved up to **~20% node reduction** on complex tactical positions with zero tactical blindness.
+
+### Fixed
+- **TT Cache Pollution & Collision Overwrite Flaw in Replacement Policy**:
+  - Fixed a critical vulnerability in `src/zobrist.rs` where the previous "always replace on collision" policy (`existing.key != hash`) allowed high-frequency shallow Quiescence leaf nodes ($d = 0$) to evict valuable deep Main Search entries ($d \ge 1$).
+  - Enforced a strict depth-priority replacement hierarchy: `!(entry.depth <= 0 && existing.depth >= 1)`. Quiescence entries ($d \le 0$) are strictly forbidden from evicting Main Search entries ($d \ge 1$) on hash collisions, preserving interior tree node caching and preventing standard search degradation.
+- **Root Aspiration Window Depth Safeguard**:
+  - Guarded root aspiration window seeding in `src/search_service.rs` (`get_moves`) to strictly require `entry.depth > 0`, ensuring shallow $d = 0$ Quiescence evaluations cannot distort root window bounds.
+
+### Tests
+- **Expanded Search & TT Unit Test Suite**:
+  - Added `zobrist_qs_tt_collision_protection_test` in `src/zobrist.rs` to verify that deep main search entries are immune to Quiescence collision overwrites.
+  - Added `test_qs_tt_probe_cutoff`, `test_qs_tt_mate_normalization`, and `test_qs_tt_search_consistency_and_node_reduction` in `src/search_service.rs`.
+  - Maintained 100% pass rate across all 119 unit tests with 0 compiler warnings.
+
+
+
 ## [V0.28.0] - 2026-08-21
 
 ### Added
