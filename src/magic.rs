@@ -23,8 +23,8 @@ pub fn init() {
     });
 }
 
+#[inline(always)]
 pub fn get_bishop_attacks(square: usize, occupied: u64) -> u64 {
-    init();
     unsafe {
         let magic = &BISHOP_MAGICS[square];
         let index = (((occupied & magic.mask).wrapping_mul(magic.magic)) >> magic.shift) as usize;
@@ -32,8 +32,8 @@ pub fn get_bishop_attacks(square: usize, occupied: u64) -> u64 {
     }
 }
 
+#[inline(always)]
 pub fn get_rook_attacks(square: usize, occupied: u64) -> u64 {
-    init();
     unsafe {
         let magic = &ROOK_MAGICS[square];
         let index = (((occupied & magic.mask).wrapping_mul(magic.magic)) >> magic.shift) as usize;
@@ -305,6 +305,7 @@ mod tests {
 
     #[test]
     fn test_magic_attacks_match_classical() {
+        init();
         let mut prng = Prng::new(123456789);
         for sq in 0..64 {
             // Generate some random occupancies and compare

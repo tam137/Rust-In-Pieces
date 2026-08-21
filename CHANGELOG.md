@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.28.2] - 2026-08-21
+
+### Added
+- **Quiescence Search Transposition Table (QS TT)**:
+  - Integrated full Transposition Table probing, cutoff validation, move ordering prioritization, and hash entry recording inside Quiescence Search (`depth <= 0`) in `src/search_service.rs` under configuration guard `config.enable_qs_tt`.
+  - Implemented mate score de-normalization on TT probe (`entry_eval -= ply as i16` / `entry_eval += ply as i16`) and symmetric mate score normalization prior to storage (`stored_eval = eval.saturating_add(ply as i16)` / `saturating_sub(ply as i16)`).
+  - Added instant alpha/beta cutoffs on TT hits in QS (Exact bound returns immediately, LowerBound/UpperBound trigger early beta/alpha cutoffs when `alpha >= beta`).
+  - Added move ordering prioritization for TT suggested captures in QS by assigning top move rank (`t.rank = 1_000_000`).
+  - Added TT entry storage for stand-pat beta cutoffs (LowerBound/UpperBound) and QS turn search completions (Exact/Lower/Upper bounds).
+  - Added unit tests `test_qs_tt_probe_cutoff`, `test_qs_tt_mate_normalization`, and `test_qs_tt_search_consistency_and_node_reduction`.
+- **Transposition Table Replacement Policy Collision Protection**:
+  - Implemented a collision-safe replacement policy in `src/zobrist.rs` (`ZobristTable::insert_entry`) that strictly protects deep interior main search tree nodes (`existing.depth >= 1`) from being evicted by shallow Quiescence Search leaf nodes (`entry.depth <= 0`) on index collisions (`existing.key != hash`).
+  - Added unit test `zobrist_qs_tt_collision_protection_test` verifying deep search node protection against QS collision evictions.
+- **Rule-Based Insufficient Material Draw Detection**:
+  - Added `EvalService::is_insufficient_material` in `src/eval_service.rs` to detect dead-draw material configurations (KK, KBK, KNK, KNNK, KBKB same color) and immediately return 0 across both NNUE and classical evaluation fallback routines.
+- **Dual Lazy Evaluation Margins**:
+  - Split Lazy Evaluation margins into `lazy_eval_margin_search = 180` (for standard search RFP and futility pruning) and `lazy_eval_margin_qs = 120` (for QS stand-pat) in `src/config.rs` and `src/search_service.rs`.
+- **Comprehensive Classical Evaluation Suite Integration**:
+  - Integrated master's classical evaluation suite into `src/eval_service.rs` as the classical fallback pipeline when `use_nnue = false`, including Bishop/Rook X-Ray threats, 7th rank cut-off and doubled rooks, pawn phalanxes, passer blockades, candidate passers, pawn storm evaluation, wrong-colored bishop KBPvK dead-draw detection, and endgame mop-up heuristics.
+
+### Changed
+- **Eliminated Redundant Capture Transposition Table Lookups in Move Generation**:
+  - Guarded TT lookups in `MoveGenService::generate_valid_moves_from_move_list` with `if !only_captures && config.use_zobrist` in `src/move_gen_service.rs`, eliminating duplicate atomic hash table operations across Quiescence Search leaf nodes.
+- **Engine Logging & Diagnostic Overhaul**:
+  - Overhauled engine logging in `src/game_handler.rs` and `src/threads.rs`, removing verbose parameter dump spam on `go`, `infinite`, and `setoption` commands.
+  - Implemented structured per-depth progress logging (`Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}`) with mate move distance formatting and accurate NPS metrics.
+  - Added total elapsed search time logging in `bestmove` UCI output.
+- **Micro-Optimization Inlining & Startup Magic Bitboard Pre-initialization**:
+  - Pre-initialized magic bitboard attack tables at engine startup in `src/main.rs` and `src/service.rs`, eliminating runtime `init()` check overhead from `get_bishop_attacks` and `get_rook_attacks`.
+  - Added `#[inline(always)]` annotations to performance-critical hot functions: `see`, `see_ge`, `get_piece_value`, `pack`, `unpack`, `compress_move`, `decompress_move`, `get_zobrist_val`, `calc_incremental_hash`, and `piece_to_bb_idx`.
+- **Optimal Pawn Hash Table Capacity (16 MB)**:
+  - Set default `max_pawn_hash_entries = 1_000_000` (~16 MB RAM footprint) in `src/config.rs` and `src/pawn_hash.rs` to ensure L2/L3 cache residency and eliminate DRAM/TLB thrashing.
+- **Preserved NNUE Tuned SPSA Configurations**:
+  - Strictly retained all harvested NNUE SPSA search and pruning parameters on `feature/nnue-evaluation`: `use_nnue = true`, `lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`, `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`, and SPSA search tuning definitions in `tuning/`.
+
+### Fixed
+- **Underpromotion Check Flag and Rank State Isolation**:
+  - Fixed an issue in `MoveGenService::add_promotion_variants` in `src/move_gen_service.rs` where check status and move rank could leak across promotion types by resetting `turn.gives_check = false` and `turn.rank = base_rank` for each variant.
+  - Added unit test `test_promotion_gives_check_independence`.
+- **Aspiration Window TT Baseline Depth Validation**:
+  - Enforced `entry.depth > 0` validation before using TT evaluations as the aspiration window baseline in `src/search_service.rs`, preventing depth 0 QS entries from distorting aspiration window bounds.
+
+
+
 ## [V0.25.2] - 2026-08-06
 
 ### Changed

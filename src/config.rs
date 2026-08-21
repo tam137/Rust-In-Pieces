@@ -17,6 +17,9 @@ pub struct Config {
     pub cache_book_in_ram: bool,
     pub book_file: String,
     pub max_zobrist_hash_entries: usize,
+    /// Default capacity: 1,000,000 entries (~16 MB).
+    /// Proven sweet spot in tournament play (+30 Elo over 10M entries).
+    /// Keeps pawn structure evaluations inside CPU cache and avoids TLB/DRAM thrashing.
     pub max_pawn_hash_entries: usize,
     pub search_depth: i32,
     pub max_depth: i32,
@@ -112,13 +115,19 @@ pub struct Config {
     pub bishop_outpost_true_mg: i16,
     pub bishop_outpost_true_eg: i16,
     pub opposite_bishops_draw_scale: i16,
+    pub enable_endgame_mopup: bool,
+    pub mopup_center_weight: i16,
+    pub mopup_proximity_weight: i16,
+    pub mopup_eval_threshold: i16,
+    pub mopup_max_game_phase: i16,
     pub rook_behind_enemy_passed_pawn_mg: i16,
     pub rook_behind_enemy_passed_pawn_eg: i16,
     pub king_trapp_at_baseline_malus: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
     pub rook_on_seventh: i16,
-    pub lazy_eval_margin: i16,
+    pub lazy_eval_margin_search: i16,
+    pub lazy_eval_margin_qs: i16,
     pub enable_lazy_eval: bool,
     pub lazy_eval_min_game_phase: u32,
     pub king_danger_weight_1: i16,
@@ -131,6 +140,20 @@ pub struct Config {
     pub knight_mobility_factor: i16,
     pub bishop_mobility_factor: i16,
     pub rook_mobility_factor: i16,
+    pub queen_mobility_factor: i16,
+    pub king_passer_dist_weight: i16,
+    pub king_open_file_heavy_threat_malus: i16,
+    pub rook_open_file_attacks_king: i16,
+    pub rook_open_file_attacks_queen: i16,
+    pub pawn_phalanx_mg: i16,
+    pub pawn_phalanx_eg: i16,
+    pub bishop_diagonal_attacks_king: i16,
+    pub bishop_diagonal_attacks_queen: i16,
+    pub rook_on_seventh_king_cutoff: i16,
+    pub rooks_doubled_on_seventh: i16,
+    pub passed_pawn_blockaded_malus: i16,
+    pub candidate_passed_pawn_bonus: i16,
+    pub pawn_storm_bonus: i16,
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
@@ -139,6 +162,7 @@ pub struct Config {
     pub enable_aspiration: bool,
     pub enable_rfp: bool,
     pub enable_futility_pruning: bool,
+    pub enable_qs_tt: bool,
     pub futility_max_depth: i32,
     pub futility_margin_base: i16,
     pub futility_margin_slope: i16,
@@ -171,7 +195,7 @@ pub struct Config {
 
 
 impl Config {
-    pub fn new() -> Config {
+    pub fn new_raw() -> Config {
         Config {
             version: env!("CARGO_PKG_VERSION"),
             use_zobrist: true,
@@ -181,7 +205,7 @@ impl Config {
             cache_book_in_ram: true,
             book_file: String::new(),
             max_zobrist_hash_entries: 50_000_000, // 800 MB
-            max_pawn_hash_entries: 10_000_000, // 150 MB
+            max_pawn_hash_entries: 1_000_000, // 16 MB: Proven +30 Elo sweet spot (avoids CPU L3 & TLB thrashing)
             search_depth: 4, // only used as default for tests
             max_depth: 99,
             truncate_bad_moves: 99,
@@ -275,6 +299,11 @@ impl Config {
             bishop_outpost_true_mg: 21,
             bishop_outpost_true_eg: 11,
             opposite_bishops_draw_scale: 51,
+            enable_endgame_mopup: true,
+            mopup_center_weight: 10,
+            mopup_proximity_weight: 15,
+            mopup_eval_threshold: 400,
+            mopup_max_game_phase: 60,
             rook_behind_enemy_passed_pawn_mg: 10,
             rook_behind_enemy_passed_pawn_eg: 24,
             king_trapp_at_baseline_malus: 71,
@@ -283,7 +312,8 @@ impl Config {
 
             rook_on_seventh: 33,
 
-            lazy_eval_margin: 400,
+            lazy_eval_margin_search: 180,
+            lazy_eval_margin_qs: 120,
             enable_lazy_eval: true,
             lazy_eval_min_game_phase: 60,
             king_danger_weight_1: 10,
@@ -293,9 +323,23 @@ impl Config {
             king_danger_weight_5: 200,
             pawn_isolated_malus: 9,
             pawn_backward_malus: 11,
-            knight_mobility_factor: 2,
-            bishop_mobility_factor: 1,
-            rook_mobility_factor: 1,
+            knight_mobility_factor: 3,
+            bishop_mobility_factor: 3,
+            rook_mobility_factor: 2,
+            queen_mobility_factor: 1,
+            king_passer_dist_weight: 12,
+            king_open_file_heavy_threat_malus: 15,
+            rook_open_file_attacks_king: 15,
+            rook_open_file_attacks_queen: 10,
+            pawn_phalanx_mg: 8,
+            pawn_phalanx_eg: 4,
+            bishop_diagonal_attacks_king: 15,
+            bishop_diagonal_attacks_queen: 10,
+            rook_on_seventh_king_cutoff: 20,
+            rooks_doubled_on_seventh: 25,
+            passed_pawn_blockaded_malus: 15,
+            candidate_passed_pawn_bonus: 8,
+            pawn_storm_bonus: 6,
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
@@ -304,6 +348,7 @@ impl Config {
             enable_aspiration: true,
             enable_rfp: true,
             enable_futility_pruning: true,
+            enable_qs_tt: true,
             futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,
@@ -345,6 +390,55 @@ impl Config {
         }
     }
 
+    pub fn new() -> Config {
+        let mut config = Config::new_raw();
+        config.set_aggressiveness(Aggressiveness::Normal);
+        config
+    }
+
+    pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
+        self.aggressiveness = aggressiveness;
+        let raw = Config::new_raw();
+        match aggressiveness {
+            Aggressiveness::Normal => {
+                self.king_ring_attack_knight = raw.king_ring_attack_knight;
+                self.king_ring_attack_bishop = raw.king_ring_attack_bishop;
+                self.king_ring_attack_rook = raw.king_ring_attack_rook;
+                self.king_ring_attack_queen = raw.king_ring_attack_queen;
+                self.queen_in_attack = raw.queen_in_attack;
+                self.queen_in_attack_with_tempo = raw.queen_in_attack_with_tempo;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
+            }
+            Aggressiveness::Aggressive => {
+                self.king_ring_attack_knight = (raw.king_ring_attack_knight * 15) / 10;
+                self.king_ring_attack_bishop = (raw.king_ring_attack_bishop * 15) / 10;
+                self.king_ring_attack_rook = (raw.king_ring_attack_rook * 15) / 10;
+                self.king_ring_attack_queen = (raw.king_ring_attack_queen * 15) / 10;
+                self.queen_in_attack = (raw.queen_in_attack * 13) / 10;
+                self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 13) / 10;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
+            }
+            Aggressiveness::HighAggressive => {
+                self.king_ring_attack_knight = raw.king_ring_attack_knight * 2;
+                self.king_ring_attack_bishop = raw.king_ring_attack_bishop * 2;
+                self.king_ring_attack_rook = raw.king_ring_attack_rook * 2;
+                self.king_ring_attack_queen = raw.king_ring_attack_queen * 2;
+                self.queen_in_attack = (raw.queen_in_attack * 16) / 10;
+                self.queen_in_attack_with_tempo = (raw.queen_in_attack_with_tempo * 16) / 10;
+                self.knight_mobility_factor = raw.knight_mobility_factor;
+                self.bishop_mobility_factor = raw.bishop_mobility_factor;
+                self.rook_mobility_factor = raw.rook_mobility_factor;
+                self.queen_mobility_factor = raw.queen_mobility_factor;
+            }
+        }
+    }
+
     pub fn recalculate_lmr_table(&mut self) {
         let divisor = self.lmr_divisor as f64 / 100.0;
         for (depth, row) in self.lmr_table.iter_mut().enumerate().skip(1) {
@@ -361,6 +455,7 @@ impl Config {
     pub fn _for_evel_equal_tests() -> Self {
         let mut config = Config::new();
         config.use_nnue = false;
+        config.enable_endgame_mopup = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.move_overhead = 0;
@@ -374,6 +469,18 @@ impl Config {
         config.threat_rook_attacks_queen = 0;
         config.king_open_file_malus = 0;
         config.king_half_open_file_malus = 0;
+        config.king_open_file_heavy_threat_malus = 0;
+        config.rook_open_file_attacks_king = 0;
+        config.rook_open_file_attacks_queen = 0;
+        config.pawn_phalanx_mg = 0;
+        config.pawn_phalanx_eg = 0;
+        config.bishop_diagonal_attacks_king = 0;
+        config.bishop_diagonal_attacks_queen = 0;
+        config.rook_on_seventh_king_cutoff = 0;
+        config.rooks_doubled_on_seventh = 0;
+        config.passed_pawn_blockaded_malus = 0;
+        config.candidate_passed_pawn_bonus = 0;
+        config.pawn_storm_bonus = 0;
         config.undeveloped_knight_malus = 0;
         config.undeveloped_bishop_malus = 0;
         config.undeveloped_king_malus = 0;
@@ -399,6 +506,7 @@ impl Config {
     pub fn for_tests() -> Self {
         let mut config = Config::new();
         config.use_nnue = false;
+        config.enable_endgame_mopup = false;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.print_info_string_during_search = false;
@@ -444,107 +552,46 @@ impl Config {
         config.search_threads = 1;
         config
     }
+}
 
-    pub fn log_all_parameters(&self, logger: &std::sync::mpsc::Sender<String>) {
-        if self.log_path.is_empty() {
-            return;
-        }
-        let mut msg = String::new();
-        msg.push_str("Current Engine Parameters:\n");
-        msg.push_str(&format!("  is_hashed_rank_bonus: {}\n", self.is_hashed_rank_bonus));
-        msg.push_str(&format!("  give_check_rank_bonus: {}\n", self.give_check_rank_bonus));
-        msg.push_str(&format!("  is_pv_node_rank_bonus: {}\n", self.is_pv_node_rank_bonus));
-        msg.push_str(&format!("  give_promotion_rank_bonus_queen: {}\n", self.give_promotion_rank_bonus_queen));
-        msg.push_str(&format!("  give_promotion_rank_bonus_knight: {}\n", self.give_promotion_rank_bonus_knight));
-        msg.push_str(&format!("  your_turn_bonus: {}\n", self.your_turn_bonus));
-        msg.push_str(&format!("  undeveloped_knight_malus: {}\n", self.undeveloped_knight_malus));
-        msg.push_str(&format!("  undeveloped_bishop_malus: {}\n", self.undeveloped_bishop_malus));
-        msg.push_str(&format!("  undeveloped_king_malus: {}\n", self.undeveloped_king_malus));
-        msg.push_str(&format!("  rook_open_file: {}\n", self.rook_open_file));
-        msg.push_str(&format!("  rook_half_open_file: {}\n", self.rook_half_open_file));
-        msg.push_str(&format!("  bishop_pair_bonus: {}\n", self.bishop_pair_bonus));
-        msg.push_str(&format!("  rook_doubled_bonus: {}\n", self.rook_doubled_bonus));
-        msg.push_str(&format!("  rook_behind_passed_pawn_middlegame: {}\n", self.rook_behind_passed_pawn_middlegame));
-        msg.push_str(&format!("  rook_behind_passed_pawn_endgame: {}\n", self.rook_behind_passed_pawn_endgame));
-        msg.push_str(&format!("  king_ring_attack_knight: {}\n", self.king_ring_attack_knight));
-        msg.push_str(&format!("  king_ring_attack_bishop: {}\n", self.king_ring_attack_bishop));
-        msg.push_str(&format!("  king_ring_attack_rook: {}\n", self.king_ring_attack_rook));
-        msg.push_str(&format!("  king_ring_attack_queen: {}\n", self.king_ring_attack_queen));
-        msg.push_str(&format!("  protected_passed_pawn_middlegame: {}\n", self.protected_passed_pawn_middlegame));
-        msg.push_str(&format!("  protected_passed_pawn_endgame: {}\n", self.protected_passed_pawn_endgame));
-        msg.push_str(&format!("  king_opposition_bonus: {}\n", self.king_opposition_bonus));
-        msg.push_str(&format!("  pawn_structure: {}\n", self.pawn_structure));
-        msg.push_str(&format!("  pawn_supports_knight_outpost: {}\n", self.pawn_supports_knight_outpost));
-        msg.push_str(&format!("  pawn_centered: {}\n", self.pawn_centered));
-        msg.push_str(&format!("  pawn_undeveloped_malus: {}\n", self.pawn_undeveloped_malus));
-        msg.push_str(&format!("  pawn_on_last_rank_bonus: {}\n", self.pawn_on_last_rank_bonus));
-        msg.push_str(&format!("  pawn_on_before_last_rank_bonus: {}\n", self.pawn_on_before_last_rank_bonus));
-        msg.push_str(&format!("  pawn_on_before_before_last_rank_bonus: {}\n", self.pawn_on_before_before_last_rank_bonus));
-        msg.push_str(&format!("  pawn_defends_bishop: {}\n", self.pawn_defends_bishop));
-        msg.push_str(&format!("  pawn_double_malus: {}\n", self.pawn_double_malus));
-        msg.push_str(&format!("  knight_on_rim_malus: {}\n", self.knight_on_rim_malus));
-        msg.push_str(&format!("  knight_centered: {}\n", self.knight_centered));
-        msg.push_str(&format!("  knight_blockes_pawn: {}\n", self.knight_blockes_pawn));
-        msg.push_str(&format!("  bishop_trapped_at_rim_malus: {}\n", self.bishop_trapped_at_rim_malus));
-        msg.push_str(&format!("  pawn_attacks_opponent_fig: {}\n", self.pawn_attacks_opponent_fig));
-        msg.push_str(&format!("  pawn_attacks_opponent_fig_with_tempo: {}\n", self.pawn_attacks_opponent_fig_with_tempo));
-        msg.push_str(&format!("  queen_in_attack: {}\n", self.queen_in_attack));
-        msg.push_str(&format!("  queen_in_attack_with_tempo: {}\n", self.queen_in_attack_with_tempo));
-        msg.push_str(&format!("  knight_attacks_bishop: {}\n", self.knight_attacks_bishop));
-        msg.push_str(&format!("  knight_attacks_rook: {}\n", self.knight_attacks_rook));
-        msg.push_str(&format!("  knight_attacks_bishop_tempo: {}\n", self.knight_attacks_bishop_tempo));
-        msg.push_str(&format!("  knight_attacks_rook_tempo: {}\n", self.knight_attacks_rook_tempo));
-        msg.push_str(&format!("  king_pawn_shield: {}\n", self.king_pawn_shield));
-        msg.push_str(&format!("  king_piece_shield: {}\n", self.king_piece_shield));
-        msg.push_str(&format!("  king_pawn_shield_kingside: {}\n", self.king_pawn_shield_kingside));
-        msg.push_str(&format!("  king_pawn_shield_queenside: {}\n", self.king_pawn_shield_queenside));
-        msg.push_str(&format!("  king_piece_shield_kingside: {}\n", self.king_piece_shield_kingside));
-        msg.push_str(&format!("  king_piece_shield_queenside: {}\n", self.king_piece_shield_queenside));
-        msg.push_str(&format!("  connected_passed_pawn_mg: {}\n", self.connected_passed_pawn_mg));
-        msg.push_str(&format!("  connected_passed_pawn_eg: {}\n", self.connected_passed_pawn_eg));
-        msg.push_str(&format!("  knight_outpost_true_mg: {}\n", self.knight_outpost_true_mg));
-        msg.push_str(&format!("  knight_outpost_true_eg: {}\n", self.knight_outpost_true_eg));
-        msg.push_str(&format!("  bishop_outpost_true_mg: {}\n", self.bishop_outpost_true_mg));
-        msg.push_str(&format!("  bishop_outpost_true_eg: {}\n", self.bishop_outpost_true_eg));
-        msg.push_str(&format!("  opposite_bishops_draw_scale: {}\n", self.opposite_bishops_draw_scale));
-        msg.push_str(&format!("  rook_behind_enemy_passed_pawn_mg: {}\n", self.rook_behind_enemy_passed_pawn_mg));
-        msg.push_str(&format!("  rook_behind_enemy_passed_pawn_eg: {}\n", self.rook_behind_enemy_passed_pawn_eg));
-        msg.push_str(&format!("  king_trapp_at_baseline_malus: {}\n", self.king_trapp_at_baseline_malus));
-        msg.push_str(&format!("  king_in_check_malus: {}\n", self.king_in_check_malus));
-        msg.push_str(&format!("  king_in_double_check_malus: {}\n", self.king_in_double_check_malus));
-        msg.push_str(&format!("  lazy_eval_margin: {}\n", self.lazy_eval_margin));
-        msg.push_str(&format!("  enable_lazy_eval: {}\n", self.enable_lazy_eval));
-        msg.push_str(&format!("  lazy_eval_min_game_phase: {}\n", self.lazy_eval_min_game_phase));
-        msg.push_str(&format!("  king_danger_weight_1: {}\n", self.king_danger_weight_1));
-        msg.push_str(&format!("  king_danger_weight_2: {}\n", self.king_danger_weight_2));
-        msg.push_str(&format!("  king_danger_weight_3: {}\n", self.king_danger_weight_3));
-        msg.push_str(&format!("  king_danger_weight_4: {}\n", self.king_danger_weight_4));
-        msg.push_str(&format!("  king_danger_weight_5: {}\n", self.king_danger_weight_5));
-        msg.push_str(&format!("  pawn_isolated_malus: {}\n", self.pawn_isolated_malus));
-        msg.push_str(&format!("  pawn_backward_malus: {}\n", self.pawn_backward_malus));
-        msg.push_str(&format!("  knight_mobility_factor: {}\n", self.knight_mobility_factor));
-        msg.push_str(&format!("  bishop_mobility_factor: {}\n", self.bishop_mobility_factor));
-        msg.push_str(&format!("  rook_mobility_factor: {}\n", self.rook_mobility_factor));
-        msg.push_str(&format!("  rook_on_seventh: {}\n", self.rook_on_seventh));
-        msg.push_str(&format!("  lmr_move_threshold: {}\n", self.lmr_move_threshold));
-        msg.push_str(&format!("  lmr_divisor: {}\n", self.lmr_divisor));
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        msg.push_str(&format!("  king_open_file_malus: {}\n", self.king_open_file_malus));
-        msg.push_str(&format!("  king_half_open_file_malus: {}\n", self.king_half_open_file_malus));
-        msg.push_str(&format!("  king_ring_defender_value: {}\n", self.king_ring_defender_value));
-        msg.push_str(&format!("  threat_minor_attacks_rook: {}\n", self.threat_minor_attacks_rook));
-        msg.push_str(&format!("  threat_minor_attacks_queen: {}\n", self.threat_minor_attacks_queen));
-        msg.push_str(&format!("  threat_rook_attacks_queen: {}\n", self.threat_rook_attacks_queen));
-        msg.push_str(&format!("  enable_futility_pruning: {}\n", self.enable_futility_pruning));
-        msg.push_str(&format!("  futility_max_depth: {}\n", self.futility_max_depth));
-        msg.push_str(&format!("  futility_margin_base: {}\n", self.futility_margin_base));
-        msg.push_str(&format!("  futility_margin_slope: {}\n", self.futility_margin_slope));
-        msg.push_str(&format!("  aspiration_window_initial_delta: {}\n", self.aspiration_window_initial_delta));
-        msg.push_str(&format!("  aspiration_window_multiplier: {}\n", self.aspiration_window_multiplier));
-        msg.push_str(&format!("  lmr_history_good_threshold: {}\n", self.lmr_history_good_threshold));
-        msg.push_str(&format!("  lmr_history_bad_threshold: {}\n", self.lmr_history_bad_threshold));
-        msg.push_str(&format!("  rfp_margin_per_depth: {}\n", self.rfp_margin_per_depth));
-        msg.push_str(&format!("  rfp_max_depth: {}\n", self.rfp_max_depth));
-        let _ = logger.send(msg);
+    #[test]
+    fn test_config_aggressiveness_scaling() {
+        let base_config = Config::new_raw();
+        
+        let mut normal_config = base_config.clone();
+        normal_config.set_aggressiveness(Aggressiveness::Normal);
+        assert_eq!(normal_config.king_ring_attack_knight, base_config.king_ring_attack_knight);
+        assert_eq!(normal_config.queen_in_attack, base_config.queen_in_attack);
+        assert_eq!(normal_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(normal_config.queen_mobility_factor, base_config.queen_mobility_factor);
+
+        let mut aggressive_config = base_config.clone();
+        aggressive_config.set_aggressiveness(Aggressiveness::Aggressive);
+        assert_eq!(aggressive_config.king_ring_attack_knight, (base_config.king_ring_attack_knight * 15) / 10);
+        assert_eq!(aggressive_config.queen_in_attack, (base_config.queen_in_attack * 13) / 10);
+        assert_eq!(aggressive_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(aggressive_config.queen_mobility_factor, base_config.queen_mobility_factor);
+
+        let mut high_aggressive_config = base_config.clone();
+        high_aggressive_config.set_aggressiveness(Aggressiveness::HighAggressive);
+        assert_eq!(high_aggressive_config.king_ring_attack_knight, base_config.king_ring_attack_knight * 2);
+        assert_eq!(high_aggressive_config.queen_in_attack, (base_config.queen_in_attack * 16) / 10);
+        assert_eq!(high_aggressive_config.knight_mobility_factor, base_config.knight_mobility_factor);
+        assert_eq!(high_aggressive_config.queen_mobility_factor, base_config.queen_mobility_factor);
+    }
+
+    #[test]
+    fn test_config_default_initialization() {
+        let config = Config::new();
+        assert_eq!(config.aggressiveness, Aggressiveness::Normal);
+        assert_eq!(config.max_pawn_hash_entries, 1_000_000);
+        assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
+        assert!(config.use_nnue);
+        assert_eq!(config.lmr_divisor, 140);
+        assert_eq!(config.lmr_move_threshold, 2);
     }
 }

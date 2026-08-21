@@ -69,6 +69,7 @@ impl Default for TranspositionEntry {
 }
 
 impl TranspositionEntry {
+    #[inline(always)]
     pub fn pack(self) -> u64 {
         let mut val = 0u64;
         val |= (self.eval as u16 as u64) & 0xFFFF;
@@ -83,6 +84,7 @@ impl TranspositionEntry {
         val
     }
 
+    #[inline(always)]
     pub fn unpack(key: u64, data: u64) -> Self {
         let eval = (data & 0xFFFF) as u16 as i16;
         let best_move = ((data >> 16) & 0xFFFF) as u16;
@@ -102,6 +104,7 @@ impl TranspositionEntry {
         }
     }
 
+    #[inline(always)]
     pub fn compress_move(turn: Option<crate::model::Turn>) -> u16 {
         if let Some(t) = turn {
             let from = t.from as u16;
@@ -125,6 +128,7 @@ impl TranspositionEntry {
         }
     }
 
+    #[inline(always)]
     pub fn decompress_move(&self, board: &crate::model::Board) -> Option<crate::model::Turn> {
         let val = self.best_move;
         if val == 0 || (val & (1 << 15)) == 0 {
@@ -225,11 +229,20 @@ impl ZobristTable {
 
         // Replacement policy:
         // 1. existing.depth == -1: The slot is empty, always store the new entry.
-        // 2. existing.key != hash: Index collision. Two different 64-bit Zobrist keys mapped to the same table index.
-        //    We use an "always replace" policy for collisions to prevent the table from being clogged with old,
-        //    deeply searched positions that are no longer relevant to the current game state (TT aging).
-        // 3. entry.depth >= existing.depth: Same position. Only overwrite if the new search is at least as deep.
-        if existing.depth == -1 || existing.key != hash || entry.depth >= existing.depth {
+        // 2. existing.key == hash: Same position. Overwrite if new search is at least as deep.
+        // 3. existing.key != hash: Hash collision (slot contention).
+        //    - If new entry is QS (entry.depth <= 0) and existing is Main Search (existing.depth >= 1):
+        //      REJECT write to protect deep PV/interior search tree nodes from TT cache pollution.
+        //    - Otherwise: replace (standard collision aging / main search overwrites).
+        let should_replace = if existing.depth == -1 {
+            true
+        } else if existing.key == hash {
+            entry.depth >= existing.depth
+        } else {
+            !(entry.depth <= 0 && existing.depth >= 1)
+        };
+
+        if should_replace {
             // Invalidate the key before writing data to prevent a "torn read" by another thread.
             slot.key.store(!hash, std::sync::atomic::Ordering::Release);
             slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
@@ -300,6 +313,7 @@ pub fn gen_pawn_hash(board: &Board) -> u64 {
     hash
 }
 
+#[inline(always)]
 pub fn get_zobrist_val(square: usize, piece_idx: usize) -> u64 {
     ZOBRIST_TABLE[square][piece_idx]
 }
@@ -375,6 +389,79 @@ mod tests {
         let ret_kept_after_low_depth = table.get_entry(&4).unwrap();
         assert_eq!(ret_kept_after_low_depth.eval, 400);
         assert_eq!(ret_kept_after_low_depth.depth, 2);
+    }
+
+    #[test]
+    fn zobrist_qs_tt_collision_protection_test() {
+        let table = ZobristTable::with_capacity(2);
+
+        // 1. Store a deep Main Search entry (depth = 6) at hash 0 (slot 0)
+        let main_entry = TranspositionEntry {
+            key: 0,
+            eval: 250,
+            depth: 6,
+            entry_type: TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(0, main_entry);
+        assert_eq!(table.get_entry(&0).unwrap().depth, 6);
+
+        // 2. Attempt to insert a Quiescence Search entry (depth = 0) with colliding hash 2 (slot 0)
+        let qs_entry = TranspositionEntry {
+            key: 2,
+            eval: 50,
+            depth: 0,
+            entry_type: TranspositionType::LowerBound,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(2, qs_entry);
+
+        // Verify: Main search entry at hash 0 MUST be preserved; QS collision write was rejected
+        let preserved = table.get_entry(&0);
+        assert!(preserved.is_some(), "Deep main search entry must not be evicted by QS collision");
+        assert_eq!(preserved.unwrap().depth, 6);
+        assert_eq!(preserved.unwrap().eval, 250);
+        assert!(table.get_entry(&2).is_none(), "Colliding QS entry must not be present");
+
+        // 3. A Main Search entry (depth = 8) CAN overwrite on collision
+        let deeper_main_entry = TranspositionEntry {
+            key: 2,
+            eval: 300,
+            depth: 8,
+            entry_type: TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(2, deeper_main_entry);
+        assert!(table.get_entry(&0).is_none(), "Deeper main search entry replaces collision");
+        assert_eq!(table.get_entry(&2).unwrap().depth, 8);
+
+        // 4. Storing QS entry (depth = 0) on an empty slot (slot 1, key = 1) succeeds
+        let qs_entry_empty = TranspositionEntry {
+            key: 1,
+            eval: 75,
+            depth: 0,
+            entry_type: TranspositionType::UpperBound,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(1, qs_entry_empty);
+        assert_eq!(table.get_entry(&1).unwrap().depth, 0);
+
+        // 5. Another QS entry (depth = 0) colliding on slot 1 (key = 3) CAN replace the existing QS entry (depth = 0)
+        let qs_entry_col = TranspositionEntry {
+            key: 3,
+            eval: 80,
+            depth: 0,
+            entry_type: TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        };
+        table.insert_entry(3, qs_entry_col);
+        assert!(table.get_entry(&1).is_none());
+        assert_eq!(table.get_entry(&3).unwrap().depth, 0);
     }
 
     #[test]
@@ -541,6 +628,7 @@ mod tests {
 }
 
 
+#[inline(always)]
 pub fn calc_incremental_hash(board: &Board, turn: &crate::model::Turn) -> u64 {
     let mut hash = board.cached_hash;
     let from = turn.from as usize;
