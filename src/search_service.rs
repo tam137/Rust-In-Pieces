@@ -450,7 +450,7 @@ impl SearchService {
 
         // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
         let static_eval = if depth > 0 && !turn.gives_check {
-            service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta)
+            service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_search)
         } else {
             0
         };
@@ -572,7 +572,7 @@ impl SearchService {
             let mut eval = if white { i16::MIN } else { i16::MAX };
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta);
+                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_qs);
                 eval = stand_pat;
 
 
