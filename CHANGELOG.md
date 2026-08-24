@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.30.0] - 2026-08-24
+
+Combined port of the master releases v0.29.1 and v0.30.0 onto the NNUE evaluation branch, performed according to the selective synchronization rules in `skills/nnue_porting_and_release_procedure.md`. There is deliberately no `v0.29.1-NNUE` release; both changes are coupled and ship together.
+
+### Fixed
+- **Aspiration Windows Were Permanently Inactive** (from master v0.29.1):
+  - `SearchService::get_moves` seeded the aspiration window by probing the Transposition Table for the root position's hash. The root, however, is never written to the Transposition Table — all `insert_entry` call sites live inside `minimax`, which only ever operates on child nodes. The probe could therefore only ever return an unrelated entry, and in practice returned nothing at all.
+  - Instrumentation on master confirmed the seed was `None` at **every** iteration from depth 3 through depth 9. Consequently `alpha` and `beta` stayed at `i16::MIN` / `i16::MAX`, the re-search loop exited immediately via its `prev_eval.is_none()` guard, and every iterative deepening iteration searched with a full window.
+  - The score of the previous *completed* iteration is now passed explicitly into `get_moves` as `prev_score` and threaded through both iterative deepening loops in `src/game_handler.rs`. An explicit parameter was chosen over writing the root into the Transposition Table because it is immune to hash collisions and table eviction, and it keeps aspiration working when `use_zobrist` is disabled.
+  - **Impact on SPSA tuning**: `aspiration_window_initial_delta` and `aspiration_window_multiplier` are tuned parameters on this branch (16 and 5 respectively). Because the surrounding code never executed, every tuning run since they were exposed has been optimising two parameters with zero effect on play, adding noise to every other parameter in the same tuning group. Historical results from that period should be treated with caution.
+- **Aspiration Re-Search Widened Both Window Bounds**: on a fail-low or fail-high the re-search reset *both* `alpha` and `beta` around the returned score, discarding the bound that had just been proven correct. Only the failing bound is now relaxed, with a bounded fallback to a full window once the delta reaches `aspiration_window_max_delta`.
+
+### Changed
+- **Fail-Soft Alpha-Beta Bounds** (from master v0.30.0):
+  - `minimax` initialised its running score to the window bound (`eval = if white { alpha } else { beta }`), clamping every returned score into `[alpha, beta]`. A node that failed low returned exactly `alpha` regardless of how far below the window its true value lay, so the score carried only a direction and no magnitude.
+  - The running score now starts at `i16::MIN` / `i16::MAX` and tracks the best value actually returned by a child. Transposition Table entries store the observed score instead of the window edge, and the root aspiration re-search learns how far its window was off instead of merely that it missed.
+- **Transposition Table Bound Classification Corrected**:
+  - `orig_alpha` / `orig_beta` were captured *before* the Transposition Table probe, which may narrow `alpha` (on a `LowerBound` hit) or `beta` (on an `UpperBound` hit). The stored bound was therefore classified against a window that was never actually searched.
+  - Under fail-hard this was masked, because the running score was initialised to the narrowed bound and could never fall outside it. Fail-soft removes that accident: a node narrowed to `alpha = 50` by a TT hit and then failing low at 30 would have been stored as `Exact 30` — a value the search never proved and which higher depths would return directly. Both windows are now captured after the probe, in the main search and in the Quiescence Search.
+- **Fail-Soft Sentinel Guard**: if every move is pruned by futility, or the search is cut short before a single move is tried, the running score still holds its sentinel. Such nodes now return the window bound and skip the Transposition Table write, preventing an unprovable score from entering the table. This case could not arise under fail-hard.
+- **Protected NNUE & SPSA Parameters Preserved**: the port was applied selectively rather than merged. All branch-specific tuned values were verified unchanged against the protected list in the porting SOP: `use_nnue = true`, `lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`, `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`, `rfp_margin_per_depth = 80`, `rfp_max_depth = 3`, `max_pawn_hash_entries = 1_000_000`, and `nnue_model_path`. The diff against v0.29.0-NNUE in `src/config.rs` and `src/threads.rs` consists exclusively of additions.
+
+### Added
+- **`aspiration_window_max_delta` Configuration Parameter**: new `Config` field (default `1000`), exposed as UCI option `AspirationWindowMaxDelta` (spin, 50–30000) and parsed via `setoption`.
+- **Aspiration Window Regression Tests**: `test_aspiration_window_is_seeded_from_previous_score` asserts that a caller-supplied score measurably reduces the node count, which fails on the previous implementation because the window never narrowed. `test_aspiration_recovers_from_a_wrong_seed` drives the search with seeds 2000 cp above and below the true score, covering both widening paths.
+
+### Performance
+Measured on the master branch across eight benchmark positions at depth 8 with full iterative deepening, comparing aspiration enabled against disabled:
+
+| Metric | Fail-hard (v0.29.1) | Fail-soft (v0.30.0) |
+| :--- | ---: | ---: |
+| Aspiration node reduction | −15.1% | **−25.0%** |
+| Worst-case position | +55.6% | −4.2% |
+| Second-worst position | +39.9% | +9.3% |
+
+Fail-soft reduces node count by 16.4% with aspiration enabled and by 5.4% with it disabled. These figures were obtained with the handcrafted evaluation on master; the search code is identical here, but the absolute numbers will differ on this branch because the neural evaluation changes both node cost and the scores that drive the pruning heuristics. **No equivalent measurement has been taken on the NNUE branch.**
+
+### Notes
+- **Score comparisons in tests are tolerance-based.** Null-move pruning, reverse futility pruning, futility pruning and late move reductions are unsound heuristics whose decisions depend on the current alpha/beta window. Fail-soft lets a badly seeded aspiration search converge inside a narrow window instead of degenerating to a full one, so scores legitimately differ by a few centipawns between window configurations. The regression tests assert convergence within 100 cp rather than bit equality.
+- **Elo verification is outstanding.** This release combines three behavioural changes relative to v0.28.4-NNUE: Check Extensions (v0.29.0-NNUE), the aspiration window activation, and fail-soft. A regression run against `suprah-0.28.4-nnue` is strongly recommended before further search work.
+
+
 ## [V0.29.0] - 2026-08-24
 
 Port of the master release v0.29.0 onto the NNUE evaluation branch, performed according to the selective synchronization rules in `skills/nnue_porting_and_release_procedure.md`.

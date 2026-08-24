@@ -88,6 +88,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
                                     "aspiration_window_initial_delta" | "aspirationwindowinitialdelta" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_initial_delta = v; },
                                     "aspiration_window_multiplier" | "aspirationwindowmultiplier" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_multiplier = v; },
+                                    "aspiration_window_max_delta" | "aspirationwindowmaxdelta" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_max_delta = v; },
                                     "lmr_history_good_threshold" | "lmrhistorygoodthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_good_threshold = v; },
                                     "lmr_history_bad_threshold" | "lmrhistorybadthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_bad_threshold = v; },
                                     "rfp_margin_per_depth" | "rfpmarginperdepth" => if let Ok(v) = val_str.parse::<i16>() { active_config.rfp_margin_per_depth = v; },
@@ -246,6 +247,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     engine_state.stop_flag.store(false, Ordering::SeqCst);
 
                     let mut best_result: Option<SearchResult> = None;
+                    // Score of the last completed iteration, used to seed the aspiration window.
+                    let mut prev_score: Option<i16> = None;
                     for depth in 2..100 {
                         if engine_state.stop_flag.load(Ordering::SeqCst) {
                             break;
@@ -255,9 +258,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         let is_white = game.board.white_to_move;
                         let mut stats = Stats::default();
-                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &active_config, service, &engine_state, std::time::Instant::now(), None);
+                        let search_result = service.search.get_moves(&mut game.board, depth, is_white, &mut stats, &active_config, service, &engine_state, std::time::Instant::now(), None, prev_score);
 
                         if search_result.completed {
+                            prev_score = Some(search_result.get_eval());
                             best_result = Some(search_result.clone());
                             service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
 
@@ -357,6 +361,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let go_start_time = std::time::Instant::now();
                         let mut best_result: Option<SearchResult> = None;
                         let max_depth = active_config.max_depth;
+                        // Score of the last completed iteration, used to seed the aspiration window.
+                        let mut prev_score: Option<i16> = None;
 
 
                         for depth in 2..=max_depth {
@@ -379,9 +385,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 &engine_state,
                                 go_start_time,
                                 Some(my_thinking_time as i32),
+                                prev_score,
                             );
 
                             if search_result.completed {
+                                prev_score = Some(search_result.get_eval());
                                 best_result = Some(search_result.clone());
                                 service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
 
