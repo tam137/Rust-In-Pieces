@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.29.1] - 2026-08-24
+
+### Fixed
+- **Aspiration Windows Were Permanently Inactive**:
+  - `SearchService::get_moves` seeded the aspiration window by probing the Transposition Table for the root position's hash. The root, however, is never written to the Transposition Table — all four `insert_entry` call sites live inside `minimax`, which only ever operates on child nodes. The probe could therefore only ever return an unrelated entry, and in practice returned nothing at all.
+  - Instrumentation on `position startpos moves e2e4 e7e5 g1f3`, `go depth 9` confirmed the seed was `None` at **every** iteration from depth 3 through depth 9. Consequently `alpha` and `beta` stayed at `i16::MIN` / `i16::MAX`, the re-search loop exited immediately via its `prev_eval.is_none()` guard, and every iterative deepening iteration searched with a full window.
+  - The score of the previous *completed* iteration is now passed explicitly into `get_moves` as `prev_score` and threaded through both iterative deepening loops in `src/game_handler.rs`. An explicit parameter was chosen over writing the root into the Transposition Table because it is immune to hash collisions and table eviction, and it keeps aspiration working when `use_zobrist` is disabled.
+  - **Impact on SPSA tuning**: `aspiration_window_initial_delta` and `aspiration_window_multiplier` were exposed for automated tuning in v0.28.4. Because the surrounding code never executed, every tuning run since has been optimising two parameters with zero effect on play, adding noise to every other parameter in the same tuning group. Results from that period should be treated with caution.
+- **Aspiration Re-Search Widened Both Window Bounds**:
+  - On a fail-low or fail-high the re-search logic reset *both* `alpha` and `beta` around the returned score, discarding the bound that had just been proven correct and needlessly enlarging the re-search tree. Only the bound that actually failed is now relaxed.
+  - Added a bounded fallback: once the delta reaches `aspiration_window_max_delta`, the next re-search uses a full window instead of widening geometrically forever, which caps the number of root re-searches per iteration.
+
+### Added
+- **`aspiration_window_max_delta` Configuration Parameter**:
+  - New `Config` field (default `1000`), exposed as UCI option `AspirationWindowMaxDelta` (spin, 50–30000) and parsed via `setoption` in `src/game_handler.rs`, in line with the configuration principle in `task/search_task.md` that forbids hardcoded search heuristics.
+- **Aspiration Window Regression Tests**:
+  - `test_aspiration_window_is_seeded_from_previous_score` asserts that a caller-supplied score measurably reduces the node count, which fails on the previous implementation because the window never narrowed.
+  - `test_aspiration_recovers_from_a_wrong_seed` drives the search with seeds 2000 cp above and below the true score and asserts convergence on the full-window result, covering both the fail-low and fail-high widening paths.
+
+### Changed
+- **Measured Search Behaviour**: Across eight benchmark positions at depth 8 with full iterative deepening, the now-functional aspiration window reduces total node count by **15.1%** (1,080,649 → 917,837). The effect varies strongly by position, from −63.1% to +55.6%. Six of the eight positions return a slightly different final score, which is expected rather than a defect: null-move pruning, reverse futility pruning, futility pruning and late move reductions are all unsound heuristics whose decisions depend on the current alpha/beta window, so a narrower window legitimately prunes more. This release therefore changes playing behaviour despite being classified as a patch, and warrants an Elo regression run against v0.29.0.
+- **Search Backlog (`task/search_task.md`)**: Raised the Fail-Soft Alpha-Beta task from Medium to High impact and recorded the supporting measurement. The two positions that regressed (+39.9%, +55.6%) do so because fail-hard bounds return the clamped window edge on a failed root pass, leaving the widening logic without information about the true magnitude of the miss and filling the Transposition Table with entries that carry only that bound.
+
+
 ## [V0.29.0] - 2026-08-24
 
 ### Added
