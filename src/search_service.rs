@@ -29,6 +29,9 @@ impl SearchService {
         engine_state: &Arc<EngineState>,
         start_time: std::time::Instant,
         target_time: Option<i32>,
+        // Score of the previous *completed* iterative deepening iteration, used to seed
+        // the aspiration window. `None` disables aspiration for this search.
+        prev_score: Option<i16>,
     ) -> SearchResult {
         let mut search_config = config.clone();
         search_config.pre_sort_moves = false;
@@ -64,24 +67,23 @@ impl SearchService {
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
-        let mut prev_eval = None;
-        if depth > 2 && config.use_zobrist && config.enable_aspiration {
-            if let Some(entry) = zobrist_table.get_entry(&board.cached_hash) {
-                if entry.depth > 0 {
-                    prev_eval = Some(entry.eval);
-                }
-            }
-        }
+        // Seed the aspiration window from the previous iterative deepening iteration.
+        // This score is supplied by the caller: the root position is never written to the
+        // Transposition Table, so probing the TT here can only ever yield an unrelated
+        // entry and would leave the aspiration window permanently disabled.
+        let prev_eval = if depth > 2 && config.enable_aspiration {
+            prev_score.map(|val| val.clamp(-30000, 30000))
+        } else {
+            None
+        };
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
         let mut delta = config.aspiration_window_initial_delta;
 
         if let Some(val) = prev_eval {
-            // De-normalize mate score if present
-            let val_de = val.clamp(-30000, 30000);
-            alpha = val_de.saturating_sub(delta);
-            beta = val_de.saturating_add(delta);
+            alpha = val.saturating_sub(delta);
+            beta = val.saturating_add(delta);
         }
 
         let mut search_result;
@@ -251,10 +253,23 @@ impl SearchService {
 
             let best_score = search_result.get_eval();
 
-            // Fail-Low / Fail-High checks
-            if best_score <= alpha || best_score >= beta {
-                alpha = best_score.saturating_sub(delta);
-                beta = best_score.saturating_add(delta);
+            // Fail-Low / Fail-High handling. Only the bound that actually failed is
+            // relaxed; the opposite bound still holds and widening it as well would
+            // discard information the search just proved and enlarge the re-search tree.
+            let failed_low = best_score <= alpha;
+            let failed_high = best_score >= beta;
+
+            if failed_low || failed_high {
+                if delta >= config.aspiration_window_max_delta {
+                    // The window has been widened repeatedly without converging. Fall back
+                    // to a full window so the iteration terminates in one more pass.
+                    alpha = i16::MIN;
+                    beta = i16::MAX;
+                } else if failed_low {
+                    alpha = best_score.saturating_sub(delta);
+                } else {
+                    beta = best_score.saturating_add(delta);
+                }
                 delta = delta.saturating_mul(config.aspiration_window_multiplier);
                 continue;
             }
@@ -415,8 +430,6 @@ impl SearchService {
             }
         }
 
-        let orig_alpha = alpha;
-        let orig_beta = beta;
         let mut tt_move = None;
 
         // Transposition Table Lookup
@@ -466,6 +479,13 @@ impl SearchService {
                 }
             }
         }
+
+        // Window actually searched, captured *after* a Transposition Table hit may have
+        // narrowed alpha/beta. The bound stored below must describe the search that was
+        // really performed: classifying a fail-soft score against the pre-narrowing window
+        // would label a fail-low result as Exact and corrupt the table.
+        let orig_alpha = alpha;
+        let orig_beta = beta;
 
         // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
         let static_eval = if depth > 0 && !turn.gives_check {
@@ -585,8 +605,6 @@ impl SearchService {
         if depth <= 0 {
             stats.add_eval_nodes(1);
 
-            let orig_alpha = alpha;
-            let orig_beta = beta;
             let mut tt_move = None;
 
             // 1. Transposition Table Lookup in Quiescence Search
@@ -634,6 +652,11 @@ impl SearchService {
                     }
                 }
             }
+
+            // Window actually searched, captured after a Transposition Table hit may have
+            // narrowed alpha/beta (see the equivalent note in the main search).
+            let orig_alpha = alpha;
+            let orig_beta = beta;
 
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
@@ -848,7 +871,11 @@ impl SearchService {
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
 
-        let mut eval = if white { alpha } else { beta };
+        // Fail-soft: the running score starts outside the window instead of at its bound,
+        // so a fail-low node returns how far below alpha it actually is rather than alpha
+        // itself. This sharpens the Transposition Table bounds stored below and gives the
+        // root aspiration re-search the magnitude of its miss instead of just its direction.
+        let mut eval = if white { i16::MIN } else { i16::MAX };
         let mut best_move: Option<Turn> = None;
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
@@ -1141,6 +1168,14 @@ impl SearchService {
             i += 1;
         }
 
+        // Guard required by fail-soft: if every move was pruned (futility) or the search was
+        // cut short before a single move was tried, no bound has been proven and `eval` still
+        // holds the sentinel. Storing that would put an unprovable score into the
+        // Transposition Table, so fall back to the window bound and skip the write.
+        if turn_counter == 0 {
+            return (None, if white { alpha } else { beta });
+        }
+
         // Transposition Table Write
         if config.use_zobrist && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             let entry_type = if eval <= orig_alpha {
@@ -1245,6 +1280,7 @@ mod tests {
             &engine_state,
             std::time::Instant::now(),
             None,
+            None,
         );
 
         service.search.get_moves(
@@ -1256,6 +1292,7 @@ mod tests {
             &service,
             &engine_state,
             std::time::Instant::now(),
+            None,
             None,
         );
 
@@ -1301,9 +1338,88 @@ mod tests {
             &fresh_engine_state(),
             std::time::Instant::now(),
             None,
+            None,
         );
 
         (result.get_eval(), stats.calculated_nodes)
+    }
+
+    /// Regression guard for the dead aspiration window fixed in v0.29.1.
+    ///
+    /// The window used to be seeded from a Transposition Table probe of the root
+    /// position, but the root is never written to the TT, so the probe always missed
+    /// and every iteration silently ran with a full window. These tests assert that the
+    /// caller-supplied score actually reaches and narrows the root search.
+    #[test]
+    fn test_aspiration_window_is_seeded_from_previous_score() {
+        let service = Service::new();
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        let mut config = Config::for_tests();
+        config.enable_aspiration = true;
+
+        // Baseline: no previous score, so the search must run with a full window.
+        let mut board_wide = service.fen.set_fen(fen);
+        let mut stats_wide = Stats::new();
+        let wide = service.search.get_moves(
+            &mut board_wide, 5, true, &mut stats_wide, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        // Seeded with the true score, the narrowed window must prune the root tree.
+        let mut board_narrow = service.fen.set_fen(fen);
+        let mut stats_narrow = Stats::new();
+        let narrow = service.search.get_moves(
+            &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, Some(wide.get_eval()),
+        );
+
+        assert!(stats_narrow.calculated_nodes < stats_wide.calculated_nodes,
+            "A seeded aspiration window must reduce the node count ({} seeded vs {} full window)",
+            stats_narrow.calculated_nodes, stats_wide.calculated_nodes);
+
+        // Scores are compared with a tolerance rather than for equality: NMP, RFP, futility
+        // pruning and LMR are all unsound heuristics whose decisions depend on the current
+        // alpha/beta window, so a narrower window legitimately prunes more and can shift the
+        // score slightly. A gross deviation would still indicate a broken window.
+        let deviation = (narrow.get_eval() as i32 - wide.get_eval() as i32).abs();
+        assert!(deviation <= 100,
+            "Aspiration search deviated from the full window score by {} cp ({} vs {})",
+            deviation, narrow.get_eval(), wide.get_eval());
+    }
+
+    #[test]
+    fn test_aspiration_recovers_from_a_wrong_seed() {
+        // A seed far below the true score forces a fail-high and at least one re-search.
+        // The final score must still match the full-window result, otherwise the
+        // widening logic would be returning a bound instead of the true value.
+        let service = Service::new();
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        let mut config = Config::for_tests();
+        config.enable_aspiration = true;
+
+        let mut board_ref = service.fen.set_fen(fen);
+        let mut stats_ref = Stats::new();
+        let reference = service.search.get_moves(
+            &mut board_ref, 5, true, &mut stats_ref, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        for bad_seed in [-2000i16, 2000i16] {
+            let mut board = service.fen.set_fen(fen);
+            let mut stats = Stats::new();
+            let result = service.search.get_moves(
+                &mut board, 5, true, &mut stats, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, Some(bad_seed),
+            );
+            // Tolerance rather than equality, for the same reason as in the test above:
+            // fail-soft lets a badly seeded search converge inside a narrow window instead
+            // of degenerating to a full one, and the unsound pruning heuristics prune more
+            // aggressively there. The invariant under test is convergence, not bit equality.
+            let deviation = (result.get_eval() as i32 - reference.get_eval() as i32).abs();
+            assert!(deviation <= 100,
+                "Seed {} deviated from the full-window score by {} cp ({} vs {})",
+                bad_seed, deviation, result.get_eval(), reference.get_eval());
+        }
     }
 
     #[test]
@@ -1343,7 +1459,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board, 4, true, &mut stats, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
         );
 
         let (_, nodes_disabled) = search_smothered_mate(false, 4);
@@ -1365,7 +1481,7 @@ mod tests {
 
         let result = service.search.get_moves(
             &mut board, 6, true, &mut stats, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
         );
 
         assert!(!result.get_best_move_algebraic().is_empty(), "Search must return a best move");
@@ -1494,6 +1610,7 @@ mod tests {
             &engine_state,
             std::time::Instant::now(),
             None,
+            None,
         );
 
         // 2. Play the moves: d8f6, c3d5, f6d8
@@ -1552,6 +1669,7 @@ mod tests {
             &engine_state,
             std::time::Instant::now(),
             None,
+            None,
         );
 
         service.search.get_moves(
@@ -1563,6 +1681,7 @@ mod tests {
             &service,
             &engine_state,
             std::time::Instant::now(),
+            None,
             None,
         );
 
@@ -1606,6 +1725,7 @@ mod tests {
             &service,
             &engine_state,
             std::time::Instant::now(),
+            None,
             None,
         );
 
@@ -1659,6 +1779,7 @@ mod tests {
             &service,
             &engine_state,
             std::time::Instant::now(),
+            None,
             None,
         );
 
@@ -1779,6 +1900,7 @@ mod tests {
             &engine_state,
             std::time::Instant::now(),
             None,
+            None,
         );
 
         assert!(search_result.best_score > 32000, "Should detect mate in 1, score: {}", search_result.best_score);
@@ -1835,6 +1957,7 @@ mod tests {
             &engine_state_enabled,
             std::time::Instant::now(),
             None,
+            None,
         );
 
         let res_disabled = service.search.get_moves(
@@ -1846,6 +1969,7 @@ mod tests {
             &service,
             &engine_state_disabled,
             std::time::Instant::now(),
+            None,
             None,
         );
 
@@ -1859,6 +1983,8 @@ mod tests {
         );
     }
 }
+
+
 
 
 
