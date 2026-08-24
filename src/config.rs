@@ -186,6 +186,9 @@ pub struct Config {
     pub nmp_dynamic_divisor: i32,
     pub aspiration_window_initial_delta: i16,
     pub aspiration_window_multiplier: i16,
+    /// Once the aspiration delta reaches this value, the next re-search uses a full
+    /// window instead of widening further, bounding the number of root re-searches.
+    pub aspiration_window_max_delta: i16,
     pub lmr_history_good_threshold: u32,
     pub lmr_history_bad_threshold: u32,
     pub rfp_margin_per_depth: i16,
@@ -389,6 +392,7 @@ impl Config {
             nmp_dynamic_divisor: 6,
             aspiration_window_initial_delta: 16,
             aspiration_window_multiplier: 5,
+            aspiration_window_max_delta: 1000,
             lmr_history_good_threshold: 4000,
             lmr_history_bad_threshold: 550,
             rfp_margin_per_depth: 80,
@@ -603,6 +607,7 @@ mod tests {
         assert!(config.enable_qs_tt);
         assert_eq!(config.lmr_divisor, 140);
         assert_eq!(config.lmr_move_threshold, 2);
+        assert_eq!(config.aspiration_window_max_delta, 1000);
         assert!(config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
     }
