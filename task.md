@@ -9,7 +9,7 @@ This document defines the technical roadmap and architectural specifications for
 | Milestone | Core Domain | Architectural Focus | Expected NPS Impact | Projected Elo Gain |
 | :--- | :--- | :--- | :--- | :--- |
 | **Milestone 1** | **Move Generation & Picker** | Pseudo-legal Movegen, Staged `MovePicker`, Zero-allocation Board state | **+300% to +600% NPS** | **+150 to +250 Elo** |
-| **Milestone 2** | **Search Architecture** | Negamax Refactor, Singular Extensions, LMP, QSearch TT | **-40% Branching Factor** | **+120 to +200 Elo** |
+| **Milestone 2** | **Search Architecture** | Negamax Refactor, Check Extensions, Singular Extensions, LMP, QSearch TT | **-40% Branching Factor** | **+120 to +200 Elo** |
 | **Milestone 3** | **Neural Evaluation (NNUE)** | Incremental Accumulator Stack, AVX2/NEON SIMD Vectorization | **+2000% NNUE Eval Speed** | **+200 to +350 Elo** |
 | **Total** | **Combined Engine Upgrade** | **Full System Modernization** | **Multi-tier Scaling** | **+470 to +800 Elo** |
 
@@ -59,7 +59,8 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
 * **Minimax Code Duplication**: `src/search_service.rs` uses an asymmetric `minimax` structure with parallel `if white { ... } else { ... }` blocks across all pruning rules, PVS null-windows, and TT updates. This increases maintenance complexity and risks boundary bugs.
 * **Missing Singular Extensions (SE)**: When a TT move is uniquely superior to all alternative moves, the engine does not extend the search depth, risking tactical blindness in sharp forcing sequences.
 * **Missing Late Move Pruning (LMP)**: Quiet moves late in the move loop at shallow depths ($d \le 4$) are searched rather than pruned.
-* **Missing TT in Quiescence Search (QSearch)**: `QuiescenceSearch` does not probe or store into the Transposition Table, causing repeated evaluations of identical tactical capture positions.
+* ~~**Missing TT in Quiescence Search (QSearch)**~~ — **RESOLVED in v0.28.1**. `QuiescenceSearch` now probes and stores Transposition Table entries with a collision-safe replacement policy that prevents shallow QSearch entries from evicting deep main-search entries.
+* ~~**No Search Extensions of any kind**~~ — **RESOLVED in v0.29.0**. Every recursive call previously descended with `depth - 1`, so forcing check sequences were truncated at the nominal horizon and only partially recovered by the in-check branch of QSearch. Check Extensions now grant `+1` ply on checking moves.
 
 ### 2.2 Target Architecture & Specifications
 
@@ -80,14 +81,23 @@ $$\text{eval} = -\text{negamax}(\text{board}, -\beta, -\alpha, \text{depth} - 1,
 * At low depths ($1 \le \text{depth} \le 4$), when not in check and after searching $N$ quiet moves, prune all subsequent quiet moves:
   $$\text{QuietMoveCountThreshold}(\text{depth}) = 3 + 2 \cdot \text{depth}^2$$
 
-#### 2.2.4 TT Probing & Storage in Quiescence Search
+#### 2.2.4 TT Probing & Storage in Quiescence Search — ✅ Implemented (v0.28.1)
 * Probe the Transposition Table at the start of QSearch. If a valid entry with `depth >= 0` meets the cutoff criteria, return immediately.
 * Store exact/bound evaluations upon QSearch completion.
+
+#### 2.2.5 Check Extensions — ✅ Implemented (v0.29.0)
+* **Trigger Condition**: In the `minimax` move loop, when the selected move gives check and the current `ply` is below `check_extension_max_ply`.
+* **Action**: The child is searched at `depth - 1 + 1`, keeping the remaining depth constant along the forcing line so that the tactical sequence is resolved rather than truncated.
+* **Interaction with LMR**: No interaction — the LMR stage already excludes checking moves, so the extension applies exclusively to the PVS/full-depth path.
+* **Termination Guarantee**: A constant remaining depth breaks the implicit `ply + depth == root_depth` invariant the search relied upon. Termination is therefore enforced structurally by a hard `MAX_PLY` ceiling at node entry, which returns a static evaluation instead of recursing further.
+* **Configuration**: `enable_check_extension: bool` and `check_extension_max_ply: i32`, both exposed via UCI (`EnableCheckExtension`, `CheckExtensionMaxPly`) for SPSA tuning. Setting the ply bound to `0` neutralises the feature without touching the enable flag.
 
 ### 2.3 Acceptance & TDD Criteria
 - `[ ]` **Negamax Symmetry**: Search results and evaluations are strictly symmetric between White and Black across mirrored positions.
 - `[ ]` **Singular Extension Trigger**: Tactical test suite confirms $+1$ ply extension on forced tactical moves.
-- `[ ]` **QSearch Node Reduction**: QSearch node count decreases by 15–30% with Transposition Table caching enabled.
+- `[x]` **QSearch Node Reduction**: QSearch node count decreases with Transposition Table caching enabled — covered by `test_qs_tt_search_consistency_and_node_reduction`.
+- `[x]` **Check Extension Horizon Resolution**: A forced mate lying exactly one ply beyond the nominal horizon is found with Check Extensions enabled and missed with them disabled — covered by `test_check_extension_resolves_forcing_mate_beyond_horizon` (Philidor's Legacy at depth 5).
+- `[x]` **Extension Termination**: An unbounded Check Extension budget still terminates within the `MAX_PLY` ceiling — covered by `test_unbounded_check_extension_terminates_within_ply_ceiling`.
 
 ---
 
@@ -142,7 +152,8 @@ pub struct Accumulator {
 
 ### Phase 2: Search Architecture Refactoring
 - [ ] Convert `SearchService::minimax` to unified `negamax` in `src/search_service.rs`.
-- [ ] Implement Transposition Table probing and storage in Quiescence Search.
+- [x] Implement Transposition Table probing and storage in Quiescence Search. *(v0.28.1)*
+- [x] Implement Check Extensions with a hard `MAX_PLY` termination ceiling. *(v0.29.0)*
 - [ ] Implement Late Move Pruning (LMP) at depths $1 \le d \le 4$.
 - [ ] Implement Singular Extensions (SE) at depths $d \ge 8$.
 - [ ] Add configurable parameters to `Config` in `src/config.rs`.

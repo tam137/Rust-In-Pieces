@@ -190,6 +190,13 @@ pub struct Config {
     pub lmr_history_bad_threshold: u32,
     pub rfp_margin_per_depth: i16,
     pub rfp_max_depth: i32,
+
+    /// Enables Check Extensions: a move that gives check is searched one ply deeper,
+    /// so that forcing sequences are resolved beyond the nominal horizon.
+    pub enable_check_extension: bool,
+    /// Upper ply bound for granting Check Extensions. Beyond this ply the search
+    /// depth strictly decreases again, which keeps the search tree finite.
+    pub check_extension_max_ply: i32,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -386,6 +393,8 @@ impl Config {
             lmr_history_bad_threshold: 500,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 3,
+            enable_check_extension: true,
+            check_extension_max_ply: 64,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -597,5 +606,7 @@ mod tests {
         assert_eq!(config.rfp_max_depth, 3);
         assert_eq!(config.lmr_history_good_threshold, 4000);
         assert_eq!(config.lmr_history_bad_threshold, 500);
+        assert!(config.enable_check_extension);
+        assert_eq!(config.check_extension_max_ply, 64);
     }
 }
