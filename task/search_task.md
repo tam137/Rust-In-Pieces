@@ -24,7 +24,8 @@ Every new pruning or reduction feature **must** be fully configurable via the `C
 
 ### 2. Fail-Soft Alpha-Beta Bounds
 *   **Description**: `minimax` currently initialises its running score to the window bound (`eval = if white { alpha } else { beta }`), which clamps every returned score to the search window (fail-hard). Consequently, Transposition Table entries only ever carry the window bound instead of the actually observed score, which weakens both move ordering and subsequent cutoffs.
-*   **Metadata**: `[Impact: Medium]` `[Complexity: Medium]`
+*   **Metadata**: `[Impact: High]` `[Complexity: Medium]`
+*   **Evidence**: Measured while activating the aspiration window in v0.29.1. Across eight benchmark positions at depth 8 the working window reduced node counts by 15.1% overall, but two positions *regressed* by +39.9% and +55.6%. The cause is fail-hard: when a root re-search is required, every root move returns exactly the clamped window bound, so the widening logic learns nothing about how far off the window was, and the Transposition Table entries written during the failed pass carry only that bound. Fail-soft would make aspiration re-searches converge in fewer passes.
 *   **Tasks**:
     - `[ ]` Initialise the running score to `i16::MIN` / `i16::MAX` and track the best child return value independently of `alpha`/`beta`.
     - `[ ]` Verify that the Transposition Table bound classification against `orig_alpha` / `orig_beta` stays sound for the widened score range.

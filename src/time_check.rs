@@ -105,11 +105,11 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
     
     println!("\nexpected ~310ms");
     let mid_game_fen = "r1bqr1k1/ppp2ppp/2np1n2/2b1p3/2BPP3/2P1BN2/PPQ2PPP/RN3RK1 b - - 5 8";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, false, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None, None));
     
     println!("\nexpected ~250");
     let mid_game_fen = "r1bqr1k1/2p2ppp/p1np1n2/1pb1p1N1/2BPP3/2P1B3/PPQ2PPP/RN3RK1 w - - 0 10";
-    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None));
+    time_it!(service.search.get_moves(&mut service.fen.set_fen(mid_game_fen), 4, true, &mut Stats::new(), config, service, engine_state, std::time::Instant::now(), None, None));
 
     println!("\nexpected ~500");
     println!("Benchmark Value: {}\n", calculate_benchmark(engine_state));
@@ -203,7 +203,7 @@ pub fn count_and_print_nodes(
 
     for fen in fen_list {
         let board = &mut service.fen.set_fen(fen);
-        service.search.get_moves(board, 4, board.white_to_move, &mut stats, &config, &service, engine_state, std::time::Instant::now(), None);
+        service.search.get_moves(board, 4, board.white_to_move, &mut stats, &config, &service, engine_state, std::time::Instant::now(), None, None);
         node_count += stats.calculated_nodes;
         stats = Stats::new();
     }
@@ -216,6 +216,6 @@ pub fn calculate_benchmark(engine_state: &Arc<EngineState>) -> i32 {
     let mut board = Service::new().fen.set_fen("r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let service = Service::new();
     let config = &Config::for_tests();
-    let duration = get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), config, &service, engine_state, std::time::Instant::now(), None));
+    let duration = get_time_it!(service.search.get_moves(&mut board, 3, true, &mut Stats::new(), config, &service, engine_state, std::time::Instant::now(), None, None));
     10000 / duration.max(1)
 }
