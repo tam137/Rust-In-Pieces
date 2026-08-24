@@ -14,6 +14,22 @@ Every new pruning or reduction feature **must** be fully configurable via the `C
 
 ## Active Search Tasks
 
+### 1. Late Move Pruning (LMP)
+*   **Description**: At shallow depths, quiet moves appearing late in the move list are statistically irrelevant and can be skipped entirely instead of being searched at a reduced depth. Complements the existing LMR and Futility Pruning stages.
+*   **Metadata**: `[Impact: High]` `[Complexity: Low]`
+*   **Tasks**:
+    - `[ ]` Add `enable_lmp: bool`, `lmp_max_depth: i32` and `lmp_base_moves: i32` to `Config`.
+    - `[ ]` In the `minimax` move loop, when not in check and `depth <= lmp_max_depth`, prune all further quiet moves once the quiet move counter exceeds `lmp_base_moves + 2 * depth^2`.
+    - `[ ]` Expose both parameters via UCI `setoption` for SPSA tuning.
+
+### 2. Fail-Soft Alpha-Beta Bounds
+*   **Description**: `minimax` currently initialises its running score to the window bound (`eval = if white { alpha } else { beta }`), which clamps every returned score to the search window (fail-hard). Consequently, Transposition Table entries only ever carry the window bound instead of the actually observed score, which weakens both move ordering and subsequent cutoffs.
+*   **Metadata**: `[Impact: Medium]` `[Complexity: Medium]`
+*   **Tasks**:
+    - `[ ]` Initialise the running score to `i16::MIN` / `i16::MAX` and track the best child return value independently of `alpha`/`beta`.
+    - `[ ]` Verify that the Transposition Table bound classification against `orig_alpha` / `orig_beta` stays sound for the widened score range.
+    - `[ ]` Confirm via a node-count regression test that the sharper bounds do not increase the tree size.
+
 ### 3. SEE-Pruning in the Main Search (Bad Capture Pruning)
 *   **Description**: Currently, captures with $SEE < 0$ are sorted to the end of the move list. This task introduces hard pruning for extremely bad captures at low depths.
 *   **Metadata**: `[Impact: High]` `[Complexity: Medium]`

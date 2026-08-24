@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.29.0] - 2026-08-24
+
+### Added
+- **Check Extensions — Horizon Resolution for Forcing Sequences**:
+  - Prior to this release the search contained **no depth extensions of any kind**. Every recursive call in `src/search_service.rs` descended with `depth - 1`, so a forcing check sequence was unconditionally truncated at the nominal horizon. The in-check branch of the Quiescence Search recovered only the terminal mate node, never the intermediate quiet continuations of the forcing line, which left the engine tactically blind exactly where sharp play is decided.
+  - The `minimax` move loop now computes `child_depth = depth - 1 + extension`, granting `+1` ply whenever the selected move gives check. Because the remaining depth stays constant along a checking line, the search follows a forced sequence to its resolution instead of evaluating a position mid-combination.
+  - **No interaction with Late Move Reductions**: the LMR stage already excludes checking moves via its `!current_turn.gives_check` guard, so the extension applies exclusively to the PVS and full-depth search paths. Reduced and extended searches can never be requested for the same move.
+- **`MAX_PLY` Termination Ceiling — Structural Search Bound**:
+  - Introduced `pub const MAX_PLY: usize = 128` in `src/search_service.rs` together with a hard guard at node entry that returns a static evaluation once `ply >= MAX_PLY - 1`.
+  - This is a load-bearing prerequisite rather than a defensive nicety: the previous search relied on the implicit invariant `ply + depth == root_depth` to keep the recursion finite and every ply-indexed table access in range. Check Extensions break that invariant by design, so termination is now enforced structurally at the node boundary instead of being inferred from depth arithmetic.
+- **Configurable & SPSA-Tunable Extension Parameters**:
+  - `enable_check_extension: bool = true` and `check_extension_max_ply: i32 = 64` added to `Config` in `src/config.rs`, in line with the mandatory configuration principle in `task/search_task.md` that forbids hardcoded search heuristics.
+  - Registered as UCI options `EnableCheckExtension` (check) and `CheckExtensionMaxPly` (spin, 0–127) in `src/threads.rs`, with `setoption` parsing in `src/game_handler.rs`.
+  - Setting `check_extension_max_ply` to `0` neutralises the feature while leaving the enable flag untouched, which gives the SPSA harness a continuous rather than binary control axis over the extension budget.
+
+### Fixed
+- **Out-of-Bounds Killer Move Indexing in the Late Move Reduction Stage**:
+  - The LMR killer-move comparison in `src/search_service.rs` indexed `killer_moves[ply as usize]` without any bounds check, while the three other ply-indexed accesses in the same function each guarded themselves differently (`(0..128).contains(&ply)`, `ply.clamp(0, 127)`, and `(ply as usize) < 128`). The unguarded access was the sole outlier in an otherwise inconsistent pattern.
+  - The defect was latent under the previous search: without extensions the ply could not exceed the root depth, which the iterative deepening loop in `src/game_handler.rs` caps at 100. Introducing Check Extensions removes that bound and would have turned the access into a panic in the middle of a search.
+  - All four call sites now share a single saturating `ply_idx`, eliminating the divergent ad-hoc guards that allowed the omission to go unnoticed.
+
+### Changed
+- **Roadmap Synchronisation (`task.md`)**:
+  - Marked Milestone 2.2.4 (Transposition Table probing and storage in Quiescence Search) as implemented; the feature shipped in v0.28.1 but the roadmap checklist still listed it as outstanding.
+  - Documented Check Extensions as specification 2.2.5 including trigger condition, LMR interaction, termination guarantee, and configuration surface.
+- **Search Backlog (`task/search_task.md`)**:
+  - Documented Late Move Pruning (LMP) and a Fail-Soft Alpha-Beta conversion as the next prioritised search tasks. The latter records that `minimax` currently initialises its running score to the window bound, which clamps returned scores to the search window and therefore limits Transposition Table entries to carrying the bound instead of the observed score.
+
+
 ## [V0.28.4] - 2026-08-21
 
 ### Added
