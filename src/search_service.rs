@@ -6,6 +6,10 @@ use crate::service::Service;
 use crate::move_gen_service::MoveGenService;
 
 
+/// Hard upper bound for the search ply. All ply-indexed search tables (killer moves)
+/// are sized accordingly, so no ply may ever exceed this limit.
+pub const MAX_PLY: usize = 128;
+
 pub struct SearchService;
 
 impl SearchService {
@@ -380,6 +384,19 @@ impl SearchService {
             return (None, if white { i16::MIN } else { i16::MAX });
         }
 
+        // Hard ply ceiling. Check Extensions can keep the remaining depth constant along a
+        // forcing line, so the ply may grow past the nominal root depth. Terminating with a
+        // static evaluation here guarantees that every ply-indexed table access below stays
+        // within bounds and that the search tree remains finite.
+        if ply >= MAX_PLY as i32 - 1 {
+            return (None, service.eval.calc_eval(
+                board, config, &service.move_gen, &service.pawn_table,
+                alpha, beta, config.lazy_eval_margin_search));
+        }
+
+        // Saturating index for all ply-indexed tables (killer moves).
+        let ply_idx = (ply.max(0) as usize).min(MAX_PLY - 1);
+
         // Mate Distance Pruning at node entry
         if ply > 0 {
             let mate_value = i16::MAX - 1 - ply as i16;
@@ -555,7 +572,7 @@ impl SearchService {
             zobrist_table: context.zobrist_table,
             stop_flag: context.stop_flag,
             pv_nodes: context.pv_nodes,
-            killer_moves: if (0..128).contains(&ply) { killer_moves[ply as usize] } else { [None; 2] },
+            killer_moves: killer_moves[ply_idx],
             history_table,
             counter_move,
             start_time: context.start_time,
@@ -877,10 +894,9 @@ impl SearchService {
                 && !current_turn.gives_check
                 && alpha.abs() < 20000
             {
-                let p = ply.clamp(0, 127) as usize;
                 let is_important = Some(*current_turn) == tt_move
-                    || Some(*current_turn) == killer_moves[p][0]
-                    || Some(*current_turn) == killer_moves[p][1]
+                    || Some(*current_turn) == killer_moves[ply_idx][0]
+                    || Some(*current_turn) == killer_moves[ply_idx][1]
                     || Some(*current_turn) == current_context.counter_move;
 
                 if !is_important {
@@ -923,6 +939,19 @@ impl SearchService {
             stats.add_calculated_nodes(1);
             let mi = board.do_move(current_turn);
 
+            // Check Extension: a move that gives check is searched one ply deeper so the
+            // forcing sequence is resolved instead of being truncated at the horizon.
+            // The ply bound makes the extension budget finite along any single line.
+            let extension = if config.enable_check_extension
+                && current_turn.gives_check
+                && ply < config.check_extension_max_ply
+            {
+                1
+            } else {
+                0
+            };
+            let child_depth = depth - 1 + extension;
+
             let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
             let mut searched = false;
 
@@ -944,8 +973,8 @@ impl SearchService {
                 }
 
                 // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
-                let is_killer = Some(*current_turn) == killer_moves[ply as usize][0]
-                    || Some(*current_turn) == killer_moves[ply as usize][1];
+                let is_killer = Some(*current_turn) == killer_moves[ply_idx][0]
+                    || Some(*current_turn) == killer_moves[ply_idx][1];
                 if is_killer {
                     reduction = reduction.saturating_sub(1);
                 }
@@ -996,28 +1025,28 @@ impl SearchService {
                     if turn_counter > 1 {
                         if white {
                             min_max_eval = self.minimax(
-                                board, current_turn, depth - 1, !white,
+                                board, current_turn, child_depth, !white,
                                 alpha, alpha + 1, stats, config, service, &current_context,
                                 false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
-                            
+
                             if min_max_eval > alpha && min_max_eval < beta {
                                 min_max_eval = self.minimax(
-                                    board, current_turn, depth - 1, !white,
+                                    board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
                                     true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
                             }
                         } else {
                             min_max_eval = self.minimax(
-                                board, current_turn, depth - 1, !white,
+                                board, current_turn, child_depth, !white,
                                 beta - 1, beta, stats, config, service, &current_context,
                                 false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
-                            
+
                             if min_max_eval < beta && min_max_eval > alpha {
                                 min_max_eval = self.minimax(
-                                    board, current_turn, depth - 1, !white,
+                                    board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
                                     true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
@@ -1025,14 +1054,14 @@ impl SearchService {
                         }
                     } else {
                         min_max_eval = self.minimax(
-                            board, current_turn, depth - 1, !white,
+                            board, current_turn, child_depth, !white,
                             alpha, beta, stats, config, service, &current_context,
                             is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
                     min_max_eval = self.minimax(
-                        board, current_turn, depth - 1, !white,
+                        board, current_turn, child_depth, !white,
                         alpha, beta, stats, config, service, &current_context,
                         is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
@@ -1069,12 +1098,9 @@ impl SearchService {
             if beta <= alpha {
                 if depth > 0 && current_turn.capture == 0 {
                     // Killer Move storage
-                    if (ply as usize) < 128 {
-                        let p = ply as usize;
-                        if Some(*current_turn) != killer_moves[p][0] {
-                            killer_moves[p][1] = killer_moves[p][0];
-                            killer_moves[p][0] = Some(*current_turn);
-                        }
+                    if Some(*current_turn) != killer_moves[ply_idx][0] {
+                        killer_moves[ply_idx][1] = killer_moves[ply_idx][0];
+                        killer_moves[ply_idx][0] = Some(*current_turn);
                     }
 
                     // History Heuristic Accumulation
@@ -1236,6 +1262,113 @@ mod tests {
         assert!(stats_enabled.calculated_nodes < stats_disabled.calculated_nodes,
             "Enabled NMP nodes ({}) should be strictly less than disabled NMP nodes ({})!",
             stats_enabled.calculated_nodes, stats_disabled.calculated_nodes);
+    }
+
+    /// Builds an isolated engine state so that each search starts from an empty
+    /// transposition table and an unset stop flag.
+    fn fresh_engine_state() -> Arc<EngineState> {
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+        })
+    }
+
+    /// Philidor's Legacy: 1. Nf7+ Kg8 2. Nh6+ Kh8 3. Qg8+ Rxg8 4. Nf7#.
+    /// A forced mate in four consisting exclusively of checks, which makes it the
+    /// canonical probe for Check Extensions.
+    const SMOTHERED_MATE_FEN: &str = "r6k/6pp/8/6N1/8/1Q6/8/6K1 w - - 0 1";
+
+    fn search_smothered_mate(check_extension: bool, depth: i32) -> (i16, usize) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = check_extension;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board,
+            depth,
+            true,
+            &mut stats,
+            &config,
+            &service,
+            &fresh_engine_state(),
+            std::time::Instant::now(),
+            None,
+        );
+
+        (result.get_eval(), stats.calculated_nodes)
+    }
+
+    #[test]
+    fn test_check_extension_resolves_forcing_mate_beyond_horizon() {
+        // At depth 5 the mating line ends exactly one ply past the nominal horizon.
+        let (eval_with, _) = search_smothered_mate(true, 5);
+        let (eval_without, _) = search_smothered_mate(false, 5);
+
+        assert!(eval_with > 30000,
+            "Check Extensions must reveal the forced mate at depth 5, got eval {}", eval_with);
+        assert!(eval_without < 30000,
+            "Without Check Extensions the mate lies beyond the horizon at depth 5, got eval {}", eval_without);
+    }
+
+    #[test]
+    fn test_check_extension_deepens_forcing_lines() {
+        // The extension only adds plies on checking moves, so the very same search
+        // must visit strictly more nodes once it is enabled.
+        let (_, nodes_with) = search_smothered_mate(true, 4);
+        let (_, nodes_without) = search_smothered_mate(false, 4);
+
+        assert!(nodes_with > nodes_without,
+            "Extended search should visit more nodes ({} with vs {} without)",
+            nodes_with, nodes_without);
+    }
+
+    #[test]
+    fn test_check_extension_respects_max_ply_bound() {
+        // check_extension_max_ply == 0 disables every extension without touching the
+        // enable flag, which is the SPSA-facing way to neutralise the feature.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.check_extension_max_ply = 0;
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, 4, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None,
+        );
+
+        let (_, nodes_disabled) = search_smothered_mate(false, 4);
+        assert_eq!(stats.calculated_nodes, nodes_disabled,
+            "A ply bound of 0 must be search-equivalent to a disabled Check Extension");
+    }
+
+    #[test]
+    fn test_unbounded_check_extension_terminates_within_ply_ceiling() {
+        // With the ply bound raised to the hard ceiling, a highly forcing position must
+        // still terminate: the MAX_PLY guard has to stop the recursion and keep every
+        // ply-indexed table access in range.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.check_extension_max_ply = crate::search_service::MAX_PLY as i32;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None,
+        );
+
+        assert!(!result.get_best_move_algebraic().is_empty(), "Search must return a best move");
     }
 
     #[test]

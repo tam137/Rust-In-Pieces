@@ -100,6 +100,8 @@ pub fn uci_command_processor(
                     stdout.write("option name FutilityMarginBase type spin default 120 min 0 max 500");
                     stdout.write("option name FutilityMarginSlope type spin default 80 min 0 max 300");
                     stdout.write("option name EnableQsTt type check default true");
+                    stdout.write("option name EnableCheckExtension type check default true");
+                    stdout.write("option name CheckExtensionMaxPly type spin default 64 min 0 max 127");
                     stdout.write("option name UseNNUE type check default true");
                     stdout.write("option name NnueModelPath type string default eval_models/quantised.bin");
                     stdout.write("uciok");
