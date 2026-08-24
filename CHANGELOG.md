@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.29.0] - 2026-08-24
+
+Port of the master release v0.29.0 onto the NNUE evaluation branch, performed according to the selective synchronization rules in `skills/nnue_porting_and_release_procedure.md`.
+
+### Added
+- **Check Extensions — Horizon Resolution for Forcing Sequences**:
+  - Prior to this release the search contained **no depth extensions of any kind**. Every recursive call in `src/search_service.rs` descended with `depth - 1`, so a forcing check sequence was unconditionally truncated at the nominal horizon. The in-check branch of the Quiescence Search recovered only the terminal mate node, never the intermediate quiet continuations of the forcing line, which left the engine tactically blind exactly where sharp play is decided.
+  - The `minimax` move loop now computes `child_depth = depth - 1 + extension`, granting `+1` ply whenever the selected move gives check. Because the remaining depth stays constant along a checking line, the search follows a forced sequence to its resolution instead of evaluating a position mid-combination.
+  - **No interaction with Late Move Reductions**: the LMR stage already excludes checking moves via its `!current_turn.gives_check` guard, so the extension applies exclusively to the PVS and full-depth search paths. Reduced and extended searches can never be requested for the same move.
+  - The extension is particularly relevant on this branch, where the neural evaluation is at its least reliable in the middle of an unresolved tactical sequence — precisely the node type the extension now searches through rather than scoring.
+- **`MAX_PLY` Termination Ceiling — Structural Search Bound**:
+  - Introduced `pub const MAX_PLY: usize = 128` in `src/search_service.rs` together with a hard guard at node entry that returns a static evaluation once `ply >= MAX_PLY - 1`.
+  - This is a load-bearing prerequisite rather than a defensive nicety: the previous search relied on the implicit invariant `ply + depth == root_depth` to keep the recursion finite and every ply-indexed table access in range. Check Extensions break that invariant by design, so termination is now enforced structurally at the node boundary instead of being inferred from depth arithmetic.
+- **Configurable & SPSA-Tunable Extension Parameters**:
+  - `enable_check_extension: bool = true` and `check_extension_max_ply: i32 = 64` added to `Config` in `src/config.rs`.
+  - Registered as UCI options `EnableCheckExtension` (check) and `CheckExtensionMaxPly` (spin, 0–127) in `src/threads.rs`, with `setoption` parsing in `src/game_handler.rs`.
+  - Setting `check_extension_max_ply` to `0` neutralises the feature while leaving the enable flag untouched, which gives the SPSA harness a continuous rather than binary control axis over the extension budget.
+
+### Fixed
+- **Out-of-Bounds Killer Move Indexing in the Late Move Reduction Stage**:
+  - The LMR killer-move comparison in `src/search_service.rs` indexed `killer_moves[ply as usize]` without any bounds check, while the three other ply-indexed accesses in the same function each guarded themselves differently (`(0..128).contains(&ply)`, `ply.clamp(0, 127)`, and `(ply as usize) < 128`). The unguarded access was the sole outlier in an otherwise inconsistent pattern.
+  - The defect was latent without extensions, since the ply could not then exceed the root depth. Introducing Check Extensions removes that bound and would have turned the access into a panic in the middle of a search.
+  - All four call sites now share a single saturating `ply_idx`, eliminating the divergent ad-hoc guards that allowed the omission to go unnoticed.
+
+### Changed
+- **Protected NNUE & SPSA Parameters Preserved**: The port was applied selectively rather than merged. All branch-specific tuned values were verified to be unchanged against the protected list in the porting SOP: `use_nnue = true`, `lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`, `rfp_margin_per_depth = 80`, `rfp_max_depth = 3`, `max_pawn_hash_entries = 1_000_000`, and `nnue_model_path = "eval_models/quantised.bin"`. The diff against the previous release consists exclusively of additions in `src/config.rs` and `src/threads.rs`.
+
+
 ## [V0.28.4] - 2026-08-21
 
 ### Changed
