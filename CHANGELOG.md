@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.30.0] - 2026-08-24
+
+Classified as a minor release rather than a patch: fail-soft changes the score returned by every interior node and therefore the content of every Transposition Table entry. This is a search core change, not a bug fix.
+
+### Changed
+- **Fail-Soft Alpha-Beta Bounds**:
+  - `minimax` initialised its running score to the window bound (`eval = if white { alpha } else { beta }`), clamping every returned score into `[alpha, beta]`. A node that failed low returned exactly `alpha` regardless of how far below the window its true value lay, so the score carried only a direction and no magnitude.
+  - The running score now starts at `i16::MIN` / `i16::MAX` and tracks the best value actually returned by a child, independently of the window. Two consequences: Transposition Table entries store the observed score instead of the window edge, and the root aspiration re-search learns *how far* its window was off instead of merely that it missed.
+- **Transposition Table Bound Classification Corrected**:
+  - `orig_alpha` / `orig_beta` were captured *before* the Transposition Table probe, which may narrow `alpha` (on a `LowerBound` hit) or `beta` (on an `UpperBound` hit). The stored bound was therefore classified against a window that was never actually searched.
+  - Under fail-hard this was masked, because the running score was initialised to the narrowed bound and could never fall outside it. Fail-soft removes that accident: a node narrowed to `alpha = 50` by a TT hit and then failing low at 30 would have been stored as `Exact 30` — a value the search never proved and which higher depths would return directly.
+  - Both windows are now captured after the probe, in the main search and in the Quiescence Search, so the stored bound always describes the search that was really performed.
+- **Fail-Soft Sentinel Guard**:
+  - If every move is pruned by futility, or the search is cut short before a single move is tried, the running score still holds its sentinel. Storing that would place an unprovable score in the Transposition Table, so such nodes now return the window bound and skip the write entirely. This case could not arise under fail-hard, where the sentinel was the window bound to begin with.
+
+### Fixed
+- **Aspiration Re-Search Convergence** (follow-up to v0.29.1): the two benchmark positions that regressed when the aspiration window was first activated are resolved. Their re-searches were expensive precisely because fail-hard denied the widening logic any magnitude information and filled the Transposition Table with entries carrying only the window edge.
+
+### Performance
+Measured across the same eight benchmark positions at depth 8 with full iterative deepening, comparing aspiration enabled against disabled:
+
+| Metric | v0.29.1 (fail-hard) | v0.30.0 (fail-soft) |
+| :--- | ---: | ---: |
+| Aspiration node reduction | −15.1% | **−25.0%** |
+| Worst-case position | +55.6% | −4.2% |
+| Second-worst position | +39.9% | +9.3% |
+| Absolute nodes, aspiration on | 917,837 | **767,081** |
+| Absolute nodes, aspiration off | 1,080,649 | 1,022,392 |
+
+Fail-soft reduces node count by 16.4% with aspiration enabled and by 5.4% with it disabled, so the gain is not confined to the aspiration interaction. Best moves are identical to v0.29.1 in seven of the eight positions.
+
+### Notes
+- **Score comparisons in tests are now tolerance-based.** Null-move pruning, reverse futility pruning, futility pruning and late move reductions are unsound heuristics whose decisions depend on the current alpha/beta window. Fail-soft lets a badly seeded aspiration search converge inside a narrow window instead of degenerating to a full one, so scores legitimately differ by a few centipawns between window configurations. The aspiration regression tests assert convergence within 100 cp rather than bit equality; the invariant under test is convergence, not reproducibility across windows.
+- **Elo verification is still outstanding for v0.29.0, v0.29.1 and this release.** Three consecutive releases have changed search behaviour without a strength measurement. A regression run against v0.28.4 is strongly recommended before further search work.
+
+
 ## [V0.29.1] - 2026-08-24
 
 ### Fixed
