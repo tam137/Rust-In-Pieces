@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.30.2] - 2026-08-25
+
+An infrastructure release. Every parameter it introduces ships neutral, so the search tree is
+**node-for-node identical to v0.30.1** — verified across 14 positions and 98 iterative deepening
+iterations at fixed depth 10, 13,659,883 nodes on both builds. Playing strength is unchanged by
+construction. What the release delivers is the ability to shape and measure the Check Extension
+without a rebuild, together with the measurements that show why no default was changed.
+
+### Added
+- **Five Tunable Axes for the Check Extension** (`src/config.rs`, `src/game_handler.rs`,
+  `src/threads.rs`):
+  - `check_extension_min_depth` / UCI `CheckExtensionMinDepth` — grant extensions only at or
+    above a remaining depth. `0` disables the restriction.
+  - `check_extension_max_depth` / UCI `CheckExtensionMaxDepth` — grant extensions only at or
+    below a remaining depth. `0` disables the restriction.
+  - `check_extension_budget_divisor` / UCI `CheckExtensionBudgetDivisor` — cap the extensions a
+    single search path may accumulate at `root_depth / divisor`. `0` disables the cap.
+  - `check_extension_require_safe` / UCI `CheckExtensionRequireSafe` — restrict extensions to
+    checks that do not lose material by Static Exchange Evaluation.
+  - `enable_one_reply_extension` / UCI `EnableOneReplyExtension` — extend a node that has exactly
+    one legal move, applied once the move list is known so the single reply is already counted
+    and the extra ply costs one node rather than a subtree.
+  - Because every axis is reachable through `setoption`, any combination can now be A/B-tested on
+    a single binary. This removes the compiler and version confounds from strength testing and is
+    the direct process answer to v0.29.0 having shipped unmeasured.
+- **`root_depth` on `SearchContext`** (`src/model.rs`): the nominal depth of the current iterative
+  deepening iteration is now carried down the search. It lets a node derive how much of the
+  extension budget its path has already consumed as `depth + ply - root_depth` — without
+  extensions the search satisfies `depth == root_depth - ply` exactly, so any surplus depth *is*
+  the extension count. The budget therefore needed no additional `minimax` parameter. Reduced
+  searches (Null Move Pruning, Late Move Reductions) enter with a smaller depth and would appear
+  to have budget to spare, so the count is clamped at zero.
+- **Six Regression Tests** (`src/search_service.rs`): each axis is pinned to the direction it is
+  supposed to move the tree, and `test_extension_parameters_are_neutral_at_their_defaults` guards
+  the neutrality this release depends on.
+
+### Changed
+- **Check Extension Gate Evaluated Before the Move Is Played**: the extension decision moved above
+  `board.do_move`, because the Static Exchange Evaluation of the checking move has to be taken in
+  the position the move is played from. The SEE call sits behind the `check_extension_require_safe`
+  flag, so the default configuration performs no additional work.
+
+### Documentation
+- **`task.md` — Specification 2.2.6 Rewritten With Matchplay Results**. Four controlled 1000- and
+  500-game matches were played at 5s+100ms, each against an otherwise node-identical build:
+  - Unfiltered Check Extension versus disabled: **-4.9 Elo** on v0.29.0 and **-10.1 Elo** on
+    v0.30.0, both over 1000 games. The feature is Elo-neutral at best as delivered.
+  - Extensions restricted to the frontier (`max_depth = 2`) versus disabled: **-26.8 Elo** over
+    1000 games, 95% CI [-45, -9]. Near the horizon the Quiescence Search already resolves checks,
+    so the extension there is close to pure cost. Notably, the deterministic measurements rated
+    this the most promising variant by a wide margin — it recovered 0.83 of the 1.06 lost ply at
+    one second per move — and matchplay reversed the verdict outright.
+  - Extensions restricted to deep nodes (`min_depth = 4`) versus disabled: **+34.2 Elo** over 500
+    games, 95% CI [+9, +60]. The two restrictions separate a strongly positive component from a
+    strongly negative one, which explains coherently why the unfiltered feature that bundles both
+    lands near zero.
+  - The same deep-restricted build against the release it would replace, v0.30.1: **+2.8 Elo**
+    over 500 games, 95% CI [-22, +27].
+- **Measurement Resolution Recorded as a Blocking Prerequisite**: the last three results are
+  mutually inconsistent by **41 Elo** — transitivity demands the final figure be near +44, and it
+  measured +2.8. Matt-Magie starts every game from the initial position with no opening book, so
+  each match samples whichever openings the clock happens to produce; the confidence intervals
+  model the correlation *within* a match but not the variance *between* opening pools. The real
+  resolution of the current setup is therefore roughly +/-40 Elo. No default was changed on this
+  evidence, and `task.md` now records opening diversity as a prerequisite for validating any
+  search change smaller than that.
+
+
+
 ## [V0.30.1] - 2026-08-25
 
 A reporting-only patch release. Nothing in the search, the evaluation or the move generator is

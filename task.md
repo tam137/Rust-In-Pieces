@@ -92,58 +92,104 @@ $$\text{eval} = -\text{negamax}(\text{board}, -\beta, -\alpha, \text{depth} - 1,
 * **Termination Guarantee**: A constant remaining depth breaks the implicit `ply + depth == root_depth` invariant the search relied upon. Termination is therefore enforced structurally by a hard `MAX_PLY` ceiling at node entry, which returns a static evaluation instead of recursing further.
 * **Configuration**: `enable_check_extension: bool` and `check_extension_max_ply: i32`, both exposed via UCI (`EnableCheckExtension`, `CheckExtensionMaxPly`) for SPSA tuning. Setting the ply bound to `0` neutralises the feature without touching the enable flag.
 
-#### 2.2.6 Check Extension Cost Control — ⚠️ Open (measured Elo-neutral in v0.29.0)
+#### 2.2.6 Check Extension Cost Control — 🔬 Four axes built and measured (v0.30.2)
 
-A controlled A/B of v0.29.0 against itself (identical binary, feature toggled) measured the
-extension at **-4.9 Elo over 1000 games, 95% CI [-27, +17]** at 5s+100ms. The feature is
-correct and its benefit is real — it solves more LCT II positions at every fixed depth tested
-(21/105 versus 13/105) and resolves Philidor's Legacy a nominal ply earlier — but the tree it
-costs cancels the gain exactly:
+A controlled A/B of the v0.29.0 feature against itself (identical binary, feature toggled)
+measured it at **-4.9 Elo over 1000 games**, 95% CI [-27, +17], at 5s+100ms. The same test
+repeated on v0.30.0 gave **-10.1 Elo**, 95% CI [-29, +9]. Two independent 1000-game runs, both
+negative: the feature is at best Elo-neutral as delivered.
+
+It is not broken. It resolves Philidor's Legacy a nominal ply earlier than the baseline and
+solves more LCT II positions at fixed depth. The problem is exclusively the price of the ply:
 
 | Measurement | Result |
 | :--- | :--- |
-| Nodes at fixed depth, 35-position LCT II suite | 1.22x (d9), 1.52x (d10), 1.87x (d11) |
-| Cumulative nodes to depth 12 | 1.54x on v0.29.0, 1.56x on v0.30.0 |
-| Depth reached at 1s per move | **-1.14 ply** (26 of 35 positions shallower, 5 deeper) |
-| LCT II accuracy at 1s per move | 10/35 with and without — unchanged |
+| Depth reached at 1s per move | **-1.06 to -1.49 ply** |
+| Depth reached at 300ms per move | **-0.89 ply** |
+| Nodes, Kiwipete at fixed depth 9 | 916,814 → 1,602,137 (**1.75x**) |
 | Extensions granted to checks with $SEE < 0$ | **59%** |
 | In-check share of interior nodes | 17.8% → 38.9% |
 
-The mechanism is that an extension spends its extra ply at precisely the node class where
-every pruning stage is disabled: Null Move Pruning, Reverse Futility Pruning and Futility
-Pruning are all guarded by `!turn.gives_check`, and LMR never reduces a checking move.
+The mechanism is that an extension spends its extra ply at precisely the node class where every
+pruning stage is disabled: Null Move Pruning, Reverse Futility Pruning and Futility Pruning are
+all guarded by `!turn.gives_check`, and LMR never reduces a checking move.
 
-> [!WARNING]
-> **Do not gate the extension on `see_ge(mv, 0)`.** It was built and measured: it recovers
-> almost the whole cost (1.54x → 1.07x nodes to depth 12) but makes the engine fail its own
-> smothered-mate test, because the key move `3.Qg8+` of Philidor's Legacy is a queen sacrifice
-> with strongly negative SEE. The axis that needs bounding is the *number* of extensions along
-> a line, not the material balance of the checking move.
+##### Measured results per axis
+
+All four axes are implemented and exposed via UCI, so any combination is A/B-testable on a
+single binary without a rebuild. Node counts are Kiwipete at fixed depth 9; depth figures are
+the mean completed iteration over the 35-position LCT II suite at 1s per move.
+
+| Axis | Parameter | Nodes | Depth vs. disabled | Elo vs. disabled |
+| :--- | :--- | ---: | ---: | ---: |
+| *(disabled)* | `enable_check_extension = false` | 916,814 | +0.00 | reference |
+| *(unfiltered)* | shipped in v0.29.0 | 1,602,137 | -1.06 | -4.9 / -10.1 (2x1000) |
+| Material filter | `check_extension_require_safe` | 1,388,235 | — | not played |
+| Per-path budget | `check_extension_budget_divisor` | 1,509,969 | -0.91 | not played |
+| One-Reply Extension | `enable_one_reply_extension` | 1,685,013 | -0.20 | not played |
+| Frontier only | `check_extension_max_depth = 2` | 946,608 | -0.23 | **-26.8** (1000) |
+| Deep only | `check_extension_min_depth = 4` | 1,321,166 | — | **+34.2** (500) |
+
+* **Material filter — rejected.** Gating on $SEE \ge 0$ recovers much of the cost but makes the
+  engine fail its own smothered-mate test: the key move `3.Qg8+` of Philidor's Legacy is a queen
+  sacrifice with strongly negative SEE, so the filter deletes exactly the extension that makes
+  the mate visible. The axis is kept as a tunable but must not be enabled on its own.
+* **Per-path budget — ineffective.** Capping the number of extensions a path may accumulate
+  removes only 6% of the tree. The cost is dominated by the *first* extensions on each path,
+  which any budget necessarily grants; capping the tail changes almost nothing.
+* **One-Reply Extension — cheap but not a substitute.** Extending nodes with a single legal move
+  costs almost nothing (-0.20 ply) and preserves forced sacrificial lines that a material filter
+  discards, but on its own it does not reproduce the tactical benefit of the check extension.
+* **Frontier restriction — harmful.** Granting extensions only at low remaining depth cuts the
+  overhead to 3% above a fully disabled search, and the fixed-time depth measurement rated it the
+  most promising axis by a wide margin. Matchplay reversed the verdict completely: **-26.8 Elo**
+  over 1000 games against a disabled extension, 95% CI [-45, -9]. Near the horizon the Quiescence
+  Search already resolves checks, so the extension there is close to pure cost. This is the
+  clearest evidence in the whole investigation that depth and test-suite accuracy are not
+  adequate proxies for playing strength.
+* **Deep restriction — the mirror image, and unresolved.** Granting extensions only at high
+  remaining depth measured **+34.2 Elo** over 500 games against a disabled extension, 95% CI
+  [+9, +60]. The two restrictions therefore separate a strongly positive component from a
+  strongly negative one, which is a coherent explanation for why the unfiltered feature that
+  bundles both lands near zero. **But it did not confirm.** Played directly against the release
+  it would replace, v0.30.1, the same build scored only **+2.8 Elo** over 500 games, 95% CI
+  [-22, +27] — see the measurement caveat below.
 
 * **Tasks**:
-    - `[ ]` **Per-Path Extension Budget**: Thread an `extensions_used: i32` counter through
-      `minimax` and refuse further extensions once it exceeds a configurable fraction of the
-      root depth. Add `check_extension_budget_divisor: i32` to `Config` and expose it via UCI.
-      This converts the compounding cost multiplier into a bounded constant, which is what
-      `check_extension_max_ply` was intended to do.
-    - `[ ]` **Retire or Repurpose `check_extension_max_ply`**: Instrumentation shows the bound
-      is never reached — across 502,045 extensions at depth 10 not one was granted at a ply
-      anywhere near the default of 64, and the deepest ply observed was 29. As an SPSA axis it
-      is dead: only `0` (off) and "unbounded" are reachable. Replace it with the budget above.
-    - `[ ]` **One-Reply Extension**: Extend when the child node has exactly one legal move.
-      The move count is already known after generation, so it is free; it fires on a small
-      fraction of nodes; and it preserves the sacrificial forcing lines a material filter
-      discards (`Qg8+ Rxg8` is a single reply). Evaluate as a replacement for, or a companion
-      to, the blanket check extension.
-    - `[ ]` **Restrict Extensions to Early Moves**: 9.5% of extensions are currently granted to
-      moves ordered fifth or later. Require `turn_counter <= check_extension_max_move_rank`.
+    - `[x]` **Frontier Restriction**: `check_extension_max_depth` in `Config`, UCI
+      `CheckExtensionMaxDepth`. `0` disables the restriction.
+    - `[x]` **Deep Restriction**: `check_extension_min_depth` in `Config`, UCI
+      `CheckExtensionMinDepth`. `0` disables the restriction.
+    - `[x]` **Per-Path Extension Budget**: `check_extension_budget_divisor` in `Config`, UCI
+      `CheckExtensionBudgetDivisor`, capping path extensions at `root_depth / divisor`. Derived
+      from `depth + ply - root_depth` without widening the `minimax` signature; `root_depth` is
+      carried on `SearchContext`.
+    - `[x]` **Material Filter**: `check_extension_require_safe` in `Config`, UCI
+      `CheckExtensionRequireSafe`.
+    - `[x]` **One-Reply Extension**: `enable_one_reply_extension` in `Config`, UCI
+      `EnableOneReplyExtension`. Applied at the node once the move list is known, so the single
+      legal move is already counted and the extra ply costs one node.
+    - `[ ]` **Opening Diversity for Matchplay** — *prerequisite for everything below*. Matt-Magie
+      starts every game from the initial position with no book, so each match samples whichever
+      openings the clock happens to produce. The three matches above are mutually inconsistent by
+      **41 Elo**: `unfiltered - disabled = -10.1`, `deep - disabled = +34.2`, and
+      `deep - unfiltered = +2.8`, where transitivity demands the last figure be near +44. The
+      real resolution of this setup is therefore roughly +/-40 Elo, not the +/-25 the intervals
+      report, because the interval only models correlation *within* one match and not the
+      variance *between* opening pools. Until a start-position book or a seeded FEN set exists,
+      no search change smaller than about 40 Elo can be validated here, and no default should be
+      changed on matchplay evidence alone.
+    - `[ ]` **Re-run the Deep Restriction** against v0.30.1 with 2000-3000 games once opening
+      diversity is in place, and set `check_extension_min_depth` from that result.
+    - `[ ]` **SPSA Tuning**: register the five parameters in `tuning/parameters.json` and
+      `tuning/groups.json` and tune `check_extension_min_depth` jointly with the LMR and RFP
+      depth thresholds it interacts with.
     - `[ ]` **Extend at the Root**: `get_moves` searches every root move at `depth - 1`
-      unconditionally, so a checking move is treated differently at the root than at every
-      other ply. The measurable consequence is one ply of mate-finding: the seven-ply smothered
-      mate contains three checks after the root move and would resolve at nominal depth 4, but
-      needs depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a
-      shallower tree than the interior does, which is a standing source of score instability
-      between iterations.
+      unconditionally, so a checking move is treated differently at the root than at every other
+      ply. The measurable consequence is one ply of mate-finding: the seven-ply smothered mate
+      contains three checks after the root move and would resolve at nominal depth 4, but needs
+      depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a shallower tree
+      than the interior does, which is a standing source of score instability between iterations.
 
 ### 2.3 Acceptance & TDD Criteria
 - `[ ]` **Negamax Symmetry**: Search results and evaluations are strictly symmetric between White and Black across mirrored positions.

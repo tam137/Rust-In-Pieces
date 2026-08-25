@@ -200,6 +200,27 @@ pub struct Config {
     /// Upper ply bound for granting Check Extensions. Beyond this ply the search
     /// depth strictly decreases again, which keeps the search tree finite.
     pub check_extension_max_ply: i32,
+    /// Restricts Check Extensions to checks that do not lose material by Static
+    /// Exchange Evaluation. Cheap, but on its own it also rejects sacrificial mating
+    /// checks, so it is only sound in combination with the One-Reply Extension.
+    pub check_extension_require_safe: bool,
+    /// Caps how many extensions a single search path may accumulate, expressed as
+    /// `root_depth / divisor`. `0` disables the cap. This bounds the compounding cost
+    /// of extensions without judging any individual move.
+    pub check_extension_budget_divisor: i32,
+    /// Restricts Check Extensions to nodes at or above this remaining depth. The
+    /// counterpart to `check_extension_max_depth`: near the horizon the Quiescence Search
+    /// already resolves checks, so an extension there is close to pure cost. `0` disables
+    /// the restriction.
+    pub check_extension_min_depth: i32,
+    /// Restricts Check Extensions to nodes at or below this remaining depth. An extension
+    /// granted high in the tree multiplies an entire subtree, while the horizon effect it
+    /// exists to cure is a frontier phenomenon. `0` disables the restriction.
+    pub check_extension_max_depth: i32,
+    /// Enables One-Reply Extensions: a node with exactly one legal move is searched one
+    /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
+    /// keeps forced sequences — including sacrificial checks — inside the horizon.
+    pub enable_one_reply_extension: bool,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -399,6 +420,11 @@ impl Config {
             rfp_max_depth: 3,
             enable_check_extension: true,
             check_extension_max_ply: 64,
+            check_extension_require_safe: false,
+            check_extension_budget_divisor: 0,
+            check_extension_min_depth: 0,
+            check_extension_max_depth: 0,
+            enable_one_reply_extension: false,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -613,5 +639,10 @@ mod tests {
         assert_eq!(config.lmr_history_bad_threshold, 500);
         assert!(config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
+        assert!(!config.check_extension_require_safe);
+        assert_eq!(config.check_extension_budget_divisor, 0);
+        assert_eq!(config.check_extension_min_depth, 0);
+        assert_eq!(config.check_extension_max_depth, 0);
+        assert!(!config.enable_one_reply_extension);
     }
 }
