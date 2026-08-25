@@ -283,6 +283,11 @@ impl SearchService {
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
+        crate::search_diag::dump();
+        crate::search_diag::dump_tree(
+            search_result.stats.calculated_nodes,
+            search_result.stats.eval_nodes,
+        );
         search_result
     }
     
@@ -901,6 +906,17 @@ impl SearchService {
             };
         }
 
+        // Stage-0 opportunity measurement (`task.md` 1.2.2). The scan is `cfg`-gated rather
+        // than merely cheap, so the default build's search is byte-for-byte the code it was
+        // before the counters existed.
+        #[cfg(feature = "search-diag")]
+        crate::search_diag::record_interior_node(
+            turns.moves[..turns.len]
+                .iter()
+                .any(|t| t.rank >= crate::search_diag::RANK_STAGE0_FLOOR),
+            tt_move.is_some(),
+        );
+
         // One-Reply Extension. A node with a single legal move is not a branching point,
         // so the extra ply costs one node rather than a subtree. It is also the criterion
         // that keeps sacrificial forcing lines inside the horizon: the reply to a mating
@@ -915,6 +931,10 @@ impl SearchService {
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
         let mut turn_counter = 0;
+        #[cfg(feature = "search-diag")]
+        let mut diag_first_rank: i32 = 0;
+        #[cfg(feature = "search-diag")]
+        let mut diag_first_class = crate::search_diag::MoveClass::Quiet;
         let mut child_pv = [None; 128];
         let mut searched_quiet_moves = [None; 64];
         let mut quiet_count = 0;
@@ -984,6 +1004,26 @@ impl SearchService {
                 break;
             }
             turn_counter += 1;
+            #[cfg(feature = "search-diag")]
+            {
+                if turn_counter == 1 {
+                    diag_first_rank = current_turn.rank;
+                    diag_first_class = if current_turn.rank >= crate::search_diag::RANK_STAGE0_FLOOR {
+                        crate::search_diag::MoveClass::PvOrTt
+                    } else if current_turn.capture != 0 {
+                        crate::search_diag::MoveClass::Capture
+                    } else if current_turn.gives_check {
+                        crate::search_diag::MoveClass::QuietCheck
+                    } else if Some(*current_turn) == current_context.killer_moves[0]
+                        || Some(*current_turn) == current_context.killer_moves[1]
+                        || Some(*current_turn) == current_context.counter_move
+                    {
+                        crate::search_diag::MoveClass::KillerOrCounter
+                    } else {
+                        crate::search_diag::MoveClass::Quiet
+                    };
+                }
+            }
             if current_turn.capture == 0 && quiet_count < 64 {
                 searched_quiet_moves[quiet_count] = Some(*current_turn);
                 quiet_count += 1;
@@ -1157,6 +1197,8 @@ impl SearchService {
                 };
             }
             if beta <= alpha {
+                #[cfg(feature = "search-diag")]
+                crate::search_diag::record_cutoff(turn_counter, diag_first_rank, diag_first_class);
                 if depth > 0 && current_turn.capture == 0 {
                     // Killer Move storage
                     if Some(*current_turn) != killer_moves[ply_idx][0] {

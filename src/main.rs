@@ -7,6 +7,7 @@ mod eval_service;
 mod nnue_service;
 mod config;
 mod search_service;
+mod search_diag;
 mod service;
 mod move_gen_service;
 mod book;

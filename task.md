@@ -84,6 +84,174 @@ Two things to carry into this work:
 * 1.4 prices `MoveList::new()` buffer initialisation at 3.1% of runtime, which is pure waste for
   a node that takes a cutoff on its first move.
 
+##### 1.2.2.1 Measured stage sizing (2026-08-25, on v0.32.0)
+
+Before any picker code exists, the question is which stages are worth building: a stage only pays
+for itself if cutoffs are actually waiting behind it. `src/search_diag.rs`, behind the
+`search-diag` Cargo feature (off by default), counts what the first searched move at every
+interior node was and whether it cut. The instrumented build searches a **node-identical** tree to
+the default build, verified per position, so the measurement does not perturb what it measures.
+Corpus: 14 positions at fixed depth 10, 764,055 interior nodes.
+
+| Measurement | Share of interior nodes |
+| :--- | ---: |
+| Cutoff on the first searched move | **58.1%** |
+| A PV or Transposition Table move was available at all | 24.6% |
+| — the search's own TT probe returned a move (the ceiling) | 24.2% |
+| — of those, shadowed by `pv_nodes` or never matched | **0.0%** |
+
+The stage breakdown of those first-move cutoffs, by what a `MovePicker` would have had to
+generate to produce the cutting move:
+
+| Stage | Cutoffs | of all first-move cutoffs | of interior nodes | cumulative |
+| :--- | ---: | ---: | ---: | ---: |
+| **0** PV/TT move | 145,885 | 32.9% | 19.1% | 19.1% |
+| **1** capture | 191,973 | 43.3% | 25.1% | 44.2% |
+| **1b** quiet giving check | 19,714 | 4.4% | 2.6% | 46.8% |
+| **2** killer / counter move | 79,280 | 17.9% | 10.4% | **57.2%** |
+| **3** ordinary quiet move | 6,878 | 1.6% | 0.9% | 58.1% |
+
+Four conclusions:
+
+* **Stage 0 on its own is worth about 19% of interior nodes, and that is a hard ceiling.** The
+  PV/TT move cuts at 77.5% of the nodes where it exists — it is an excellent move when present.
+  The limit is presence, not quality, and the 0.0% shadowed figure proves there is no lost
+  availability to recover: 24.2% is simply the Transposition Table hit rate on interior nodes.
+* **Quiet generation is almost never what finds the cutoff.** Only 0.9% of interior nodes need an
+  ordinary quiet move to cut; 57.2% cut on something a picker can produce before generating a
+  single quiet move. This is the actual prize in 1.2.2, and it is roughly three times Stage 0.
+* **Stage 1b is the structural obstacle, and it is small.** A quiet move that gives check carries
+  `give_check_rank_bonus * 10000` = 50,000, which is what lets quiets outrank captures today and
+  is therefore why the current order cannot be produced lazily at all. It accounts for **2.6%** of
+  interior nodes. Moving that bonus out of the rank function and into stage assignment costs very
+  little in cutoff quality and is what unlocks every stage below it.
+* **Killer and counter moves are worth a stage of their own at 10.4%**, and they need no
+  generation whatsoever — two or three remembered moves validated against `NodeMasks`.
+
+**Consequence for sequencing.** Stage 0 is the only part that is provably order-preserving: the
+PV/TT move is ranked at 170,000 to 320,000 while every other move is bounded above by 140,000
+(a queen capture at 90,000 plus a check at 50,000), so it always sorts first and searching it
+before generating anything leaves the tree bit-identical. Everything from Stage 1 onwards changes
+the move order and therefore the tree, and must be validated by matchplay — which `task.md` 2.2.6
+shows this setup cannot do below roughly 40 Elo until the opening diversity item is resolved.
+
+Reproduce with `scripts/measure_stage0.py` against a `--features search-diag` build.
+
+##### 1.2.2.2 Stage-0 short-circuit — ⛔ Built, verified, measured negative, reverted
+
+**Status 2026-08-25: implemented and node-identical, but slower than v0.32.0 in every
+configuration measured. Reverted from `master`; the full implementation is preserved on the
+branch `experiment/stage0-short-circuit` (commit `ca45d7a`) and was never released.**
+
+Stage 0 searches the PV/TT move before generating anything; if it cuts, generation, ranking and
+the `MoveList` buffer initialisation are never paid. `minimax` is not special-cased for the first
+move: `turns` starts holding only the Stage-0 move and is refilled with the full list when the
+loop runs dry, so every pruning gate, `turn_counter`, LMR, PVS and the killer/history/counter
+updates run exactly as before.
+
+###### Two findings that invalidate the original reasoning
+
+* **The ordering bound in 1.2.2.1 is wrong.** It claimed every non-PV/TT move is capped at
+  140,000 (queen capture 90,000 + check 50,000) against the PV/TT move's 170,000 minimum.
+  It omits `add_promotion_moves`, which adds `give_promotion_rank_bonus_queen * 10000` =
+  **170,000**. A promoting capture that gives check reaches 310,000 and outranks the PV/TT move,
+  and promotions never receive the PV/TT bonus themselves, so the ranges overlap instead of
+  nesting. Found by the duplication check, not by reasoning. Worked around in
+  `build_stage0_move` by standing down whenever the side to move has a pawn on the pre-promotion
+  rank — one bitboard test, deliberately conservative.
+* **Deferring generation ranks the remaining moves against a mutated History Heuristic.** The
+  first searched move's own subtree updates `history_table`, including the global halving, so the
+  refilled list is ranked against a table that has moved on. This is the *sole* remaining source
+  of divergence and it is decisive: with an entry-time snapshot the tree is bit-identical on
+  14/14 positions, without it 0/14, with searched-node counts differing by up to a factor of
+  four. `pv_nodes` is stable during a search; the Transposition Table was tested and pinning it
+  changes nothing.
+
+  This constrains the whole of 1.2.2, not just Stage 0: **no lazy or staged move picker in this
+  engine can be verified by node identity** unless it ranks against entry-time history.
+
+###### Measured throughput (14 positions, fixed depth 10, best of 3, wall time)
+
+| Configuration | Total ms | vs. v0.32.0 |
+| :--- | ---: | ---: |
+| `EnableTtMoveFirst=false` (the v0.32.0 search) | 1993 | reference |
+| Stage 0 + `Stage0HistorySnapshot=true` (tree bit-identical) | 2055 | **-3.0%** |
+| Stage 0 + `Stage0HistorySnapshot=false` (live history, tree differs) | 2537 | **-21.4%** |
+
+The 16 KB snapshot costs about as much as the generation it saves, and letting the history run
+live makes the tree enough worse to lose a fifth of the throughput. The +15% projected from
+1.2.2.1 did not materialise.
+
+###### Paired A/B (2026-08-25, laptop on battery — absolute times not comparable to the above)
+
+The machine was clocked down, so the wall times above and below are from different machine states
+and must not be compared with each other. A *paired* ratio survives that: within one round every
+position is measured under both configurations back to back, and the order is flipped each round
+so warm-up and drift cancel. 14 positions, depth 10, 5 rounds, minimum per cell.
+
+| Metric | Value |
+| :--- | ---: |
+| Positions where Stage 0 is faster | **1 / 14** (Sharp French, +1.9%, inside the noise) |
+| Median paired ratio | **-9.1%** |
+| Aggregate ratio | **-11.8%** |
+
+13 of 14 positions lose. The sign does not depend on the clock, which is what the paired design
+buys; the magnitude does, and on battery the spread between repeats is wide enough that only the
+sign should be read. **Verdict: Stage 0 as built is a regression and is not shippable.**
+
+###### `OrderingLookups` — measured, and it does not close the gap
+
+The last change made shares the PV-map and Transposition Table lookups between Stage 0 and
+generation via `OrderingLookups`, so they are performed once per node instead of twice — Stage 0
+was adding a mutex lock and a table probe at every interior node, including the ~75% where it
+finds no candidate. **Re-verified 2026-08-25. The double lookup was not the cost.**
+
+- `[x]` `cargo test --release` — 141 passed, 0 failed, 4 ignored.
+- `[x]` `scripts/verify_stage0_identity.py` — 14/14 identical, on both `searched` and `qsearch`.
+      Sharing the lookups did not break node identity.
+- `[x]` `scripts/measure_stage0_throughput.py` — still negative: -8.8% (best of 3), -3.7%
+      (best of 5). Unchanged from the -3.0% measured before `OrderingLookups` existed.
+- `[x]` It stayed negative, so the Stage-0 call sites were reverted from `src/search_service.rs`,
+  `src/move_gen_service.rs`, `src/config.rs`, `src/game_handler.rs` and `src/threads.rs`.
+  Verified afterwards against a fresh v0.32.0 build: 14/14 positions identical on iterations,
+  scores, principal variations, node counts and `bestmove`.
+- `[ ]` Never written: the `is_pseudo_legal` fuzz oracle over all 64x64 from/to pairs against the
+  generated list, the rank-equality test, and the negative controls. The duplication check in
+  `minimax` (behind `search-diag`, prints `STAGE0MISMATCH`) stood in for them and is what caught
+  the promotion defect; it currently reports zero mismatches.
+
+###### Where things are
+
+**On `master`:** the measurement apparatus only — `src/search_diag.rs`, the `search-diag` Cargo
+feature and its call sites in `src/search_service.rs`, and `scripts/measure_stage0.py`,
+`scripts/verify_stage0_identity.py`, `scripts/measure_stage0_throughput.py`. Also retained, and
+currently uncalled: `is_pseudo_legal`, `is_castling_shape`, `build_stage0_move`, `stage0_rank`
+and `white_to_move_pawns_on_seventh` in `src/move_gen_service.rs`, all marked `#[allow(dead_code)]`
+because a future `MovePicker` needs exactly this pair of primitives.
+
+Two caveats on that retention. `build_stage0_move` and `stage0_rank` **mirror the ranking loop in
+`get_valid_moves_from_move_list` and nothing enforces that they stay in step** — the test named in
+their doc comment, `stage0_rank_matches_generator_test`, was never written, and the duplication
+check that stood in for it lived at the call site that has now been removed. Retune the move
+ordering and this copy rots silently. `is_pseudo_legal` is self-contained and carries no such
+risk. And `scripts/verify_stage0_identity.py` and `scripts/measure_stage0_throughput.py` both set
+`EnableTtMoveFirst`, a UCI option that no longer exists on `master`; they run only against the
+branch.
+
+**On `experiment/stage0-short-circuit`:** the complete implementation — the `enable_tt_move_first`
+and `stage0_history_snapshot` config knobs and their UCI options, the short-circuit and refill
+loop in `minimax`, `OrderingLookups` / `probe_ordering_lookups` /
+`generate_valid_moves_list_with_masks`, and the `STAGE0MISMATCH` and `STAGE0BOARDDRIFT`
+duplication checks. Not merged, not released.
+
+Stage 0 stood down when `enable_one_reply_extension` was on, because that gate reads `turns.len`.
+
+**Metric trap, still true and still undocumented in the changelog:** the UCI `nodes` field reports
+`Stats::created_nodes`, i.e. *generated* moves, so Stage 0 makes `nodes` and `nps` fall while the
+engine gets faster. `scripts/benchmark_nps.py` reads that field and will report a false
+regression. Throughput must be measured as wall time to a fixed depth, and node identity on
+`SEARCHTREE calculated=/eval=` from the `search-diag` build.
+
 #### 1.2.3 Zero-Allocation Board & State Tracking — ✅ Implemented (v0.31.0)
 * `Board.move_repetition_map: HashMap<u64, i32>` is replaced by a flat, stack-allocated
   `history_hashes: [u64; MAX_HISTORY_PLIES]` with a `history_len` cursor. `do_move` pushes one
