@@ -24,21 +24,43 @@ This document defines the technical roadmap and architectural specifications for
 
 ### 1.2 Target Architecture & Specifications
 
-#### 1.2.1 Pure Pseudo-Legal Move Generation — ⏭️ Next, and the prerequisite for 1.2.2
-* Refactor `MoveGenService` to produce strictly **pseudo-legal moves** directly from bitboards without simulating `do_move`/`undo_move` or running check validations during generation.
-* Legality verification is deferred until a move is actually selected in search. In `do_move`, verify if the moving side's king is left in check; if illegal, reject and proceed to the next move.
+#### 1.2.1 Move Generation Without `do_move` — ✅ Implemented (v0.32.0)
+`MoveGenService` no longer plays a move in order to learn anything about it. It still emits a
+fully **legal** move list, but derives legality and `gives_check` from bitboard masks computed
+once per node. The original wording of this specification called for pseudo-legal generation with
+legality deferred into the search; the two checkboxes below, which describe a pin mask and a
+check mask evaluated at generation time, are what was built. Deferral would have removed the same
+27.6% while additionally moving mate and stalemate detection into `search_service.rs`, and it
+would have destroyed the acceptance test that made this change verifiable — see 1.3.
+
 * **Worth up to 27.6% of runtime** (see 1.4), and it is what makes 1.2.2 possible at all: a lazy
-  picker cannot be lazy while generation insists on playing every move it produces.
-* The work is not the deferral itself but the two things `do_move` is currently used to discover:
-    - `[ ]` **Legality without playing the move.** Compute an absolute-pin mask once per node
-      (eight rays from the own king), plus a check mask when the side to move is in check. A
-      non-king, non-pinned, non-en-passant move is then legal by construction.
-    - `[ ]` **`gives_check` without playing the move.** Direct check from the destination square,
-      plus discovered check when the origin square shares a ray with the enemy king, plus the
-      castling, en-passant and promotion special cases.
-    - `[ ]` Both are standard bitboard techniques, and both are exactly perft-verifiable. This is
-      the load-bearing part of Milestone 1 and deserves its own release with a full perft sweep
-      and the mandatory cross-version gauntlet.
+  picker cannot be lazy while generation insists on playing every move it produces. A staged
+  picker sits on top of this unchanged: each stage masks its target set with the same
+  `NodeMasks`.
+* The work was not the deferral itself but the two things `do_move` was used to discover:
+    - `[x]` **Legality without playing the move.** `NodeMasks` carries an absolute-pin mask and a
+      check mask, both built from a shared `blockers_toward` sniper walk over the `BETWEEN` ray
+      table. A non-king, non-pinned, non-en-passant move is legal by construction. King moves are
+      tested against the enemy attack set with the king lifted out of the occupancy — without
+      that lift a king would shield the square it is retreating to from the slider checking it.
+      En passant bypasses the masks entirely and gets an exact test on the occupancy it would
+      produce, because it vacates two squares at once and can be the very capture that answers a
+      check.
+    - `[x]` **`gives_check` without playing the move.** A per-node `check_squares[6]` table gives
+      the direct check by table lookup. Discovered check is `discovery & from` combined with an
+      alignment test against `LINE[enemy_king][from]`. Castling adds the relocated rook,
+      en passant recomputes on the post-move occupancy, and promotions recompute against
+      `occupied ^ from` — a pawn promoting on e8 with the enemy king on e1 otherwise blocks its
+      own new queen in a table built before the pawn left.
+    - `[x]` Verified by a perft walk that checks **every generated move** against the
+      `do_move` predicate it replaced, over the six standard positions and the published
+      TalkChess special-case suite: 20 positions, ~54 million nodes. See 1.3.
+* **Result: 4.80 → 6.46 M nodes/s, +34.8%, on a bit-identical search tree** (14 positions,
+  126 iterations, 22,641,886 nodes on both builds). The 1.4 profile predicted 1.38x; the shortfall
+  is the cost of the masks themselves.
+* `config.skip_strong_validation` and the `force_skip_validation` parameter threaded through
+  `minimax` are **removed**. With legality established by construction there is nothing left to
+  skip, and the knob was already recorded as broken.
 
 #### 1.2.2 Staged `MovePicker` State Machine
 Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
@@ -53,6 +75,14 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
     ↓ (if no cutoff)
  Stage 4: Bad Captures (Captures with SEE < 0)
 ```
+Two things to carry into this work:
+* `MoveRawList.moves` is `[u8; 256]`, i.e. 128 from/to pairs, and `push` silently drops anything
+  beyond that. Since v0.32.0 the buffer only ever receives legal moves, which makes overflow much
+  rarer, but the theoretical maximum of 218 legal moves still exceeds it. A staged picker that
+  generates per stage removes the problem rather than papering over it; widening the buffer
+  instead would cost `MoveRawList::new()` initialisation time on every node.
+* 1.4 prices `MoveList::new()` buffer initialisation at 3.1% of runtime, which is pure waste for
+  a node that takes a cutoff on its first move.
 
 #### 1.2.3 Zero-Allocation Board & State Tracking — ✅ Implemented (v0.31.0)
 * `Board.move_repetition_map: HashMap<u64, i32>` is replaced by a flat, stack-allocated
@@ -75,13 +105,24 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
   doing.
 
 ### 1.3 Acceptance & TDD Criteria
-- `[x]` **Perft Correctness**: the perft suite passes, and the stronger check also holds — the
-  v0.31.0 search is node-for-node identical to v0.30.3 at fixed depth across 14 positions.
-- `[x]` **Zero Allocation**: `do_move` and `undo_move` no longer touch the heap. The remaining
-  per-node heap traffic is in move generation, which milestone 1.2.1 addresses.
+- `[x]` **Perft Correctness**: `perft_verified` walks the complete move tree and, for every
+  generated move, plays it and asserts the two facts the generator now derives instead of
+  measuring — that the mover did not leave its own king attacked, and that `gives_check` matches
+  whether the enemy king ends up attacked. It runs over the six standard positions and the
+  published TalkChess special-case suite (illegal en passant, en passant giving check, castling
+  giving check, castling prevented, promotion out of check, promotion giving check, stalemate and
+  checkmate): 20 positions, ~54 million nodes, all node counts matching their published values.
+  Perft node counts alone are **not** sufficient here, because a wrong `gives_check` does not
+  change the number of nodes — it silently changes five pruning decisions instead.
+- `[x]` **Node Identity**: v0.32.0 is node-for-node identical to v0.31.0 at fixed depth across
+  14 positions and 126 iterations, 22,641,886 nodes on both builds.
+- `[x]` **Zero Allocation**: `do_move` and `undo_move` do not touch the heap, and as of v0.32.0
+  move generation no longer calls them at all. The remaining per-node allocation-shaped cost is
+  the `MoveList::new()` / `MoveRawList::new()` buffer initialisation, which 1.2.2 addresses.
 - `[ ]` **NPS Benchmark**: 3.0x is **not** achieved and the projection should be treated as
-  unvalidated. The one component measured so far returned +33.4%; the bulk of the projected gain
-  rests on 1.2.1 and 1.2.2, neither of which has been sized.
+  unvalidated. Two of three components are now measured: 1.2.3 returned +33.4% and 1.2.1
+  returned +34.8%, compounding to **1.80x over v0.30.3**. The remainder rests on 1.2.2 alone,
+  and 1.4 caps the realistic joint ceiling at 2x to 2.5x.
 
 ### 1.4 Measured Cost Breakdown (2026-08-25, on v0.31.0)
 
@@ -115,6 +156,12 @@ Three conclusions, all of which change the roadmap:
 
 `skip_strong_validation = true` is **not** a usable proxy for any of this: it admits illegal moves
 into the search and hangs the engine.
+
+**Outcome (v0.32.0).** The 27.6% item was removed in full and returned **+34.8%**, against the
+1.38x the profile predicted. The shortfall is the cost of the masks that replaced the move
+making: one attacker mask and two sniper walks per node, plus one attacker mask per king move.
+`skip_strong_validation` no longer exists — legality is established by construction, so there is
+nothing to skip.
 
 ---
 
@@ -428,10 +475,10 @@ pub struct Accumulator {
 ## 📋 Implementation Checklist
 
 ### Phase 1: Move Generation & Move Picker
-- [ ] Implement `src/move_gen_service.rs` pseudo-legal move generation for all piece types.
+- [x] Generate moves in `src/move_gen_service.rs` without `do_move`/`undo_move`, with legality and `gives_check` derived from per-node masks. *(v0.32.0)*
 - [ ] Implement `MovePicker` with staged state machine in `src/move_gen_service.rs` and `src/search_service.rs`.
-- [ ] Refactor `Board` struct in `src/model.rs` to eliminate `HashMap` heap allocations.
-- [ ] Validate with full Perft suite.
+- [x] Refactor `Board` struct in `src/model.rs` to eliminate `HashMap` heap allocations. *(v0.31.0)*
+- [x] Validate with full Perft suite. *(v0.32.0, `perft_verified_deep_sweep_test`)*
 
 ### Phase 2: Search Architecture Refactoring
 - [ ] Convert `SearchService::minimax` to unified `negamax` in `src/search_service.rs`.

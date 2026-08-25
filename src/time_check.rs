@@ -71,23 +71,21 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
     println!("\nexpected ~1µs");
     time_it!(service.move_gen.get_check_idx_list(&board, true));
 
+    println!("\nexpected <2µs (Node Masks)");
+    let masks = time_it!(service.move_gen.compute_node_masks(&board));
+
     println!("\nexpected <10µs>");
     let mut raw_moves = crate::model::MoveRawList::new();
-    time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves));
+    time_it!(service.move_gen.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_moves));
 
     println!("\nexpected ~60µs");
     let mut move_list = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, true, false, &mut move_list));
-
-    println!("\nexpected ~45µs (Skip Validation)");
-    
-    let mut move_list2 = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, true, true, &mut move_list2));
+    time_it!(service.move_gen.generate_valid_moves_list(&mut board, &mut stats, config, &context, true, &mut move_list));
 
     println!("\nexpected <10µs");
-    
+
     let mut move_list3 = crate::model::MoveList::new();
-    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, true, false, &mut move_list3));
+    time_it!(service.move_gen.generate_valid_moves_list_capture(&mut board, &mut stats, config, &context, true, &mut move_list3));
 
     println!("\nexpected ~2.5µs");
     time_it!(service.eval.calc_eval(&board, config, &service.move_gen, &service.pawn_table, i16::MIN, i16::MAX, 180));

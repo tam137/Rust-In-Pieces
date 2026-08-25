@@ -327,7 +327,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             root_depth: 0,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
-                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
+                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, &mut valid_moves);
 
                         if valid_moves.len == 0 {
                             logger.send("No valid moves found at root! Game over.".to_string()).ok();
@@ -458,7 +458,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 root_depth: 0,
                             };
                             let mut valid_moves = crate::model::MoveList::new();
-                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
+                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, &mut valid_moves);
                             if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));
