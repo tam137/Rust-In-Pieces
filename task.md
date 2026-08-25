@@ -191,7 +191,85 @@ the mean completed iteration over the 35-position LCT II suite at 1s per move.
       depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a shallower tree
       than the interior does, which is a standing source of score instability between iterations.
 
-### 2.3 Acceptance & TDD Criteria
+### 2.3 Fail-Soft Alpha-Beta — ⛔ Tried and Reverted (v0.30.0 → v0.30.3)
+
+Converting `minimax` to fail-soft — initialising the running score to `i16::MIN` / `i16::MAX`
+instead of to the window bound `alpha` / `beta` — was released in v0.30.0 and **reverted in
+v0.30.3**. It is one of the most reliable Elo gains in the literature, and in this engine it
+costs roughly two hundred rating points.
+
+| Comparison | Games | Score | Elo |
+| :--- | ---: | ---: | ---: |
+| v0.29.1 vs. v0.30.0 | 60 | 76.7% | **+206.7** for v0.29.1 |
+| v0.29.1 vs. v0.29.1 + fail-soft only | 60 | 72.5% | **+168.4** for v0.29.1 |
+| v0.29.1 vs. v0.29.1 + bound classification only | 60 | 55.0% | +34.9, not significant |
+| v0.30.3 (revert) vs. v0.30.2 | 80 | 76.9% | **+208.7** for the revert |
+| v0.30.3 (revert) vs. v0.29.1 | 80 | 54.4% | +30.5, at parity |
+| v0.30.3 (revert) vs. v0.28.4 | 80 | 50.6% | +4.3, at parity |
+
+The bisection isolates the running-score initialisation as the sole cause; the Transposition
+Table bound reclassification that shipped in the same commit is innocent and was kept.
+
+**The mechanism is not yet understood.** Everything that can be measured deterministically looks
+healthy on the broken build: fixed-depth node counts, scores and best moves are comparable to
+v0.29.1; the mean completed depth at one second per move is identical (12.31 versus 12.40); the
+engine uses its clock normally (930ms of 1000ms) and never forfeits on time. The whole unit test
+suite passes. Whatever fail-soft breaks here only manifests over the course of a played game.
+
+##### Open investigation
+
+Fail-soft must not be reattempted before the cause is found. A repeat of the v0.30.0 experiment
+would simply reproduce a two-hundred-point regression. The following steps are ordered so that
+each one either identifies the mechanism or eliminates a hypothesis.
+
+* **Tasks**:
+    - `[ ]` **H1 — Transposition Table contamination compounding across a game.** The leading
+      hypothesis, and the only one that explains why every deterministic measurement looks
+      healthy: every benchmark in this repository sends `ucinewgame` before each position and
+      therefore searches with an empty table, while a real game accumulates entries across
+      roughly eighty moves. A first probe comparing a cold against a warm table on a single
+      position did not discriminate, so the hypothesis is open rather than refuted. Test it
+      properly by replaying a full recorded game move by move through one engine process without
+      `ucinewgame`, on a fail-soft and a fail-hard build, and comparing the evaluation and best
+      move at every move number. A divergence that grows with move number confirms H1.
+    - `[ ]` **H2 — `best_move` stored at fail-low nodes.** Under fail-hard the running score
+      starts at `alpha`, so no move ever beats it at a fail-low node and `best_move` stays `None`;
+      the Transposition Table entry is written with `best_move: 0`. Under fail-soft the score
+      starts at the sentinel, so the *first move searched* always becomes `best_move` and is
+      written into the table, where a later probe promotes it to rank `1_000_000` ahead of every
+      other move. Isolate by building fail-soft with `best_move` updated only when the move
+      actually beats `alpha` (or `beta` for Black), then gauntlet against v0.30.3.
+    - `[ ]` **H3 — mate-magnitude scores entering the table.** Fail-hard clamps the returned score
+      to the window, so a mate score found deep in a subtree cannot be stored at a node whose
+      window excludes it. Fail-soft stores it, and `stored_eval` then passes through the
+      `> 30000` / `< -30000` mate normalisation with the *storing* node's ply. On a later probe
+      from a different ply the de-normalisation restores a wrong mate distance. Isolate by
+      building fail-soft with the stored score clamped into `[orig_alpha, orig_beta]` while the
+      returned score stays fail-soft, then gauntlet against v0.30.3.
+    - `[ ]` **Write a regression test from whichever hypothesis survives.** The current suite is
+      no guard at all here: all 134 tests pass on the broken build. If H1 is confirmed, the
+      natural test is a warm-table consistency assertion; if H2 or H3, an assertion on what the
+      Transposition Table write may contain.
+    - `[ ]` **Gate any retry on the cross-version gauntlet** now mandatory in
+      `skills/engine_release_procedure.md`. A self-A/B cannot see this class of defect.
+
+##### Reproduction
+
+The binaries and PGNs behind the table above are kept outside the repository, in
+`../matt-magie/engines/` and `../matt-magie/`:
+
+| Artefact | What it is |
+| :--- | :--- |
+| `ab-bisA` | v0.29.1 plus the fail-soft initialisation only |
+| `ab-bisB` | v0.29.1 plus the bound reclassification only |
+| `ab-revert` | v0.30.2 with fail-soft reverted, identical to the released v0.30.3 |
+| `ab_bisect.pgn` | the three-way bisection gauntlet |
+| `ab_revert.pgn` | the revert verification gauntlet |
+| `ab_gauntlet.pgn` | v0.30.2 against v0.28.4, v0.29.0, v0.29.1 and v0.30.0 |
+
+Evaluate them per pairing, never by the scoreboard rating.
+
+### 2.4 Acceptance & TDD Criteria
 - `[ ]` **Negamax Symmetry**: Search results and evaluations are strictly symmetric between White and Black across mirrored positions.
 - `[ ]` **Singular Extension Trigger**: Tactical test suite confirms $+1$ ply extension on forced tactical moves.
 - `[x]` **QSearch Node Reduction**: QSearch node count decreases with Transposition Table caching enabled — covered by `test_qs_tt_search_consistency_and_node_reduction`.
