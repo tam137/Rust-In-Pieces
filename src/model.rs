@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicBool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use crate::zobrist;
 use crate::{notation_util::NotationUtil, zobrist::ZobristTable};
@@ -15,6 +15,10 @@ pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 /// Score of a checkmate delivered on ply 0. The search returns `MATE_SCORE - ply`
 /// for a win and `-(MATE_SCORE - ply)` for a loss, so the distance to mate in plies
 /// is recovered as `MATE_SCORE - score.abs()`.
+/// Capacity of the position history. A long game plus the deepest search ply fits comfortably;
+/// beyond it repetition detection degrades gracefully instead of panicking.
+pub const MAX_HISTORY_PLIES: usize = 2048;
+
 pub const MATE_SCORE: i16 = i16::MAX - 1;
 
 /// Scores at or beyond this magnitude are mate scores rather than centipawn
@@ -303,11 +307,13 @@ pub struct MoveInformation {
     pub moved_piece: u8,
     pub old_pst_mg: i16,
     pub old_pst_eg: i16,
+    /// `Board::irreversible_floor` as it stood before the move, restored on undo.
+    pub old_irreversible_floor: usize,
 }
 
 impl MoveInformation {
     // Constructor
-    pub fn new(castle_information: CastleInformation, hash: u64, pawn_key: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16) -> Self {
+    pub fn new(castle_information: CastleInformation, hash: u64, pawn_key: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16, old_irreversible_floor: usize) -> Self {
         MoveInformation {
             castle_information,
             hash,
@@ -317,6 +323,7 @@ impl MoveInformation {
             moved_piece,
             old_pst_mg,
             old_pst_eg,
+            old_irreversible_floor,
         }
     }
 }
@@ -349,7 +356,15 @@ pub struct Board {
     pub white_to_move: bool,
     pub move_count: i32,
     pub game_status: GameStatus,
-    pub move_repetition_map: HashMap<u64, i32>,
+    /// Zobrist hashes of every position reached by a move, indexed by ply. Replaces the
+    /// per-node `HashMap` insert and remove that `do_move`/`undo_move` used to perform.
+    pub history_hashes: [u64; MAX_HISTORY_PLIES],
+    /// Number of valid entries in `history_hashes`.
+    pub history_len: usize,
+    /// Index into `history_hashes` below which a repetition can no longer occur, because an
+    /// irreversible move (capture or pawn move) lies there. The Zobrist hash covers material
+    /// and pawn placement, so no earlier position can ever match again.
+    pub irreversible_floor: usize,
     pub cached_hash: u64,
     pub pawn_key: u64,
     pub pst_mg: i16,
@@ -429,7 +444,9 @@ impl Board {
             white_to_move,
             move_count,
             game_status: GameStatus::Normal,
-            move_repetition_map: HashMap::new(),
+            history_hashes: [0; MAX_HISTORY_PLIES],
+            history_len: 0,
+            irreversible_floor: 0,
             cached_hash: 0,
             pawn_key: 0,
             pst_mg,
@@ -663,18 +680,32 @@ impl Board {
                            self.bitboards[BLACK_BISHOP] | self.bitboards[BLACK_QUEEN] | self.bitboards[BLACK_KING];
         self.occupied = self.white_pieces | self.black_pieces;
 
-        // Calculate the board hash and update the move repetition map
+        // Record the position and detect a threefold repetition without touching the heap.
         self.cached_hash = new_cached_hash;
-        self.move_repetition_map
-            .entry(self.cached_hash)
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
+        let old_irreversible_floor = self.irreversible_floor;
+        if self.history_len < MAX_HISTORY_PLIES {
+            self.history_hashes[self.history_len] = self.cached_hash;
+            self.history_len += 1;
 
-        // Check for 3-move repetition
-        if let Some(&count) = self.move_repetition_map.get(&self.cached_hash) {
-            if count > 3 { panic!("RIP move_repetition_map value {}", count) }
-            if count == 3 {
-                self.game_status = GameStatus::Draw;
+            // A capture or a pawn move can never be undone by later play, so no position
+            // *preceding* it can recur. The position it produces still can, so the floor is the
+            // index of that position rather than one past it.
+            if actual_capture != 0 || moved_piece == 10 || moved_piece == 20 {
+                self.irreversible_floor = self.history_len - 1;
+            }
+
+            // Only positions with the same side to move can repeat, hence the stride of two.
+            let mut repetitions = 1;
+            let mut idx = self.history_len as isize - 3;
+            while idx >= self.irreversible_floor as isize {
+                if self.history_hashes[idx as usize] == self.cached_hash {
+                    repetitions += 1;
+                    if repetitions == 3 {
+                        self.game_status = GameStatus::Draw;
+                        break;
+                    }
+                }
+                idx -= 2;
             }
         }
         // Update pawn key
@@ -696,12 +727,11 @@ impl Board {
             self.pawn_key ^= zobrist::get_zobrist_val(capture_sq as usize, capture_bb_idx);
         }
 
-        MoveInformation::new(old_castle_information, old_cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg)
+        MoveInformation::new(old_castle_information, old_cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg, old_irreversible_floor)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
-        let new_hash = self.cached_hash;
         self.cached_hash = move_information.hash;
         self.pawn_key = move_information.pawn_key;
         self.pst_mg = move_information.old_pst_mg;
@@ -812,14 +842,11 @@ impl Board {
                            self.bitboards[BLACK_BISHOP] | self.bitboards[BLACK_QUEEN] | self.bitboards[BLACK_KING];
         self.occupied = self.white_pieces | self.black_pieces;
 
-        // Update the move repetition map
-        if let Some(count) = self.move_repetition_map.get_mut(&new_hash) {
-            if *count > 1 {
-                *count -= 1;
-            } else {
-                self.move_repetition_map.remove(&new_hash);
-            }
+        // Pop the position from the history.
+        if self.history_len > 0 {
+            self.history_len -= 1;
         }
+        self.irreversible_floor = move_information.old_irreversible_floor;
     }
 
     /// Generate the castle information based on the current state
@@ -879,7 +906,7 @@ impl PartialEq for Board {
             self.game_status == other.game_status &&
             self.bitboards == other.bitboards &&
             self.pawn_key == other.pawn_key &&
-            self.move_repetition_map == other.move_repetition_map
+            self.history_hashes[..self.history_len] == other.history_hashes[..other.history_len]
     }
 }
 
@@ -1345,10 +1372,10 @@ mod tests {
 
         // Ensure the hash has changed after the move
         assert_ne!(org_hash, board.hash());
-        assert_eq!(board.move_repetition_map.len(), 1);
+        assert_eq!(board.history_len, 1);
         board.undo_move(turn, mi);
         assert_eq!(org_hash, board.hash());
-        assert_eq!(board.move_repetition_map.len(), 0);
+        assert_eq!(board.history_len, 0);
     }
 
     #[test]

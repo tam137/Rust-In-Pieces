@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.31.0] - 2026-08-25
+
+First delivery against Milestone 1 of `task.md`. Classified as a minor release because it changes
+the `Board` representation and the `MoveInformation` contract, although the search itself is
+untouched: at fixed depth v0.31.0 is **node-for-node identical to v0.30.3** across 14 positions
+and 104 iterative deepening iterations, 17,662,630 nodes on both builds. The entire gain is
+throughput.
+
+### Changed
+- **Threefold Repetition Detection Without the Heap** (`src/model.rs`):
+  - `Board.move_repetition_map: HashMap<u64, i32>` performed a hash insert on every `do_move` and
+    a lookup plus a conditional remove on every `undo_move` — on the hottest path in the engine,
+    executed once per searched node.
+  - It is replaced by a flat, stack-allocated `history_hashes: [u64; MAX_HISTORY_PLIES]` with a
+    `history_len` cursor. `do_move` writes one `u64` and increments; `undo_move` decrements.
+    Neither allocates.
+  - Repetition is detected by scanning backwards with a stride of two — only positions with the
+    same side to move can repeat — bounded below by `irreversible_floor`, the index of the
+    position produced by the most recent capture or pawn move. No earlier position can ever recur,
+    because the Zobrist hash covers material and pawn placement, so the scan is typically a
+    handful of comparisons rather than a walk of the whole game.
+  - `MoveInformation` carries the previous `irreversible_floor` so `undo_move` restores it exactly.
+  - **3.73 → 4.98 M nodes/s, +33.4%**, measured over the identical tree referenced above.
+- **Board Equality**: `PartialEq` compares the active slice of the position history instead of the
+  former `HashMap`.
+
+### Added
+- `MAX_HISTORY_PLIES` (2048) in `src/model.rs`, sized for a long game plus the deepest search ply.
+  Beyond it recording stops and repetition detection degrades gracefully rather than panicking.
+
+### Documentation
+- **`task.md` — Milestone 1 progress, and two roadmap premises corrected by measurement**:
+  - Specification 1.2.3 is marked implemented, with the measured figures.
+  - The second half of 1.2.3, removing the `pv_nodes` mutex from the move generator, is **struck
+    out as not worth doing**. The lock is uncontended and the lookup is cheap: disabling the
+    `pv_nodes` block outright moves throughput from 5.26 to 5.13 M nodes/s, so the block is free
+    within measurement noise while the move ordering it provides is worth more than it costs.
+  - The acceptance criterion of a 3.0x NPS increase is recorded as **not achieved and
+    unvalidated**. The one component measured so far returned +33.4%; the projected "+300% to
+    +600% NPS" and "+150 to +250 Elo" in the executive summary rest entirely on 1.2.1 and 1.2.2,
+    neither of which has been sized. Sizing 1.2.1 requires a profiler —
+    `skip_strong_validation = true` is not a usable proxy, since it admits illegal moves into the
+    search and hangs the engine.
+
+### Verification
+- Cross-version gauntlet, now mandatory for search-adjacent releases: **+8.7 Elo against v0.30.3**
+  over 80 games, 95% CI [-43, +60], and **+43.7 against v0.29.1** over 80 games, 95% CI
+  [-14, +103]. Both clear the 45% floor the procedure requires.
+- The first implementation of the backwards scan placed `irreversible_floor` one index too high,
+  excluding the position that the irreversible move itself produces — which can legitimately be
+  repeated. The defect showed up as 22 extra nodes out of 17.6 million against the reference
+  build: small enough to be mistaken for success, and caught only because the node-identity check
+  is exact rather than approximate.
+
+
+
 ## [V0.30.3] - 2026-08-25
 
 **Critical regression fix.** v0.30.0 shipped a fail-soft alpha-beta conversion that cost roughly
