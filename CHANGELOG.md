@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.30.3] - 2026-08-25
+
+**Critical regression fix.** v0.30.0 shipped a fail-soft alpha-beta conversion that cost roughly
+two hundred rating points, and v0.30.1 and v0.30.2 inherited it. Measured against the release it
+replaces, this revert is worth **+208.7 Elo** over 80 games, 95% CI [+149, +283], and restores
+parity with v0.29.1 (+30.5, 95% CI [-26, +89]) and v0.28.4 (+4.3, 95% CI [-52, +61]).
+
+### Fixed
+- **Reverted Fail-Soft Alpha-Beta Bounds**:
+  - `minimax` initialised its running score to `i16::MIN` / `i16::MAX` instead of to the window
+    bound `alpha` / `beta`. The change is one of the most reliable Elo gains in the computer chess
+    literature; in this engine it measured **-168.4 Elo** over 60 games, 95% CI [-258, -96],
+    against an otherwise identical v0.29.1 build.
+  - The running score is initialised to the window bound again, and the `turn_counter == 0`
+    sentinel guard that fail-soft required is removed with it.
+  - The Transposition Table bound reclassification that shipped in the same v0.30.0 commit was
+    bisected separately and is **innocent** (-34.9 Elo, 95% CI [-89, +18], not significant). It is
+    kept: capturing `orig_alpha` / `orig_beta` after the Transposition Table probe still correctly
+    describes the window that was actually searched.
+  - **The mechanism is not understood and is recorded as an open task in `task.md` 2.3.** Every
+    deterministic measurement on the broken build looks healthy: fixed-depth node counts, scores
+    and best moves are comparable to v0.29.1; mean completed depth at one second per move is
+    identical (12.31 versus 12.40); the engine uses 930ms of a 1000ms budget and never forfeits on
+    time; all 134 unit tests pass. Whatever fail-soft breaks here manifests only over a played
+    game. Fail-soft must not be reattempted before the cause is found.
+
+### Changed
+- **Mandatory Cross-Version Gauntlet Added to the Release Procedure**
+  (`skills/engine_release_procedure.md`):
+  - Any release touching `src/search_service.rs`, `src/eval_service.rs`, `src/move_gen_service.rs`
+    or a search parameter default must now play a gauntlet against at least the two preceding
+    releases before `build_and_release.sh` is run, and must score no lower than roughly 45%
+    against each.
+  - The rule exists because of how this regression escaped. Four separate 1000-game A/B runs were
+    played around v0.29.0 and v0.30.0 and none of them could see it: every run pitted a v0.30.x
+    build against another v0.30.x build with a single feature toggled. That design is the right
+    tool for pricing a feature and is structurally blind to any defect both sides share.
+  - The procedure also now records that the Matt-Magie scoreboard rating is an iterative
+    Bradley-Terry model normalised to a pool average of 2000. A rating therefore depends on which
+    engines are in the PGN, and two ratings from different pools are not comparable. Releases must
+    be judged per pairing.
+
+### Documentation
+- **`task.md` — New Specification 2.3, Fail-Soft Alpha-Beta, Tried and Reverted**: records the
+  full bisection table and the deterministic measurements that failed to reveal the defect, and
+  carries the open investigation as three ordered, independently falsifiable hypotheses:
+  Transposition Table contamination compounding across a game (H1, testable by replaying a full
+  recorded game through one engine process without `ucinewgame` and watching for divergence that
+  grows with move number); a `best_move` stored at fail-low nodes where fail-hard stored none,
+  which a later probe promotes to rank 1,000,000 ahead of every other move (H2); and
+  mate-magnitude scores entering the table with the storing node's ply, where fail-hard clamped
+  them to the window bound (H3). Each carries the build that isolates it. The section also names
+  the binaries and PGNs in `../matt-magie/` that reproduce every figure quoted, and requires a
+  regression test to be written from whichever hypothesis survives — the current suite is no
+  guard at all, since all 134 tests pass on the broken build. The former acceptance criteria
+  section is renumbered to 2.4.
+
+
+
 ## [V0.30.2] - 2026-08-25
 
 An infrastructure release. Every parameter it introduces ships neutral, so the search tree is
