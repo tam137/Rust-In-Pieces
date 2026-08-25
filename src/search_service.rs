@@ -60,6 +60,7 @@ impl SearchService {
             target_time,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: depth,
         };
 
         let mut turns = crate::model::MoveList::new();
@@ -163,6 +164,7 @@ impl SearchService {
                     target_time: context.target_time,
                     root_moves_total: context.root_moves_total,
                     root_moves_searched: context.root_moves_searched,
+                    root_depth: depth,
                 };
 
                 let min_max_result = self.minimax(board, turn, depth - 1, !white,
@@ -412,6 +414,19 @@ impl SearchService {
         // Saturating index for all ply-indexed tables (killer moves).
         let ply_idx = (ply.max(0) as usize).min(MAX_PLY - 1);
 
+        // Extension budget bookkeeping. Without extensions the search satisfies
+        // `depth == root_depth - ply` exactly, so any surplus depth is precisely the
+        // number of extensions already granted along the path to this node. Reduced
+        // searches (NMP, LMR) enter with a smaller depth and would otherwise appear to
+        // have budget to spare, so the count is clamped at zero.
+        let extensions_used = (depth + ply - context.root_depth).max(0);
+        let extension_budget = if config.check_extension_budget_divisor > 0 {
+            context.root_depth / config.check_extension_budget_divisor
+        } else {
+            i32::MAX
+        };
+        let may_extend = extensions_used < extension_budget;
+
         // Mate Distance Pruning at node entry
         if ply > 0 {
             let mate_value = i16::MAX - 1 - ply as i16;
@@ -599,6 +614,7 @@ impl SearchService {
             target_time: context.target_time,
             root_moves_total: context.root_moves_total,
             root_moves_searched: context.root_moves_searched,
+            root_depth: context.root_depth,
         };
 
         // Quiescence Search (depth <= 0)
@@ -887,6 +903,17 @@ impl SearchService {
             };
         }
 
+        // One-Reply Extension. A node with a single legal move is not a branching point,
+        // so the extra ply costs one node rather than a subtree. It is also the criterion
+        // that keeps sacrificial forcing lines inside the horizon: the reply to a mating
+        // queen sacrifice is forced, even though the sacrifice itself loses material and
+        // is therefore rejected by `check_extension_require_safe`.
+        let depth = if config.enable_one_reply_extension && turns.len == 1 && may_extend {
+            depth + 1
+        } else {
+            depth
+        };
+
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
         let mut turn_counter = 0;
@@ -964,20 +991,29 @@ impl SearchService {
                 quiet_count += 1;
             }
             stats.add_calculated_nodes(1);
-            let mi = board.do_move(current_turn);
 
             // Check Extension: a move that gives check is searched one ply deeper so the
             // forcing sequence is resolved instead of being truncated at the horizon.
-            // The ply bound makes the extension budget finite along any single line.
+            // The Static Exchange Evaluation is computed before the move is played, and
+            // only when the gate is actually enabled, so an unfiltered extension keeps
+            // costing nothing extra.
             let extension = if config.enable_check_extension
                 && current_turn.gives_check
                 && ply < config.check_extension_max_ply
+                && depth >= config.check_extension_min_depth
+                && (config.check_extension_max_depth <= 0
+                    || depth <= config.check_extension_max_depth)
+                && may_extend
+                && (!config.check_extension_require_safe
+                    || self.see_ge(board, current_turn, 0, config, &service.move_gen))
             {
                 1
             } else {
                 0
             };
             let child_depth = depth - 1 + extension;
+
+            let mi = board.do_move(current_turn);
 
             let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
             let mut searched = false;
@@ -1342,6 +1378,113 @@ mod tests {
         );
 
         (result.get_eval(), stats.calculated_nodes)
+    }
+
+    /// A check-rich middlegame position. Kiwipete offers many checking moves, so it
+    /// separates the extension-shaping parameters clearly.
+    const CHECK_RICH_FEN: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
+    /// Runs a fixed-depth search with a caller-shaped configuration and reports the
+    /// number of nodes it took. Fixed-depth searches are deterministic, so the counts
+    /// are directly comparable between configurations.
+    fn search_nodes(fen: &str, depth: i32, shape: impl Fn(&mut Config)) -> usize {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let mut config = Config::for_tests();
+        shape(&mut config);
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, depth, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        stats.calculated_nodes
+    }
+
+    #[test]
+    fn test_check_extension_max_depth_restricts_the_tree() {
+        // An extension granted high in the tree multiplies an entire subtree, while the
+        // horizon effect it cures is a frontier phenomenon. Restricting extensions to
+        // shallow remaining depth must therefore cut the tree substantially.
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let frontier_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_max_depth = 2);
+        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
+
+        assert!(frontier_only < unlimited,
+            "restricting extensions to the frontier must shrink the tree ({} vs {})",
+            frontier_only, unlimited);
+        assert!(frontier_only > disabled,
+            "the frontier extensions must still be granted ({} vs {} with extensions off)",
+            frontier_only, disabled);
+    }
+
+    #[test]
+    fn test_check_extension_min_depth_restricts_the_tree() {
+        // The counterpart to the frontier restriction: extensions are granted only deep in
+        // the tree, where the Quiescence Search cannot resolve the forcing line itself.
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let deep_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_min_depth = 4);
+        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
+
+        assert!(deep_only < unlimited,
+            "restricting extensions to deep nodes must shrink the tree ({} vs {})",
+            deep_only, unlimited);
+        assert!(deep_only > disabled,
+            "the deep extensions must still be granted ({} vs {} with extensions off)",
+            deep_only, disabled);
+    }
+
+    #[test]
+    fn test_check_extension_require_safe_restricts_the_tree() {
+        let unfiltered = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let safe_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_require_safe = true);
+
+        assert!(safe_only < unfiltered,
+            "rejecting material-losing checks must shrink the tree ({} vs {})",
+            safe_only, unfiltered);
+    }
+
+    #[test]
+    fn test_extension_budget_restricts_the_tree() {
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let budgeted = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_budget_divisor = 8);
+
+        assert!(budgeted < unlimited,
+            "a per-path extension budget must shrink the tree ({} vs {})",
+            budgeted, unlimited);
+    }
+
+    /// The One-Reply Extension is the criterion that survives a material filter: the
+    /// reply to a mating queen sacrifice is forced even though the sacrifice loses
+    /// material. It must therefore deepen forced lines rather than leave them untouched.
+    #[test]
+    fn test_one_reply_extension_deepens_forced_lines() {
+        let without = search_nodes(SMOTHERED_MATE_FEN, 6, |c| c.enable_check_extension = false);
+        let with = search_nodes(SMOTHERED_MATE_FEN, 6, |c| {
+            c.enable_check_extension = false;
+            c.enable_one_reply_extension = true;
+        });
+
+        assert_ne!(with, without,
+            "the One-Reply Extension must change the search on a forcing position");
+    }
+
+    /// All four extension-shaping parameters ship neutral, so a default build searches
+    /// exactly the tree the previous release searched.
+    #[test]
+    fn test_extension_parameters_are_neutral_at_their_defaults() {
+        let defaults = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let explicitly_neutral = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.check_extension_require_safe = false;
+            c.check_extension_budget_divisor = 0;
+            c.check_extension_min_depth = 0;
+            c.check_extension_max_depth = 0;
+            c.enable_one_reply_extension = false;
+        });
+
+        assert_eq!(defaults, explicitly_neutral,
+            "the new extension parameters must default to a behaviourally neutral setting");
     }
 
     /// Regression guard for the dead aspiration window fixed in v0.29.1.
@@ -1832,6 +1975,7 @@ mod tests {
             target_time: None,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: 0,
         };
 
         let mut stats = Stats::new();
