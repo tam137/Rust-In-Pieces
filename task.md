@@ -60,7 +60,7 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
 * **Missing Singular Extensions (SE)**: When a TT move is uniquely superior to all alternative moves, the engine does not extend the search depth, risking tactical blindness in sharp forcing sequences.
 * **Missing Late Move Pruning (LMP)**: Quiet moves late in the move loop at shallow depths ($d \le 4$) are searched rather than pruned.
 * ~~**Missing TT in Quiescence Search (QSearch)**~~ — **RESOLVED in v0.28.1**. `QuiescenceSearch` now probes and stores Transposition Table entries with a collision-safe replacement policy that prevents shallow QSearch entries from evicting deep main-search entries.
-* ~~**No Search Extensions of any kind**~~ — **RESOLVED in v0.29.0**. Every recursive call previously descended with `depth - 1`, so forcing check sequences were truncated at the nominal horizon and only partially recovered by the in-check branch of QSearch. Check Extensions now grant `+1` ply on checking moves.
+* ~~**No Search Extensions of any kind**~~ — **RESOLVED in v0.29.0**, but **Elo-neutral as delivered**. Every recursive call previously descended with `depth - 1`, so forcing check sequences were truncated at the nominal horizon and only partially recovered by the in-check branch of QSearch. Check Extensions now grant `+1` ply on checking moves; the cost of that ply currently cancels its benefit, see specification 2.2.6.
 
 ### 2.2 Target Architecture & Specifications
 
@@ -92,12 +92,66 @@ $$\text{eval} = -\text{negamax}(\text{board}, -\beta, -\alpha, \text{depth} - 1,
 * **Termination Guarantee**: A constant remaining depth breaks the implicit `ply + depth == root_depth` invariant the search relied upon. Termination is therefore enforced structurally by a hard `MAX_PLY` ceiling at node entry, which returns a static evaluation instead of recursing further.
 * **Configuration**: `enable_check_extension: bool` and `check_extension_max_ply: i32`, both exposed via UCI (`EnableCheckExtension`, `CheckExtensionMaxPly`) for SPSA tuning. Setting the ply bound to `0` neutralises the feature without touching the enable flag.
 
+#### 2.2.6 Check Extension Cost Control — ⚠️ Open (measured Elo-neutral in v0.29.0)
+
+A controlled A/B of v0.29.0 against itself (identical binary, feature toggled) measured the
+extension at **-4.9 Elo over 1000 games, 95% CI [-27, +17]** at 5s+100ms. The feature is
+correct and its benefit is real — it solves more LCT II positions at every fixed depth tested
+(21/105 versus 13/105) and resolves Philidor's Legacy a nominal ply earlier — but the tree it
+costs cancels the gain exactly:
+
+| Measurement | Result |
+| :--- | :--- |
+| Nodes at fixed depth, 35-position LCT II suite | 1.22x (d9), 1.52x (d10), 1.87x (d11) |
+| Cumulative nodes to depth 12 | 1.54x on v0.29.0, 1.56x on v0.30.0 |
+| Depth reached at 1s per move | **-1.14 ply** (26 of 35 positions shallower, 5 deeper) |
+| LCT II accuracy at 1s per move | 10/35 with and without — unchanged |
+| Extensions granted to checks with $SEE < 0$ | **59%** |
+| In-check share of interior nodes | 17.8% → 38.9% |
+
+The mechanism is that an extension spends its extra ply at precisely the node class where
+every pruning stage is disabled: Null Move Pruning, Reverse Futility Pruning and Futility
+Pruning are all guarded by `!turn.gives_check`, and LMR never reduces a checking move.
+
+> [!WARNING]
+> **Do not gate the extension on `see_ge(mv, 0)`.** It was built and measured: it recovers
+> almost the whole cost (1.54x → 1.07x nodes to depth 12) but makes the engine fail its own
+> smothered-mate test, because the key move `3.Qg8+` of Philidor's Legacy is a queen sacrifice
+> with strongly negative SEE. The axis that needs bounding is the *number* of extensions along
+> a line, not the material balance of the checking move.
+
+* **Tasks**:
+    - `[ ]` **Per-Path Extension Budget**: Thread an `extensions_used: i32` counter through
+      `minimax` and refuse further extensions once it exceeds a configurable fraction of the
+      root depth. Add `check_extension_budget_divisor: i32` to `Config` and expose it via UCI.
+      This converts the compounding cost multiplier into a bounded constant, which is what
+      `check_extension_max_ply` was intended to do.
+    - `[ ]` **Retire or Repurpose `check_extension_max_ply`**: Instrumentation shows the bound
+      is never reached — across 502,045 extensions at depth 10 not one was granted at a ply
+      anywhere near the default of 64, and the deepest ply observed was 29. As an SPSA axis it
+      is dead: only `0` (off) and "unbounded" are reachable. Replace it with the budget above.
+    - `[ ]` **One-Reply Extension**: Extend when the child node has exactly one legal move.
+      The move count is already known after generation, so it is free; it fires on a small
+      fraction of nodes; and it preserves the sacrificial forcing lines a material filter
+      discards (`Qg8+ Rxg8` is a single reply). Evaluate as a replacement for, or a companion
+      to, the blanket check extension.
+    - `[ ]` **Restrict Extensions to Early Moves**: 9.5% of extensions are currently granted to
+      moves ordered fifth or later. Require `turn_counter <= check_extension_max_move_rank`.
+    - `[ ]` **Extend at the Root**: `get_moves` searches every root move at `depth - 1`
+      unconditionally, so a checking move is treated differently at the root than at every
+      other ply. The measurable consequence is one ply of mate-finding: the seven-ply smothered
+      mate contains three checks after the root move and would resolve at nominal depth 4, but
+      needs depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a
+      shallower tree than the interior does, which is a standing source of score instability
+      between iterations.
+
 ### 2.3 Acceptance & TDD Criteria
 - `[ ]` **Negamax Symmetry**: Search results and evaluations are strictly symmetric between White and Black across mirrored positions.
 - `[ ]` **Singular Extension Trigger**: Tactical test suite confirms $+1$ ply extension on forced tactical moves.
 - `[x]` **QSearch Node Reduction**: QSearch node count decreases with Transposition Table caching enabled — covered by `test_qs_tt_search_consistency_and_node_reduction`.
 - `[x]` **Check Extension Horizon Resolution**: A forced mate lying exactly one ply beyond the nominal horizon is found with Check Extensions enabled and missed with them disabled — covered by `test_check_extension_resolves_forcing_mate_beyond_horizon` (Philidor's Legacy at depth 5).
 - `[x]` **Extension Termination**: An unbounded Check Extension budget still terminates within the `MAX_PLY` ceiling — covered by `test_unbounded_check_extension_terminates_within_ply_ceiling`.
+- `[ ]` **Extension Cost Ceiling**: With the per-path extension budget in place, the cumulative node count to a fixed depth 12 stays within 1.15x of an extension-free search on the LCT II suite, while the forced-mate resolution tests continue to pass.
 
 ---
 

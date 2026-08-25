@@ -12,6 +12,15 @@ pub const RIP_COULDN_SEND_TO_GAME_CMD_QUEUE: &str = "RIP Could not Send commands
 pub const RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE: &str = "RIP Could not Send msg to log buffer queue";
 pub const RIP_COULDN_JOIN_THREAD: &str = "RIP Could not join thread";
 
+/// Score of a checkmate delivered on ply 0. The search returns `MATE_SCORE - ply`
+/// for a win and `-(MATE_SCORE - ply)` for a loss, so the distance to mate in plies
+/// is recovered as `MATE_SCORE - score.abs()`.
+pub const MATE_SCORE: i16 = i16::MAX - 1;
+
+/// Scores at or beyond this magnitude are mate scores rather than centipawn
+/// evaluations. The margin below `MATE_SCORE` covers the deepest reachable ply.
+pub const MATE_SCORE_THRESHOLD: i16 = 30000;
+
 pub type LoggerFn = std::sync::Arc<dyn Fn(String) + Send + Sync>;
 
 pub struct EngineState {
@@ -995,14 +1004,6 @@ impl SearchResult {
     pub fn get_eval(&self) -> i16 {
         if let Some(variant) = self.variants.first() {
             variant.eval
-        } else {
-            0
-        }
-    }
-
-    pub fn get_depth(&self) -> i32 {
-        if let Some(variant) = self.variants.first() {
-            variant.move_row.len() as i32
         } else {
             0
         }
