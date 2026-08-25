@@ -1678,7 +1678,7 @@ mod tests {
         // Generate pseudo-random moves by repeatedly taking the first generated valid move
         for _ in 0..20 {
             let mut valid_moves = crate::model::MoveList::new();
-            move_gen.generate_valid_moves_list(&mut board, &mut stats, &config, &context, false, false, &mut valid_moves);
+            move_gen.generate_valid_moves_list(&mut board, &mut stats, &config, &context, false, &mut valid_moves);
             
             if valid_moves.len == 0 {
                 break;

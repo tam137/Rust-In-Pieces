@@ -6,6 +6,113 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.32.0] - 2026-08-25
+
+Second delivery against Milestone 1 of `task.md`, and the load-bearing one: specification 1.2.1.
+Move generation no longer plays a move in order to learn anything about it. Classified as a minor
+release because it replaces the core of `MoveGenService` and removes a `Config` field, although
+the search itself is untouched: at fixed depth v0.32.0 is **node-for-node identical to v0.31.0**
+across 14 positions and 126 iterative deepening iterations, 22,641,886 nodes on both builds. The
+entire gain is throughput.
+
+### Changed
+- **Legality and `gives_check` Without `do_move`** (`src/move_gen_service.rs`):
+  - `validate_and_add_move` played and unplayed **every generated move** — roughly 35 per node,
+    where the search only ever plays 2 to 3 of them — for no reason other than to discover two
+    facts: whether the move left the own king in check, and whether it checked the enemy king.
+    The profile in `task.md` 1.4 priced that at **27.6% of total runtime**, and identified the
+    two `get_attackers_mask` calls in the same function as free within noise. The cost was the
+    move making, not the validation.
+  - A new `NodeMasks`, computed exactly once per node, now carries everything needed to decide
+    both facts from bitboards. `validate_and_add_move` is replaced by a non-mutating `add_move`,
+    and the generator never touches `do_move` or `undo_move` again.
+  - **Legality.** `check_mask` restricts every non-king move to a square that answers an existing
+    check — the checker itself, or a square between it and the king, or nothing at all under
+    double check. `pinned` restricts an absolutely pinned piece to `LINE[king][piece]`. Both come
+    from one shared `blockers_toward` sniper walk: the sliders that would reach a target square
+    on an empty board are the only possible pinners, and a ray with exactly one own piece on it
+    is a pin. The same routine run against the *enemy* king yields the discovered-check
+    candidates.
+  - **King moves** are tested against the enemy attack set with the king lifted out of the
+    occupancy (`occupied ^ king`). Without that lift a king in check would shield the very square
+    it is retreating to from the slider checking it, and `e2-e1` against a rook on e8 would be
+    generated as legal.
+  - **`gives_check`.** A per-node `check_squares[6]` table, indexed by piece kind, reduces the
+    direct check to a mask test. Discovered check is `discovery & from` combined with an alignment
+    test against `LINE[enemy_king][from]` — a piece that stays on the line keeps the ray blocked.
+    Three cases need more than that and get it: castling additionally tests the relocated rook,
+    en passant recomputes on the post-move occupancy, and promotions recompute against
+    `occupied ^ from`, because a pawn promoting on e8 with the enemy king on e1 stands on the very
+    file its new queen would check along and would otherwise mask itself out of a table built
+    before it left.
+  - **En passant** bypasses the pin and check masks entirely and gets an exact test on the
+    occupancy it would produce. It is the one move that vacates two squares at once, which both
+    exposes the own king along a rank and allows the capture to be the answer to a check — in
+    which case the destination square is not on the check mask at all.
+  - **Result: 4.80 → 6.46 M nodes/s, +34.8%**, measured over the identical tree referenced above.
+    The 1.4 profile predicted 1.38x; the shortfall is the cost of the masks that replaced the move
+    making. Compounded with v0.31.0 this is **1.80x over v0.30.3**.
+
+### Added
+- `LINE` and `BETWEEN` ray tables (`RayTables`, 64 KB total) in `src/move_gen_service.rs`, built
+  once by direction walk and forced onto the calling thread in `MoveGenService::new()` rather than
+  paid for inside the search.
+- `perft_verified`, a move tree walk that plays every generated move and asserts the two facts the
+  generator now derives instead of measuring. It is the reference implementation of the code it
+  replaced, run exhaustively. Two suites use it: the six standard positions in the default test
+  run, and `perft_verified_deep_sweep_test` behind `--ignored` covering those at full depth plus
+  the published TalkChess special-case suite — illegal en passant, en passant giving check,
+  castling giving check, castling prevented, promotion out of check, promotion giving check,
+  stalemate and checkmate. 20 positions, roughly 54 million nodes, every count matching its
+  published value.
+- Six targeted regression tests for the cases the masks cannot decide on their own: king retreat
+  along a checking ray, en passant capturing the checker, en passant exposing the king along the
+  rank, promotion checking down the file it vacates, castling where the rook delivers the check,
+  and discovered check by a king move.
+
+### Removed
+- **`config.skip_strong_validation` and the `force_skip_validation` parameter** threaded through
+  `SearchService::minimax` and both generator entry points. With legality established by
+  construction there is nothing left to skip, and v0.31.0 had already recorded the flag as broken:
+  setting it admitted illegal moves into the search and hung the engine.
+
+### Verification
+- **Node identity** against v0.31.0 at fixed depth, 14 positions, 126 iterations, 22,641,886
+  nodes, every `info` line matching on depth, score, node count and principal variation. This is
+  the acceptance test the chosen design was picked to preserve. Specification 1.2.1 was originally
+  worded as pseudo-legal generation with legality deferred into the search; deferring would have
+  removed the same 27.6% while additionally moving mate and stalemate detection into
+  `search_service.rs`, and it would have made the move list — and therefore the tree — different
+  by construction, leaving nothing exact to compare against.
+- **Perft** as described above. Node counts alone are **not** a sufficient check for this change:
+  a wrong `gives_check` does not alter the number of nodes in a perft tree, it silently alters
+  five pruning decisions in the search (the RFP static eval gate, Null Move Pruning, Futility
+  Pruning, Late Move Reductions and Check Extensions) plus the `in_check` branch of Quiescence.
+  This is why the walk asserts the flag on every move rather than counting.
+- **Negative controls.** Each of the four load-bearing pieces was deliberately broken in turn —
+  the discovered-check clause removed, the king lifted out of the occupancy put back, the en
+  passant legality test disabled, the promotion occupancy left pre-move — and the suite was
+  confirmed to fail in every case. A test that has never been seen to fail is not evidence.
+- **Cross-version gauntlet**, mandatory for changes to `src/move_gen_service.rs`: 100 games at
+  5s+100ms, judged per pairing. **+70.4 Elo against v0.31.0** (18/24/8 over 50 games, 60.0%) and
+  **+130.9 against v0.30.3** (26/16/8 over 50 games, 68.0%). Both clear the 45% floor the
+  procedure requires. Since the search tree is bit-identical to v0.31.0, the v0.31.0 pairing
+  prices throughput and nothing else.
+
+### Documentation
+- **`task.md` — specification 1.2.1 marked implemented**, with the measured figures, the reason
+  the delivered design differs from the original wording, and the note that a staged `MovePicker`
+  sits on top of it unchanged because each stage masks its target set with the same `NodeMasks`.
+  1.3 gains a node-identity criterion and records the NPS projection as still unvalidated: two of
+  three components are now measured at +33.4% and +34.8%, compounding to 1.80x, with the rest
+  resting on 1.2.2 alone against a realistic ceiling of 2x to 2.5x. 1.4 gains the outcome of its
+  own largest line item. 1.2.2 gains two notes to carry into that work: `MoveRawList` holds only
+  128 from/to pairs and silently drops the rest — far less likely now that only legal moves reach
+  it, but the 218-move maximum still exceeds it, and a staged picker removes the problem rather
+  than papering over it with a wider buffer that would cost initialisation time on every node.
+
+
+
 ## [V0.31.0] - 2026-08-25
 
 First delivery against Milestone 1 of `task.md`. Classified as a minor release because it changes
