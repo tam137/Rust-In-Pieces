@@ -24,9 +24,21 @@ This document defines the technical roadmap and architectural specifications for
 
 ### 1.2 Target Architecture & Specifications
 
-#### 1.2.1 Pure Pseudo-Legal Move Generation
+#### 1.2.1 Pure Pseudo-Legal Move Generation — ⏭️ Next, and the prerequisite for 1.2.2
 * Refactor `MoveGenService` to produce strictly **pseudo-legal moves** directly from bitboards without simulating `do_move`/`undo_move` or running check validations during generation.
 * Legality verification is deferred until a move is actually selected in search. In `do_move`, verify if the moving side's king is left in check; if illegal, reject and proceed to the next move.
+* **Worth up to 27.6% of runtime** (see 1.4), and it is what makes 1.2.2 possible at all: a lazy
+  picker cannot be lazy while generation insists on playing every move it produces.
+* The work is not the deferral itself but the two things `do_move` is currently used to discover:
+    - `[ ]` **Legality without playing the move.** Compute an absolute-pin mask once per node
+      (eight rays from the own king), plus a check mask when the side to move is in check. A
+      non-king, non-pinned, non-en-passant move is then legal by construction.
+    - `[ ]` **`gives_check` without playing the move.** Direct check from the destination square,
+      plus discovered check when the origin square shares a ray with the enemy king, plus the
+      castling, en-passant and promotion special cases.
+    - `[ ]` Both are standard bitboard techniques, and both are exactly perft-verifiable. This is
+      the load-bearing part of Milestone 1 and deserves its own release with a full perft sweep
+      and the mandatory cross-version gauntlet.
 
 #### 1.2.2 Staged `MovePicker` State Machine
 Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
@@ -71,12 +83,38 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
   unvalidated. The one component measured so far returned +33.4%; the bulk of the projected gain
   rests on 1.2.1 and 1.2.2, neither of which has been sized.
 
-> [!NOTE]
-> Sizing 1.2.1 needs a profiler. `skip_strong_validation = true` is **not** a usable proxy: it
-> lets illegal moves into the search and the engine hangs. Until the cost of
-> `validate_and_add_move` is actually measured, the "+300% to +600% NPS" and "+150 to +250 Elo"
-> figures in the executive summary are estimates without evidence — the same class of claim that
-> produced the v0.29.0 and v0.30.0 disappointments.
+### 1.4 Measured Cost Breakdown (2026-08-25, on v0.31.0)
+
+`perf` is unavailable on this host (WSL2 kernel, no matching `linux-tools`), so the profile was
+taken by **duplication**: a diagnostic build performs a given piece of work twice and discards
+the copy, and the wall-time delta against the normal build is that work's cost. The search tree
+stays bit-identical, so there is no measurement bias. Figures are over 14 positions at fixed
+depth 10, 17,662,630 nodes, 2.5s baseline.
+
+| Component | Share of total runtime |
+| :--- | ---: |
+| **Interior move generation, total** | **84.4%** |
+| — of which `do_move` + `undo_move` | **27.6%** |
+| — of which `MoveList::new()` buffer init | 3.1% |
+| — of which the two `get_attackers_mask` calls | ~0% (within noise) |
+| — remaining: bitboard generation and move ranking | ~54% |
+| Everything else: evaluation, Transposition Table, search logic, Quiescence | ~16% |
+
+Three conclusions, all of which change the roadmap:
+
+* **The attacker masks are free; the validation cost *is* the move making.** `validate_and_add_move`
+  plays and unplays every generated move purely to learn legality and `gives_check`. The engine
+  therefore calls `do_move`/`undo_move` once per *generated* move — roughly 35 per node — where the
+  search only ever plays 2 to 3 of them. That single fact is 27.6% of runtime.
+* **Generation and ranking are larger still, at roughly 54%.** This is what a lazy `MovePicker`
+  attacks, and it is the bigger half of the prize.
+* **The 3.0x acceptance criterion is not reachable from these two items alone.** Even driving
+  interior move generation to *zero* caps the speedup at 6.4x, and neither change does that. A
+  realistic joint ceiling is 2x to 2.5x; the executive summary's "+300% to +600% NPS" and
+  "+150 to +250 Elo" should be revised down accordingly.
+
+`skip_strong_validation = true` is **not** a usable proxy for any of this: it admits illegal moves
+into the search and hangs the engine.
 
 ---
 
