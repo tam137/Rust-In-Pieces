@@ -887,11 +887,11 @@ impl SearchService {
         let mut turns = crate::model::MoveList::new();
         service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
 
-        // Fail-soft: the running score starts outside the window instead of at its bound,
-        // so a fail-low node returns how far below alpha it actually is rather than alpha
-        // itself. This sharpens the Transposition Table bounds stored below and gives the
-        // root aspiration re-search the magnitude of its miss instead of just its direction.
-        let mut eval = if white { i16::MIN } else { i16::MAX };
+        // Fail-hard running score. Fail-soft was tried in v0.30.0 and reverted in v0.30.3:
+        // starting the score outside the window instead of at its bound measured **-168 Elo**
+        // over 60 games against an otherwise identical build. Do not reintroduce it without a
+        // cross-version gauntlet, and see specification 2.3 in `task.md`.
+        let mut eval = if white { alpha } else { beta };
         let mut best_move: Option<Turn> = None;
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
@@ -1202,14 +1202,6 @@ impl SearchService {
                 break;
             }
             i += 1;
-        }
-
-        // Guard required by fail-soft: if every move was pruned (futility) or the search was
-        // cut short before a single move was tried, no bound has been proven and `eval` still
-        // holds the sentinel. Storing that would put an unprovable score into the
-        // Transposition Table, so fall back to the window bound and skip the write.
-        if turn_counter == 0 {
-            return (None, if white { alpha } else { beta });
         }
 
         // Transposition Table Write
