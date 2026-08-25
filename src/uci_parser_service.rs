@@ -136,13 +136,30 @@ impl UciParserService {
         (fen, moves)
     }
 
+    /// Formats a search score as a UCI `score` value: `mate <moves>` for a forced
+    /// mate, `cp <centipawns>` otherwise. The score is expected from the perspective
+    /// of the side to move, so a positive mate distance means the mover delivers it.
+    pub fn format_score(&self, score: i16) -> String {
+        if score.abs() > crate::model::MATE_SCORE_THRESHOLD {
+            let mate_plies = crate::model::MATE_SCORE - score.abs();
+            let mate_moves = (mate_plies + 1) / 2;
+            if score > 0 {
+                format!("mate {}", mate_moves)
+            } else {
+                format!("mate -{}", mate_moves)
+            }
+        } else {
+            format!("cp {}", score)
+        }
+    }
+
     pub fn get_info_str(&self, search_result: &SearchResult, stats: &Stats) -> String {
         let mut stats = stats.clone();
-        let stats = stats.calculate();        
+        let stats = stats.calculate();
         let cp = if search_result.is_white_move { search_result.get_eval() } else { -search_result.get_eval() };
-        format!("info depth {} score cp {} time {} nodes {} nps {} pv {}",
-            search_result.get_depth(),
-            cp,
+        format!("info depth {} score {} time {} nodes {} nps {} pv {}",
+            search_result.calculated_depth,
+            self.format_score(cp),
             stats.calc_time_ms,
             stats.created_nodes,
             stats.created_nodes / (stats.calc_time_ms + 1),
@@ -256,5 +273,85 @@ mod tests {
         assert_eq!("2kr1bnr/pppqp1pp/2n5/1B1pPb2/5P2/2P2N2/PP4PP/RNBQK2R b KQ - 4 8", fen);
         assert_eq!("Qd1d5", moves);
 
+    }
+
+    /// Builds a minimal SearchResult carrying one variant, so the info-string
+    /// formatting can be exercised without running a search.
+    fn search_result_with(eval: i16, depth: i32, is_white_move: bool) -> SearchResult {
+        let mut result = SearchResult::default();
+        result.is_white_move = is_white_move;
+        result.calculated_depth = depth;
+        result.add_variant(crate::model::Variant {
+            eval,
+            best_move: None,
+            move_row: std::collections::VecDeque::new(),
+        });
+        result
+    }
+
+    /// Regression guard: `info depth` used to report `SearchResult::get_depth()`,
+    /// which is the length of the principal variation rather than the depth the
+    /// iteration actually completed.
+    #[test]
+    fn info_string_reports_the_completed_search_depth() {
+        let parser = UciParserService {};
+        let stats = Stats::default();
+
+        let result = search_result_with(42, 11, true);
+        let info = parser.get_info_str(&result, &stats);
+
+        assert!(info.starts_with("info depth 11 "),
+            "info string must report the completed iteration depth, got: {}", info);
+    }
+
+    /// Regression guard: mate scores used to leave the engine as raw centipawns,
+    /// and the internal logger converted them with a wrong constant.
+    #[test]
+    fn mate_scores_are_formatted_as_uci_mate_distances() {
+        let parser = UciParserService {};
+
+        // MATE_SCORE - 7 is a mate delivered on the seventh ply, i.e. mate in four.
+        assert_eq!("mate 4", parser.format_score(crate::model::MATE_SCORE - 7));
+        assert_eq!("mate -4", parser.format_score(-(crate::model::MATE_SCORE - 7)));
+        // A mate delivered on the very next ply is mate in one.
+        assert_eq!("mate 1", parser.format_score(crate::model::MATE_SCORE - 1));
+        // Ordinary evaluations stay centipawns and keep their sign.
+        assert_eq!("cp 636", parser.format_score(636));
+        assert_eq!("cp -636", parser.format_score(-636));
+        assert_eq!("cp 0", parser.format_score(0));
+    }
+
+    /// End-to-end guard tying the info string to the score encoding the search
+    /// actually produces. Philidor's Legacy is a forced mate in four; Check
+    /// Extensions resolve it at nominal depth 5.
+    #[test]
+    fn info_string_reports_a_real_forced_mate_as_mate_in_four() {
+        let service = crate::service::Service::new();
+        let mut board = service.fen.set_fen("r6k/6pp/8/6N1/8/1Q6/8/6K1 w - - 0 1");
+        let config = crate::config::Config::for_tests();
+        let mut stats = Stats::default();
+
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = std::sync::Arc::new(crate::model::EngineState {
+            stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(std::sync::Arc::new(
+                crate::zobrist::ZobristTable::with_capacity(100_000))),
+            pv_nodes: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(|_| {}))),
+            log_sender: tx_log,
+        });
+
+        let result = service.search.get_moves(
+            &mut board, 5, true, &mut stats, &config, &service,
+            &engine_state, std::time::Instant::now(), None, None,
+        );
+
+        let info = service.uci_parser.get_info_str(&result, &stats);
+        assert!(info.contains("score mate 4"),
+            "a forced mate in four must be reported as `score mate 4`, got: {}", info);
+        assert!(info.starts_with("info depth 5 "),
+            "the info string must report the nominal depth, got: {}", info);
     }
 }
