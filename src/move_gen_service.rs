@@ -53,10 +53,133 @@ static KING_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
     attacks
 });
 
+/// Ray geometry between every pair of squares, used to decide legality and discovered checks
+/// without playing a move.
+struct RayTables {
+    /// The complete line through both squares when they share a rook or bishop ray, otherwise 0.
+    /// A pinned piece may move anywhere on `line[king][piece]` and nowhere else.
+    line: [[u64; 64]; 64],
+    /// The squares strictly between two squares on a shared ray, otherwise 0. Used to build the
+    /// check mask and to find the single blocker that makes a pin or a discovery candidate.
+    between: [[u64; 64]; 64],
+}
+
+static RAYS: Lazy<RayTables> = Lazy::new(|| {
+    const DIRECTIONS: [(i32, i32); 8] = [
+        (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1),
+    ];
+    let mut line = [[0u64; 64]; 64];
+    let mut between = [[0u64; 64]; 64];
+
+    for from in 0..64usize {
+        let from_file = (from % 8) as i32;
+        let from_rank = (from / 8) as i32;
+
+        for &(df, dr) in &DIRECTIONS {
+            // Walk outwards from `from` and remember the squares in order, so that the squares
+            // already passed are exactly the ones between `from` and the current square.
+            let mut forward = [0usize; 7];
+            let mut forward_len = 0;
+            let mut ray = 0u64;
+            let (mut file, mut rank) = (from_file + df, from_rank + dr);
+            while (0..8).contains(&file) && (0..8).contains(&rank) {
+                let square = (rank * 8 + file) as usize;
+                forward[forward_len] = square;
+                forward_len += 1;
+                ray |= 1u64 << square;
+                file += df;
+                rank += dr;
+            }
+
+            // The opposite direction completes the line through `from`.
+            let (mut file, mut rank) = (from_file - df, from_rank - dr);
+            while (0..8).contains(&file) && (0..8).contains(&rank) {
+                ray |= 1u64 << ((rank * 8 + file) as usize);
+                file -= df;
+                rank -= dr;
+            }
+
+            let full_line = ray | (1u64 << from);
+            let mut passed = 0u64;
+            for &to in &forward[0..forward_len] {
+                line[from][to] = full_line;
+                between[from][to] = passed;
+                passed |= 1u64 << to;
+            }
+        }
+    }
+
+    RayTables { line, between }
+});
+
+/// The complete line through `from` and `to`, or 0 when they do not share a ray.
+#[inline(always)]
+fn line_bb(from: u8, to: u8) -> u64 {
+    RAYS.line[from as usize][to as usize]
+}
+
+/// The squares strictly between `from` and `to`, or 0 when they do not share a ray.
+#[inline(always)]
+fn between_bb(from: u8, to: u8) -> u64 {
+    RAYS.between[from as usize][to as usize]
+}
+
+/// The squares from which a pawn of the given colour attacks `target`.
+#[inline(always)]
+fn pawn_check_squares(target: u8, white: bool) -> u64 {
+    let file = target % 8;
+    let mut squares = 0u64;
+    if white {
+        if file > 0 && target >= 9 {
+            squares |= 1u64 << (target - 9);
+        }
+        if file < 7 && target >= 7 {
+            squares |= 1u64 << (target - 7);
+        }
+    } else {
+        if file > 0 && target <= 56 {
+            squares |= 1u64 << (target + 7);
+        }
+        if file < 7 && target <= 54 {
+            squares |= 1u64 << (target + 9);
+        }
+    }
+    squares
+}
+
+/// Everything a node needs in order to decide legality and `gives_check` for each of its moves
+/// without ever calling `do_move`. Computed exactly once per generated node.
+pub struct NodeMasks {
+    /// Square of the king of the side to move, or 64 when that king is absent from the board.
+    king_sq: u8,
+    /// Square of the king of the side not to move, or 64 when it is absent.
+    opp_king_sq: u8,
+    /// Bitboard of the enemy king, empty when it is absent. Pre-masked so that every
+    /// `gives_check` test degrades to `false` instead of needing a guard.
+    opp_king_bb: u64,
+    /// Enemy pieces that currently attack the own king.
+    checkers: u64,
+    /// Squares a non-king move may land on: every square when not in check, the checker plus the
+    /// squares between it and the king under a single check, and nothing at all under double
+    /// check.
+    check_mask: u64,
+    /// Own pieces that are absolutely pinned against the own king. Such a piece may only move
+    /// along `line_bb(king_sq, piece_sq)`.
+    pinned: u64,
+    /// Squares from which a piece of each kind — indexed by `piece % 10`, so 0 pawn through
+    /// 5 king — would check the enemy king at the current occupancy. The king entry is always 0.
+    check_squares: [u64; 6],
+    /// Own pieces whose departure uncovers an own slider's attack on the enemy king.
+    discovery: u64,
+}
+
 pub struct MoveGenService {}
 
 impl MoveGenService {
     pub fn new() -> Self {
+        // Force the ray tables to be built on the calling thread rather than inside the search,
+        // where the first access would otherwise pay a 64 KB initialisation.
+        Lazy::force(&RAYS);
         MoveGenService {}
     }
 
@@ -76,6 +199,117 @@ impl MoveGenService {
         crate::magic::get_rook_attacks(square, occupied)
     }
 
+    /// Own pieces that are the single occupant between `target_sq` and a slider that would
+    /// otherwise attack it.
+    ///
+    /// Called twice per node with opposite arguments. Against the own king the sliders are the
+    /// enemy's and the result is the set of absolutely pinned pieces; against the enemy king the
+    /// sliders are our own and the result is the set of pieces whose departure uncovers a
+    /// discovered check.
+    fn blockers_toward(
+        &self,
+        target_sq: u8,
+        own_pieces: u64,
+        occupied: u64,
+        diagonal_sliders: u64,
+        straight_sliders: u64,
+    ) -> u64 {
+        // Sliders that would reach the target on an empty board are the only possible pinners.
+        let mut snipers = (self.get_bishop_attacks(target_sq as usize, 0) & diagonal_sliders)
+            | (self.get_rook_attacks(target_sq as usize, 0) & straight_sliders);
+
+        let mut blockers = 0u64;
+        while snipers != 0 {
+            let sniper = snipers.trailing_zeros() as u8;
+            snipers &= snipers - 1;
+
+            let occupants = between_bb(target_sq, sniper) & occupied;
+            // Exactly one piece in the way, and it has to be ours — a second blocker of either
+            // colour makes the ray irrelevant, and an enemy blocker is not ours to move.
+            if occupants.count_ones() == 1 && (occupants & own_pieces) != 0 {
+                blockers |= occupants;
+            }
+        }
+        blockers
+    }
+
+    /// Computes the per-node masks that replace `do_move`/`undo_move` during move generation.
+    pub fn compute_node_masks(&self, board: &Board) -> NodeMasks {
+        let white = board.white_to_move;
+        let occupied = board.occupied;
+
+        let (own_pieces, own_king_bb, opp_king_bb) = if white {
+            (board.white_pieces, board.bitboards[WHITE_KING], board.bitboards[BLACK_KING])
+        } else {
+            (board.black_pieces, board.bitboards[BLACK_KING], board.bitboards[WHITE_KING])
+        };
+        // `trailing_zeros` yields 64 for an empty bitboard, which is the absent-king sentinel.
+        let king_sq = own_king_bb.trailing_zeros() as u8;
+        let opp_king_sq = opp_king_bb.trailing_zeros() as u8;
+
+        let (own_bishop, own_rook, own_queen, opp_bishop, opp_rook, opp_queen) = if white {
+            (WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN)
+        } else {
+            (BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN)
+        };
+
+        let mut checkers = 0u64;
+        let mut check_mask = !0u64;
+        let mut pinned = 0u64;
+        if king_sq < 64 {
+            checkers = self.get_attackers_mask(board, white, king_sq, occupied);
+            check_mask = match checkers.count_ones() {
+                0 => !0u64,
+                1 => {
+                    // Capture the checker or interpose on the ray to it. For a knight or pawn
+                    // checker `between_bb` is empty, leaving only the capture.
+                    between_bb(king_sq, checkers.trailing_zeros() as u8) | checkers
+                }
+                // Double check: no interposition and no capture can address both, so only the
+                // king may move.
+                _ => 0u64,
+            };
+            pinned = self.blockers_toward(
+                king_sq,
+                own_pieces,
+                occupied,
+                board.bitboards[opp_bishop] | board.bitboards[opp_queen],
+                board.bitboards[opp_rook] | board.bitboards[opp_queen],
+            );
+        }
+
+        let mut check_squares = [0u64; 6];
+        let mut discovery = 0u64;
+        if opp_king_sq < 64 {
+            let target = opp_king_sq as usize;
+            check_squares[0] = pawn_check_squares(opp_king_sq, white);
+            check_squares[1] = self.get_rook_attacks(target, occupied);
+            check_squares[2] = KNIGHT_ATTACKS[target];
+            check_squares[3] = self.get_bishop_attacks(target, occupied);
+            check_squares[4] = check_squares[1] | check_squares[3];
+            check_squares[5] = 0;
+
+            discovery = self.blockers_toward(
+                opp_king_sq,
+                own_pieces,
+                occupied,
+                board.bitboards[own_bishop] | board.bitboards[own_queen],
+                board.bitboards[own_rook] | board.bitboards[own_queen],
+            );
+        }
+
+        NodeMasks {
+            king_sq,
+            opp_king_sq,
+            opp_king_bb,
+            checkers,
+            check_mask,
+            pinned,
+            check_squares,
+            discovery,
+        }
+    }
+
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(
         &self,
@@ -84,16 +318,16 @@ impl MoveGenService {
         config: &Config,
         context: &SearchContext,
         do_move_ordering: bool,
-        force_skip_validation: bool,
         valid_moves: &mut crate::model::MoveList,
     ) {
         if board.game_status != GameStatus::Normal {
             return;
         }
+        let masks = self.compute_node_masks(board);
         let mut move_list = crate::model::MoveRawList::new();
-        self.generate_moves_list_for_piece(board, 0, true, &mut move_list);
+        self.generate_moves_list_for_piece(board, 0, true, &masks, &mut move_list);
         let start_len = valid_moves.len;
-        self.get_valid_moves_from_move_list(&move_list, board, stats, config, true, context, do_move_ordering, force_skip_validation, valid_moves);
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, true, context, do_move_ordering, &masks, valid_moves);
 
         stats.add_created_capture_nodes(valid_moves.len - start_len);
     }
@@ -106,15 +340,15 @@ impl MoveGenService {
         config: &Config,
         context: &SearchContext,
         do_move_ordering: bool,
-        force_skip_validation: bool,
         valid_moves: &mut crate::model::MoveList,
     ) {
         if board.game_status != GameStatus::Normal {
             return;
         }
+        let masks = self.compute_node_masks(board);
         let mut move_list = crate::model::MoveRawList::new();
-        self.generate_moves_list_for_piece(board, 0, false, &mut move_list);
-        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, context, do_move_ordering, force_skip_validation, valid_moves);
+        self.generate_moves_list_for_piece(board, 0, false, &masks, &mut move_list);
+        self.get_valid_moves_from_move_list(&move_list, board, stats, config, false, context, do_move_ordering, &masks, valid_moves);
     }
 
     fn get_valid_moves_from_move_list(
@@ -126,7 +360,7 @@ impl MoveGenService {
         only_captures: bool,
         context: &SearchContext,
         do_move_ordering: bool,
-        force_skip_validation: bool,
+        masks: &NodeMasks,
         valid_moves: &mut crate::model::MoveList,
     ) {
         let white_turn = board.white_to_move;
@@ -194,7 +428,7 @@ impl MoveGenService {
 
             // Check for castling
             let moved_piece = board.get_piece_at(idx0);
-            if !only_captures && (moved_piece == king_value && (idx1 as i32 - idx0 as i32).abs() == 2) && !self.is_valid_castling(board, white_turn, idx1 as i32) {
+            if !only_captures && (moved_piece == king_value && (idx1 as i32 - idx0 as i32).abs() == 2) && !self.is_valid_castling(board, white_turn, idx1 as i32, masks) {
                 continue;
             }
 
@@ -222,40 +456,29 @@ impl MoveGenService {
             // Check for promotion
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0 as i32, idx1 as i32) {
                 move_turn.promotion = promotion_move.promotion;
-                self.validate_and_add_promotion_moves(
+                self.add_promotion_moves(
                     board,
-                    stats,
                     &mut move_turn,
                     config,
                     valid_moves,
                     white_turn,
-                    force_skip_validation,
+                    masks,
                 );
             } else {
-                self.validate_and_add_move(
-                    board,
-                    stats,
-                    &mut move_turn,
-                    config,
-                    valid_moves,
-                    force_skip_validation,
-                );
+                self.add_move(board, &mut move_turn, config, valid_moves, masks);
             }
         }
 
-        // Add en passant moves
+        // Add en passant moves. They are the one move type that cannot be settled by the pin and
+        // check masks, because two squares vacate at once, so each candidate gets an exact test
+        // against the occupancy it would produce.
         if !only_captures {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for opt_turn in &en_passante_turns {
                 if let Some(mut turn) = *opt_turn {
-                    self.validate_and_add_move(
-                        board,
-                        stats,
-                        &mut turn,
-                        config,
-                        valid_moves,
-                        force_skip_validation,
-                    );
+                    if self.is_en_passant_legal(board, &turn, white_turn, masks) {
+                        self.add_move(board, &mut turn, config, valid_moves, masks);
+                    }
                 }
             }
         }
@@ -289,7 +512,7 @@ impl MoveGenService {
 
         // Check GameStatus
         if valid_moves.is_empty() && !only_captures {
-            if self.is_in_check(board) {
+            if masks.checkers != 0 {
                 board.game_status = if board.white_to_move {
                     GameStatus::BlackWin
                 } else {
@@ -349,52 +572,168 @@ impl MoveGenService {
         en_passante_turns
     }
 
-    fn validate_and_add_move(
+    /// Accepts an already legal move, flags whether it gives check, and appends it.
+    ///
+    /// Legality is settled during generation by the pin and check masks, so nothing here touches
+    /// the board.
+    fn add_move(
         &self,
-        board: &mut Board,
-        _stats: &mut Stats,
+        board: &Board,
         turn: &mut Turn,
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
-        force_skip_validation: bool,
+        masks: &NodeMasks,
     ) {
-        let move_info = board.do_move(turn);
-        let mut valid = true;
-
-        let king_positions = board.get_king_positions();
-        let own_white = !board.white_to_move;
-        let own_king_sq = if own_white { king_positions.0 } else { king_positions.1 };
-        let opp_king_sq = if own_white { king_positions.1 } else { king_positions.0 };
-
-        if !force_skip_validation && own_king_sq != -1 {
-            let own_attackers = self.get_attackers_mask(board, own_white, own_king_sq as u8, board.occupied);
-            if own_attackers != 0 {
-                valid = false;
-            }
+        turn.gives_check = self.gives_check(board, turn, masks);
+        if turn.gives_check {
+            turn.rank += config.give_check_rank_bonus * 10000;
         }
-
-        if valid {
-            if opp_king_sq != -1 {
-                let opp_attackers = self.get_attackers_mask(board, !own_white, opp_king_sq as u8, board.occupied);
-                if opp_attackers != 0 {
-                    turn.gives_check = true;
-                    turn.rank += config.give_check_rank_bonus * 10000;
-                }
-            }
-            valid_moves.push(*turn);
-        }
-        board.undo_move(turn, move_info);
+        valid_moves.push(*turn);
     }
 
-    fn validate_and_add_promotion_moves(
+    /// Decides whether a move checks the enemy king without playing it.
+    ///
+    /// A check is either direct — the piece arriving on `turn.to` attacks the enemy king — or
+    /// discovered, when the departure of `turn.from` uncovers one of our own sliders. Castling
+    /// and en passant additionally move or remove a second piece and are handled explicitly.
+    fn gives_check(&self, board: &Board, turn: &Turn, masks: &NodeMasks) -> bool {
+        let opp_king_bb = masks.opp_king_bb;
+        if opp_king_bb == 0 {
+            return false;
+        }
+
+        let from = turn.from;
+        let to = turn.to;
+        let from_mask = 1u64 << from;
+        let to_mask = 1u64 << to;
+        let moved_piece = board.get_piece_at(from);
+        let is_pawn = moved_piece == 10 || moved_piece == 20;
+        let enemy_king = masks.opp_king_sq as usize;
+
+        let (own_bishop, own_rook, own_queen) = if moved_piece < 20 {
+            (WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN)
+        } else {
+            (BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN)
+        };
+
+        // En passant vacates both the origin and the captured pawn's square, so neither the
+        // precomputed check squares nor the single-square discovery test can describe it. The
+        // resulting occupancy is cheap enough to evaluate outright, and the case is rare.
+        if is_pawn && turn.promotion == 0 && to as i8 == board.field_for_en_passante {
+            let captured_sq = if moved_piece == 10 { to - 8 } else { to + 8 };
+            let occupied_after = (board.occupied ^ from_mask ^ (1u64 << captured_sq)) | to_mask;
+            let diagonal = board.bitboards[own_bishop] | board.bitboards[own_queen];
+            let straight = board.bitboards[own_rook] | board.bitboards[own_queen];
+
+            return (masks.check_squares[0] & to_mask) != 0
+                || (self.get_bishop_attacks(enemy_king, occupied_after) & diagonal) != 0
+                || (self.get_rook_attacks(enemy_king, occupied_after) & straight) != 0;
+        }
+
+        // Direct check. For a promotion the arriving piece is not the piece that left, and the
+        // vacated origin square can itself lie on the new piece's ray to the enemy king — a pawn
+        // promoting on e8 with the enemy king on e1 blocks its own queen in a table built at the
+        // pre-move occupancy — so promotions are evaluated against the post-departure occupancy.
+        let mut checks = if turn.promotion != 0 {
+            let occupied_after = board.occupied ^ from_mask;
+            let target = to as usize;
+            match turn.promotion % 10 {
+                1 => (self.get_rook_attacks(target, occupied_after) & opp_king_bb) != 0,
+                2 => (KNIGHT_ATTACKS[target] & opp_king_bb) != 0,
+                3 => (self.get_bishop_attacks(target, occupied_after) & opp_king_bb) != 0,
+                4 => {
+                    ((self.get_rook_attacks(target, occupied_after)
+                        | self.get_bishop_attacks(target, occupied_after))
+                        & opp_king_bb)
+                        != 0
+                }
+                _ => false,
+            }
+        } else {
+            // Safe at the pre-move occupancy: the only piece whose departure could open the ray
+            // between `to` and the enemy king is the mover itself, and for a slider that would
+            // mean it already attacked the enemy king, which cannot happen with us to move.
+            (masks.check_squares[(moved_piece % 10) as usize] & to_mask) != 0
+        };
+
+        // Castling also relocates a rook, which is what usually delivers the check.
+        if !checks && (moved_piece == 15 || moved_piece == 25) && (to as i8 - from as i8).abs() == 2 {
+            let rook_squares = match to {
+                6 => Some((7u8, 5u8)),
+                2 => Some((0u8, 3u8)),
+                62 => Some((63u8, 61u8)),
+                58 => Some((56u8, 59u8)),
+                _ => None,
+            };
+            if let Some((rook_from, rook_to)) = rook_squares {
+                let occupied_after = (board.occupied ^ from_mask ^ (1u64 << rook_from))
+                    | to_mask
+                    | (1u64 << rook_to);
+                checks = (self.get_rook_attacks(rook_to as usize, occupied_after) & opp_king_bb) != 0;
+            }
+        }
+
+        // Discovered check: the mover blocked one of our sliders and steps off its line. Staying
+        // on the line keeps the ray blocked, which is why the alignment test is needed.
+        if !checks
+            && (masks.discovery & from_mask) != 0
+            && (line_bb(masks.opp_king_sq, from) & to_mask) == 0
+        {
+            checks = true;
+        }
+
+        checks
+    }
+
+    /// Exact legality test for an en passant capture.
+    ///
+    /// The pin and check masks cannot express this move: it removes a pawn from a square other
+    /// than its destination, which both exposes the own king along a rank and can be the very
+    /// capture that answers a check. Both sides of that are settled here against the occupancy
+    /// the move would produce.
+    fn is_en_passant_legal(&self, board: &Board, turn: &Turn, white: bool, masks: &NodeMasks) -> bool {
+        let king_sq = masks.king_sq;
+        if king_sq >= 64 {
+            return true;
+        }
+
+        let captured_sq = if white { turn.to - 8 } else { turn.to + 8 };
+        let occupied_after = (board.occupied ^ (1u64 << turn.from) ^ (1u64 << captured_sq))
+            | (1u64 << turn.to);
+
+        let (opp_pawn, opp_knight, opp_bishop, opp_rook, opp_queen, opp_king) = if white {
+            (BLACK_PAWN, BLACK_KNIGHT, BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN, BLACK_KING)
+        } else {
+            (WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, WHITE_KING)
+        };
+
+        let diagonal = board.bitboards[opp_bishop] | board.bitboards[opp_queen];
+        if (self.get_bishop_attacks(king_sq as usize, occupied_after) & diagonal) != 0 {
+            return false;
+        }
+        let straight = board.bitboards[opp_rook] | board.bitboards[opp_queen];
+        if (self.get_rook_attacks(king_sq as usize, occupied_after) & straight) != 0 {
+            return false;
+        }
+        if (KNIGHT_ATTACKS[king_sq as usize] & board.bitboards[opp_knight]) != 0 {
+            return false;
+        }
+        if (KING_ATTACKS[king_sq as usize] & board.bitboards[opp_king]) != 0 {
+            return false;
+        }
+        // The captured pawn is gone, so it can no longer be the piece giving check.
+        let remaining_pawns = board.bitboards[opp_pawn] & !(1u64 << captured_sq);
+        pawn_check_squares(king_sq, !white) & remaining_pawns == 0
+    }
+
+    fn add_promotion_moves(
         &self,
-        board: &mut Board,
-        stats: &mut Stats,
+        board: &Board,
         turn: &mut Turn,
         config: &Config,
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
-        force_skip_validation: bool,
+        masks: &NodeMasks,
     ) {
         let base_rank = turn.rank;
         if config.use_underpromotions {
@@ -410,7 +749,7 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, force_skip_validation);
+                self.add_move(board, turn, config, valid_moves, masks);
             }
         } else {
             let promotion_types = if white_turn { [12, 14] } else { [22, 24] };
@@ -423,17 +762,17 @@ impl MoveGenService {
                     14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
-                self.validate_and_add_move(board, stats, turn, config, valid_moves, force_skip_validation);
+                self.add_move(board, turn, config, valid_moves, masks);
             }
         }
     }
 
-    fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32) -> bool {
+    fn is_valid_castling(&self, board: &Board, white_turn: bool, target: i32, masks: &NodeMasks) -> bool {
         let check_squares: &[u8] = if white_turn {
             if target == 6 { &[5, 6] } else { &[3, 2] }
         } else if target == 62 { &[61, 62] } else { &[59, 58] };
 
-        if self.is_in_check(board) {
+        if masks.checkers != 0 {
             return false;
         }
 
@@ -490,20 +829,16 @@ impl MoveGenService {
         }
     }
 
-    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32, only_captures: bool, moves: &mut crate::model::MoveRawList) {
+    /// Generates the legal moves of one side directly from the bitboards.
+    ///
+    /// The moves produced are legal by construction: `masks.check_mask` restricts every non-king
+    /// move to a square that answers an existing check, `masks.pinned` restricts a pinned piece
+    /// to the line it is pinned on, and king moves are tested against the enemy attack set with
+    /// the king itself lifted out of the occupancy. Nothing here plays a move.
+    pub fn generate_moves_list_for_piece(&self, board: &Board, idx: i32, only_captures: bool, masks: &NodeMasks, moves: &mut crate::model::MoveRawList) {
         let white = board.white_to_move;
-        let king_sq = if white {
-            board.bitboards[WHITE_KING].trailing_zeros()
-        } else {
-            board.bitboards[BLACK_KING].trailing_zeros()
-        } as u8;
-
-        let double_check = if king_sq < 64 {
-            let attackers_mask = self.get_attackers_mask(board, white, king_sq, board.occupied);
-            attackers_mask.count_ones() > 1
-        } else {
-            false
-        };
+        let king_sq = masks.king_sq;
+        let double_check = masks.checkers.count_ones() > 1;
 
         let own_pieces = if white { board.white_pieces } else { board.black_pieces };
         let opp_pieces = if white { board.black_pieces } else { board.white_pieces };
@@ -516,11 +851,7 @@ impl MoveGenService {
             own_pieces
         };
 
-        let opp_king_sq = if white {
-            board.bitboards[BLACK_KING].trailing_zeros()
-        } else {
-            board.bitboards[WHITE_KING].trailing_zeros()
-        } as usize;
+        let opp_king_sq = masks.opp_king_sq as usize;
 
         while piece_mask != 0 {
             let sq = piece_mask.trailing_zeros() as u8;
@@ -535,19 +866,35 @@ impl MoveGenService {
                 continue;
             }
 
+            // Squares this piece may legally land on. The king is excluded: it is not subject to
+            // the check mask — it can step off the ray rather than block it — and it cannot be
+            // pinned, so its moves are filtered individually below.
+            let legal_mask = if sq == king_sq {
+                !0u64
+            } else if (masks.pinned & (1u64 << sq)) != 0 {
+                masks.check_mask & line_bb(king_sq, sq)
+            } else {
+                masks.check_mask
+            };
+
             match piece {
                 10 | 20 => {
                     let rank = sq / 8;
                     let file = sq % 8;
+                    // The four pawn cases stay separate rather than becoming one target
+                    // bitboard: their emission order — single push, double push, capture left,
+                    // capture right — is part of the move ordering the search sees.
                     if white {
                         if !only_captures {
                             let to = sq + 8;
                             if to < 64 && (occupied & (1u64 << to)) == 0 {
-                                moves.push(sq as i32);
-                                moves.push(to as i32);
+                                if (legal_mask & (1u64 << to)) != 0 {
+                                    moves.push(sq as i32);
+                                    moves.push(to as i32);
+                                }
                                 if rank == 1 {
                                     let to_double = sq + 16;
-                                    if (occupied & (1u64 << to_double)) == 0 {
+                                    if (occupied & (1u64 << to_double)) == 0 && (legal_mask & (1u64 << to_double)) != 0 {
                                         moves.push(sq as i32);
                                         moves.push(to_double as i32);
                                     }
@@ -556,14 +903,14 @@ impl MoveGenService {
                         }
                         if file > 0 {
                             let to = sq + 7;
-                            if to < 64 && (opp_pieces & (1u64 << to)) != 0 {
+                            if to < 64 && (opp_pieces & (1u64 << to)) != 0 && (legal_mask & (1u64 << to)) != 0 {
                                 moves.push(sq as i32);
                                 moves.push(to as i32);
                             }
                         }
                         if file < 7 {
                             let to = sq + 9;
-                            if to < 64 && (opp_pieces & (1u64 << to)) != 0 {
+                            if to < 64 && (opp_pieces & (1u64 << to)) != 0 && (legal_mask & (1u64 << to)) != 0 {
                                 moves.push(sq as i32);
                                 moves.push(to as i32);
                             }
@@ -572,11 +919,13 @@ impl MoveGenService {
                         if !only_captures {
                             let to = sq - 8;
                             if (occupied & (1u64 << to)) == 0 {
-                                moves.push(sq as i32);
-                                moves.push(to as i32);
+                                if (legal_mask & (1u64 << to)) != 0 {
+                                    moves.push(sq as i32);
+                                    moves.push(to as i32);
+                                }
                                 if rank == 6 {
                                     let to_double = sq - 16;
-                                    if (occupied & (1u64 << to_double)) == 0 {
+                                    if (occupied & (1u64 << to_double)) == 0 && (legal_mask & (1u64 << to_double)) != 0 {
                                         moves.push(sq as i32);
                                         moves.push(to_double as i32);
                                     }
@@ -585,14 +934,14 @@ impl MoveGenService {
                         }
                         if file > 0 {
                             let to = sq - 9;
-                            if (opp_pieces & (1u64 << to)) != 0 {
+                            if (opp_pieces & (1u64 << to)) != 0 && (legal_mask & (1u64 << to)) != 0 {
                                 moves.push(sq as i32);
                                 moves.push(to as i32);
                             }
                         }
                         if file < 7 {
                             let to = sq - 7;
-                            if (opp_pieces & (1u64 << to)) != 0 {
+                            if (opp_pieces & (1u64 << to)) != 0 && (legal_mask & (1u64 << to)) != 0 {
                                 moves.push(sq as i32);
                                 moves.push(to as i32);
                             }
@@ -600,7 +949,7 @@ impl MoveGenService {
                     }
                 }
                 12 | 22 => {
-                    let mut targets = KNIGHT_ATTACKS[sq as usize] & target_mask;
+                    let mut targets = KNIGHT_ATTACKS[sq as usize] & target_mask & legal_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -609,7 +958,7 @@ impl MoveGenService {
                     }
                 }
                 13 | 23 => {
-                    let mut targets = self.get_bishop_attacks(sq as usize, occupied) & target_mask;
+                    let mut targets = self.get_bishop_attacks(sq as usize, occupied) & target_mask & legal_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -618,7 +967,7 @@ impl MoveGenService {
                     }
                 }
                 11 | 21 => {
-                    let mut targets = self.get_rook_attacks(sq as usize, occupied) & target_mask;
+                    let mut targets = self.get_rook_attacks(sq as usize, occupied) & target_mask & legal_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -629,7 +978,7 @@ impl MoveGenService {
                 14 | 24 => {
                     let bishop_attacks = self.get_bishop_attacks(sq as usize, occupied);
                     let rook_attacks = self.get_rook_attacks(sq as usize, occupied);
-                    let mut targets = (bishop_attacks | rook_attacks) & target_mask;
+                    let mut targets = (bishop_attacks | rook_attacks) & target_mask & legal_mask;
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
                         moves.push(sq as i32);
@@ -642,10 +991,16 @@ impl MoveGenService {
                     if opp_king_sq < 64 {
                         targets &= !KING_ATTACKS[opp_king_sq];
                     }
+                    // The king is lifted out of the occupancy before the attack test, otherwise
+                    // it would shield the square it is stepping onto from the very slider that
+                    // is checking it — the classic "king retreats along the ray" bug.
+                    let occupied_without_king = occupied ^ (1u64 << sq);
                     while targets != 0 {
                         let to = targets.trailing_zeros() as u8;
-                        moves.push(sq as i32);
-                        moves.push(to as i32);
+                        if self.get_attackers_mask(board, white, to, occupied_without_king) == 0 {
+                            moves.push(sq as i32);
+                            moves.push(to as i32);
+                        }
                         targets &= targets - 1;
                     }
 
@@ -1000,7 +1355,7 @@ mod tests {
                         };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, &mut move_list);
         move_list.as_slice().to_vec()
     }
 
@@ -1026,7 +1381,7 @@ mod tests {
                         };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list_capture(board, &mut Stats::new(), &config, &context, true, &mut move_list);
         move_list.as_slice().to_vec()
     }
 
@@ -1123,7 +1478,8 @@ mod tests {
         // Test: Standard starting position
         let board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         let mut raw_moves = crate::model::MoveRawList::new();
-        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
+        let masks = move_gen_service.compute_node_masks(&board);
+        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_moves);
         let moves: Vec<i32> = raw_moves.moves[0..raw_moves.len].iter().map(|&x| x as i32).collect();
 
         let expected_moves_mailbox = vec![
@@ -1142,10 +1498,14 @@ mod tests {
         // Test: White in check and only a few moves are available for the king
         let board = fen_service.set_fen("rnbqk2r/pppp1ppp/4p3/8/1b6/3P1n1B/PPP1PPPP/RNBQK1NR w KQkq - 0 1");
         let mut raw_moves_in_check = crate::model::MoveRawList::new();
-        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves_in_check);
+        let masks = move_gen_service.compute_node_masks(&board);
+        move_gen_service.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_moves_in_check);
         let moves_in_check: Vec<i32> = raw_moves_in_check.moves[0..raw_moves_in_check.len].iter().map(|&x| x as i32).collect();
 
-        let expected_moves_in_check_mailbox = vec![95, 84, 95, 96];
+        // Double check from the b4 bishop and the f3 knight, so only the king may move. e1-d2 is
+        // covered by both checkers and never appears: raw generation is legal by construction and
+        // no longer emits king moves onto attacked squares.
+        let expected_moves_in_check_mailbox = vec![95, 96];
         let mut expected_moves_in_check: Vec<i32> = expected_moves_in_check_mailbox.into_iter().map(m2l).collect();
         let mut sorted_moves_in_check = moves_in_check.clone();
         sorted_moves_in_check.sort();
@@ -1397,7 +1757,7 @@ mod tests {
                         };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         let first_turn = turns.get(0).unwrap();
 
@@ -1432,7 +1792,7 @@ mod tests {
 
         
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         assert_eq!(38, turns.len());
 
@@ -1443,7 +1803,7 @@ mod tests {
         assert_eq!(true, board._black_king_on_board);
         assert_eq!(GameStatus::BlackWin, board.game_status);
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list(board, &mut Stats::new(), &config, &context, true, &mut move_list);
         let turns = move_list.as_slice().to_vec();
         assert_eq!(0, turns.len());
         board.undo_move(&turn, mi);
@@ -1511,31 +1871,62 @@ mod tests {
         opponent_moves
     }
 
-    fn perft_fast(movegen: &MoveGenService, board: &mut Board, depth: usize, config: &Config, context: &SearchContext) -> u64 {
+    /// Walks the complete move tree and verifies the generator against the definition of
+    /// legality and check that it replaced: play the move, then look at whether the mover left
+    /// its own king attacked and whether the enemy king ends up attacked.
+    ///
+    /// This is the exhaustive form of the `do_move`/`undo_move` validation the generator
+    /// performed inline until v0.31.0, and it is the load-bearing test for this change. Perft
+    /// node counts alone cannot catch a wrong `gives_check`, because the flag does not alter the
+    /// number of nodes — but it does steer five pruning stages in the search.
+    fn perft_verified(movegen: &MoveGenService, board: &mut Board, depth: usize, config: &Config, context: &SearchContext) -> u64 {
         if depth == 0 {
             return 1;
         }
 
-        let mut nodes = 0;
         let mut move_list = crate::model::MoveList::new();
-        movegen.generate_valid_moves_list(board, &mut Stats::new(), config, context, true, false, &mut move_list);
+        movegen.generate_valid_moves_list(board, &mut Stats::new(), config, context, true, &mut move_list);
 
+        let mut nodes = 0;
         for i in 0..move_list.len {
             let turn = move_list.moves[i];
-            let mi = board.do_move(&turn);
-            nodes += perft_fast(movegen, board, depth - 1, config, context);
-            board.undo_move(&turn, mi);
+            let move_info = board.do_move(&turn);
+
+            let (white_king, black_king) = board.get_king_positions();
+            let mover_is_white = !board.white_to_move;
+            let own_king = if mover_is_white { white_king } else { black_king };
+            let opp_king = if mover_is_white { black_king } else { white_king };
+
+            assert!(
+                own_king == -1
+                    || movegen.get_attackers_mask(board, mover_is_white, own_king as u8, board.occupied) == 0,
+                "illegal move {} accepted by the generator",
+                turn.to_algebraic()
+            );
+
+            let expected_check = opp_king != -1
+                && movegen.get_attackers_mask(board, !mover_is_white, opp_king as u8, board.occupied) != 0;
+            assert_eq!(
+                turn.gives_check,
+                expected_check,
+                "wrong gives_check on {}",
+                turn.to_algebraic()
+            );
+
+            nodes += perft_verified(movegen, board, depth - 1, config, context);
+            board.undo_move(&turn, move_info);
         }
 
         nodes
     }
 
-    #[test]
-    #[ignore]
-    fn perft_startpos_test() {
+    /// Runs `perft_verified` over a list of `(fen, depth, expected_nodes)` cases.
+    fn run_perft_suite(cases: &[(&str, usize, u64)]) {
         let service = Service::new();
-        let mut board = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        let config = Config::for_tests();
+        let mut config = Config::for_tests();
+        // Perft counts every legal move; the search-time move cap would silently drop some.
+        config.truncate_bad_moves = 256;
+
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
@@ -1554,43 +1945,68 @@ mod tests {
             root_depth: 0,
         };
 
-        assert_eq!(perft_fast(&service.move_gen, &mut board, 1, &config, &context), 20);
-        assert_eq!(perft_fast(&service.move_gen, &mut board, 2, &config, &context), 400);
-        assert_eq!(perft_fast(&service.move_gen, &mut board, 3, &config, &context), 8902);
-        assert_eq!(perft_fast(&service.move_gen, &mut board, 4, &config, &context), 197281);
+        for &(fen, depth, expected) in cases {
+            let mut board = service.fen.set_fen(fen);
+            let start = std::time::Instant::now();
+            let nodes = perft_verified(&service.move_gen, &mut board, depth, &config, &context);
+            assert_eq!(nodes, expected, "perft({}) mismatch for {}", depth, fen);
+            println!("perft({}) = {:>10} in {:>8.3?}  {}", depth, nodes, start.elapsed(), fen);
+        }
     }
 
+    /// The six standard perft positions, at depths that keep the default suite fast. Every move
+    /// generated along the way is checked for legality and for a correct `gives_check` flag.
+    #[test]
+    fn perft_verified_standard_positions_test() {
+        run_perft_suite(&[
+            ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 3, 8902),
+            ("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3, 97862),
+            ("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 4, 43238),
+            ("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 3, 9467),
+            ("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 3, 62379),
+            ("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10", 2, 2079),
+        ]);
+    }
+
+    /// The full sweep. Slow, and mandatory before a release: run with `cargo test -- --ignored`.
+    ///
+    /// The first block is the six standard positions at full depth. The second is the published
+    /// TalkChess special-case suite, which targets exactly the move types that the pin and check
+    /// masks cannot settle on their own — en passant that is pinned along a rank or that answers
+    /// a check, castling into or out of an attacked square, and promotions that give check.
     #[test]
     #[ignore]
-    fn perft_kiwipete_test() {
-        let service = Service::new();
-        let mut board = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-        let config = Config::for_tests();
-        let zobrist_table = ZobristTable::with_capacity(1);
-        let stop_flag = std::sync::atomic::AtomicBool::new(false);
-        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
-        let context = SearchContext {
-            zobrist_table: &zobrist_table,
-            stop_flag: &stop_flag,
-            pv_nodes: &pv_nodes,
-            killer_moves: [None; 2],
-            history_table: &history_table,
-            counter_move: None,
-            start_time: std::time::Instant::now(),
-            target_time: None,
-            root_moves_total: 0,
-            root_moves_searched: 0,
-            root_depth: 0,
-        };
+    fn perft_verified_deep_sweep_test() {
+        run_perft_suite(&[
+            ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4865609),
+            ("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 4, 4085603),
+            ("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 6, 11030083),
+            ("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 5, 15833292),
+            ("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 4, 2103487),
+            ("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10", 4, 3894594),
 
-        let start = std::time::Instant::now();
-        let nodes = perft_fast(&service.move_gen, &mut board, 4, &config, &context);
-        let elapsed = start.elapsed();
-        println!("Kiwipete Perft(4) = {} nodes in {:.3?}", nodes, elapsed);
-        assert_eq!(nodes, 4085603);
+            // Illegal en passant: the capture would expose the king along the rank.
+            ("3k4/3p4/8/K1P4r/8/8/8/8 b - - 0 1", 6, 1134888),
+            ("8/8/4k3/8/2p5/8/B2P2K1/8 w - - 0 1", 6, 1015133),
+            // En passant that checks the opponent.
+            ("8/8/1k6/2b5/2pP4/8/5K2/8 b - d3 0 1", 6, 1440467),
+            // Castling that gives check, on both wings.
+            ("5k2/8/8/8/8/8/8/4K2R w K - 0 1", 6, 661072),
+            ("3k4/8/8/8/8/8/8/R3K3 w Q - 0 1", 6, 803711),
+            // Castling rights and castling prevented by attacked transit squares.
+            ("r3k2r/1b4bq/8/8/8/8/7B/R3K2R w KQkq - 0 1", 4, 1274206),
+            ("r3k2r/8/3Q4/8/8/5q2/8/R3K2R b KQkq - 0 1", 4, 1720476),
+            // Promotion out of check, and promotions that give check.
+            ("2K2r2/4P3/8/8/8/8/8/3k4 w - - 0 1", 6, 3821001),
+            ("8/8/1P2K3/8/2n5/1q6/8/5k2 b - - 0 1", 5, 1004658),
+            ("4k3/1P6/8/8/8/8/K7/8 w - - 0 1", 6, 217342),
+            ("8/P1k5/K7/8/8/8/8/8 w - - 0 1", 6, 92683),
+            // Stalemate and checkmate detection at the leaves.
+            ("K1k5/8/P7/8/8/8/8/8 w - - 0 1", 6, 2217),
+            ("8/k1P5/8/1K6/8/8/8/8 w - - 0 1", 7, 567584),
+            ("8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1", 4, 23527),
+        ]);
     }
-
     #[test]
     fn underpromotions_config_test() {
         let service = Service::new();
@@ -1619,7 +2035,7 @@ mod tests {
                         };
 
         let mut move_list = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, &mut move_list);
         
         let mut promotions = vec![];
         for turn in move_list.as_slice() {
@@ -1632,7 +2048,7 @@ mod tests {
 
         config.use_underpromotions = false;
         let mut move_list_disabled = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list_disabled);
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, &mut move_list_disabled);
 
         let mut promotions_disabled = vec![];
         for turn in move_list_disabled.as_slice() {
@@ -1672,7 +2088,7 @@ mod tests {
         let mut board = fen_service.set_fen("6k1/8/8/2b5/8/8/6PP/5RqK w - - 0 1");
         
         let mut move_list = crate::model::MoveList::new();
-        move_gen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+        move_gen_service.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, &mut move_list);
 
         assert_eq!(move_list.len, 1, "Expected exactly 1 legal move in this position!");
         let mv = move_list.as_slice()[0].to_algebraic();
@@ -1738,7 +2154,8 @@ mod tests {
         for fen in fens {
             let board = service.fen.set_fen(fen);
             let mut raw_moves = crate::model::MoveRawList::new();
-            service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
+            let masks = service.move_gen.compute_node_masks(&board);
+            service.move_gen.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_moves);
             assert!(raw_moves.len > 0, "Move generation produced no moves for FEN: {}", fen);
             assert_eq!(raw_moves.len % 2, 0, "Move list length must be even (from/to pairs)");
         }
@@ -1750,7 +2167,8 @@ mod tests {
         // Kings on e4 (28) and e6 (44). White King on e4 should not be allowed to move to e5 (36), d5 (35), or f5 (37).
         let board = service.fen.set_fen("8/8/4k3/8/4K3/8/8/8 w - - 0 1");
         let mut raw_moves = crate::model::MoveRawList::new();
-        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_moves);
+        let masks = service.move_gen.compute_node_masks(&board);
+        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_moves);
         for i in (0..raw_moves.len).step_by(2) {
             let from = raw_moves.moves[i];
             let to = raw_moves.moves[i + 1];
@@ -1758,6 +2176,102 @@ mod tests {
                 assert!(to != 35 && to != 36 && to != 37, "King move to illegal adjacent king square {} was generated", to);
             }
         }
+    }
+
+    /// Finds a move by its algebraic notation, failing with the full move list when absent.
+    fn find_move(moves: &[Turn], notation: &str) -> Turn {
+        *moves
+            .iter()
+            .find(|m| m.to_algebraic() == notation)
+            .unwrap_or_else(|| {
+                let generated: Vec<String> = moves.iter().map(|m| m.to_algebraic()).collect();
+                panic!("{} was not generated; got {:?}", notation, generated)
+            })
+    }
+
+    fn has_move(moves: &[Turn], notation: &str) -> bool {
+        moves.iter().any(|m| m.to_algebraic() == notation)
+    }
+
+    /// A king in check may not retreat along the ray of the slider checking it. The square behind
+    /// the king only looks safe while the king is still standing in the way, which is why the
+    /// attack test lifts it out of the occupancy.
+    #[test]
+    fn king_may_not_retreat_along_the_checking_ray_test() {
+        let service = Service::new();
+        // White king e2, black rook e8: the king is in check along the e-file.
+        let mut board = service.fen.set_fen("4r3/8/8/8/8/8/4K3/8 w - - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(!has_move(&moves, "e2e1"), "retreating to e1 stays on the rook's file");
+        assert!(!has_move(&moves, "e2e3"), "advancing to e3 stays on the rook's file");
+        assert!(has_move(&moves, "e2d2") && has_move(&moves, "e2f2"), "sideways escapes are legal");
+        assert_eq!(moves.len(), 6, "only the six squares off the e-file are legal");
+    }
+
+    /// En passant can be the very capture that answers a check, in which case the destination
+    /// square is not on the check mask at all — the checker stands next to it.
+    #[test]
+    fn en_passant_may_capture_the_checking_pawn_test() {
+        let service = Service::new();
+        // Black has just played d7-d5, checking the white king on e4 from d5.
+        let mut board = service.fen.set_fen("4k3/8/8/3pP3/4K3/8/8/8 w - d6 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(has_move(&moves, "e5d6"), "exd6 e.p. removes the checking pawn and is legal");
+    }
+
+    /// The horizontal en passant pin: the capture clears two squares from the rank at once and
+    /// exposes the own king to a rook that neither square alone would have exposed.
+    #[test]
+    fn en_passant_exposing_the_king_along_the_rank_test() {
+        let service = Service::new();
+        // White king a5, white pawn c5, black pawn d5, black rook h5, all on the fifth rank.
+        let mut board = service.fen.set_fen("3k4/8/8/K1Pp3r/8/8/8/8 w - d6 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(!has_move(&moves, "c5d6"), "cxd6 e.p. would open the rank onto the king");
+        assert!(has_move(&moves, "c5c6"), "the ordinary push stays legal");
+    }
+
+    /// A promoting pawn stands on the very ray its new piece would check along. The check squares
+    /// are built before the pawn leaves, so the promotion has to be re-evaluated without it.
+    #[test]
+    fn promotion_checks_down_the_file_it_vacates_test() {
+        let service = Service::new();
+        // White pawn e7, black king e1: the pawn itself is the only thing on the e-file.
+        let mut board = service.fen.set_fen("8/4P3/8/8/8/8/8/4k2K w - - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(find_move(&moves, "e7e8q").gives_check, "the promoted queen checks down the e-file");
+        assert!(find_move(&moves, "e7e8r").gives_check, "so does a rook");
+        assert!(!find_move(&moves, "e7e8b").gives_check, "a bishop does not");
+        assert!(!find_move(&moves, "e7e8n").gives_check, "and neither does a knight");
+    }
+
+    /// Castling delivers its check with the rook, not with the king.
+    #[test]
+    fn castling_rook_gives_check_test() {
+        let service = Service::new();
+        // White castles short; the rook lands on f1 with the black king on f8.
+        let mut board = service.fen.set_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(find_move(&moves, "e1g1").gives_check, "the rook on f1 checks along the f-file");
+    }
+
+    /// A king that stops blocking one of its own sliders delivers a discovered check.
+    #[test]
+    fn king_move_gives_discovered_check_test() {
+        let service = Service::new();
+        // White rook e1, white king e4, black king e8: the king is the only piece in the way.
+        let mut board = service.fen.set_fen("4k3/8/8/8/4K3/8/8/4R3 w - - 0 1");
+        let moves = generate_valid_moves_list(&mut board);
+
+        assert!(find_move(&moves, "e4d4").gives_check, "stepping off the file uncovers the rook");
+        assert!(find_move(&moves, "e4f3").gives_check, "so does any other square off the file");
+        assert!(!find_move(&moves, "e4e5").gives_check, "staying on the file keeps it blocked");
+        assert!(!find_move(&moves, "e4e3").gives_check, "in either direction");
     }
 
     #[test]
@@ -1777,10 +2291,12 @@ mod tests {
         // Kiwipete position
         let board = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
         let mut raw_all_moves = crate::model::MoveRawList::new();
-        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &mut raw_all_moves);
+        let masks = service.move_gen.compute_node_masks(&board);
+        service.move_gen.generate_moves_list_for_piece(&board, 0, false, &masks, &mut raw_all_moves);
 
         let mut raw_capture_moves = crate::model::MoveRawList::new();
-        service.move_gen.generate_moves_list_for_piece(&board, 0, true, &mut raw_capture_moves);
+        let masks = service.move_gen.compute_node_masks(&board);
+        service.move_gen.generate_moves_list_for_piece(&board, 0, true, &masks, &mut raw_capture_moves);
 
         assert!(raw_capture_moves.len < raw_all_moves.len, "Captures-only raw move list should be smaller than all moves list");
         assert!(raw_capture_moves.len > 0, "Captures-only list should find captures in Kiwipete position");

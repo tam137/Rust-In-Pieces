@@ -64,7 +64,7 @@ impl SearchService {
         };
 
         let mut turns = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, false, &mut turns);
+        service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, &mut turns);
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
@@ -168,7 +168,7 @@ impl SearchService {
                 };
 
                 let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                    current_alpha, current_beta, stats, config, service, &child_context, true, false, false, &mut child_pv,
+                    current_alpha, current_beta, stats, config, service, &child_context, true, false, &mut child_pv,
                     1, &mut killer_moves, &mut history_table, &mut counter_moves);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -384,7 +384,6 @@ impl SearchService {
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, is_pv: bool,
         skip_null_move: bool,
-        force_skip_validation: bool,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
@@ -541,13 +540,13 @@ impl SearchService {
                 self.minimax(
                     board, turn, reduced_depth, false,
                     beta - 1, beta, stats, config, service, context,
-                    is_pv, true, force_skip_validation, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
                 ).1
             } else {
                 self.minimax(
                     board, turn, reduced_depth, true,
                     alpha, alpha + 1, stats, config, service, context,
-                    is_pv, true, force_skip_validation, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
                 ).1
             };
 
@@ -565,7 +564,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth, white,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, force_skip_validation, &mut verify_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, true, &mut verify_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
 
                     let verify_cutoff = if white { verify_eval >= beta } else { verify_eval <= alpha };
@@ -737,9 +736,9 @@ impl SearchService {
 
             let mut turns = crate::model::MoveList::new();
             if in_check {
-                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
+                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, &mut turns);
             } else {
-                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
+                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, true, &mut turns);
             }
 
             if turns.is_empty() {
@@ -822,7 +821,7 @@ impl SearchService {
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
                 let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
-                    alpha, beta, stats, config, service, &current_context, true, false, false, &mut child_pv,
+                    alpha, beta, stats, config, service, &current_context, true, false, &mut child_pv,
                     ply + 1, killer_moves, history_table, counter_moves);
                 let min_max_eval = min_max_result.1;
                 board.undo_move(capture_turn, mi);
@@ -883,9 +882,8 @@ impl SearchService {
         }
 
         // Standard Search (depth > 0)
-        let force_skip_validation = config.skip_strong_validation;
         let mut turns = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, force_skip_validation, &mut turns);
+        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, &mut turns);
 
         // Fail-hard running score. Fail-soft was tried in v0.30.0 and reverted in v0.30.3:
         // starting the score outside the window instead of at its bound measured **-168 Elo**
@@ -1064,7 +1062,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             alpha, alpha + 1, stats, config, service, &current_context,
-                            false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval <= alpha {
                             searched = true;
@@ -1073,7 +1071,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             beta - 1, beta, stats, config, service, &current_context,
-                            false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval >= beta {
                             searched = true;
@@ -1090,28 +1088,28 @@ impl SearchService {
                             min_max_eval = self.minimax(
                                 board, current_turn, child_depth, !white,
                                 alpha, alpha + 1, stats, config, service, &current_context,
-                                false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
 
                             if min_max_eval > alpha && min_max_eval < beta {
                                 min_max_eval = self.minimax(
                                     board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
-                                    true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
                             }
                         } else {
                             min_max_eval = self.minimax(
                                 board, current_turn, child_depth, !white,
                                 beta - 1, beta, stats, config, service, &current_context,
-                                false, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
 
                             if min_max_eval < beta && min_max_eval > alpha {
                                 min_max_eval = self.minimax(
                                     board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
-                                    true, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
                             }
                         }
@@ -1119,14 +1117,14 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, child_depth, !white,
                             alpha, beta, stats, config, service, &current_context,
-                            is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
                     min_max_eval = self.minimax(
                         board, current_turn, child_depth, !white,
                         alpha, beta, stats, config, service, &current_context,
-                        is_pv, false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
                 }
             }
@@ -1988,7 +1986,6 @@ mod tests {
             &config,
             &service,
             &context,
-            false,
             false,
             false,
             &mut pv,

@@ -495,7 +495,7 @@ mod tests {
             // Generate all legal moves for the current active player.
 
             let mut move_list = MoveList::new();
-            service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, false, &mut move_list);
+            service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, &mut move_list);
 
             // Convert all generated moves to algebraic strings.
             let mut legal_moves = Vec::new();

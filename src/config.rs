@@ -37,7 +37,6 @@ pub struct Config {
     #[allow(dead_code)]
     pub game_loop: u64,
     pub smp_thread_eval_noise: i16,
-    pub skip_strong_validation: bool,
     pub max_eval_mult: f32,
     pub aggressiveness: Aggressiveness,
     pub enable_positional_cap: bool,
@@ -252,7 +251,6 @@ impl Config {
             min_thinking_time: 2,
             game_loop: 3,
             smp_thread_eval_noise: 0,
-            skip_strong_validation: false,
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
