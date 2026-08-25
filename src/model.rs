@@ -46,6 +46,10 @@ pub struct SearchContext<'a> {
     pub target_time: Option<i32>,
     pub root_moves_total: i32,
     pub root_moves_searched: i32,
+    /// Nominal depth of the current iterative deepening iteration. Search extensions
+    /// use it to derive how much of the extension budget the current path has already
+    /// consumed: without extensions `depth == root_depth - ply` holds exactly.
+    pub root_depth: i32,
 }
 
 
@@ -1638,6 +1642,7 @@ mod tests {
             target_time: None,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: 0,
         };
 
         // Assert start position

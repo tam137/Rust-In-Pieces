@@ -485,6 +485,7 @@ mod tests {
             target_time: None,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: 0,
         };
 
         for (fen, moves) in book.book_map.iter() {

@@ -95,6 +95,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "rfp_max_depth" | "rfpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.rfp_max_depth = v; },
                                     "enable_check_extension" | "enablecheckextension" => active_config.enable_check_extension = val_str.eq_ignore_ascii_case("true"),
                                     "check_extension_max_ply" | "checkextensionmaxply" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_ply = v; },
+                                    "check_extension_require_safe" | "checkextensionrequiresafe" => active_config.check_extension_require_safe = val_str.eq_ignore_ascii_case("true"),
+                                    "check_extension_budget_divisor" | "checkextensionbudgetdivisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_budget_divisor = v; },
+                                    "check_extension_min_depth" | "checkextensionmindepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_min_depth = v; },
+                                    "check_extension_max_depth" | "checkextensionmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_depth = v; },
+                                    "enable_one_reply_extension" | "enableonereplyextension" => active_config.enable_one_reply_extension = val_str.eq_ignore_ascii_case("true"),
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
                                         "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
@@ -319,6 +324,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
                         service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
@@ -449,6 +455,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 target_time: None,
                                 root_moves_total: 0,
                                 root_moves_searched: 0,
+                                root_depth: 0,
                             };
                             let mut valid_moves = crate::model::MoveList::new();
                             service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);

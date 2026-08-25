@@ -51,6 +51,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
         target_time: None,
         root_moves_total: 0,
         root_moves_searched: 0,
+        root_depth: 0,
     };
 
     println!("expected <10µs");

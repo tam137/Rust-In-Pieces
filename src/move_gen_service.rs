@@ -996,6 +996,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1021,6 +1022,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1391,6 +1393,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1422,6 +1425,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
 
         let board = &mut service.fen.set_fen("r1bqk1nr/ppp2ppp/2P5/4p3/2B5/3P1N2/PPP2PPP/RNBQb2R w kq - 0 1");
@@ -1547,6 +1551,7 @@ mod tests {
             target_time: None,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: 0,
         };
 
         assert_eq!(perft_fast(&service.move_gen, &mut board, 1, &config, &context), 20);
@@ -1576,6 +1581,7 @@ mod tests {
             target_time: None,
             root_moves_total: 0,
             root_moves_searched: 0,
+            root_depth: 0,
         };
 
         let start = std::time::Instant::now();
@@ -1609,6 +1615,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
 
         let mut move_list = crate::model::MoveList::new();
@@ -1658,6 +1665,7 @@ mod tests {
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
         
 
