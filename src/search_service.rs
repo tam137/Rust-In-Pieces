@@ -283,6 +283,11 @@ impl SearchService {
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
+        crate::search_diag::dump();
+        crate::search_diag::dump_tree(
+            search_result.stats.calculated_nodes,
+            search_result.stats.eval_nodes,
+        );
         search_result
     }
     
@@ -882,8 +887,119 @@ impl SearchService {
         }
 
         // Standard Search (depth > 0)
+        //
+        // Stage 0 of the `MovePicker` in `task.md` 1.2.2. The PV or Transposition Table move is
+        // searched before anything is generated, so a cutoff on it costs no generation, no
+        // ranking and no `MoveList` buffer initialisation. This is order-preserving and therefore
+        // leaves the tree identical: that move is ranked at 170,000 or above while every other
+        // move is bounded above by 140,000, so it always sorted first anyway.
+        //
+        // The loop below is *not* special-cased for the first move. `turns` simply starts out
+        // holding only the Stage-0 move and is refilled with the full list if the loop runs dry
+        // without a cutoff. Every pruning gate, the time check, `turn_counter`, LMR, PVS and the
+        // killer, history and counter updates then run exactly as they did before.
         let mut turns = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, &mut turns);
+        let mut node_masks: Option<crate::move_gen_service::NodeMasks> = None;
+        let mut stage0_move: Option<Turn> = None;
+        // The PV map and Transposition Table reads performed once per node. They are handed to
+        // generation so it does not repeat them, and on the refill path they additionally pin the
+        // ranking to what was read at node entry.
+        let mut ordering_lookups: Option<crate::move_gen_service::OrderingLookups> = None;
+        // The History Heuristic is the one ranking input that the first searched move's own
+        // subtree mutates. Deferring generation therefore ranks the remaining moves against a
+        // table that has moved on, which changes the quiet move order and the tree with it —
+        // measured at up to a factor of four on the searched-node count. Ranking the refilled
+        // list against the values that were live when the node was entered is what keeps the
+        // tree identical; `stage0_history_snapshot` prices that guarantee.
+        let mut history_snapshot: Option<Box<[[u32; 64]; 64]>> = None;
+        // Diagnostic only: the board as it stood when Stage 0 ran. If `undo_move` restores
+        // anything imperfectly, the refill generates from a different position than the eager
+        // path would have, and that is a pre-existing defect this release would merely expose.
+        #[cfg(feature = "search-diag")]
+        let mut board_snapshot: Option<(String, u64, String, i8, bool, bool, bool, bool)> = None;
+
+        if config.enable_tt_move_first
+            && !config.enable_one_reply_extension
+            && board.game_status == GameStatus::Normal
+        {
+            let lookups = *ordering_lookups.insert(
+                crate::move_gen_service::MoveGenService::probe_ordering_lookups(
+                    board, config, &current_context,
+                ),
+            );
+            if let Some(candidate) = lookups.candidate() {
+                let masks = node_masks.insert(service.move_gen.compute_node_masks(board));
+                if let Some(validated) = service.move_gen.build_stage0_move(
+                    board, masks, &candidate, config, &current_context,
+                ) {
+                    stage0_move = Some(validated);
+                    turns.push(validated);
+                    if config.stage0_history_snapshot {
+                        history_snapshot = Some(Box::new(unsafe { *current_context.history_table }));
+                    }
+                    #[cfg(feature = "search-diag")]
+                    {
+                        board_snapshot = Some((
+                            service.fen.get_fen(board),
+                            board.cached_hash,
+                            format!("{:?}", board.game_status),
+                            board.field_for_en_passante,
+                            board.white_possible_to_castle_short,
+                            board.white_possible_to_castle_long,
+                            board.black_possible_to_castle_short,
+                            board.black_possible_to_castle_long,
+                        ));
+                    }
+
+                    // Duplication check: generate the list Stage 0 just skipped and assert that
+                    // the move it produced is exactly the move the ranking loop would have
+                    // sorted first. Diagnostic builds only; this is the same "do the work twice
+                    // and compare" method the 1.4 profile was taken with.
+                    #[cfg(feature = "search-diag")]
+                    {
+                        let mut reference = crate::model::MoveList::new();
+                        let mut scratch = Stats::new();
+                        service.move_gen.generate_valid_moves_list_with_masks(
+                            board, &mut scratch, config, &current_context, true, masks, ordering_lookups, &mut reference,
+                        );
+                        let mut best = 0usize;
+                        for idx in 1..reference.len {
+                            if reference.moves[idx].rank > reference.moves[best].rank {
+                                best = idx;
+                            }
+                        }
+                        let expected = reference.moves[best];
+                        if reference.len == 0
+                            || expected != validated
+                            || expected.rank != validated.rank
+                            || expected.gives_check != validated.gives_check
+                        {
+                            eprintln!(
+                                "STAGE0MISMATCH fen={} stage0={}{} cap={} chk={} rank={} | \
+                                 expected={}{} cap={} chk={} rank={} | listed={}",
+                                service.fen.get_fen(board),
+                                validated.from, validated.to, validated.capture,
+                                validated.gives_check, validated.rank,
+                                expected.from, expected.to, expected.capture,
+                                expected.gives_check, expected.rank,
+                                reference.len,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if stage0_move.is_none() {
+            match node_masks.as_ref() {
+                Some(masks) => service.move_gen.generate_valid_moves_list_with_masks(
+                    board, stats, config, &current_context, true, masks, ordering_lookups, &mut turns,
+                ),
+                None => service.move_gen.generate_valid_moves_list(
+                    board, stats, config, &current_context, true, &mut turns,
+                ),
+            }
+        }
 
         // Fail-hard running score. Fail-soft was tried in v0.30.0 and reverted in v0.30.3:
         // starting the score outside the window instead of at its bound measured **-168 Elo**
@@ -901,12 +1017,23 @@ impl SearchService {
             };
         }
 
+        // Stage-0 opportunity measurement (`task.md` 1.2.2). The scan is `cfg`-gated rather
+        // than merely cheap, so the default build's search is byte-for-byte the code it was
+        // before the counters existed.
+        #[cfg(feature = "search-diag")]
+        crate::search_diag::record_interior_node(
+            turns.moves[..turns.len]
+                .iter()
+                .any(|t| t.rank >= crate::search_diag::RANK_STAGE0_FLOOR),
+            tt_move.is_some(),
+        );
+
         // One-Reply Extension. A node with a single legal move is not a branching point,
         // so the extra ply costs one node rather than a subtree. It is also the criterion
         // that keeps sacrificial forcing lines inside the horizon: the reply to a mating
         // queen sacrifice is forced, even though the sacrifice itself loses material and
         // is therefore rejected by `check_extension_require_safe`.
-        let depth = if config.enable_one_reply_extension && turns.len == 1 && may_extend {
+        let depth = if config.enable_one_reply_extension && stage0_move.is_none() && turns.len == 1 && may_extend {
             depth + 1
         } else {
             depth
@@ -915,12 +1042,95 @@ impl SearchService {
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
         let mut turn_counter = 0;
+        #[cfg(feature = "search-diag")]
+        let mut diag_first_rank: i32 = 0;
+        #[cfg(feature = "search-diag")]
+        let mut diag_first_class = crate::search_diag::MoveClass::Quiet;
         let mut child_pv = [None; 128];
         let mut searched_quiet_moves = [None; 64];
         let mut quiet_count = 0;
 
         let mut i = 0;
-        while i < turns.len {
+        // `None` while `turns` still holds only the Stage-0 move; set to that move once the full
+        // list has been generated, so the already-searched move is passed over exactly once.
+        let mut already_searched: Option<Turn> = None;
+        let mut list_is_complete = stage0_move.is_none();
+
+        loop {
+            if i >= turns.len {
+                if list_is_complete {
+                    break;
+                }
+                // Stage 0 did not produce a cutoff. Generate the full list and carry on in rank
+                // order; the Stage-0 move is in it and is skipped below.
+                list_is_complete = true;
+                already_searched = stage0_move;
+                turns.len = 0;
+                let masks = match node_masks.as_ref() {
+                    Some(masks) => masks,
+                    None => node_masks.insert(service.move_gen.compute_node_masks(board)),
+                };
+                #[cfg(feature = "search-diag")]
+                {
+                    if let Some(before) = board_snapshot.as_ref() {
+                        let now = (
+                            service.fen.get_fen(board),
+                            board.cached_hash,
+                            format!("{:?}", board.game_status),
+                            board.field_for_en_passante,
+                            board.white_possible_to_castle_short,
+                            board.white_possible_to_castle_long,
+                            board.black_possible_to_castle_short,
+                            board.black_possible_to_castle_long,
+                        );
+                        if *before != now {
+                            eprintln!("STAGE0BOARDDRIFT before={:?} after={:?}", before, now);
+                        }
+                    }
+                }
+
+                let refill_context = match history_snapshot.as_ref() {
+                    Some(snapshot) => SearchContext {
+                        zobrist_table: current_context.zobrist_table,
+                        stop_flag: current_context.stop_flag,
+                        pv_nodes: current_context.pv_nodes,
+                        killer_moves: current_context.killer_moves,
+                        history_table: &**snapshot as *const [[u32; 64]; 64],
+                        counter_move: current_context.counter_move,
+                        start_time: current_context.start_time,
+                        target_time: current_context.target_time,
+                        root_moves_total: current_context.root_moves_total,
+                        root_moves_searched: current_context.root_moves_searched,
+                        root_depth: current_context.root_depth,
+                    },
+                    None => SearchContext {
+                        zobrist_table: current_context.zobrist_table,
+                        stop_flag: current_context.stop_flag,
+                        pv_nodes: current_context.pv_nodes,
+                        killer_moves: current_context.killer_moves,
+                        history_table: current_context.history_table,
+                        counter_move: current_context.counter_move,
+                        start_time: current_context.start_time,
+                        target_time: current_context.target_time,
+                        root_moves_total: current_context.root_moves_total,
+                        root_moves_searched: current_context.root_moves_searched,
+                        root_depth: current_context.root_depth,
+                    },
+                };
+                let generation_context = &refill_context;
+
+                service.move_gen.generate_valid_moves_list_with_masks(
+                    board, stats, config, generation_context, true, masks, ordering_lookups, &mut turns,
+                );
+                i = 0;
+                // The Stage-0 move was proven legal, so the list cannot be empty here.
+                debug_assert!(!turns.is_empty(), "RIP Stage-0 move was legal but the list is empty");
+                if turns.is_empty() {
+                    break;
+                }
+                continue;
+            }
+
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
                 if turns.moves[j].rank > turns.moves[best_idx].rank {
@@ -928,6 +1138,13 @@ impl SearchService {
                 }
             }
             turns.moves.swap(i, best_idx);
+
+            if let Some(searched) = already_searched {
+                if turns.moves[i] == searched {
+                    i += 1;
+                    continue;
+                }
+            }
 
             if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
                 turns.moves[i].rank -= 100000;
@@ -984,6 +1201,26 @@ impl SearchService {
                 break;
             }
             turn_counter += 1;
+            #[cfg(feature = "search-diag")]
+            {
+                if turn_counter == 1 {
+                    diag_first_rank = current_turn.rank;
+                    diag_first_class = if current_turn.rank >= crate::search_diag::RANK_STAGE0_FLOOR {
+                        crate::search_diag::MoveClass::PvOrTt
+                    } else if current_turn.capture != 0 {
+                        crate::search_diag::MoveClass::Capture
+                    } else if current_turn.gives_check {
+                        crate::search_diag::MoveClass::QuietCheck
+                    } else if Some(*current_turn) == current_context.killer_moves[0]
+                        || Some(*current_turn) == current_context.killer_moves[1]
+                        || Some(*current_turn) == current_context.counter_move
+                    {
+                        crate::search_diag::MoveClass::KillerOrCounter
+                    } else {
+                        crate::search_diag::MoveClass::Quiet
+                    };
+                }
+            }
             if current_turn.capture == 0 && quiet_count < 64 {
                 searched_quiet_moves[quiet_count] = Some(*current_turn);
                 quiet_count += 1;
@@ -1157,6 +1394,8 @@ impl SearchService {
                 };
             }
             if beta <= alpha {
+                #[cfg(feature = "search-diag")]
+                crate::search_diag::record_cutoff(turn_counter, diag_first_rank, diag_first_class);
                 if depth > 0 && current_turn.capture == 0 {
                     // Killer Move storage
                     if Some(*current_turn) != killer_moves[ply_idx][0] {

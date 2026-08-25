@@ -14,3 +14,7 @@ chashmap = "2.2.2"
 crossbeam-queue = "0.3.12"
 rayon = "1.10.0"
 
+
+[features]
+# Stage-0 opportunity measurement for `task.md` 1.2.2. Off by default; see `src/search_diag.rs`.
+search-diag = []

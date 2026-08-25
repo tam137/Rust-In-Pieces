@@ -220,6 +220,17 @@ pub struct Config {
     /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
     /// keeps forced sequences — including sacrificial checks — inside the horizon.
     pub enable_one_reply_extension: bool,
+    /// Stage 0 of the `MovePicker` in `task.md` 1.2.2: search the PV or Transposition Table move
+    /// before generating anything, so that a cutoff on it costs no generation at all.
+    ///
+    /// Mutually exclusive with `enable_one_reply_extension`, which needs the length of the full
+    /// move list and therefore cannot be decided without generating it.
+    pub enable_tt_move_first: bool,
+    /// Whether Stage 0 snapshots the History Heuristic at node entry and ranks the deferred move
+    /// list against it. This is what makes the short-circuit leave the search tree bit-identical:
+    /// without it the first searched move's subtree has already moved the table on, the quiet
+    /// move order changes, and the tree diverges by up to a factor of four.
+    pub stage0_history_snapshot: bool,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -423,6 +434,8 @@ impl Config {
             check_extension_min_depth: 0,
             check_extension_max_depth: 0,
             enable_one_reply_extension: false,
+            enable_tt_move_first: true,
+            stage0_history_snapshot: true,
             log_path: std::sync::Arc::from(""),
         }
     }
