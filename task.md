@@ -42,14 +42,41 @@ Implement a lazy `MovePicker` struct that yields moves on demand one-by-one:
  Stage 4: Bad Captures (Captures with SEE < 0)
 ```
 
-#### 1.2.3 Zero-Allocation Board & State Tracking
-* Replace `HashMap<u64, i32>` in `Board` with a flat, stack-allocated 1D history array `history_hashes: [u64; 256]` indexed by game/search ply.
-* Remove `pv_nodes` mutex locking from the move generator inner loop.
+#### 1.2.3 Zero-Allocation Board & State Tracking — ✅ Implemented (v0.31.0)
+* `Board.move_repetition_map: HashMap<u64, i32>` is replaced by a flat, stack-allocated
+  `history_hashes: [u64; MAX_HISTORY_PLIES]` with a `history_len` cursor. `do_move` pushes one
+  `u64` and `undo_move` pops it; neither touches the heap any more.
+* Threefold repetition is detected by scanning backwards with a stride of two, bounded below by
+  `irreversible_floor` — the index of the position produced by the last capture or pawn move.
+  Nothing before it can recur, because the Zobrist hash covers material and pawn placement. Note
+  the floor is the index *of* that position and not one past it: the position a pawn move
+  produces can itself be repeated, and getting this wrong cost 22 nodes out of 17.6 million in
+  the first attempt — small enough to look like success and large enough to be a real bug.
+* **Result: 3.73 → 4.98 M nodes/s, +33.4%, on a bit-identical search tree** (14 positions,
+  104 iterations, 17,662,630 nodes on both builds). Cross-version gauntlet: +8.7 Elo against
+  v0.30.3 over 80 games and +43.7 against v0.29.1.
+
+* ~~Remove `pv_nodes` mutex locking from the move generator inner loop.~~ — **measured, and the
+  premise is wrong.** The lock is uncontended and the lookup is cheap: disabling the `pv_nodes`
+  block entirely changes throughput from 5.26 to 5.13 M nodes/s, i.e. the block is free within
+  measurement noise, and the move ordering it provides is worth more than it costs. Not worth
+  doing.
 
 ### 1.3 Acceptance & TDD Criteria
-- `[ ]` **Perft Correctness**: All standard Perft positions (Initial position, Kiwipete, Position 3, 4, 5) match exact node counts at depth 1 to 6.
-- `[ ]` **Zero Allocation**: `do_move` and `undo_move` perform zero heap allocations in release builds.
-- `[ ]` **NPS Benchmark**: Nodes per second (NPS) increases by at least 3.0x on standard midgame bench positions.
+- `[x]` **Perft Correctness**: the perft suite passes, and the stronger check also holds — the
+  v0.31.0 search is node-for-node identical to v0.30.3 at fixed depth across 14 positions.
+- `[x]` **Zero Allocation**: `do_move` and `undo_move` no longer touch the heap. The remaining
+  per-node heap traffic is in move generation, which milestone 1.2.1 addresses.
+- `[ ]` **NPS Benchmark**: 3.0x is **not** achieved and the projection should be treated as
+  unvalidated. The one component measured so far returned +33.4%; the bulk of the projected gain
+  rests on 1.2.1 and 1.2.2, neither of which has been sized.
+
+> [!NOTE]
+> Sizing 1.2.1 needs a profiler. `skip_strong_validation = true` is **not** a usable proxy: it
+> lets illegal moves into the search and the engine hangs. Until the cost of
+> `validate_and_add_move` is actually measured, the "+300% to +600% NPS" and "+150 to +250 Elo"
+> figures in the executive summary are estimates without evidence — the same class of claim that
+> produced the v0.29.0 and v0.30.0 disappointments.
 
 ---
 
@@ -210,46 +237,81 @@ costs roughly two hundred rating points.
 The bisection isolates the running-score initialisation as the sole cause; the Transposition
 Table bound reclassification that shipped in the same commit is innocent and was kept.
 
-**The mechanism is not yet understood.** Everything that can be measured deterministically looks
-healthy on the broken build: fixed-depth node counts, scores and best moves are comparable to
-v0.29.1; the mean completed depth at one second per move is identical (12.31 versus 12.40); the
-engine uses its clock normally (930ms of 1000ms) and never forfeits on time. The whole unit test
-suite passes. Whatever fail-soft breaks here only manifests over the course of a played game.
+#### Mechanism — identified
 
-##### Open investigation
+Nothing deterministic reveals the defect: fixed-depth node counts, scores, best moves and even
+the reported principal variations are comparable to v0.29.1; the mean completed depth at one
+second per move is identical (12.31 versus 12.40); the engine uses 930ms of a 1000ms budget and
+never forfeits; all 134 unit tests pass. The reason is that **every benchmark in this repository
+sends `ucinewgame` before each position and therefore searches with an empty Transposition
+Table**, while a played game accumulates entries across roughly eighty moves.
 
-Fail-soft must not be reattempted before the cause is found. A repeat of the v0.30.0 experiment
-would simply reproduce a two-hundred-point regression. The following steps are ordered so that
-each one either identifies the mechanism or eliminates a hypothesis.
+Measuring the same build twice over one fixed 60-move sequence at fixed depth — once with a
+Transposition Table cleared before every position, once with the table left to accumulate —
+isolates it. The figure is the drift between a build's own cold and warm evaluation of the very
+same position:
+
+| Build | positions drifting > 50cp | mean drift | max drift |
+| :--- | ---: | ---: | ---: |
+| fail-hard (v0.29.1) | **0 / 60** | 5.5 | **31** |
+| fail-hard, LMR disabled | 0 / 60 | 1.1 | 11 |
+| fail-soft (v0.30.0) | 2 / 60 | 16.8 | **522** |
+| fail-soft, LMR disabled | 2 / 60 | 5.0 | 120 |
+| fail-soft + LMR fail-low clamped to `alpha` | 3 / 60 | 12.4 | 266 |
+| **fail-soft + Transposition Table write clamped** | **0 / 60** | **5.0** | **37** |
+
+Fail-hard is stable to within 31 centipawns whatever the table contains. Fail-soft disagrees with
+itself by up to **five pawns** purely because the table is warm — and it then writes that
+disagreement back, so the contamination compounds across a game. The Transposition Table bound
+reclassification that shipped in the same v0.30.0 commit does not help: measured separately it
+leaves the drift unchanged at a 522cp maximum.
+
+**The damage channel is the Transposition Table write, and nothing else.** Clamping only the
+value that is *written to the table* back into the window that was actually searched — while
+still returning the unclamped fail-soft score to the parent — restores fail-hard's stability
+completely, at 0/60 positions past 50cp and a 37cp maximum. Fail-soft's out-of-window values are
+harmless as return values; they are poison once they enter a table that outlives the move.
+
+Late Move Reductions are **not** the specific culprit, although an earlier reading of the
+ablation above suggested they were. Disabling LMR improves *both* builds by a similar factor
+(fail-hard 31 → 11, fail-soft 522 → 120), so it is a general amplifier of table sensitivity
+rather than a fail-soft-specific trigger; measured as a ratio, fail-soft is 11x to 17x worse than
+fail-hard whether LMR is on or off. Clamping only the LMR fail-low result closes about a third of
+the gap, which is consistent with LMR being one contributor among several rather than the cause.
+
+**The fix is only partial in Elo terms.** The table-write clamp recovers roughly 133 of the 168
+Elo — from -168.4 against v0.29.1 down to -35.3 over 79 games, 95% CI [-97, +24], and -53.2
+against v0.30.3, 95% CI [-111, +2]. It closes the measurable contamination channel entirely and
+still does not reach parity. The residue is the fail-soft return value itself: it propagates
+through pruning stages whose decisions were only ever sound against a clamped score, and it
+reshapes the tree its parent searches. On the present evidence fail-soft's *benefit* in this
+engine is somewhere between zero and slightly negative even once its poison is removed.
+
+##### Remaining work, should fail-soft be attempted again
+
+The cold-versus-warm drift measurement above is the cheap, deterministic gate: it exposed in
+minutes what four 1000-game matches could not. Any retry must keep it at fail-hard levels
+(0 positions drifting past 50cp, maximum in the low tens) *before* a single game is played.
 
 * **Tasks**:
-    - `[ ]` **H1 — Transposition Table contamination compounding across a game.** The leading
-      hypothesis, and the only one that explains why every deterministic measurement looks
-      healthy: every benchmark in this repository sends `ucinewgame` before each position and
-      therefore searches with an empty table, while a real game accumulates entries across
-      roughly eighty moves. A first probe comparing a cold against a warm table on a single
-      position did not discriminate, so the hypothesis is open rather than refuted. Test it
-      properly by replaying a full recorded game move by move through one engine process without
-      `ucinewgame`, on a fail-soft and a fail-hard build, and comparing the evaluation and best
-      move at every move number. A divergence that grows with move number confirms H1.
-    - `[ ]` **H2 — `best_move` stored at fail-low nodes.** Under fail-hard the running score
-      starts at `alpha`, so no move ever beats it at a fail-low node and `best_move` stays `None`;
-      the Transposition Table entry is written with `best_move: 0`. Under fail-soft the score
-      starts at the sentinel, so the *first move searched* always becomes `best_move` and is
-      written into the table, where a later probe promotes it to rank `1_000_000` ahead of every
-      other move. Isolate by building fail-soft with `best_move` updated only when the move
-      actually beats `alpha` (or `beta` for Black), then gauntlet against v0.30.3.
-    - `[ ]` **H3 — mate-magnitude scores entering the table.** Fail-hard clamps the returned score
-      to the window, so a mate score found deep in a subtree cannot be stored at a node whose
-      window excludes it. Fail-soft stores it, and `stored_eval` then passes through the
-      `> 30000` / `< -30000` mate normalisation with the *storing* node's ply. On a later probe
-      from a different ply the de-normalisation restores a wrong mate distance. Isolate by
-      building fail-soft with the stored score clamped into `[orig_alpha, orig_beta]` while the
-      returned score stays fail-soft, then gauntlet against v0.30.3.
-    - `[ ]` **Write a regression test from whichever hypothesis survives.** The current suite is
-      no guard at all here: all 134 tests pass on the broken build. If H1 is confirmed, the
-      natural test is a warm-table consistency assertion; if H2 or H3, an assertion on what the
-      Transposition Table write may contain.
+    - `[x]` **Mechanism identified** — the Transposition Table write is the sole damage channel.
+      Clamping it restores full stability; see `ab-ttclamp` in the table above.
+    - `[x]` **Candidate fix built and measured** — `ab-ttclamp` recovers roughly 133 of the 168
+      Elo but stops at -35.3 against v0.29.1 (79 games, 95% CI [-97, +24]). **Not shippable as
+      it stands**: the point estimate is negative against the release it would replace.
+    - `[ ]` **Resolve the residual before considering it again.** Two questions, in order. First,
+      is the remaining -35 real? 79 games resolve only about +/-60 Elo, so a run of 500 or more
+      against v0.30.3 is needed to tell a genuine small regression from noise. Second, if it is
+      real, it can only come from the fail-soft return value reshaping the parent's search, since
+      the table now sees exactly what fail-hard would have written — audit whether the pruning
+      stages that consume that value (LMR, futility, PVS null-window) remain sound against an
+      unclamped score.
+    - `[ ]` **Do not pursue "never store deeper than searched" as the fix.** It is a sound
+      principle in general, but it is not what the measurement identified here and it was never
+      shown to address this defect.
+    - `[ ]` **Write the regression test from the drift measurement.** A warm-table consistency
+      assertion is the natural form and would have caught this release: the current suite passes
+      completely on the broken build.
     - `[ ]` **Gate any retry on the cross-version gauntlet** now mandatory in
       `skills/engine_release_procedure.md`. A self-A/B cannot see this class of defect.
 
@@ -263,9 +325,14 @@ The binaries and PGNs behind the table above are kept outside the repository, in
 | `ab-bisA` | v0.29.1 plus the fail-soft initialisation only |
 | `ab-bisB` | v0.29.1 plus the bound reclassification only |
 | `ab-revert` | v0.30.2 with fail-soft reverted, identical to the released v0.30.3 |
+| `ab-fsfix` | v0.29.1 plus fail-soft plus the LMR fail-low clamp |
+| `ab-ttclamp` | v0.29.1 plus fail-soft plus the Transposition Table write clamp |
 | `ab_bisect.pgn` | the three-way bisection gauntlet |
 | `ab_revert.pgn` | the revert verification gauntlet |
 | `ab_gauntlet.pgn` | v0.30.2 against v0.28.4, v0.29.0, v0.29.1 and v0.30.0 |
+| `ab_ttclamp.pgn` | `ab-ttclamp` against v0.29.1 and v0.30.3 |
+
+The drift measurement itself is `drift.py` / `warm_tt.py` in `~/suprah-analysis-2026-08-25/`.
 
 Evaluate them per pairing, never by the scoreboard rating.
 
