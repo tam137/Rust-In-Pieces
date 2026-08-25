@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.30.1] - 2026-08-25
+
+A reporting-only patch release. Nothing in the search, the evaluation or the move generator is
+touched, so playing strength is bit-identical to v0.30.0; only what the engine *says* about its
+own search changes. All three defects were found while auditing the v0.29.0 Check Extension
+release and are unrelated to it.
+
+### Fixed
+- **`info depth` Reported the Principal Variation Length Instead of the Search Depth**:
+  - `UciParserService::get_info_str` emitted `search_result.get_depth()`, a method on
+    `SearchResult` that returns `variants.first().move_row.len()` — the number of moves in the
+    principal variation. The depth the iteration actually completed was available on the same
+    struct as `calculated_depth` and was already used correctly by the internal logger, so the
+    UCI path was the only consumer reading the wrong field.
+  - The consequence was a fabricated and non-monotonic depth in every `info` line. Searching
+    Philidor's Legacy to depth 5 reported the sequence `depth 3, 1, 1, 7` where the log showed
+    the true `2, 3, 4, 5`. Every GUI, tournament manager and log-scraping script consuming the
+    UCI stream received this value, which also silently invalidates any depth-based analysis
+    performed on engine output.
+  - `get_info_str` now reports `calculated_depth`.
+- **Mate Scores Were Emitted as Raw Centipawns over UCI**:
+  - `get_info_str` unconditionally formatted `score cp {}`, so a forced mate left the engine as
+    `score cp 32759` rather than `score mate 4`. The UCI specification requires `mate <moves>`,
+    and a GUI reading a 32759-centipawn evaluation cannot distinguish a mate from an absurd
+    material score.
+  - A `mate` conversion did exist, but only in the iterative deepening logger in
+    `src/game_handler.rs`, never on the protocol path.
+- **Mate Distance Converted With the Wrong Constant in the Search Logger**:
+  - The two logger call sites in `src/game_handler.rs` computed `mate_plies = 32001 - cp.abs()`.
+    The search encodes a checkmate as `i16::MAX - 1 - ply`, i.e. `32766 - ply`, so the correct
+    subtrahend is `32766`. With `32001` the arithmetic underflows into negative territory: a
+    mate in four (`score 32759`) was logged as `score mate -378`.
+  - Because the constant only appeared in the log and never in a test assertion, the defect was
+    invisible to the test suite and to the UCI stream alike.
+
+### Changed
+- **Single Source of Truth for Score Formatting**:
+  - Introduced `UciParserService::format_score`, which renders a side-to-move-relative score as
+    either `mate <moves>` or `cp <centipawns>`. Both logger call sites in `src/game_handler.rs`
+    and the UCI `info` path in `src/uci_parser_service.rs` now route through it, so the protocol
+    output and the log can no longer drift apart — which is exactly how the `32001` constant
+    survived unnoticed while a correct conversion existed elsewhere.
+  - Added `MATE_SCORE` (`i16::MAX - 1`) and `MATE_SCORE_THRESHOLD` (`30000`) to `src/model.rs`,
+    replacing the magic numbers that encoded the mate scale at each call site.
+- **Removed `SearchResult::get_depth`**:
+  - The method was named for a depth but returned a principal variation length, and it was the
+    direct cause of the `info depth` defect above. With its last caller corrected it became dead
+    code, and it is deleted rather than suppressed: keeping a misleadingly named accessor in the
+    API invites the same mistake again. `calculated_depth` is the field to read.
+
+### Added
+- **Regression Tests for Search Reporting** (`src/uci_parser_service.rs`):
+  - `info_string_reports_the_completed_search_depth` pins `info depth` to `calculated_depth`.
+  - `mate_scores_are_formatted_as_uci_mate_distances` covers the mate scale in both directions
+    plus ordinary centipawn scores, and would have failed against the `32001` constant.
+  - `info_string_reports_a_real_forced_mate_as_mate_in_four` runs an actual depth-5 search on
+    Philidor's Legacy and asserts the emitted info string contains `score mate 4` at `depth 5`.
+    This is the end-to-end guard the previous code lacked: it ties the reporting layer to the
+    score encoding the search genuinely produces, rather than to a hardcoded assumption about it.
+
+### Documentation
+- **`task.md` — Specification 2.2.5 Follow-Up**:
+  - Added specification 2.2.6, *Check Extension Cost Control*, recording the controlled
+    measurement of the v0.29.0 feature: **-4.9 Elo over 1000 games at 5s+100ms, 95% CI
+    [-27, +17]**, against an otherwise node-identical build with the extension disabled. The
+    feature is correct and its benefit is real — it solves more LCT II positions at every fixed
+    depth tested and resolves Philidor's Legacy a nominal ply earlier — but it costs 1.22x
+    (d9), 1.52x (d10) and 1.87x (d11) the nodes, which is **-1.14 ply** at one second per move
+    and leaves LCT II accuracy unchanged at 10/35.
+  - Recorded the mechanism: 59% of all extensions are granted to checks with `SEE < 0`, and an
+    extension spends its extra ply at the one node class where Null Move Pruning, Reverse
+    Futility Pruning and Futility Pruning are all disabled by the same `gives_check` flag, and
+    where LMR never reduces. The in-check share of interior nodes rises from 17.8% to 38.9%.
+  - Documented five open tasks: a per-path extension budget, retirement of the unreachable
+    `check_extension_max_ply` axis, a one-reply extension, restriction to early moves, and
+    extending at the root for consistency with the interior.
+  - Recorded an explicit warning that gating the extension on `see_ge(mv, 0)` is **disproven**:
+    it recovers nearly the whole cost but makes the engine fail its own smothered-mate test,
+    because `3.Qg8+` is a queen sacrifice with strongly negative SEE.
+
+
+
 ## [V0.30.0] - 2026-08-24
 
 Classified as a minor release rather than a patch: fail-soft changes the score returned by every interior node and therefore the content of every Transposition Table entry. This is a search core change, not a bug fix.

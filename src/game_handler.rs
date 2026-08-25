@@ -268,17 +268,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let mut stats_calc = stats.clone();
                             stats_calc.calculate();
                             let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
-                            let score_str = if cp.abs() > 30000 {
-                                let mate_plies = 32001 - cp.abs();
-                                let mate_moves = (mate_plies + 1) / 2;
-                                if cp > 0 {
-                                    format!("mate {}", mate_moves)
-                                } else {
-                                    format!("mate -{}", mate_moves)
-                                }
-                            } else {
-                                format!("cp {:+}", cp)
-                            };
+                            let score_str = service.uci_parser.format_score(cp);
                             let nps = if stats_calc.calc_time_ms > 0 {
                                 (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                             } else {
@@ -396,17 +386,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 let mut stats_calc = stats.clone();
                                 stats_calc.calculate();
                                 let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
-                                let score_str = if cp.abs() > 30000 {
-                                    let mate_plies = 32001 - cp.abs();
-                                    let mate_moves = (mate_plies + 1) / 2;
-                                    if cp > 0 {
-                                        format!("mate {}", mate_moves)
-                                    } else {
-                                        format!("mate -{}", mate_moves)
-                                    }
-                                } else {
-                                    format!("cp {:+}", cp)
-                                };
+                                let score_str = service.uci_parser.format_score(cp);
                                 let nps = if stats_calc.calc_time_ms > 0 {
                                     (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                                 } else {
