@@ -322,8 +322,10 @@ mod tests {
     }
 
     /// End-to-end guard tying the info string to the score encoding the search
-    /// actually produces. Philidor's Legacy is a forced mate in four; Check
-    /// Extensions resolve it at nominal depth 5.
+    /// actually produces. Philidor's Legacy is a forced mate in four, which is seven
+    /// plies, so a search without Check Extensions resolves it at nominal depth 7.
+    /// It resolved at depth 5 while Check Extensions were the default; they ship
+    /// disabled since v0.34.0 because that extra ply costs 23.7 Elo in games.
     #[test]
     fn info_string_reports_a_real_forced_mate_as_mate_in_four() {
         let service = crate::service::Service::new();
@@ -344,14 +346,14 @@ mod tests {
         });
 
         let result = service.search.get_moves(
-            &mut board, 5, true, &mut stats, &config, &service,
+            &mut board, 7, true, &mut stats, &config, &service,
             &engine_state, std::time::Instant::now(), None, None,
         );
 
         let info = service.uci_parser.get_info_str(&result, &stats);
         assert!(info.contains("score mate 4"),
             "a forced mate in four must be reported as `score mate 4`, got: {}", info);
-        assert!(info.starts_with("info depth 5 "),
+        assert!(info.starts_with("info depth 7 "),
             "the info string must report the nominal depth, got: {}", info);
     }
 }

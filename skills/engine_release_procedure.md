@@ -23,11 +23,25 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    ```bash
    # ../matt-magie/<name>.trn, mode = gauntlet, challenger listed first
    engines = <candidate>, <previous release>, <release before that>
-   time_control = 5000
+   time_control = 1000          # ALWAYS 1s + 100ms. Never longer.
    increment = 100
-   rounds = 40
+   rounds = 50                  # 100 games per pairing. Never more.
    concurrency = 9
+   openings = openings_mixed.txt
    ```
+
+   > [!IMPORTANT]
+   > **This gauntlet is a smoke test, not a measurement.** Its only job is to catch a candidate
+   > that is grossly broken — the class of defect a self-A/B cannot see. It is fixed at
+   > **1s + 100ms and 100 games per pairing**, and must not be enlarged or lengthened to make it
+   > "more accurate". At 100 games a pairing resolves to roughly +/-50 Elo, so it can see a
+   > catastrophe and nothing finer. That is the intent: a release must not wait hours on a run
+   > that was never going to price the change anyway.
+   >
+   > Pricing a change is a separate, deliberate run against the specific configuration in
+   > question, at 500 to 1000 games per pairing. Do that *before* deciding to release, not as
+   > part of releasing.
+
    Evaluate **per pairing**, never by the scoreboard rating: the Matt-Magie scoreboard is an
    iterative Bradley-Terry model normalised to a pool average of 2000, so a rating depends on
    which engines happen to be in the PGN and two ratings from different pools are not comparable.
