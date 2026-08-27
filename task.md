@@ -12,7 +12,7 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.34.0** on `master` (HCE), **v0.33.1-NNUE** on `feature/nnue-evaluation` |
+| Released | **v0.34.0** on `master` (HCE), **v0.34.0-NNUE** on `feature/nnue-evaluation` |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-16 Elo at 1000 games** per pairing, measured and confirmed honest |
 | Blocked on | nothing |
@@ -477,9 +477,9 @@ changes are ported selectively. See `skills/nnue_porting_and_release_procedure.m
   `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
   `your_turn_bonus = 18`. The `UseNNUE` UCI option is advertised as `default true`.
 * Everything else in `src/` can be taken from master wholesale.
-* **Open:** the branch is at `v0.33.1-NNUE` and is one release behind master. It has never played
-  a game at that version. A gauntlet against `suprah-0.30.0-nnue` should show a large gain, since
-  the branch carried the fail-soft regression for its whole dormancy.
-* **Open:** porting v0.34.0 means taking `enable_check_extension = false`. The measurement was made
-  on the HCE evaluation; the extension's cost is a search property and should carry over, but the
-  branch has its own LMR tuning, so confirm rather than assume.
+* **Open:** the branch is level with master at `v0.34.0-NNUE` but has not played a game since
+  `v0.30.0-nnue`. A gauntlet against `suprah-0.30.0-nnue` should show a large gain, since the
+  branch carried the fail-soft regression for its whole dormancy, and it would also confirm that
+  `enable_check_extension = false` carries over. That default was measured on the HCE evaluation:
+  the extension's cost is a search property and should transfer, but the branch has its own LMR
+  tuning, so it is confirmed rather than assumed.
