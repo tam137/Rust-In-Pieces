@@ -7,6 +7,7 @@ mod eval_service;
 mod nnue_service;
 mod config;
 mod search_service;
+mod search_diag;
 mod service;
 mod move_gen_service;
 mod book;
@@ -38,6 +39,8 @@ use model::RIP_COULDN_JOIN_THREAD;
 
 fn main() {
     crate::magic::init();
+
+
 
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();

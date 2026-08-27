@@ -2,6 +2,9 @@
 
 | Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `v0.28.2` (Eliminate redundant capture TT probe) | **2350** | 450 | 15/35 | 4/14 | 7/12 | 4/9 |
+| `v0.28.1` (Quiescence Search Transposition Table) | **2350** | 450 | 15/35 | 4/14 | 7/12 | 4/9 |
+| `v0.28.0` (Dual Lazy Eval Margins: 180 Search / 120 QS & Bound Fix) | **2260** | 360 | 12/35 | 4/14 | 5/12 | 3/9 |
 | `v0.15.3` (Re-align default lmr_divisor to 180 and update SPSA config) | **2110** | 210 | 7/35 | 3/14 | 2/12 | 2/9 |
 | `v0.15.1` (King Danger scaling revert & config cloning optimization) | **2165** | 265 | 9/35 | 3/14 | 4/12 | 2/9 |
 | `v0.15.0` (Major Positional Rewrite) | **2140** | 240 | 8/35 | 2/14 | 4/12 | 2/9 |
