@@ -14,35 +14,112 @@ measured and reversed, and two of them looked excellent on every metric except g
 | :--- | :--- |
 | Released | **v0.34.0** on `master` (HCE), **v0.34.0-NNUE** on `feature/nnue-evaluation` |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
-| Matchplay resolution | **+/-16 Elo at 1000 games** per pairing, measured and confirmed honest |
-| Blocked on | nothing |
+| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-16 at 1000**, per pairing |
+| Uncommitted | nothing — LMP and SEE pruning are merged, both disabled by default |
+| Blocked on | one gauntlet, see below. Nothing else is waiting on it. |
 
-The engine searches at roughly 6.5 M nodes/s. Milestone 1 is two-thirds delivered, Milestone 2 has
-delivered its two smallest items and disproved a third, Milestone 3 has not been started.
+The engine searches at roughly 6.5 M nodes/s. Sections 1 and 2 are built and measured; sections 3
+to 7 are not started.
 
 ### The next action
 
-**Build Late Move Pruning and SEE pruning of bad captures together, and measure them jointly.**
+**Run the gauntlet that decides whether SEE pruning ships alongside LMP — and that cross-checks
+both against the released engine.**
 
-Both are `continue` statements in the same `minimax` move loop, both are independent of everything
-else, and together they are the best Elo per line of code left in the engine. Building them
-separately would cost two measurement runs to learn less: a four-way round robin prices both
-effects *and* their interaction in a single run.
+The four-way round robin has run: 3000 games, 500 per pairing, 1000ms + 100ms,
+`openings_mixed.txt`, PGN at `../matt-magie/lmp_see.pgn`. It answered the top-line question and
+left the decomposition open.
 
-| Build | Setting |
+| Pairing | Score | Elo (paired) | 95% CI | |
+| :--- | ---: | ---: | :--- | :--- |
+| base - both | 45.1% | **-34.2** | [-58, -11] | significant |
+| base - lmp | 47.0% | -20.9 | [-43, +1] | misses by one point |
+| base - see | 52.2% | +15.3 | [-8, +39] | not significant |
+| both - lmp | 51.9% | +13.2 | [-10, +37] | **the open question** |
+| both - see | 54.1% | **+28.6** | [+6, +51] | significant |
+| lmp - see | 54.5% | **+31.4** | [+9, +53] | significant |
+
+Least-squares fit over all six pairings, base = 0: **lmp +19.7, see -8.9, both +28.9**, largest
+residual 9.2.
+
+**What is settled.** Enabling both rules is worth roughly **+34 Elo** over v0.34.0. That pairing
+excluded zero at every checkpoint of the run (-62 at 70 games, -48 at 152, -43 at 258, -36 at 354,
+-34 at 500) and is the only configuration with a proven gain. `see` alone is the weakest of the
+four and loses significantly to both `lmp` and `both`.
+
+**What is not settled: where the gain comes from.** `both - lmp` is +13.2 with the interval
+[-10, +37]. The additive prediction from the two single-feature ratings is `both = 19.7 - 8.9 =
++10.8` against a fitted +28.9, i.e. an interaction of **+18.1** — and that term is what makes
+`both` beat `lmp`. It is the noisiest quantity in the design, a difference of differences, and it
+moved +53 / +8.0 / +2.7 / +20.4 / +18.1 across the run. Do not ship on it without resolving it.
+
+**The run's own warning.** `base - lmp` read -32.4 [-62, -4] at 258 games per pairing, excluding
+zero, and fell back to -20.9 [-43, +1] by 500. A marginally significant intermediate result in
+this harness is not a result. Compare 8.2, where `check_extension_min_depth` went from +34.2 to
+-16.0 on re-measurement.
+
+**Next: a gauntlet that settles both open items at once.** `ab-both` as challenger against
+`ab-lmp`, `suprah-0.34.0` and `suprah-0.33.1`. This resolves `both - lmp` at a game count that can
+actually see +13, and delivers the cross-version gauntlet that
+`skills/engine_release_procedure.md` mandates for any change to `search_service.rs` — the whole
+round robin above is a self-A/B of four v0.34.0 derivatives and cannot, by rule 2, see a defect
+they all share.
+
+Write `../matt-magie/gauntlet_lmp.trn` and run it. All four binaries already exist in
+`../matt-magie/engines/` and need no rebuild.
+
+```
+# Does bad-capture pruning earn its place next to LMP, and does the pair survive
+# a cross-version comparison? Challenger first.
+engines = ab-both, ab-lmp, suprah-0.34.0, suprah-0.33.1
+time_control = 1000
+increment = 100
+rounds = 800                      # 1600 games per pairing; ~1.8 h at 45 games/min
+pgn = gauntlet_lmp.pgn
+engine_options = OwnBook=false, Hash=64, Threads=1
+concurrency = 9
+openings = openings_mixed.txt
+mode = gauntlet
+```
+
+Resolving +13 Elo needs roughly 1600 games: the half-width is +/-23.5 at 500, and (23.5/13)^2 * 500
+= 1634. At 1000 games it would still read about +/-16.6 and leave +13 unresolved, so 500 rounds is
+not enough for this particular question.
+
+**How to read the outcome.**
+
+| `ab-both` - `ab-lmp` comes out | Ship |
 | :--- | :--- |
-| base | v0.34.0 unchanged |
-| lmp | `enable_lmp = true` |
-| see | `enable_bad_capture_pruning = true` |
-| both | both enabled |
+| clearly positive | both flags `true` |
+| null or negative | `enable_lmp = true` only; leave `enable_bad_capture_pruning = false` |
 
-Six pairings at 500 games each, 1000ms + 100ms, `openings_mixed.txt`. Specifications are in
-sections 1 and 2 below. Expected: +20 to +60 Elo for the pair.
+Either way `ab-both` and `ab-lmp` must also beat `suprah-0.34.0` in the same run, or nothing ships
+— that pairing is the mandated cross-version check and the round robin could not provide it.
+
+**Where everything is.**
+
+| | |
+| :--- | :--- |
+| Measurement binaries | `../matt-magie/engines/ab-{base,lmp,see,both}`, versions `0.34.0-{BASE,LMP,SEE,BOTH}` |
+| Round robin config | `../matt-magie/lmp_see.trn` |
+| Round robin PGN | `../matt-magie/lmp_see.pgn`, 3000 games, `Round` tag denominator 3000 |
+| Reference releases | `../matt-magie/engines/suprah-0.34.0`, `suprah-0.33.1`, `suprah-0.33.0` |
+| Code | `src/search_service.rs` move loop; 8 tests named `test_lmp_*`, `test_bad_capture_*`, `test_pruning_rules_preserve_the_smothered_mate` |
+
+The variants differ only in two `Config` defaults, so rebuilding any of them means editing
+`src/config.rs` and `Cargo.toml` per the recipe below. A single stale line in that recipe already
+caused all four binaries to be built as `0.34.0-BASE` once and collapse into one PGN row; the
+`id name` check catches it in seconds.
+
+**Until it is decided, both flags stay `false`.** `ab-base` reproduced the released v0.34.0 node
+count on Kiwipete exactly (1,192,961 at depth 9), so the default path is untouched and nothing
+about the current `master` depends on the outcome.
 
 ### The backlog after that, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
+| 0 | Ship whatever the gauntlet decides, as v0.35.0 | 1, 2 | Code is written and tested; only the flag defaults are open |
 | 1 | Razoring at depth 1 | 3 | Small, self-contained, same move loop |
 | 2 | Singular Extensions | 4 | Largest search item; needs TT-move exclusion |
 | 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
@@ -141,13 +218,14 @@ Each of these was built, measured and reversed. The section named gives the numb
 | Check Extension, frontier only | **-26.8 Elo**, despite being the best of four axes on every non-matchplay metric | 8.2 |
 | Check Extension, deep only | **-9.7 Elo** against the unfiltered extension; the earlier +34.2 was a no-book artefact | 8.2 |
 | Check Extension, SEE material filter | Deletes the queen sacrifice in Philidor's Legacy; fails the engine's own smothered-mate test | 8.2 |
+| SEE pruning of bad captures, **on its own** | **-8.9 Elo** over 500 games. Loses significantly to LMP and to both-enabled. Shrinks the tree at every depth and buys nothing | 2 |
 | Stage-0 short-circuit of the `MovePicker` | **-9.1% throughput**, 13 of 14 positions slower, on a bit-identical tree | 8.3 |
 | Removing the `pv_nodes` mutex from move generation | The lock is uncontended and free within noise; the ordering it provides is worth more than it costs | 8.4 |
 | `skip_strong_validation` as a proxy for movegen cost | Admits illegal moves and hangs the engine. The parameter no longer exists | 8.4 |
 
 ---
 
-## 1. Late Move Pruning (LMP) — next
+## 1. Late Move Pruning (LMP) — built, disabled, decision pending
 
 `[Impact: High]` `[Complexity: Low]`
 
@@ -160,33 +238,87 @@ Pruning stages, which already run in this loop.
   $$\text{threshold}(d) = \text{lmp\_base\_moves} + 2 \cdot d^2$$
   With `lmp_base_moves = 3` and `lmp_max_depth = 4` this is 5, 11, 21, 35 quiet moves by depth.
 
-* **Tasks**:
-    - `[ ]` Add `enable_lmp: bool`, `lmp_max_depth: i32` and `lmp_base_moves: i32` to `Config`.
-    - `[ ]` Prune in the `minimax` move loop, guarded by `!turn.gives_check` and not-in-check.
-    - `[ ]` Expose all three via UCI for SPSA tuning, and **advertise the true default** — the
-      option strings in `src/threads.rs` are hardcoded literals and are not derived from
-      `Config::default()`, so they drift silently. One has already been found stale.
-    - `[ ]` Register in `tuning/parameters.json` and `tuning/groups.json`, tuned jointly with the
-      LMR and RFP depth thresholds it interacts with.
+**Delivered.** `enable_lmp` (default `false`), `lmp_max_depth` (4) and `lmp_base_moves` (3) in
+`src/config.rs`; the prune sits in the `minimax` move loop in `src/search_service.rs` just above
+Futility Pruning; UCI options `EnableLmp` / `LmpMaxDepth` / `LmpBaseMoves`; both integers
+registered in `tuning/parameters.json` and in the `search_and_ordering` and `all` groups.
 
-## 2. SEE pruning of bad captures — next, with LMP
+**Guards**, all of them load-bearing: not in check, `!is_pv`, non-capture, non-promotion,
+`!current_turn.gives_check`, and a mate-score bound on **both** `alpha` and `beta` — the existing
+Futility guard bounds only `alpha`, which is incomplete for the minimising side in this asymmetric
+`minimax`.
 
-`[Impact: High]` `[Complexity: Medium]`
-
-Captures with $SEE < 0$ are currently sorted to the end of the move list but still searched. This
-prunes the worst of them outright at low depth.
-
-* **Tasks**:
-    - `[ ]` Add `enable_bad_capture_pruning: bool` and `bad_capture_see_threshold: i16` to `Config`.
-    - `[ ]` In the `minimax` move loop, if a move is a capture, check its SEE score.
-    - `[ ]` If SEE is below a depth-dependent threshold (e.g. $SEE < -50 \cdot depth$), `continue`.
-    - `[ ]` Expose via UCI; advertise the true defaults.
+**Measured: +19.7 Elo** alone in the least-squares fit; `base - lmp` is -20.9 [-43, +1] at 500
+games, one point short of significance.
 
 > [!WARNING]
-> An SEE gate on *checks* was already tried and rejected: it deletes `3.Qg8+` of Philidor's Legacy,
-> a queen sacrifice with strongly negative SEE, and the engine fails its own smothered-mate test.
-> Pruning bad captures is a different question from pruning bad checks, but the same test is the
-> canary — run it.
+> **LMP does not reliably shrink the tree in this engine, and the sign is depth-dependent.**
+> Searched nodes on Kiwipete with the transposition table enabled move **-6.5% at depth 6, -4.9%
+> at depth 7 and +10.9% at depth 8**. The mechanism is PVS: pruning a late quiet move that would
+> have produced a beta cutoff turns a cutting node into a fail-low one, and the parent then widens
+> its null window and re-searches. LMP buys shallower subtrees at the price of occasional
+> re-searches, and which side wins depends on depth. Do not read the large drop in the UCI `nodes`
+> field as a speedup — that field counts *generated* moves (rule 4), not searched nodes.
+> `test_lmp_changes_the_tree` therefore asserts only that the rule fires.
+
+> [!NOTE]
+> **The Philidor canary belongs to LMP, not to section 2.** In `SMOTHERED_MATE_FEN` the square g8
+> is empty, so `3.Qg8+` is a *quiet* checking move and cannot reach the capture rule at all. It is
+> LMP that prunes quiet moves. Its `give_check_rank_bonus * 10000` ranks it far too early to be
+> pruned in practice; the `!gives_check` guard is what makes that a property of the rule rather
+> than of the current move ordering. `test_pruning_rules_preserve_the_smothered_mate` covers both.
+
+### 1.1 Advertised UCI defaults drift from `Config::default()` — open
+
+The option strings in `src/threads.rs` are hardcoded literals. A comparison against
+`Config::default()` finds **twelve** stale numeric defaults, not one, all from SPSA runs that
+updated `src/config.rs` and not `src/threads.rs`:
+
+| Option | Advertised | Actual | | Option | Advertised | Actual |
+| :--- | ---: | ---: | :-- | :--- | ---: | ---: |
+| `KingOpenFileMalus` | 40 | 37 | | `LazyEvalMinGamePhase` | 50 | 60 |
+| `ThreatMinorAttacksRook` | 15 | 13 | | `KnightOutpostTrueMg` | 30 | 29 |
+| `ThreatMinorAttacksQueen` | 30 | 24 | | `BishopOutpostTrueMg` | 20 | 21 |
+| `ConnectedPassedPawnEg` | 30 | 29 | | `BishopOutpostTrueEg` | 10 | 11 |
+| `KingPawnShieldKingside` | 39 | 37 | | `OppositeBishopsDrawScale` | 50 | 51 |
+| `KingPieceShieldKingside` | 16 | 15 | | `RookBehindEnemyPassedPawnEg` | 25 | 24 |
+
+No search behaviour depends on it — `scripts/apply_spsa.py` reads `tuning/parameters.json`, not the
+UCI output — so this is the facade that GUIs and third-party harnesses read, nothing more. The fix
+is to derive the strings from `Config::default()` rather than to correct twelve literals that will
+drift again.
+
+## 2. SEE pruning of bad captures — built, disabled, decision pending
+
+`[Impact: measured null on its own]` `[Complexity: Medium]`
+
+Captures with $SEE < 0$ are sorted to the end of the move list but still searched. This prunes a
+capture outright when $SEE < \text{bad\_capture\_see\_threshold} \cdot depth$. The threshold
+tightens with depth, so the rule bites near the horizon and is nearly inert in the upper tree.
+
+**Delivered.** `enable_bad_capture_pruning` (default `false`) and `bad_capture_see_threshold`
+(-50) in `src/config.rs`; UCI options `EnableBadCapturePruning` / `BadCaptureSeeThreshold`; the
+threshold registered for tuning.
+
+**It cost no extra SEE call.** The move loop already ran `see_ge(..., 0)` on each capture's first
+selection in order to demote it. That call now yields the *value* instead of a boolean and serves
+both the prune decision and the demotion. The demotion still drops the rank below zero, which is
+what keeps the branch from firing twice on the same move — preserve that if you touch it.
+
+**Measured: -8.9 Elo** alone in the least-squares fit. It loses significantly to `lmp`
+(+31.4 [+9, +53]) and to `both` (+28.6 [+6, +51]). **On its own the rule is worse than nothing at
+`bad_capture_see_threshold = -50`.** Whether it earns its place *alongside* LMP rests entirely on
+the unresolved +18.1 interaction — that is what the gauntlet decides.
+
+Unlike LMP it shrinks the tree at every depth measured: **-4.2 / -7.7 / -7.7%** at depths 6, 7, 8
+without the transposition table, **-2.8 / -7.0 / -8.4%** with it. It bought fewer nodes and no Elo,
+which is the same lesson as 8.3 from the other direction.
+
+> [!NOTE]
+> The Philidor warning that used to sit here was **filed against the wrong rule**. In
+> `SMOTHERED_MATE_FEN` the square g8 is empty, so `3.Qg8+` is a *quiet* checking move: it cannot
+> reach the capture rule at all. The rule that could delete it is LMP. See the note in section 1.
+> The `!gives_check` guard is kept here anyway, for a checking sacrifice that *is* a capture.
 
 ## 3. Razoring at depth 1
 

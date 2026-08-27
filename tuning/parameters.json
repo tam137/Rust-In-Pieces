@@ -428,5 +428,20 @@
         "value": 3,
         "min": 0,
         "max": 10
+    },
+    "lmp_max_depth": {
+        "value": 4,
+        "min": 1,
+        "max": 8
+    },
+    "lmp_base_moves": {
+        "value": 3,
+        "min": 0,
+        "max": 12
+    },
+    "bad_capture_see_threshold": {
+        "value": -50,
+        "min": -200,
+        "max": -10
     }
 }
