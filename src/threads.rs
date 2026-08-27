@@ -101,7 +101,7 @@ pub fn uci_command_processor(
                     stdout.write("option name FutilityMarginBase type spin default 120 min 0 max 500");
                     stdout.write("option name FutilityMarginSlope type spin default 80 min 0 max 300");
                     stdout.write("option name AspirationWindowMaxDelta type spin default 1000 min 50 max 30000");
-                    stdout.write("option name EnableCheckExtension type check default true");
+                    stdout.write("option name EnableCheckExtension type check default false");
                     stdout.write("option name CheckExtensionMaxPly type spin default 64 min 0 max 127");
                     stdout.write("option name CheckExtensionRequireSafe type check default false");
                     stdout.write("option name CheckExtensionBudgetDivisor type spin default 0 min 0 max 16");

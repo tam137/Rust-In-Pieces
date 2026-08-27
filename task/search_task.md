@@ -2,6 +2,10 @@
 
 This document outlines the proposed tasks for integrating advanced search tree pruning and reduction techniques into the **Suprah** engine.
 
+> Priority order, measured specifications and the record of what has already been tried and failed
+> live in [`task.md`](../task.md). LMP (#1) and SEE pruning (#3) are the current next action there
+> and are meant to be built and measured **together**.
+
 ---
 
 ## ⚠️ Configuration Principle
