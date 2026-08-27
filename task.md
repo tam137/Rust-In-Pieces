@@ -1,17 +1,143 @@
 # Suprah Engine Strength Enhancement Roadmap (`task.md`)
 
-This document defines the technical roadmap and architectural specifications for the three highest-impact performance and playing-strength enhancements for **Suprah**.
+Technical roadmap and specifications for the three highest-impact performance and playing-strength
+enhancements for **Suprah**. It is also the record of what has already been tried, including what
+failed — read "Negative results" below before proposing anything.
 
 ---
 
-## 🎯 Executive Summary & Elo Projection
+## 🧭 Start Here
 
-| Milestone | Core Domain | Architectural Focus | Expected NPS Impact | Projected Elo Gain |
-| :--- | :--- | :--- | :--- | :--- |
-| **Milestone 1** | **Move Generation & Picker** | Pseudo-legal Movegen, Staged `MovePicker`, Zero-allocation Board state | **+300% to +600% NPS** | **+150 to +250 Elo** |
-| **Milestone 2** | **Search Architecture** | Negamax Refactor, Check Extensions, Singular Extensions, LMP, QSearch TT | **-40% Branching Factor** | **+120 to +200 Elo** |
-| **Milestone 3** | **Neural Evaluation (NNUE)** | Incremental Accumulator Stack, AVX2/NEON SIMD Vectorization | **+2000% NNUE Eval Speed** | **+200 to +350 Elo** |
-| **Total** | **Combined Engine Upgrade** | **Full System Modernization** | **Multi-tier Scaling** | **+470 to +800 Elo** |
+### Where the engine is
+
+| | |
+| :--- | :--- |
+| Released | **v0.33.1** on `master` (HCE), **v0.33.1-NNUE** on `feature/nnue-evaluation` |
+| Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
+| Matchplay resolution | **+/-35 Elo at 200 games**, measured, scaling as `1/sqrt(n)` |
+| Blocked on | nothing — the measurement problem that blocked the roadmap is solved |
+
+The engine searches at roughly 6.5 M nodes/s. Milestone 1 is two-thirds delivered, Milestone 2 has
+delivered only its two smallest items, and Milestone 3 has not been started.
+
+### The next action
+
+**Decide the Check Extension defaults.** No new search code, and the result is already half
+measured: `check_extension_min_depth` (extend only at high remaining depth) measured **+34.2 Elo**
+against a disabled extension over 500 games, and **+2.8** against the release it would replace.
+Those two figures cannot both be right, which is why the harness had to be rebuilt first. Three
+configurations, 500+ games per pairing, at 1000ms + 100ms:
+
+| Build | Setting |
+| :--- | :--- |
+| off | `enable_check_extension = false` |
+| unfiltered | today's default: `min_depth = 0`, `max_depth = 0` |
+| deep | `check_extension_min_depth = 4` |
+
+Set the winner as the default and release it. Expected: +10 to +35 Elo. The same run answers the
+open transitivity question as a by-product, because all three pairings are played — see 2.2.7.
+
+### The backlog after that, in order
+
+| # | Item | Where | Why this order |
+| ---: | :--- | :--- | :--- |
+| 1 | Late Move Pruning | `task/search_task.md` #1, spec 2.2.3 | Best Elo per line of code; ~30 lines in the move loop |
+| 2 | SEE pruning of bad captures | `task/search_task.md` #3 | Cheap, independent of everything else |
+| 3 | Extend at the root | 2.2.6 open tasks | A known asymmetry, not a new feature; costs one ply of mate finding today |
+| 4 | Razoring | `task/search_task.md` #5 | Small, self-contained |
+| 5 | Singular Extensions | 2.2.2 | Largest search item; needs TT-move exclusion |
+| 6 | `MovePicker` stages 1-3 | 1.2.2 | The throughput prize, but see 1.2.2.2 before starting |
+| 7 | NNUE incremental accumulator | 3.2.1 | Only worth it once `use_nnue` is the default path |
+
+### Rules that are not optional
+
+1. **Every search change is priced by matchplay, not by depth or test-suite accuracy.** The
+   clearest evidence in this document is the frontier restriction in 2.2.6: it looked like the best
+   of four axes on fixed-time depth and measured **-26.8 Elo** in games.
+2. **A self-A/B cannot see a defect both sides share.** v0.30.0 shipped a regression of roughly
+   two hundred Elo (2.3 has the per-pairing figures) that four separate 1000-game self-A/B runs
+   could not detect, because every one of them pitted a v0.30.x build against another v0.30.x
+   build. `skills/engine_release_procedure.md`
+   mandates a cross-version gauntlet for any change to `search_service.rs`, `eval_service.rs`,
+   `move_gen_service.rs` or a search parameter default.
+3. **Read Elo per pairing, never off the scoreboard.** The Matt-Magie scoreboard is normalised to
+   a pool average, so two ratings from different PGNs are not comparable. Use
+   `scripts/pairing_elo.py`.
+4. **`nodes` and `nps` in UCI output report *generated* moves, not searched nodes.** Any change to
+   move generation moves that number for reasons unrelated to speed, and
+   `scripts/benchmark_nps.py` reads exactly that field. Measure throughput as wall time to a fixed
+   depth instead.
+5. **Prefer a node-identity check to a match wherever one exists.** Both throughput wins in
+   Milestone 1 were verified as bit-identical search trees before a single game was played, which
+   is why they needed no Elo measurement at all.
+
+### How to run a measurement
+
+```bash
+# 1. Build the variants. Matt-Magie sends ONE engine_options string to both engines, so an A/B of
+#    two configurations needs two BINARIES, not two option sets.
+#
+#    The UCI id name is built from CARGO_PKG_VERSION, so two variants built at the same version
+#    report the same name and collapse into one row in the PGN. This has already happened once.
+#    Give each variant its own version suffix:
+#
+#      - edit the default in src/config.rs
+#      - set Cargo.toml to a suffixed semver prerelease, e.g. version = "0.33.1-CE-DEEP"
+#      - cargo build --release
+#      - cp target/release/suprah ../matt-magie/engines/ab-ce-deep
+#      - restore Cargo.toml and src/config.rs
+#
+#    Do NOT use ./build_and_release.sh for throwaway variants: it is the release pipeline and it
+#    rewrites CHANGELOG.md and Cargo.toml. Plain `cargo build --release` is forbidden only for
+#    releasing the engine, not for building a measurement binary.
+
+# 2. Write ../matt-magie/<name>.trn and run it.
+#      engines = <a>, <b>[, <c>]
+#      time_control = 1000
+#      increment = 100
+#      rounds = <games per pairing / 2>
+#      concurrency = 9
+#      openings = openings_8ply.txt      # copy of openings/book_8ply.txt
+#      engine_options = OwnBook=false, Hash=64, Threads=1
+#      mode = round_robin                # or gauntlet with the challenger first
+./mm.sh -t <name>.trn
+
+# 3. Read the result per pairing. Both a paired and an unpaired interval are printed; the paired
+#    one is the honest one when an openings file was used.
+python3 scripts/pairing_elo.py ../matt-magie/<name>.pgn
+```
+
+`OwnBook=false` matters: the engine now carries a 93,000-entry book compiled into the binary and
+would otherwise play it on top of the manager's opening line. Appending to an existing PGN is safe
+— `pairing_elo.py` separates runs by the game-count denominator in the `Round` tag.
+
+### Negative results — do not repeat these
+
+Each of these was built, measured and reversed. The section named gives the numbers.
+
+| What | Result | Section |
+| :--- | :--- | :--- |
+| Fail-soft Alpha-Beta | **-168 to -209 Elo.** Cause identified: the Transposition Table write. Clamping it recovers ~133 Elo and still does not reach parity | 2.3 |
+| Stage-0 short-circuit of the `MovePicker` | **-9.1% throughput**, 13 of 14 positions slower, on a bit-identical tree | 1.2.2.2 |
+| Check Extension, frontier only | **-26.8 Elo**, despite being the best of four axes on every non-matchplay metric | 2.2.6 |
+| Check Extension, SEE material filter | Deletes the queen sacrifice in Philidor's Legacy; fails the engine's own smothered-mate test | 2.2.6 |
+| Check Extension, per-path budget | Removes only 6% of the tree; the cost is in the first extension on each path, which any budget grants | 2.2.6 |
+| Removing the `pv_nodes` mutex from move generation | The lock is uncontended and free within noise; the ordering it provides is worth more than it costs | 1.2.3 |
+| `skip_strong_validation` as a proxy for movegen cost | Admits illegal moves and hangs the engine. The parameter no longer exists | 1.4 |
+
+---
+
+## 🎯 Milestone Status
+
+Projections are from the original plan and are kept for comparison. Where a measurement exists it
+replaces the projection, and the two disagree substantially — see 1.4 for why the Milestone 1
+figure was never reachable.
+
+| Milestone | Core Domain | Projected | Measured so far |
+| :--- | :--- | :--- | :--- |
+| **Milestone 1** | Move Generation & Picker | +300% to +600% NPS, +150 to +250 Elo | **+80% NPS** delivered (1.2.1, 1.2.3). `MovePicker` open; realistic joint ceiling 2x to 2.5x |
+| **Milestone 2** | Search Architecture | -40% branching factor, +120 to +200 Elo | QSearch TT and Check Extensions delivered, the latter **Elo-neutral**. LMP, SE, Negamax refactor not started |
+| **Milestone 3** | Neural Evaluation (NNUE) | +2000% eval speed, +200 to +350 Elo | Not started. NNUE runs on full recomputation per leaf and is off by default on `master` |
 
 ---
 
@@ -456,9 +582,10 @@ the mean completed iteration over the 35-position LCT II suite at 1s per move.
       `unfiltered - disabled = -10.1`, `deep - disabled = +34.2`, and `deep - unfiltered = +2.8`,
       where transitivity demands the last figure be near +44. Matches are now played from a file
       of book-derived opening lines, one line per colour-swapped game pair.
-    - `[ ]` **Re-run the Deep Restriction** against v0.33.0 with 500+ games per pairing on the
+    - `[ ]` **Re-run the Deep Restriction** against v0.33.1 with 500+ games per pairing on the
       new harness, and set `check_extension_min_depth` from that result. The replay in 2.2.7 is
-      too small to decide it, and it is the first thing the harness should be spent on.
+      too small to decide it, and it is the first thing the harness should be spent on. This is
+      the roadmap's next action; the Start Here section carries the configuration.
     - `[ ]` **SPSA Tuning**: register the five parameters in `tuning/parameters.json` and
       `tuning/groups.json` and tune `check_extension_min_depth` jointly with the LMR and RFP
       depth thresholds it interacts with.
@@ -469,7 +596,7 @@ the mean completed iteration over the 35-position LCT II suite at 1s per move.
       depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a shallower tree
       than the interior does, which is a standing source of score instability between iterations.
 
-#### 2.2.7 Matchplay Harness — ✅ Rebuilt and validated (v0.33.0)
+#### 2.2.7 Matchplay Harness — ✅ Rebuilt and validated (v0.33.0, v0.33.1)
 
 The blocking item above was an opening book. Providing one uncovered that the engine could not
 read a book at all: `src/polyglot.rs` generated its 781 Zobrist constants from a linear
@@ -489,7 +616,15 @@ the White side only, so the Black engine ran on default `Hash`, `Threads` and `O
 match ever played, and the first `go` of a game omitted `winc`/`binc`.
 
 `scripts/pairing_elo.py` reports Elo per pairing with two intervals, the unpaired one and the
-paired one that treats an opening played with both colour assignments as a single observation.
+paired one that treats an opening played with both colour assignments as a single observation. It
+separates runs appended to the same PGN by the game-count denominator in the `Round` tag, so a
+second run does not get paired with the first.
+
+v0.33.1 settled the selection rules: `UseBook=false` disables every source, a named `BookFile`
+replaces the embedded book rather than layering on it, and a book that was asked for and cannot be
+read terminates the engine at `setoption` time rather than silently searching instead. Matchplay
+configurations set `OwnBook=false`, so none of this touches a measurement — but an engine that
+quietly stopped using its book would have looked exactly like a strength change.
 
 **Validation, all at 1000ms + 100ms with 98 eight-ply opening lines.**
 
@@ -696,22 +831,78 @@ pub struct Accumulator {
 
 ## 📋 Implementation Checklist
 
+### Phase 0: Measurement Infrastructure — complete *(v0.33.0, v0.33.1)*
+- [x] Working PolyGlot key: published 781-constant table, correct piece order, correct board
+      orientation, correct side-to-move term. Pinned against the nine published test vectors.
+- [x] `Performance.bin` embedded with `include_bytes!` and used as the default repertoire;
+      `UseBook` gates every source, a named `BookFile` replaces it, an unreadable book aborts.
+- [x] `BookMaxPly` so a test game leaves the book while the search still decides it.
+- [x] `scripts/make_opening_lines.py`, `openings/book_8ply.txt` (98 lines), and paired openings in
+      Matt-Magie via the `openings = <file>` key.
+- [x] `scripts/pairing_elo.py` — Elo per pairing with paired and unpaired intervals.
+- [x] Harness validated: null run consistent with 0 Elo, signal run reproduces the known -209.
+- [ ] **Open:** confirm the *nominal* interval is honest. Needs one run of 500+ games per pairing
+      whose pairings are mutually consistent. The Check Extension decision is that run.
+
 ### Phase 1: Move Generation & Move Picker
 - [x] Generate moves in `src/move_gen_service.rs` without `do_move`/`undo_move`, with legality and `gives_check` derived from per-node masks. *(v0.32.0)*
-- [ ] Implement `MovePicker` with staged state machine in `src/move_gen_service.rs` and `src/search_service.rs`.
 - [x] Refactor `Board` struct in `src/model.rs` to eliminate `HashMap` heap allocations. *(v0.31.0)*
 - [x] Validate with full Perft suite. *(v0.32.0, `perft_verified_deep_sweep_test`)*
+- [ ] Implement `MovePicker` with staged state machine in `src/move_gen_service.rs` and
+      `src/search_service.rs`. **Build stages 1-3 together, not incrementally** — Stage 0 alone is
+      measured negative (1.2.2.2) and the prize is the 57.2% of interior nodes that cut before a
+      quiet move is generated. Ranking must use an entry-time history snapshot or node identity is
+      not available as a verification tool.
+- [ ] Remove the five `#[allow(dead_code)]` attributes in `src/move_gen_service.rs`
+      (`is_pseudo_legal`, `is_castling_shape`, `build_stage0_move`, `stage0_rank`,
+      `white_to_move_pawns_on_seventh`) by putting them to use in the `MovePicker`. They are
+      retained deliberately, but the release procedure forbids the attribute, so the next release
+      that touches this file has to resolve it. `build_stage0_move` and `stage0_rank` mirror the
+      ranking loop in `get_valid_moves_from_move_list` with nothing enforcing that they stay in
+      step.
 
 ### Phase 2: Search Architecture Refactoring
-- [ ] Convert `SearchService::minimax` to unified `negamax` in `src/search_service.rs`.
 - [x] Implement Transposition Table probing and storage in Quiescence Search. *(v0.28.1)*
 - [x] Implement Check Extensions with a hard `MAX_PLY` termination ceiling. *(v0.29.0)*
+- [x] Expose five Check Extension axes and a per-path budget for tuning. *(v0.30.2)*
+- [ ] **Set the Check Extension defaults from matchplay.** This is the next action; see Start Here.
 - [ ] Implement Late Move Pruning (LMP) at depths $1 \le d \le 4$.
+- [ ] Implement SEE pruning of bad captures at low depth.
+- [ ] Extend at the root: `get_moves` searches every root move at `depth - 1` unconditionally, so
+      a checking move is treated differently at the root than at every other ply.
+- [ ] Implement Razoring at depth 1.
 - [ ] Implement Singular Extensions (SE) at depths $d \ge 8$.
-- [ ] Add configurable parameters to `Config` in `src/config.rs`.
+- [ ] Register the Check Extension parameters in `tuning/parameters.json` and `tuning/groups.json`
+      and tune them jointly with the LMR and RFP depth thresholds they interact with.
+- [ ] Convert `SearchService::minimax` to unified `negamax`. **Low priority**: it is a pure
+      refactor with no expected Elo, and it would touch every pruning stage at once in a file whose
+      last large change cost 209 Elo.
 
 ### Phase 3: NNUE Incremental & SIMD Pipeline
 - [ ] Add `AccumulatorStack` to `Board` and update in `do_move`/`undo_move`.
 - [ ] Implement AVX2 / NEON vector intrinsics for accumulator updates and SCReLU forward pass.
 - [ ] Validate incremental accumulator against full recomputation.
 - [ ] Set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
+
+---
+
+## 🌿 The NNUE Branch
+
+`feature/nnue-evaluation` carries its own SPSA-tuned parameters and is **never merged** — master
+changes are ported selectively. It was six releases behind until 2026-08-27 and is now level with
+master at `v0.33.1-NNUE`.
+
+* Branch-owned, never take from master: `CHANGELOG.md`, `build_and_release.sh` (only its copy
+  appends the `-nnue` binary suffix), `skills/engine_release_procedure.md`,
+  `skills/nnue_porting_and_release_procedure.md`, `src/nnue_service.rs` (it embeds the network via
+  `include_bytes!`), `src/eval_service.rs` (dead-draw guard ahead of the NNUE hook), and all of
+  `tuning/`.
+* Protected `config.rs` values: `use_nnue = true`, `lmr_divisor = 140` with its `lmr_table`,
+  `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`,
+  `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
+  `your_turn_bonus = 18`. The `UseNNUE` UCI option is advertised as `default true`.
+* Everything else in `src/` can be taken from master wholesale.
+* **Open:** `v0.33.1-NNUE` has never played a game. A gauntlet against `suprah-0.30.0-nnue` is the
+  obvious first measurement — it should show a large gain, since the branch carried the fail-soft
+  regression for its whole dormancy.
+* **Open:** `tuning/` on the branch lacks the five Check Extension parameter definitions.
