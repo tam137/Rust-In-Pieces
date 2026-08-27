@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.33.1] - 2026-08-27
+
+A behavioural correction to the book support delivered in v0.33.0. No search code is touched.
+
+### Changed
+
+- **`UseBook` now gates every book source.** v0.33.0 inherited the older rule that a configured
+  `BookFile` was consulted *before* the flag was examined, so `UseBook=false` did not switch off
+  a book that had been named by path. The selection is now decided by two settings and nothing
+  else:
+
+  | `UseBook` | `BookFile` | Source |
+  | :--- | :--- | :--- |
+  | `false` | anything | none — the engine searches |
+  | `true` | set | that file, and only that file |
+  | `true` | empty | the book embedded in the binary |
+
+  A named book file now **replaces** the embedded book instead of layering on top of it. Naming a
+  book states which repertoire the engine is to play; silently falling back to a different one
+  when a position is missing from it would make the engine's opening play depend on which
+  positions happened to be in the file.
+
+- **A book that was asked for and cannot be read terminates the engine.** v0.33.0 downgraded this
+  to a warning with a fallback. That is the wrong trade for this engine: with `UseBook` on and an
+  unreadable book, every following move comes from a search instead, and a match played that way
+  is indistinguishable from a strength difference. The failure is now loud and immediate.
+
+  The check runs at `setoption` time, so a mistyped path fails during the handshake rather than
+  in the middle of a game, and it runs again on first use in case `UseBook` was switched on after
+  the path was set. An empty book file counts as missing. An engine explicitly told
+  `UseBook=false` does not care whether the file exists and is left alone, so option order cannot
+  kill a correctly configured engine. Running out of book positions is not this case and simply
+  hands the move back to the search.
+
+### Fixed
+
+- `Book::get_book_move` evaluated `book_max_ply` before `use_book`, which was harmless but read
+  as though the ply limit applied to a disabled book.
+
+### Notes
+
+`Performance.bin` was already committed in v0.33.0 — it has to be, since `include_bytes!` resolves
+it at compile time — and the engine already played from it by default. This release changes only
+how that default interacts with `UseBook` and `BookFile`.
+
+
+
 ## [V0.33.0] - 2026-08-27
 
 The measurement release. It changes no search behaviour whatsoever and exists to make search
