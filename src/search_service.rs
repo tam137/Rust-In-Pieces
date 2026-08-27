@@ -1439,8 +1439,11 @@ mod tests {
         // An extension granted high in the tree multiplies an entire subtree, while the
         // horizon effect it cures is a frontier phenomenon. Restricting extensions to
         // shallow remaining depth must therefore cut the tree substantially.
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
-        let frontier_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_max_depth = 2);
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        let frontier_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.check_extension_max_depth = 2;
+        });
         let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
 
         assert!(frontier_only < unlimited,
@@ -1455,8 +1458,11 @@ mod tests {
     fn test_check_extension_min_depth_restricts_the_tree() {
         // The counterpart to the frontier restriction: extensions are granted only deep in
         // the tree, where the Quiescence Search cannot resolve the forcing line itself.
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
-        let deep_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_min_depth = 4);
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        let deep_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.check_extension_min_depth = 4;
+        });
         let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
 
         assert!(deep_only < unlimited,
@@ -1469,8 +1475,11 @@ mod tests {
 
     #[test]
     fn test_check_extension_require_safe_restricts_the_tree() {
-        let unfiltered = search_nodes(CHECK_RICH_FEN, 7, |_| {});
-        let safe_only = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_require_safe = true);
+        let unfiltered = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        let safe_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.check_extension_require_safe = true;
+        });
 
         assert!(safe_only < unfiltered,
             "rejecting material-losing checks must shrink the tree ({} vs {})",
@@ -1479,8 +1488,11 @@ mod tests {
 
     #[test]
     fn test_extension_budget_restricts_the_tree() {
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |_| {});
-        let budgeted = search_nodes(CHECK_RICH_FEN, 7, |c| c.check_extension_budget_divisor = 8);
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        let budgeted = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.check_extension_budget_divisor = 8;
+        });
 
         assert!(budgeted < unlimited,
             "a per-path extension budget must shrink the tree ({} vs {})",
@@ -1502,12 +1514,14 @@ mod tests {
             "the One-Reply Extension must change the search on a forcing position");
     }
 
-    /// All four extension-shaping parameters ship neutral, so a default build searches
-    /// exactly the tree the previous release searched.
+    /// All four extension-shaping parameters ship neutral, so enabling the extension
+    /// alone searches exactly the tree an unshaped extension searches. The extension
+    /// itself ships disabled since v0.34.0; these parameters shape it once it is on.
     #[test]
     fn test_extension_parameters_are_neutral_at_their_defaults() {
-        let defaults = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let defaults = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
         let explicitly_neutral = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
             c.check_extension_require_safe = false;
             c.check_extension_budget_divisor = 0;
             c.check_extension_min_depth = 0;

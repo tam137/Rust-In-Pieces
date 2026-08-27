@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.34.0] - 2026-08-27
+
+Check Extensions are disabled by default. Measured over **1000 games per pairing** at 1000ms +
+100ms, turning the extension off is worth **+23.7 Elo**, 95% CI [+8, +40]. No search code changed:
+this release flips one default and corrects the documentation and tests that assumed the old one.
+
+### Changed
+- `enable_check_extension` now defaults to **false**. The extension is not broken — it resolves
+  Philidor's Legacy a ply earlier and solves more LCT II positions at fixed depth — but the ply it
+  spends costs more than it returns. It spends it at exactly the node class where every pruning
+  stage is disabled: Null Move, Reverse Futility and Futility Pruning are all guarded by
+  `!turn.gives_check`, and LMR never reduces a checking move. The unfiltered feature cost 1.06 to
+  1.49 ply of search depth at 1s per move and 1.75x the nodes at fixed depth.
+- `check_extension_min_depth` was measured and rejected as a rescue. Restricting extensions to
+  high remaining depth had scored +34.2 Elo on the old bookless harness; re-measured on the paired
+  opening harness it scores **-16.0** against a disabled extension, the opposite sign. The earlier
+  figure was opening-pool variance, not a search property. All five extension-shaping parameters
+  are retained as UCI tunables.
+
+### Fixed
+- `option name EnableCheckExtension` advertised `default true` regardless of the actual default.
+  The UCI option strings in `src/threads.rs` are hardcoded literals rather than derived from
+  `Config::default()`, so they can drift from the values they claim to report. This one had.
+
+### Testing
+- The five extension-shaping unit tests used the default configuration as their "extension on"
+  baseline and would have become vacuous; they now enable the extension explicitly, since they
+  characterise the shaping axes rather than the shipped default.
+- `info_string_reports_a_real_forced_mate_as_mate_in_four` searched Philidor's Legacy at depth 5,
+  which only resolved because Check Extensions were on. A mate in four is seven plies, so the test
+  now searches to depth 7. It tests mate *reporting*, not the extension.
+- The release candidate was verified node-identical to the measured variant (1,192,961 nodes on
+  Kiwipete at fixed depth 9) before any game was played, proving the documentation and test
+  changes did not touch the search tree.
+
+### Measurement infrastructure
+- `openings/book_mixed.txt` — 598 opening lines of mixed 8, 10 and 12 ply. `Performance.bin`
+  saturates at roughly 100 distinct 8-ply lines because the book selects moves by weight, so 500
+  rounds would have replayed each line five times and correlated the games. A line is a path
+  through the book tree, so deeper lines are strictly more numerous and mixing depths takes the
+  union. Every opening is now played exactly once per pairing at 500 rounds.
+- This run also closed the last open measurement question. Three pairings at 1000 games each are
+  mutually consistent to **2.0 Elo**, against the 41 Elo inconsistency that forced the harness
+  rebuild in v0.33.0. Resolution is **+/-16 Elo per pairing at 1000 games**, and the nominal
+  interval is now confirmed honest.
+- `skills/engine_release_procedure.md`: the mandatory cross-version gauntlet is fixed at
+  **1s + 100ms and 100 games per pairing** and is explicitly a smoke test, not a measurement.
+  Pricing a change is a separate, deliberate run made before deciding to release.
+
+
+
 ## [V0.33.1] - 2026-08-27
 
 A behavioural correction to the book support delivered in v0.33.0. No search code is touched.
