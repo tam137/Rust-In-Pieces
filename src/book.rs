@@ -384,81 +384,99 @@ impl Book {
         ""
     }
 
-    /// Looks up `board` in the configured `BookFile`, loading and caching it if necessary.
-    /// Returns `None` when the file is unreadable or the position is not in it.
-    fn polyglot_move_from_file(
-        &mut self,
-        board: &Board,
-        config: &Config,
-        logger: Option<&std::sync::mpsc::Sender<String>>,
-    ) -> Option<String> {
-        if config.cache_book_in_ram {
-            if self.loaded_book_path != config.book_file || self.polyglot_book.is_none() {
-                match PolyglotBook::load(&config.book_file) {
-                    Ok(poly_book) => {
-                        if let Some(log) = logger {
-                            log.send(format!(
-                                "Loaded PolyGlot book '{}' into RAM, {} entries",
-                                config.book_file,
-                                poly_book.len()
-                            )).ok();
-                        }
-                        self.polyglot_book = Some(poly_book);
-                        self.loaded_book_path = config.book_file.clone();
-                    }
-                    Err(err) => {
-                        Self::report_unreadable_book(&config.book_file, &err, logger);
-                        // Remember the failure so the file is not retried on every move.
-                        self.polyglot_book = Some(PolyglotBook::from_entries(Vec::new()));
-                        self.loaded_book_path = config.book_file.clone();
-                        return None;
-                    }
-                }
-            }
+    /// Loads the configured `BookFile` into the cache if it is not already there.
+    ///
+    /// Returns the reason as an `Err` when the file cannot be read. The caller decides what to do
+    /// with that; keeping the decision out of here is what makes the failure testable, because
+    /// the production call sites terminate the process.
+    fn ensure_file_book_loaded(&mut self, config: &Config) -> Result<(), String> {
+        if config.book_file.is_empty() {
+            return Ok(());
+        }
+        if self.loaded_book_path == config.book_file && self.polyglot_book.is_some() {
+            return Ok(());
+        }
 
-            let poly_move = self.polyglot_book.as_ref()?.get_random_book_move(board);
-            if poly_move.is_empty() { None } else { Some(poly_move) }
-        } else {
-            match PolyglotBook::load(&config.book_file) {
-                Ok(poly_book) => {
-                    let poly_move = poly_book.get_random_book_move(board);
-                    if poly_move.is_empty() { None } else { Some(poly_move) }
+        match PolyglotBook::load(&config.book_file) {
+            Ok(poly_book) => {
+                if poly_book.len() == 0 {
+                    return Err(format!(
+                        "PolyGlot book file '{}' contains no entries",
+                        config.book_file
+                    ));
                 }
-                Err(err) => {
-                    Self::report_unreadable_book(&config.book_file, &err, logger);
-                    None
-                }
+                self.polyglot_book = Some(poly_book);
+                self.loaded_book_path = config.book_file.clone();
+                Ok(())
             }
+            Err(err) => Err(format!(
+                "PolyGlot book file '{}' could not be read: {}",
+                config.book_file, err
+            )),
         }
     }
 
-    /// Reports an unusable book file on stderr and to the log, without terminating the engine.
-    fn report_unreadable_book(
-        path: &str,
-        err: &std::io::Error,
-        logger: Option<&std::sync::mpsc::Sender<String>>,
-    ) {
-        let msg = format!(
-            "RIP Warning: PolyGlot book file '{}' could not be read ({}); falling back to the embedded book",
-            path, err
-        );
+    /// Terminates the engine because a book it was told to use is not available.
+    ///
+    /// The book is not advisory. If `UseBook` is on and the configured book cannot be read, every
+    /// following move would silently come from a search instead, and a match played that way
+    /// looks like a strength difference rather than a configuration error. Failing loudly at the
+    /// moment the book is configured is the only outcome that cannot be mistaken for something
+    /// else.
+    fn abort_missing_book(reason: &str, logger: Option<&std::sync::mpsc::Sender<String>>) -> ! {
+        let msg = format!("RIP Critical Error: {}", reason);
         eprintln!("{}", msg);
         if let Some(log) = logger {
             log.send(msg).ok();
+            // Give the logger thread a moment to flush before the process disappears.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        std::process::exit(1);
+    }
+
+    /// Loads the configured book eagerly so that a bad path fails at `setoption` time rather
+    /// than in the middle of a game. Terminates the engine if the book is unusable.
+    ///
+    /// Does nothing when the book is switched off: an engine explicitly told not to use a book
+    /// has no reason to care whether the file exists.
+    pub fn preload_or_exit(&mut self, config: &Config, logger: Option<&std::sync::mpsc::Sender<String>>) {
+        if !config.use_book || config.book_file.is_empty() {
+            return;
+        }
+
+        if let Err(reason) = self.ensure_file_book_loaded(config) {
+            Self::abort_missing_book(&reason, logger);
+        }
+
+        if let Some(log) = logger {
+            if let Some(ref book) = self.polyglot_book {
+                log.send(format!(
+                    "Loaded PolyGlot book '{}', {} entries",
+                    config.book_file,
+                    book.len()
+                )).ok();
+            }
         }
     }
 
     /// Returns a book move for `board`, or an empty string when the position is out of book.
     ///
-    /// `ply` counts the half-moves played in the transmitted game and is compared against
-    /// `config.book_max_ply`. A large book reaches deep into the middlegame, and a match that is
-    /// meant to price a search change must leave the book early enough that the search is what
-    /// decides the game.
+    /// The source is decided by two settings and nothing else:
     ///
-    /// Sources are tried in order: an explicitly configured `BookFile`, then the book embedded
-    /// in the binary, then the small hand-written repertoire. A book file that cannot be read is
-    /// reported once and skipped; the engine falls back to the next source and ultimately to
-    /// searching, because an engine that terminates on a bad path cannot finish a tournament.
+    /// * `UseBook` off — no book at all, whatever `BookFile` says.
+    /// * `UseBook` on with a `BookFile` — that file, and only that file. It replaces the
+    ///   embedded book rather than layering on top of it, because a caller who names a book
+    ///   means the engine to play from that repertoire.
+    /// * `UseBook` on without a `BookFile` — the book compiled into the binary, with the small
+    ///   hand-written repertoire behind it for anything the embedded book does not cover.
+    ///
+    /// A book that was asked for and cannot be read terminates the engine; see
+    /// `abort_missing_book`. Running out of book positions is not that case and simply hands the
+    /// move back to the search.
+    ///
+    /// `ply` counts the half-moves played in the transmitted game and is compared against
+    /// `config.book_max_ply`. A large book reaches deep into the middlegame, and a match meant to
+    /// price a search change has to leave the book early enough that the search decides the game.
     pub fn get_book_move(
         &mut self,
         board: &Board,
@@ -467,35 +485,53 @@ impl Book {
         config: &Config,
         logger: Option<&std::sync::mpsc::Sender<String>>,
     ) -> String {
-        if config.book_max_ply > 0 && ply >= config.book_max_ply as usize {
-            return String::new();
-        }
-
-        // 1. An explicitly configured book file overrides everything else.
-        if !config.book_file.is_empty() {
-            if let Some(mv) = self.polyglot_move_from_file(board, config, logger) {
-                return mv;
-            }
-        }
-
         if !config.use_book {
             return String::new();
         }
 
-        // 2. The book compiled into the binary.
-        let poly_move = crate::polyglot::embedded_book().get_random_book_move(board);
+        if config.book_max_ply > 0 && ply >= config.book_max_ply as usize {
+            return String::new();
+        }
+
+        // A configured book file is the book. It is loaded here as well as at `setoption` time,
+        // because `UseBook` may have been switched on after the path was set.
+        if !config.book_file.is_empty() {
+            if config.cache_book_in_ram {
+                if let Err(reason) = self.ensure_file_book_loaded(config) {
+                    Self::abort_missing_book(&reason, logger);
+                }
+                return match self.polyglot_book {
+                    Some(ref book) => book.get_random_book_move(board),
+                    None => String::new(),
+                };
+            }
+
+            return match PolyglotBook::load(&config.book_file) {
+                Ok(book) => book.get_random_book_move(board),
+                Err(err) => Self::abort_missing_book(
+                    &format!("PolyGlot book file '{}' could not be read: {}", config.book_file, err),
+                    logger,
+                ),
+            };
+        }
+
+        // The book compiled into the binary is the default repertoire.
+        let embedded = crate::polyglot::embedded_book();
+        if embedded.len() == 0 {
+            Self::abort_missing_book("the embedded PolyGlot book is empty", logger);
+        }
+
+        let poly_move = embedded.get_random_book_move(board);
         if !poly_move.is_empty() {
             return poly_move;
         }
 
-        // 3. The hand-written repertoire, kept as a last resort for positions the embedded book
-        //    does not cover.
+        // The hand-written repertoire, for positions the embedded book does not cover.
         let internal_move = self.get_random_book_move(fen);
         if !internal_move.is_empty() {
             return internal_move.to_string();
         }
 
-        // 3. Otherwise no book move available -> engine will search
         String::new()
     }
 }
@@ -595,20 +631,85 @@ mod tests {
         assert!(book.get_book_move(&board, &fen, 9, &config, None).is_empty());
     }
 
-    /// A `BookFile` that cannot be read used to terminate the process. It must now fall through
-    /// to the embedded book instead, because an engine that exits cannot finish a tournament.
+    /// `UseBook=false` switches off every source, including an explicitly configured file.
+    /// Before this the file was consulted first and ignored the flag entirely.
     #[test]
-    fn an_unreadable_book_file_falls_back_to_the_embedded_book() {
+    fn use_book_false_disables_every_source() {
         let service = Service::new();
         let mut book = Book::new();
         let mut config = Config::for_tests();
-        config.use_book = true;
+        config.use_book = false;
+        // A path that does not exist: reaching it at all would terminate the test process, so
+        // this doubles as proof that the flag is checked before the file is touched.
         config.book_file = "this-path-does-not-exist.bin".to_string();
 
         let board = service.fen.set_init_board();
         let fen = service.fen.get_fen(&board);
 
-        assert!(!book.get_book_move(&board, &fen, 0, &config, None).is_empty());
+        assert!(book.get_book_move(&board, &fen, 0, &config, None).is_empty());
+    }
+
+    /// A configured `BookFile` replaces the embedded book rather than layering on top of it.
+    /// The test book answers the initial position with a move the embedded book never plays.
+    #[test]
+    fn a_configured_book_file_replaces_the_embedded_book() {
+        let service = Service::new();
+
+        // One PolyGlot entry: the initial position, answered with a2a3.
+        // move = (from_rank << 9) | (from_file << 6) | (to_rank << 3) | to_file
+        let mut entry = Vec::with_capacity(16);
+        entry.extend_from_slice(&0x463b96181691fc9cu64.to_be_bytes());
+        entry.extend_from_slice(&528u16.to_be_bytes());
+        entry.extend_from_slice(&1u16.to_be_bytes());
+        entry.extend_from_slice(&0u32.to_be_bytes());
+
+        let path = std::env::temp_dir().join("suprah_book_file_replacement_test.bin");
+        std::fs::write(&path, &entry).expect("could not write the test book");
+
+        let mut book = Book::new();
+        let mut config = Config::for_tests();
+        config.use_book = true;
+        config.book_file = path.to_string_lossy().to_string();
+
+        let board = service.fen.set_init_board();
+        let fen = service.fen.get_fen(&board);
+        let mv = book.get_book_move(&board, &fen, 0, &config, None);
+
+        std::fs::remove_file(&path).ok();
+        assert_eq!(mv, "a2a3", "the configured book file did not take precedence");
+    }
+
+    /// The engine terminates when a book it was told to use cannot be read. The decision is
+    /// tested here rather than the exit itself, because a test cannot survive `process::exit`.
+    #[test]
+    fn a_missing_book_file_is_reported_as_an_error() {
+        let mut book = Book::new();
+        let mut config = Config::for_tests();
+        config.use_book = true;
+        config.book_file = "this-path-does-not-exist.bin".to_string();
+
+        let result = book.ensure_file_book_loaded(&config);
+        assert!(result.is_err(), "a missing book file must not be accepted");
+        assert!(
+            result.unwrap_err().contains("this-path-does-not-exist.bin"),
+            "the error has to name the offending path"
+        );
+    }
+
+    /// An empty file is a missing book too: it would silently produce no book moves at all.
+    #[test]
+    fn an_empty_book_file_is_reported_as_an_error() {
+        let path = std::env::temp_dir().join("suprah_empty_book_test.bin");
+        std::fs::write(&path, b"").expect("could not write the test book");
+
+        let mut book = Book::new();
+        let mut config = Config::for_tests();
+        config.use_book = true;
+        config.book_file = path.to_string_lossy().to_string();
+
+        let result = book.ensure_file_book_loaded(&config);
+        std::fs::remove_file(&path).ok();
+        assert!(result.is_err(), "an empty book file must not be accepted");
     }
 
     #[test]

@@ -123,7 +123,14 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                      "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
-                                     "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); book.clear_polyglot_cache(); },
+                                     "bookfile" | "book_file" => {
+                                         active_config.book_file = val_str.to_string();
+                                         book.clear_polyglot_cache();
+                                         // Load eagerly: a book that was named and cannot be read
+                                         // has to fail here, at the handshake, and not silently
+                                         // turn into a searched move in the middle of a game.
+                                         book.preload_or_exit(&active_config, Some(&logger));
+                                     },
                                      "bookmaxply" | "book_max_ply" => if let Ok(v) = val_str.parse::<i32>() { active_config.book_max_ply = v; },
                                      "cachebookinram" | "cache_book_in_ram" => {
                                          active_config.cache_book_in_ram = val_str.to_lowercase() == "true";
@@ -131,7 +138,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                              book.clear_polyglot_cache();
                                          }
                                      },
-                                     "ownbook" | "own_book" | "usebook" | "use_book" => { active_config.use_book = val_str.to_lowercase() == "true"; },
+                                     "ownbook" | "own_book" | "usebook" | "use_book" => {
+                                         active_config.use_book = val_str.to_lowercase() == "true";
+                                         // The book may have been named before it was switched on.
+                                         book.preload_or_exit(&active_config, Some(&logger));
+                                     },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
