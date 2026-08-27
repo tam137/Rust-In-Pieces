@@ -202,6 +202,15 @@ pub struct Config {
 
     /// Enables Check Extensions: a move that gives check is searched one ply deeper,
     /// so that forcing sequences are resolved beyond the nominal horizon.
+    ///
+    /// Ships **disabled** since v0.34.0. The extension works — it resolves Philidor's
+    /// Legacy a ply earlier and solves more LCT II positions at fixed depth — but the
+    /// ply it spends costs more than it returns, because it spends it at the node class
+    /// where Null Move, Reverse Futility and Futility Pruning are all disabled and LMR
+    /// never reduces. Measured over 1000 games per pairing at 1000ms+100ms: disabling it
+    /// is worth +23.7 Elo, 95% CI [+8, +40]. Restricting it to deep nodes
+    /// (`check_extension_min_depth`) does not recover the loss (-9.7 Elo, CI [-26, +6]).
+    /// See task.md 2.2.6.
     pub enable_check_extension: bool,
     /// Upper ply bound for granting Check Extensions. Beyond this ply the search
     /// depth strictly decreases again, which keeps the search tree finite.
@@ -424,7 +433,7 @@ impl Config {
             lmr_history_bad_threshold: 500,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 3,
-            enable_check_extension: true,
+            enable_check_extension: false,
             check_extension_max_ply: 64,
             check_extension_require_safe: false,
             check_extension_budget_divisor: 0,
@@ -643,7 +652,7 @@ mod tests {
         assert_eq!(config.rfp_max_depth, 3);
         assert_eq!(config.lmr_history_good_threshold, 4000);
         assert_eq!(config.lmr_history_bad_threshold, 500);
-        assert!(config.enable_check_extension);
+        assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
         assert!(!config.check_extension_require_safe);
         assert_eq!(config.check_extension_budget_divisor, 0);
