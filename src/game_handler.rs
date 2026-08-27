@@ -124,6 +124,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                      "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
                                      "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); book.clear_polyglot_cache(); },
+                                     "bookmaxply" | "book_max_ply" => if let Ok(v) = val_str.parse::<i32>() { active_config.book_max_ply = v; },
                                      "cachebookinram" | "cache_book_in_ram" => {
                                          active_config.cache_book_in_ram = val_str.to_lowercase() == "true";
                                          if !active_config.cache_book_in_ram {
@@ -305,7 +306,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_book_move(&game.board, &game_fen, &active_config, Some(&logger));
+                    let book_ply = game.made_moves_str.split_whitespace().count();
+                    let book_move = book.get_book_move(&game.board, &game_fen, book_ply, &active_config, Some(&logger));
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() {

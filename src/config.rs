@@ -16,6 +16,13 @@ pub struct Config {
     pub use_book: bool,
     pub cache_book_in_ram: bool,
     pub book_file: String,
+    /// Half-moves after which the opening book stops being consulted. `0` means unlimited.
+    ///
+    /// The embedded book reaches well into the middlegame on main lines. A match that is meant
+    /// to price a search change has to leave the book early enough that the search decides the
+    /// game, and a fixed cut-off also makes every game in a match start from a comparable amount
+    /// of book guidance.
+    pub book_max_ply: i32,
     pub max_zobrist_hash_entries: usize,
     /// Default capacity: 1,000,000 entries (~16 MB).
     /// Proven sweet spot in tournament play (+30 Elo over 10M entries).
@@ -234,6 +241,7 @@ impl Config {
             use_book: true,
             cache_book_in_ram: true,
             book_file: String::new(),
+            book_max_ply: 0,
             max_zobrist_hash_entries: 50_000_000, // 800 MB
             max_pawn_hash_entries: 1_000_000, // 16 MB: Proven +30 Elo sweet spot (avoids CPU L3 & TLB thrashing)
             search_depth: 4, // only used as default for tests
