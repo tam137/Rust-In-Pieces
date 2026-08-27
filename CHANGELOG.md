@@ -6,6 +6,121 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.33.1-NNUE] - 2026-08-27
+
+The NNUE branch had not been released since `v0.30.0-NNUE` and had fallen six master releases
+behind. This release is a **full catch-up**: the branch is brought to the master v0.33.1 source
+state, with the NNUE evaluation and the branch's own SPSA-tuned parameters preserved. It is
+therefore not one feature but the accumulated content of v0.30.1 through v0.33.1.
+
+### Fixed
+
+- **The fail-soft Alpha-Beta regression is gone (master v0.30.3).** This is by far the most
+  important item. `v0.30.0-NNUE` shipped the fail-soft running-score initialisation, which on
+  master measured **-209 Elo** against an otherwise identical build and was reverted three days
+  later. The NNUE branch has carried that defect ever since, in every match it played. The
+  interior running score is initialised to the window bound again:
+
+  ```rust
+  let mut eval = if white { alpha } else { beta };   // was: i16::MIN / i16::MAX
+  ```
+
+  The mechanism, documented in `task.md` 2.3, is that fail-soft's out-of-window values are
+  harmless as return values but poison once written into a Transposition Table that outlives the
+  move: the same build disagreed with itself by up to five pawns on one position depending only
+  on whether the table was warm. The Transposition Table bound reclassification that shipped in
+  the same v0.30.0 commit is innocent and is kept.
+
+- **UCI reporting (master v0.30.1)**: `info depth`, mate score reporting and the mate distance
+  constant in the search logger.
+
+### Added
+
+- **Heap-free threefold repetition detection (master v0.31.0), +33.4% NPS.**
+  `Board.move_repetition_map: HashMap<u64, i32>` is replaced by a stack-allocated
+  `history_hashes: [u64; MAX_HISTORY_PLIES]` with a cursor. `do_move` pushes one `u64` and
+  `undo_move` pops it; neither touches the heap. Repetitions are found by scanning backwards with
+  a stride of two, bounded below by the index of the position produced by the last capture or pawn
+  move. Measured on a bit-identical search tree.
+
+- **Legal move generation without `do_move` (master v0.32.0), +34.8% NPS.** The move generator no
+  longer plays a move in order to learn anything about it. Legality comes from an absolute-pin
+  mask and a check mask built from a shared sniper walk over the `BETWEEN` ray table, and
+  `gives_check` from a per-node `check_squares[6]` table plus a discovered-check test. King moves
+  are tested against the enemy attack set with the king lifted out of the occupancy; en passant
+  gets an exact test on the occupancy it would produce. Verified by a perft walk that checks every
+  generated move against the `do_move` predicate it replaced, over 20 positions and ~54 million
+  nodes. Measured on a bit-identical search tree.
+
+  Together with the repetition work this is **1.80x throughput** over the v0.30.x baseline the
+  branch was sitting on.
+
+- **Five tunable Check Extension axes and a per-path extension budget (master v0.30.2)**:
+  `check_extension_require_safe`, `check_extension_budget_divisor`, `check_extension_min_depth`,
+  `check_extension_max_depth` and `enable_one_reply_extension`, all exposed via UCI. They ship at
+  neutral defaults; see `task.md` 2.2.6 for the measurements behind each one.
+
+- **Working PolyGlot book support and an embedded opening book (master v0.33.0).** The PolyGlot
+  key was wrong in four independent ways and had never matched a real book; `Performance.bin`
+  (92,954 entries) is now compiled into the binary and is the default repertoire. Adds
+  `BookMaxPly`. PolyGlot's king-onto-rook castling encoding is translated to UCI notation.
+
+- **`UseBook` gates every book source, and a missing book aborts (master v0.33.1).**
+  `UseBook=false` disables the book whatever `BookFile` says; `UseBook=true` with a `BookFile`
+  plays that file and only that file; `UseBook=true` without one plays the embedded book. A book
+  that was asked for and cannot be read terminates the engine at `setoption` time.
+
+- **Matchplay harness**: `scripts/make_opening_lines.py`, `scripts/pairing_elo.py` and
+  `openings/book_8ply.txt`, plus the Stage-0 measurement scripts and the `search-diag` Cargo
+  feature. The harness is validated at +/-35 Elo resolution over 200 games; see `task.md` 2.2.7.
+
+### Removed
+
+- `config.skip_strong_validation` and the `force_skip_validation` parameter threaded through
+  `minimax`. With legality established by construction there is nothing left to skip.
+
+### Preserved (branch-owned)
+
+The port is selective, never a merge. The following are the branch's own and were **not** taken
+from master:
+
+| Item | NNUE value | master value |
+| :--- | :--- | :--- |
+| `use_nnue` | `true` | `false` |
+| `lmr_divisor` (and its `lmr_table`) | 140 | 185 |
+| `lmr_move_threshold` | 2 | 3 |
+| `lmr_history_bad_threshold` | 550 | 500 |
+| `aspiration_window_initial_delta` | 16 | 15 |
+| `aspiration_window_multiplier` | 5 | 4 |
+| `your_turn_bonus` | 18 | 19 |
+
+Also kept: `src/nnue_service.rs` with its `include_bytes!` embedded network and `load_embedded`,
+the `EvalService::calc_eval` ordering that puts the dead-draw guard ahead of the NNUE hook,
+`build_and_release.sh` with its branch-aware `-nnue` binary suffix, this `CHANGELOG.md`,
+`skills/engine_release_procedure.md` with the `-NNUE` tag rules,
+`skills/nnue_porting_and_release_procedure.md`, and the whole of `tuning/`, whose SPSA state
+belongs to this branch's parameter set.
+
+### Verification
+
+- `cargo test` — 152 passed, 0 failed, 0 compiler warnings.
+- UCI identity confirmed as `RIP V0.33.1-NNUE`, `UseNNUE` advertised as `default true`.
+- NNUE evaluation confirmed active by comparing against the HCE build on the same position:
+  different scores and different principal variations, so the network is loaded and used rather
+  than silently falling back to the classical evaluation.
+- Book confirmed working from the embedded book.
+
+### Not verified
+
+**No matchplay was run for this release.** The changes it carries were each measured on master,
+but the NNUE branch combines them with a different evaluation and a different parameter set, and
+that combination is untested. The fail-soft revert alone is worth roughly +200 Elo on master and
+the throughput work another 1.80x, so the direction is not in doubt; the magnitude on this branch
+is unknown. A gauntlet of `suprah-0.33.1-nnue` against `suprah-0.30.0-nnue` is the obvious first
+measurement and has not been performed.
+
+
+
 ## [V0.30.0] - 2026-08-24
 
 Combined port of the master releases v0.29.1 and v0.30.0 onto the NNUE evaluation branch, performed according to the selective synchronization rules in `skills/nnue_porting_and_release_procedure.md`. There is deliberately no `v0.29.1-NNUE` release; both changes are coupled and ship together.

@@ -95,6 +95,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "rfp_max_depth" | "rfpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.rfp_max_depth = v; },
                                     "enable_check_extension" | "enablecheckextension" => active_config.enable_check_extension = val_str.eq_ignore_ascii_case("true"),
                                     "check_extension_max_ply" | "checkextensionmaxply" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_ply = v; },
+                                    "check_extension_require_safe" | "checkextensionrequiresafe" => active_config.check_extension_require_safe = val_str.eq_ignore_ascii_case("true"),
+                                    "check_extension_budget_divisor" | "checkextensionbudgetdivisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_budget_divisor = v; },
+                                    "check_extension_min_depth" | "checkextensionmindepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_min_depth = v; },
+                                    "check_extension_max_depth" | "checkextensionmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_depth = v; },
+                                    "enable_one_reply_extension" | "enableonereplyextension" => active_config.enable_one_reply_extension = val_str.eq_ignore_ascii_case("true"),
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
                                         "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
@@ -118,14 +123,26 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
                                      "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
                                      "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
-                                     "bookfile" | "book_file" => { active_config.book_file = val_str.to_string(); book.clear_polyglot_cache(); },
+                                     "bookfile" | "book_file" => {
+                                         active_config.book_file = val_str.to_string();
+                                         book.clear_polyglot_cache();
+                                         // Load eagerly: a book that was named and cannot be read
+                                         // has to fail here, at the handshake, and not silently
+                                         // turn into a searched move in the middle of a game.
+                                         book.preload_or_exit(&active_config, Some(&logger));
+                                     },
+                                     "bookmaxply" | "book_max_ply" => if let Ok(v) = val_str.parse::<i32>() { active_config.book_max_ply = v; },
                                      "cachebookinram" | "cache_book_in_ram" => {
                                          active_config.cache_book_in_ram = val_str.to_lowercase() == "true";
                                          if !active_config.cache_book_in_ram {
                                              book.clear_polyglot_cache();
                                          }
                                      },
-                                     "ownbook" | "own_book" | "usebook" | "use_book" => { active_config.use_book = val_str.to_lowercase() == "true"; },
+                                     "ownbook" | "own_book" | "usebook" | "use_book" => {
+                                         active_config.use_book = val_str.to_lowercase() == "true";
+                                         // The book may have been named before it was switched on.
+                                         book.preload_or_exit(&active_config, Some(&logger));
+                                     },
                                     "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
                                     "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
                                     "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
@@ -268,17 +285,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let mut stats_calc = stats.clone();
                             stats_calc.calculate();
                             let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
-                            let score_str = if cp.abs() > 30000 {
-                                let mate_plies = 32001 - cp.abs();
-                                let mate_moves = (mate_plies + 1) / 2;
-                                if cp > 0 {
-                                    format!("mate {}", mate_moves)
-                                } else {
-                                    format!("mate -{}", mate_moves)
-                                }
-                            } else {
-                                format!("cp {:+}", cp)
-                            };
+                            let score_str = service.uci_parser.format_score(cp);
                             let nps = if stats_calc.calc_time_ms > 0 {
                                 (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                             } else {
@@ -310,7 +317,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
-                    let book_move = book.get_book_move(&game.board, &game_fen, &active_config, Some(&logger));
+                    let book_ply = game.made_moves_str.split_whitespace().count();
+                    let book_move = book.get_book_move(&game.board, &game_fen, book_ply, &active_config, Some(&logger));
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() {
@@ -329,9 +337,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             target_time: None,
                             root_moves_total: 0,
                             root_moves_searched: 0,
+                            root_depth: 0,
                         };
                         let mut valid_moves = crate::model::MoveList::new();
-                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
+                        service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, &mut valid_moves);
 
                         if valid_moves.len == 0 {
                             logger.send("No valid moves found at root! Game over.".to_string()).ok();
@@ -396,17 +405,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 let mut stats_calc = stats.clone();
                                 stats_calc.calculate();
                                 let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
-                                let score_str = if cp.abs() > 30000 {
-                                    let mate_plies = 32001 - cp.abs();
-                                    let mate_moves = (mate_plies + 1) / 2;
-                                    if cp > 0 {
-                                        format!("mate {}", mate_moves)
-                                    } else {
-                                        format!("mate -{}", mate_moves)
-                                    }
-                                } else {
-                                    format!("cp {:+}", cp)
-                                };
+                                let score_str = service.uci_parser.format_score(cp);
                                 let nps = if stats_calc.calc_time_ms > 0 {
                                     (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                                 } else {
@@ -469,9 +468,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 target_time: None,
                                 root_moves_total: 0,
                                 root_moves_searched: 0,
+                                root_depth: 0,
                             };
                             let mut valid_moves = crate::model::MoveList::new();
-                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, false, &mut valid_moves);
+                            service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, &mut valid_moves);
                             if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));
