@@ -15,105 +15,135 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Released | **v0.34.0** on `master` (HCE), **v0.34.0-NNUE** on `feature/nnue-evaluation` |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-16 at 1000**, per pairing |
-| Uncommitted | nothing — LMP and SEE pruning are merged, both disabled by default |
-| Blocked on | one gauntlet, see below. Nothing else is waiting on it. |
+| Uncommitted | measurement tooling in `scripts/`, this file, `skills/matchplay_measurement_procedure.md`, `openings/book_codekiddy_10ply.txt` |
+| Blocked on | one gauntlet, **left running 2026-08-27 at 3093 of 4800 games**. See below. |
 
-The engine searches at roughly 6.5 M nodes/s. Sections 1 and 2 are built and measured; sections 3
-to 7 are not started.
+The engine searches at roughly 6.5 M nodes/s, and reaches **depth 9 to 10** at the 1s + 0.1s
+match time control. Sections 1 and 2 are built and measured; sections 3 to 7 are not started.
+Section 10 is the measurement infrastructure and section 11 a proposal, both added 2026-08-27.
+
+> [!IMPORTANT]
+> **The work moved to a new machine on 2026-08-27** (12-core AMD Ryzen AI MAX PRO 390, 24
+> threads, 23 GB). Nothing in `../matt-magie/` survived except the repository itself. Everything
+> listed under "Where everything is" below was rebuilt from source on that machine and verified
+> by node count. **Elo numbers do not carry across machines** — the anchor scale of section 10
+> starts here.
 
 ### The next action
 
-**Run the gauntlet that decides whether SEE pruning ships alongside LMP — and that cross-checks
-both against the released engine.**
+**Read the gauntlet that was left running, then decide whether SEE pruning ships alongside LMP.**
 
-The four-way round robin has run: 3000 games, 500 per pairing, 1000ms + 100ms,
-`openings_mixed.txt`, PGN at `../matt-magie/lmp_see.pgn`. It answered the top-line question and
-left the decomposition open.
+#### State when this was written — 2026-08-27, 18:56
 
-| Pairing | Score | Elo (paired) | 95% CI | |
-| :--- | ---: | ---: | :--- | :--- |
-| base - both | 45.1% | **-34.2** | [-58, -11] | significant |
-| base - lmp | 47.0% | -20.9 | [-43, +1] | misses by one point |
-| base - see | 52.2% | +15.3 | [-8, +39] | not significant |
-| both - lmp | 51.9% | +13.2 | [-10, +37] | **the open question** |
-| both - see | 54.1% | **+28.6** | [+6, +51] | significant |
-| lmp - see | 54.5% | **+31.4** | [+9, +53] | significant |
+The run was started at 17:52 and left running in the background. It is `nohup`ed and survives the
+shell that started it.
 
-Least-squares fit over all six pairings, base = 0: **lmp +19.7, see -8.9, both +28.9**, largest
-residual 9.2.
+```bash
+# Has it finished?
+pgrep -f "mm.sh -t gauntlet_lmp.trn" && echo running || echo finished
+grep -c '^\[Event' ../matt-magie/gauntlet_lmp.pgn      # 4800 when complete
 
-**What is settled.** Enabling both rules is worth roughly **+34 Elo** over v0.34.0. That pairing
-excluded zero at every checkpoint of the run (-62 at 70 games, -48 at 152, -43 at 258, -36 at 354,
--34 at 500) and is the only configuration with a proven gain. `see` alone is the weakest of the
-four and loses significantly to both `lmp` and `both`.
-
-**What is not settled: where the gain comes from.** `both - lmp` is +13.2 with the interval
-[-10, +37]. The additive prediction from the two single-feature ratings is `both = 19.7 - 8.9 =
-+10.8` against a fitted +28.9, i.e. an interaction of **+18.1** — and that term is what makes
-`both` beat `lmp`. It is the noisiest quantity in the design, a difference of differences, and it
-moved +53 / +8.0 / +2.7 / +20.4 / +18.1 across the run. Do not ship on it without resolving it.
-
-**The run's own warning.** `base - lmp` read -32.4 [-62, -4] at 258 games per pairing, excluding
-zero, and fell back to -20.9 [-43, +1] by 500. A marginally significant intermediate result in
-this harness is not a result. Compare 8.2, where `check_extension_min_depth` went from +34.2 to
--16.0 on re-measurement.
-
-**Next: a gauntlet that settles both open items at once.** `ab-both` as challenger against
-`ab-lmp`, `suprah-0.34.0` and `suprah-0.33.1`. This resolves `both - lmp` at a game count that can
-actually see +13, and delivers the cross-version gauntlet that
-`skills/engine_release_procedure.md` mandates for any change to `search_service.rs` — the whole
-round robin above is a self-A/B of four v0.34.0 derivatives and cannot, by rule 2, see a defect
-they all share.
-
-Write `../matt-magie/gauntlet_lmp.trn` and run it. All four binaries already exist in
-`../matt-magie/engines/` and need no rebuild.
-
-```
-# Does bad-capture pruning earn its place next to LMP, and does the pair survive
-# a cross-version comparison? Challenger first.
-engines = ab-both, ab-lmp, suprah-0.34.0, suprah-0.33.1
-time_control = 1000
-increment = 100
-rounds = 800                      # 1600 games per pairing; ~1.8 h at 45 games/min
-pgn = gauntlet_lmp.pgn
-engine_options = OwnBook=false, Hash=64, Threads=1
-concurrency = 9
-openings = openings_mixed.txt
-mode = gauntlet
+# To stop it early, which is safe - a partial PGN reads correctly:
+pkill -f "mm.sh -t gauntlet_lmp.trn"
 ```
 
-Resolving +13 Elo needs roughly 1600 games: the half-width is +/-23.5 at 500, and (23.5/13)^2 * 500
-= 1634. At 1000 games it would still read about +/-16.6 and leave +13 unresolved, so 500 rounds is
-not enough for this particular question.
+Configuration: `../matt-magie/gauntlet_lmp.trn`, gauntlet, `ab-both` as challenger against
+`ab-lmp`, `suprah-0.34.0` and `suprah-0.33.1`, 800 rounds = 1600 games per pairing, 1000ms +
+100ms, `openings_mixed.txt`, `concurrency = 9`. Throughput measured at **48 games/minute**.
 
-**How to read the outcome.**
+**At 3093 of 4800 games, 515 pairs per pairing:**
 
-| `ab-both` - `ab-lmp` comes out | Ship |
+| Pairing | Score | Elo (paired) | 95% CI | SPRT LLR, H0 0 / H1 +10 |
+| :--- | ---: | ---: | :--- | ---: |
+| `ab-both` - `ab-lmp` | 51.5% | **+10.5** | [-5, +26] | +0.874, undecided |
+| `ab-both` - `suprah-0.34.0` | 52.3% | **+15.9** | [+0, +31] | +1.744, undecided |
+| `ab-both` - `suprah-0.33.1` | 56.5% | **+45.5** | [+30, +61] | - |
+
+`ab-lmp` never plays `suprah-0.34.0` in this run: **in gauntlet mode only the challenger plays
+everyone**, and the plan that specified this run did not account for that. It is a real gap and
+`gauntlet_lmp2.trn` below fixes it by using `round_robin`.
+
+#### What to do when it finishes
+
+```bash
+python3 scripts/match_health.py  ../matt-magie/gauntlet_lmp.pgn        # trust the run first
+python3 scripts/pairing_elo.py   ../matt-magie/gauntlet_lmp.pgn
+python3 scripts/sprt.py          ../matt-magie/gauntlet_lmp.pgn --engines BOTH LMP \
+    --elo0 0 --elo1 10
+python3 scripts/sprt.py          ../matt-magie/gauntlet_lmp.pgn --engines BOTH LMP --trajectory
+python3 scripts/version_curve.py ../matt-magie/gauntlet_lmp.pgn \
+    --anchor "Rust-In-Pieces V0.34.0"
+```
+
+`--trajectory` is not optional: it records what a sequential run would have saved on this
+question, which is the only way the section 10 tooling gets priced against reality instead of
+against an estimate.
+
+**The decision rule, unchanged from the plan that ordered this run:**
+
+| `ab-both` - `ab-lmp` | Ship as v0.35.0 |
 | :--- | :--- |
-| clearly positive | both flags `true` |
-| null or negative | `enable_lmp = true` only; leave `enable_bad_capture_pruning = false` |
+| SPRT accepts H1, or the interval excludes zero on the positive side | `enable_lmp = true` **and** `enable_bad_capture_pruning = true` |
+| SPRT accepts H0, or the interval covers zero | `enable_lmp = true` only |
 
-Either way `ab-both` and `ab-lmp` must also beat `suprah-0.34.0` in the same run, or nothing ships
-— that pairing is the mandated cross-version check and the round robin could not provide it.
+Either way `ab-both` must also beat `suprah-0.34.0`, or nothing ships. That pairing is the
+cross-version check rule 2 mandates and it is in this run.
 
-**Where everything is.**
+#### If it comes back undecided, which is likely
+
+At the measured pair variance of 0.067, 1600 games resolves about **+/-12.5 Elo** and the effect
+in play is +10 to +13. The run was sized to be marginal. `../matt-magie/gauntlet_lmp2.trn` is
+written and ready: three engines round robin, sequential stopping, a separate PGN.
+
+```bash
+scripts/run_sprt_match.sh gauntlet_lmp2.trn BOTH LMP --elo0 -10 --elo1 0
+python3 scripts/sprt.py ../matt-magie/gauntlet_lmp.pgn ../matt-magie/gauntlet_lmp2.pgn \
+    --engines BOTH LMP --elo0 -10 --elo1 0
+```
+
+The hypotheses are deliberately `[-10, 0]` and not `[0, 10]`. Both rules are already written and
+free to keep, so the decision is whether the second one *hurts*, not whether it gains, and that
+question costs less than half as many games at this effect size — 1106 against 2490. Section 10.3
+has the table. **Choose the framing before looking at the data, not after.**
+
+> [!WARNING]
+> `scripts/run_sprt_match.sh` has **never been run end to end**. It was written while the machine
+> was occupied by the gauntlet and only its argument handling was exercised. Test it on a
+> two-round throwaway tournament before trusting it with hours of games, and check that
+> `pkill -f mm.sh` finds nothing afterwards.
+
+#### Where everything is
 
 | | |
 | :--- | :--- |
-| Measurement binaries | `../matt-magie/engines/ab-{base,lmp,see,both}`, versions `0.34.0-{BASE,LMP,SEE,BOTH}` |
-| Round robin config | `../matt-magie/lmp_see.trn` |
-| Round robin PGN | `../matt-magie/lmp_see.pgn`, 3000 games, `Round` tag denominator 3000 |
-| Reference releases | `../matt-magie/engines/suprah-0.34.0`, `suprah-0.33.1`, `suprah-0.33.0` |
+| Measurement binaries | `../matt-magie/engines/ab-lmp`, `ab-both`, versions `0.34.0-LMP` / `0.34.0-BOTH` |
+| Reference releases | `../matt-magie/engines/suprah-0.34.0`, `suprah-0.33.1`. **Rebuilt 2026-08-27** and verified: Kiwipete depth 9 gives 1,192,961 and 2,047,451, matching the recorded values exactly. |
+| Anchor | `suprah-0.34.0`, permanent. See `skills/matchplay_measurement_procedure.md` section 3. |
+| Run in progress | `../matt-magie/gauntlet_lmp.trn` / `.pgn` / `.out` |
+| Continuation, ready | `../matt-magie/gauntlet_lmp2.trn` |
+| Openings in use | `../matt-magie/openings_mixed.txt`, a copy of `openings/book_mixed.txt` |
+| Openings, candidate | `openings/book_codekiddy_10ply.txt`, 2000 lines, 831 distinct four-ply starts against 17. Unused and unmeasured. |
+| Tournament configs | `../matt-magie/gauntlet_lmp.trn` and `gauntlet_lmp2.trn`, committed in the **matt-magie** repository, not this one |
+| PolyGlot books | `books/`, **gitignored**. 58 MB of binaries that a fresh clone does not have; copy them by hand when the work moves machines. |
 | Code | `src/search_service.rs` move loop; 8 tests named `test_lmp_*`, `test_bad_capture_*`, `test_pruning_rules_preserve_the_smothered_mate` |
 
-The variants differ only in two `Config` defaults, so rebuilding any of them means editing
-`src/config.rs` and `Cargo.toml` per the recipe below. A single stale line in that recipe already
-caused all four binaries to be built as `0.34.0-BASE` once and collapse into one PGN row; the
-`id name` check catches it in seconds.
+`ab-base` and `ab-see` from the earlier round robin were **not** rebuilt on this machine. `ab-base`
+is `suprah-0.34.0` by construction and needs no rebuild; `ab-see` would have to be built again if
+the single-feature question is ever re-opened, which section 2 says it should not be.
 
-**Until it is decided, both flags stay `false`.** `ab-base` reproduced the released v0.34.0 node
-count on Kiwipete exactly (1,192,961 at depth 9), so the default path is untouched and nothing
-about the current `master` depends on the outcome.
+#### Everything else that is open, in the order it should be picked up
+
+1. **Ship the outcome as v0.35.0** via `skills/engine_release_procedure.md`. Only the two flag
+   defaults in `src/config.rs`, their advertised values in `src/threads.rs`, and `CHANGELOG.md`
+   change. The code is written and tested.
+2. **Fix the `quiet_count` cap** — section 10.6. Two lines plus a test, needs a compile, and it
+   has to happen before `lmp_max_depth` is ever handed to SPSA.
+3. **Test `run_sprt_match.sh`** end to end, as above.
+4. **Measure whether the wider opening pool costs or saves games** — section 10.7. One pairing,
+   run on each pool, `sprt.py --plan` on both.
+5. **Re-check `concurrency`** at a higher setting with `match_health.py`. Zero forfeits at 9 on
+   this machine says there is headroom, and throughput is what paces the project now.
+6. Then the backlog below, with section 11 as a candidate for the front of it.
 
 ### The backlog after that, in order
 
@@ -148,6 +178,13 @@ about the current `master` depends on the outcome.
    is why they needed no Elo measurement at all.
 
 ### How to run a measurement
+
+> [!IMPORTANT]
+> The full procedure now lives in `skills/matchplay_measurement_procedure.md`, which adds three
+> things this recipe does not have: a **sequential stopping rule**, so a run ends when it is
+> decided instead of when its round count runs out; a way to **price a run before starting it**;
+> and a **permanent anchor opponent**, so results land on one rating scale across runs. Section
+> 10 records what those are worth. The recipe below is still correct for a fixed-length run.
 
 ```bash
 # 1. Build the variants. Matt-Magie sends ONE engine_options string to both engines, so an A/B of
@@ -537,6 +574,10 @@ other ply. With the extension off there is no asymmetry left to correct. Likewis
 all five parameters shape a feature that no longer runs. Re-open both only if
 `enable_check_extension` is ever set back to `true`.
 
+**See section 11 before treating this as closed.** The guards that make an extension expensive
+also exempt every checking move from LMR, futility, LMP and SEE pruning, whether or not the
+extension runs. Whether that exemption is itself the cost has not been measured.
+
 **This is also the clearest evidence in the repository that depth and test-suite accuracy are not
 adequate proxies for playing strength.** The frontier restriction was rated the most promising axis
 by a wide margin on every non-matchplay metric, and matchplay reversed the verdict completely.
@@ -615,3 +656,209 @@ changes are ported selectively. See `skills/nnue_porting_and_release_procedure.m
   `enable_check_extension = false` carries over. That default was measured on the HCE evaluation:
   the extension's cost is a search property and should transfer, but the branch has its own LMR
   tuning, so it is confirmed rather than assumed.
+
+---
+
+## 10. Measurement infrastructure
+
+Built 2026-08-27, while the LMP/SEE gauntlet occupied the machine. The engine was not touched;
+everything here is analysis of the harness the engine is measured in.
+
+The problem it addresses: at 40 games per minute, every remaining backlog item costs one to two
+hours of wall time per decision, and five of them are left. Throughput of the *measurement*, not
+of the search, is what now paces the project.
+
+### 10.1 What was added
+
+| Tool | Answers |
+| :--- | :--- |
+| `scripts/sprt.py` | Is this comparison decided yet? Pentanomial GSPRT over paired openings. |
+| `scripts/sprt.py --plan` | How many games will this comparison need, before it is started? |
+| `scripts/sprt.py --trajectory` | Where would a finished run have stopped? |
+| `scripts/run_sprt_match.sh` | Runs a tournament and ends it at the first decision. |
+| `scripts/match_health.py` | Is this run trustworthy at all — forfeits, duplicates, colour bias, pair shape, design effect? |
+| `scripts/version_curve.py` | One rating scale across runs, anchored to a frozen opponent. |
+| `scripts/book_lines.py` | Walks a PolyGlot book directly. Surveys every book in `books/` for breadth, and builds pools from any of them without the engine. |
+| `scripts/test_sprt.py` | 20 tests over the statistics, standard library only. |
+
+### 10.2 The test is pentanomial, and why that is not a detail
+
+Matt-Magie plays one opening line twice with the colours swapped. The pair is the observation,
+and its normalised score is one of five values. `pairing_elo.py` already treats it that way for
+its interval; the SPRT does the same, so the two agree by construction.
+
+The cost of a comparison is set by the **variance of that pair distribution**, not by the score.
+Suprah's is high — measured 0.060 to 0.069 across three pairings, with only about a third of
+pairs coming back level. It is a sharp engine, and sharp engines are expensive to measure.
+
+### 10.3 Stating the hypothesis is worth more than running more games
+
+`sprt.py --plan`, on the pair distribution this harness actually produces:
+
+| True effect | `--elo0 0 --elo1 10` "does it gain?" | `--elo0 -10 --elo1 0` "does it hurt?" |
+| ---: | ---: | ---: |
+| +20 Elo | 1340 games | 806 games |
+| +13 Elo | 2490 games | 1106 games |
+| 0 Elo | 3970 games (accepts H0) | 3940 games (accepts H1) |
+| −13 Elo | 1100 games | 2476 games |
+
+Both columns test the same games. The second asks whether a rule that is already written and free
+to keep does any harm, which is the actual decision whenever the code exists and only the default
+is open. For the LMP/SEE question it is **less than half the cost** at the effect size in play.
+
+The first row of the fixed-length plan for that same question was 1600 games per pairing, sized
+from a half-width. At the measured variance that resolves about ±12.5 Elo and the effect being
+hunted is +13.2 — the run was sized to be marginal, and no amount of care in reading it fixes
+that. `--plan` would have said so in a second.
+
+### 10.4 What was measured about the harness
+
+**Losses on time: zero** in the first 700 games at `concurrency = 9` on a 12-core host.
+Matt-Magie writes `WhiteWinByTime` / `BlackWinByTime` into the `Termination` tag, so this is
+directly checkable, and `match_health.py` checks it. Concurrency has headroom; raising it is a
+legitimate way to buy throughput, but it must be re-checked at the new setting and any run with a
+non-zero forfeit count is discarded rather than corrected.
+
+**Duplicate games: none.** Search is time-based, so replaying an opening line does not reproduce
+a game. The pool being shorter than the run is therefore not the problem it looked like.
+
+**The narrow opening tree does not inflate the intervals.** `openings/book_mixed.txt` has 598
+lines but only **17 distinct four-ply starts**, 49 at six plies and 121 at eight, because
+`Performance.bin` picks moves by weight and popularity is concentrated. The intraclass
+correlation of pair scores within an opening family measures **0.00 to 0.03**, i.e. a design
+effect of 1.00 to 1.27. The pool's narrowness is a limit on **what a result means** — Elo over
+those opening families — and not on whether its interval is honest.
+
+**It is fixable, and the fix is free.** `books/` holds thirteen PolyGlot books — **not in version
+control**, `.gitignore` excludes the directory, so they have to be carried across by hand when the
+work moves machines — and
+`scripts/book_lines.py` walks them directly rather than asking the engine for a move, so it can
+draw **uniformly** instead of by popularity. Measured over 400 sampled 10-ply lines, distinct
+four-ply starts: `codekiddy.bin` 307, `DCbook_large.bin` 284, `Elo2400.bin` 279, against
+`Performance.bin`'s 17 and `komodo.bin`'s 3. The engine's own book is close to the worst of them
+for this purpose, and `komodo.bin` — a deep best-play book with two root moves — is the worst.
+
+A `--temperature` of 0.25 beats both extremes: it yields more distinct prefixes *and* more usable
+lines than uniform sampling, because following weight keeps the walk inside the book instead of
+running it off the edge. The candidate pool `openings/book_codekiddy_10ply.txt` holds **2000
+lines with 831 distinct four-ply starts**, against 598 lines with 17.
+
+`scripts/book_lines.py --self-test` checks the PolyGlot key against the nine published vectors
+before any of this is trusted, and the Zobrist table is read out of `src/polyglot.rs` so the
+script cannot drift from the engine.
+
+**Whether the wider pool costs or saves games is open.** Broader openings are sharper, sharper
+openings raise the pair variance, and higher variance means more games per decision — but sharper
+positions also convert small strength differences into results instead of drawing them away.
+Which effect wins is empirical: run the same pairing on both pools and compare
+`scripts/sprt.py --plan`.
+
+**Depth reached at the match time control.** 1000ms + 100ms yields **depth 9 to 10**; 5s gives 11,
+10s gives 12, 30s gives 14. Roughly one ply per tenfold increase in time.
+
+### 10.5 The consequence for the backlog
+
+Every remaining search item is a depth-conditional rule, and they are being priced at a root depth
+of 9 to 10.
+
+* **LMP** fires at depths 1 to 4 of 9, a large share of the tree. Its measurement transfers.
+* **Razoring at depth 1** fires everywhere. Fine.
+* **ProbCut at depth ≥ 5** reaches only the top few plies. Its trigger depth is a tunable and has
+  to be set against this harness, not against the literature.
+* **Singular Extensions at depth ≥ 8** fire at plies 0 to 2 and nowhere else. The feature as
+  specified in section 4 is close to untestable here. Either its trigger depth comes down — which
+  makes it a different feature from the published one — or the time control goes up, and one ply
+  costs a factor of ten in wall time. **Decide which before building it.**
+
+### 10.6 A defect found while reading the code
+
+`quiet_count` in `src/search_service.rs` stops incrementing at 64, because it indexes the
+`searched_quiet_moves` array that feeds the history malus. The LMP threshold is
+`lmp_base_moves + 2 · depth²`, i.e. 5, 11, 21, 35, 53, **75**, 101, 131 for depths 1 to 8. From
+depth 6 up the threshold is above the cap and **LMP silently never fires**.
+
+`tuning/parameters.json` registers `lmp_max_depth` with `max: 8` and the UCI option advertises
+`max 10`, so SPSA can wander over a flat region from 5 to 8 and tune nothing. At the shipping
+default of 4 the cap does not bind and the pending measurement is unaffected.
+
+* `[ ]` Count quiet moves in a separate counter that is not bounded by the array length.
+* `[ ]` Add a test that LMP still changes the tree at `lmp_max_depth = 8`.
+
+### 10.7 Not done, and why
+
+* **Adopting the wider pool.** `openings/book_codekiddy_10ply.txt` is built and 49 times broader
+  at four plies, but nothing has been played on it. Two things are unmeasured: whether it costs
+  or saves games per decision (10.4), and whether its lines are balanced enough — a line whose
+  final position already favours one side is not wrong under colour-swapped pairing, but nobody
+  has looked. Balance filtering needs the engine to evaluate every candidate and was not done.
+* **Comparing the two pools.** One pairing, run twice, `sprt.py --plan` on each. That settles the
+  cost question in one measurement and should precede adopting the new pool.
+* **Raising `concurrency`.** Needs one run at the new setting, checked with `match_health.py` for
+  forfeits. Cheap, and worth doing before the next long measurement.
+
+---
+
+## 11. Proposal: reduce late checking moves, then re-price the Check Extension
+
+`[Impact: unknown, plausibly high]` `[Complexity: Low]` — not started, and **measure step 1 first**.
+
+Section 8.2 disabled the Check Extension for +23.7 Elo and explained the cost as "an extension
+spends its extra ply at precisely the node class where every pruning stage is disabled". Reading
+the guards in `src/search_service.rs` sharpens that, and the sharper version suggests the
+extension may not have been the problem.
+
+Two different conditions switch rules off, and they are not the same node class.
+
+| Rule | off when **in check** (`turn.gives_check`) | off when the move **gives check** (`current_turn.gives_check`) |
+| :--- | :--- | :--- |
+| static evaluation | yes | — |
+| Null Move Pruning | yes | — |
+| Reverse Futility | yes | — |
+| Futility Pruning | yes | yes |
+| Late Move Pruning | yes | yes |
+| SEE pruning of bad captures | yes | yes |
+| **Late Move Reductions** | **no — evasions are reduced** | **yes** |
+
+So LMR does reduce evasions; what it never touches is a move that *gives* check. Together with the
+three pruning rules that also exempt it, **a checking move is exempt from every reduction and
+every pruning rule in the engine**. The Check Extension then granted that same class an extra
+ply on top, which is why it cost 1.75x the nodes at fixed depth.
+
+The question section 8.2 did not ask is whether the exemption itself is right. A quiet move that
+gives check late in the move list, with poor history, at low depth, is not obviously worth a full
+search — every strong engine reduces it, and reduces rather than deletes it precisely because the
+occasional queen sacrifice has to survive.
+
+### The order this has to be done in
+
+1. **Measure the size of the class before touching anything.** `src/search_diag.rs` and the
+   `search-diag` feature already exist and already classify a node's first move as
+   `QuietCheck`; that measured 2.6% of interior nodes. What is needed is different: the share of
+   *searched moves* that give check, and the share of subtree time spent under them. If it is
+   small, everything below is worthless and the item ends here for the price of one diagnostic
+   build.
+2. **Add `lmr_check_damping: i32`, defaulting to a value that reproduces today's tree.** A
+   checking move becomes reducible, with its reduction damped the way killers and counter moves
+   already are in the same block. A damping large enough to zero every reduction is the current
+   behaviour, so the default is bit-identical and provable by node count before a game is played.
+3. **Run the smothered-mate canary first.** `test_pruning_rules_preserve_the_smothered_mate`
+   covers LMP and SEE pruning; extend it to this. Reduction is safer than pruning but not safe:
+   this engine does **not** re-search a reduced move that fails low, so a reduced queen sacrifice
+   is effectively skipped. That is the whole risk of the item and the test is the only thing
+   watching it.
+4. **Price it against v0.34.0** by the procedure in
+   `skills/matchplay_measurement_procedure.md`, as a *does it hurt* question — the code is a
+   damping factor and free to keep.
+5. **Only if it gains, re-open the Check Extension.** With checking moves reducible, the
+   mechanism that made the extension expensive is weaker, and the four cost-control axes in 8.2
+   are all still present as tunables. This is the reason the item is worth doing at all: 8.2
+   closed the extension as a feature, not as a question, and the three positive findings it
+   recorded — a ply earlier on Philidor's Legacy, more LCT II solutions at fixed depth — were
+   never disputed. Only the price was.
+
+> [!CAUTION]
+> Nothing above is measured. It is a reading of the guards plus the mechanism 8.2 already
+> established, and step 1 exists to kill it cheaply if the class is too small to matter. Do not
+> let the fact that it explains a known result stand in for evidence that changing it helps —
+> that is exactly the error 8.2 records, where the frontier restriction was the best of four axes
+> on every metric except the one that counts.
