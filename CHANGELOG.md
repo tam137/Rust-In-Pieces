@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.34.0-NNUE] - 2026-08-27
+
+Ports master's v0.34.0 to the NNUE branch. Check Extensions are disabled by default. The branch is
+level with master again.
+
+### Changed
+- `enable_check_extension` now defaults to **false**, ported from master v0.34.0. Measured there
+  over **1000 games per pairing** at 1000ms + 100ms, disabling the extension is worth **+23.7
+  Elo**, 95% CI [+8, +40]. The extension is not broken — it resolves Philidor's Legacy a ply
+  earlier — but it spends its extra ply at exactly the node class where every pruning stage is
+  disabled: Null Move, Reverse Futility and Futility Pruning are all guarded by
+  `!turn.gives_check`, and LMR never reduces a checking move.
+- `check_extension_min_depth` was measured on master and rejected as a rescue: it had scored +34.2
+  Elo on the old bookless harness and scores **-16.0** on the paired opening harness, the opposite
+  sign. All five extension-shaping parameters are retained as UCI tunables.
+
+> **Caveat for this branch.** The +23.7 Elo was measured on the HCE evaluation. The extension's
+> cost is a search property and should transfer, but this branch carries its own SPSA-tuned LMR
+> (`lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`), and LMR is
+> one of the stages the extension interacts with. The branch has not played a game since
+> `v0.30.0-nnue`; a gauntlet against it would confirm both this default and the fail-soft revert.
+
+### Fixed
+- `option name EnableCheckExtension` advertised `default true` regardless of the actual default.
+  The UCI option strings in `src/threads.rs` are hardcoded literals rather than derived from
+  `Config::default()`, so they can drift from the values they claim to report.
+
+### Testing
+- The five extension-shaping unit tests used the default configuration as their "extension on"
+  baseline and would have become vacuous; they now enable the extension explicitly.
+- `info_string_reports_a_real_forced_mate_as_mate_in_four` now searches Philidor's Legacy to depth
+  7 rather than 5. A mate in four is seven plies; depth 5 only resolved because the extension was
+  on. The test covers mate *reporting*, not the extension.
+
+### Process
+- `skills/engine_release_procedure.md` (branch-owned) gains the **mandatory cross-version
+  gauntlet**, which this branch's copy did not have at all. Fixed at 1s + 100ms and 100 games per
+  pairing, explicitly a smoke test rather than a measurement. Its absence is how this branch
+  carried the -207 Elo fail-soft regression for six releases.
+- Protected branch values verified untouched by the port: `use_nnue = true`, `lmr_divisor = 140`,
+  `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`,
+  `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
+  `your_turn_bonus = 18`, and the `UseNNUE` UCI advertisement.
+
+
+
 ## [V0.33.1-NNUE] - 2026-08-27
 
 The NNUE branch had not been released since `v0.30.0-NNUE` and had fallen six master releases

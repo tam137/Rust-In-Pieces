@@ -16,7 +16,44 @@ This document outlines the mandatory procedure for building, testing, and releas
 ## 2. Mandatory Release Sequence & Procedure
 Whenever a release is explicitly requested by the USER (applicable for both **Patch** and **Minor** releases), the AI MUST execute the following steps in this exact chronological order:
 1. **Run Unit Tests & Check Warnings:** Execute active unit tests first: `cargo test`. Whenever running asynchronous test commands during a release procedure, the AI MUST explicitly wait for background test execution to finish completely and verify 100% clean success (`test result: ok`) BEFORE proceeding to execute `./build_and_release.sh`. In addition to all tests passing (being green), the entire codebase MUST be completely free of compiler warnings. Crucially, it is strictly forbidden to use attributes or annotations that silence warnings (such as `#[allow(dead_code)]`, `#[allow(unused_variables)]`, etc.) to bypass these clean compilation requirements.
-2. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh`.
+2. **Mandatory Cross-Version Gauntlet for Search and Evaluation Changes:** If the release touches
+   `src/search_service.rs`, `src/eval_service.rs`, `src/move_gen_service.rs` or any search
+   parameter default, the candidate MUST play a gauntlet against **at least the two preceding
+   releases** before the pipeline is run:
+   ```bash
+   # ../matt-magie/<name>.trn, mode = gauntlet, challenger listed first
+   engines = <candidate>, <previous release>, <release before that>
+   time_control = 1000          # ALWAYS 1s + 100ms. Never longer.
+   increment = 100
+   rounds = 50                  # 100 games per pairing. Never more.
+   concurrency = 9
+   openings = openings_mixed.txt
+   ```
+
+   > [!IMPORTANT]
+   > **This gauntlet is a smoke test, not a measurement.** Its only job is to catch a candidate
+   > that is grossly broken — the class of defect a self-A/B cannot see. It is fixed at
+   > **1s + 100ms and 100 games per pairing**, and must not be enlarged or lengthened to make it
+   > "more accurate". At 100 games a pairing resolves to roughly +/-50 Elo, so it can see a
+   > catastrophe and nothing finer.
+   >
+   > Pricing a change is a separate, deliberate run against the specific configuration in
+   > question, at 500 to 1000 games per pairing. Do that *before* deciding to release.
+
+   Evaluate **per pairing**, never by the scoreboard rating: the Matt-Magie scoreboard is an
+   iterative Bradley-Terry model normalised to a pool average of 2000, so a rating depends on
+   which engines happen to be in the PGN and two ratings from different pools are not comparable.
+   Use `scripts/pairing_elo.py`. A candidate that scores below roughly 45% against a predecessor
+   MUST NOT be released.
+
+   > [!WARNING]
+   > An A/B of a build against *itself* with one feature toggled is the right tool for pricing a
+   > feature, but it is structurally blind to any defect both sides share. v0.30.0 shipped a
+   > **-207 Elo** regression that four separate 1000-game self-A/B runs could not see, because
+   > every one of them pitted a v0.30.x build against another v0.30.x build. This branch carried
+   > that regression for six releases.
+
+3. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh`.
 
 > [!NOTE]
 > **Performance / Perft Tests (`cargo test -- --ignored`)**: By default, long-running perft and ignored performance tests are **OMITTED** during the standard release procedure to save time. Do NOT run `cargo test -- --ignored` or document `perft.md` unless the USER explicitly requests or demands perft benchmarking beforehand. If the USER explicitly requests perft benchmarking, execute `cargo test -- --ignored` and follow Section 6.
