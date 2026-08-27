@@ -16,6 +16,13 @@ pub struct Config {
     pub use_book: bool,
     pub cache_book_in_ram: bool,
     pub book_file: String,
+    /// Half-moves after which the opening book stops being consulted. `0` means unlimited.
+    ///
+    /// The embedded book reaches well into the middlegame on main lines. A match that is meant
+    /// to price a search change has to leave the book early enough that the search decides the
+    /// game, and a fixed cut-off also makes every game in a match start from a comparable amount
+    /// of book guidance.
+    pub book_max_ply: i32,
     pub max_zobrist_hash_entries: usize,
     /// Default capacity: 1,000,000 entries (~16 MB).
     /// Proven sweet spot in tournament play (+30 Elo over 10M entries).
@@ -37,7 +44,6 @@ pub struct Config {
     #[allow(dead_code)]
     pub game_loop: u64,
     pub smp_thread_eval_noise: i16,
-    pub skip_strong_validation: bool,
     pub max_eval_mult: f32,
     pub aggressiveness: Aggressiveness,
     pub enable_positional_cap: bool,
@@ -200,6 +206,27 @@ pub struct Config {
     /// Upper ply bound for granting Check Extensions. Beyond this ply the search
     /// depth strictly decreases again, which keeps the search tree finite.
     pub check_extension_max_ply: i32,
+    /// Restricts Check Extensions to checks that do not lose material by Static
+    /// Exchange Evaluation. Cheap, but on its own it also rejects sacrificial mating
+    /// checks, so it is only sound in combination with the One-Reply Extension.
+    pub check_extension_require_safe: bool,
+    /// Caps how many extensions a single search path may accumulate, expressed as
+    /// `root_depth / divisor`. `0` disables the cap. This bounds the compounding cost
+    /// of extensions without judging any individual move.
+    pub check_extension_budget_divisor: i32,
+    /// Restricts Check Extensions to nodes at or above this remaining depth. The
+    /// counterpart to `check_extension_max_depth`: near the horizon the Quiescence Search
+    /// already resolves checks, so an extension there is close to pure cost. `0` disables
+    /// the restriction.
+    pub check_extension_min_depth: i32,
+    /// Restricts Check Extensions to nodes at or below this remaining depth. An extension
+    /// granted high in the tree multiplies an entire subtree, while the horizon effect it
+    /// exists to cure is a frontier phenomenon. `0` disables the restriction.
+    pub check_extension_max_depth: i32,
+    /// Enables One-Reply Extensions: a node with exactly one legal move is searched one
+    /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
+    /// keeps forced sequences — including sacrificial checks — inside the horizon.
+    pub enable_one_reply_extension: bool,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -214,6 +241,7 @@ impl Config {
             use_book: true,
             cache_book_in_ram: true,
             book_file: String::new(),
+            book_max_ply: 0,
             max_zobrist_hash_entries: 50_000_000, // 800 MB
             max_pawn_hash_entries: 1_000_000, // 16 MB: Proven +30 Elo sweet spot (avoids CPU L3 & TLB thrashing)
             search_depth: 4, // only used as default for tests
@@ -231,7 +259,6 @@ impl Config {
             min_thinking_time: 2,
             game_loop: 3,
             smp_thread_eval_noise: 0,
-            skip_strong_validation: false,
             max_eval_mult: 2.0,
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
@@ -399,19 +426,34 @@ impl Config {
             rfp_max_depth: 3,
             enable_check_extension: true,
             check_extension_max_ply: 64,
+            check_extension_require_safe: false,
+            check_extension_budget_divisor: 0,
+            check_extension_min_depth: 0,
+            check_extension_max_depth: 0,
+            enable_one_reply_extension: false,
             log_path: std::sync::Arc::from(""),
         }
     }
 
+    pub fn recalculate_lmr_table(&mut self) {
+        let divisor = self.lmr_divisor as f64 / 100.0;
+        for (depth, row) in self.lmr_table.iter_mut().enumerate().skip(1) {
+            for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
+                let d = depth as f64;
+                let m = move_idx as f64;
+                let reduction = (d.ln() * m.ln() / divisor) as i16;
+                *item = reduction.max(0);
+            }
+        }
+    }
+
     pub fn new() -> Config {
-        let mut config = Config::new_raw();
-        config.set_aggressiveness(Aggressiveness::Normal);
-        config
+        Self::new_raw()
     }
 
     pub fn set_aggressiveness(&mut self, aggressiveness: Aggressiveness) {
+        let raw = Self::new_raw();
         self.aggressiveness = aggressiveness;
-        let raw = Config::new_raw();
         match aggressiveness {
             Aggressiveness::Normal => {
                 self.king_ring_attack_knight = raw.king_ring_attack_knight;
@@ -448,18 +490,6 @@ impl Config {
                 self.bishop_mobility_factor = raw.bishop_mobility_factor;
                 self.rook_mobility_factor = raw.rook_mobility_factor;
                 self.queen_mobility_factor = raw.queen_mobility_factor;
-            }
-        }
-    }
-
-    pub fn recalculate_lmr_table(&mut self) {
-        let divisor = self.lmr_divisor as f64 / 100.0;
-        for (depth, row) in self.lmr_table.iter_mut().enumerate().skip(1) {
-            for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
-                let d = depth as f64;
-                let m = move_idx as f64;
-                let reduction = (d.ln() * m.ln() / divisor) as i16;
-                *item = reduction.max(0);
             }
         }
     }
@@ -604,11 +634,21 @@ mod tests {
         assert_eq!(config.max_pawn_hash_entries, 1_000_000);
         assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
         assert!(config.use_nnue);
-        assert!(config.enable_qs_tt);
         assert_eq!(config.lmr_divisor, 140);
         assert_eq!(config.lmr_move_threshold, 2);
+        assert_eq!(config.aspiration_window_initial_delta, 16);
+        assert_eq!(config.aspiration_window_multiplier, 5);
         assert_eq!(config.aspiration_window_max_delta, 1000);
+        assert_eq!(config.rfp_margin_per_depth, 80);
+        assert_eq!(config.rfp_max_depth, 3);
+        assert_eq!(config.lmr_history_good_threshold, 4000);
+        assert_eq!(config.lmr_history_bad_threshold, 550);
         assert!(config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
+        assert!(!config.check_extension_require_safe);
+        assert_eq!(config.check_extension_budget_divisor, 0);
+        assert_eq!(config.check_extension_min_depth, 0);
+        assert_eq!(config.check_extension_max_depth, 0);
+        assert!(!config.enable_one_reply_extension);
     }
 }

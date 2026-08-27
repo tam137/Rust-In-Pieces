@@ -14,6 +14,14 @@ Every new pruning or reduction feature **must** be fully configurable via the `C
 
 ## Active Search Tasks
 
+### 1. Late Move Pruning (LMP)
+*   **Description**: At shallow depths, quiet moves appearing late in the move list are statistically irrelevant and can be skipped entirely instead of being searched at a reduced depth. Complements the existing LMR and Futility Pruning stages.
+*   **Metadata**: `[Impact: High]` `[Complexity: Low]`
+*   **Tasks**:
+    - `[ ]` Add `enable_lmp: bool`, `lmp_max_depth: i32` and `lmp_base_moves: i32` to `Config`.
+    - `[ ]` In the `minimax` move loop, when not in check and `depth <= lmp_max_depth`, prune all further quiet moves once the quiet move counter exceeds `lmp_base_moves + 2 * depth^2`.
+    - `[ ]` Expose both parameters via UCI `setoption` for SPSA tuning.
+
 ### 3. SEE-Pruning in the Main Search (Bad Capture Pruning)
 *   **Description**: Currently, captures with $SEE < 0$ are sorted to the end of the move list. This task introduces hard pruning for extremely bad captures at low depths.
 *   **Metadata**: `[Impact: High]` `[Complexity: Medium]`
