@@ -6,6 +6,103 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.33.0] - 2026-08-27
+
+The measurement release. It changes no search behaviour whatsoever and exists to make search
+changes measurable at all: `task.md` 2.2.6 records three matches whose results are mutually
+inconsistent by **41 Elo**, because Matt-Magie started every game from the initial position with
+no book and each match therefore sampled whichever openings the clock happened to produce. The
+stated consequence was that no search change smaller than roughly 40 Elo could be validated,
+which is larger than every remaining item on the roadmap.
+
+The intended fix was to hand the engine a real opening book. Attempting it uncovered that the
+engine could not read one.
+
+### Fixed
+
+- **PolyGlot book support, which had never worked with a real book.** Setting `BookFile` to any
+  published `.bin` produced no book move at all, silently, and the engine searched instead. Four
+  independent defects in `src/polyglot.rs`, each sufficient on its own to make every key wrong:
+
+  1. **The Zobrist table was generated rather than transcribed.** `polyglot_key` derived its 781
+     constants from a 64-entry matrix and a linear congruential generator. That produces a
+     perfectly self-consistent hash which matches no book ever published: the engine computed
+     `Random64[0] = b837b07307d1342a` where the format defines `9d39247e33776d41`. The published
+     table is now embedded verbatim.
+  2. **The piece encoding had the colours the wrong way round.** PolyGlot orders black before
+     white within every piece kind (black pawn 0, white pawn 1, black knight 2, ...);
+     `map_piece_to_polyglot` listed white first throughout.
+  3. **The board was mirrored vertically.** `fen_service` builds the mailbox as
+     `square = rank * 8 + file` with rank 0 being rank 1, which is exactly PolyGlot's own
+     `8 * row + file` layout, but `polyglot_key` applied a `(7 - rank)` flip on top of it.
+  4. **The side-to-move constant was attached to the wrong side.** The specification XORs
+     `RandomTurn[0]` when **White** is to move; the engine XORed it when Black was to move.
+
+  None of this was visible to the test suite, because every existing test built its test book
+  from the engine's own key and was therefore satisfied by any self-consistent hash. The suite
+  now pins the nine positions and keys published with the format description, asserts that the
+  en passant file is included only when a pawn of the side to move can actually capture, and
+  walks the shipped book from the initial position to verify that every position reached along
+  the way is found again.
+
+- **Castling out of book was an illegal move.** PolyGlot encodes castling as the king moving
+  onto its own rook (`e1h1`, `e8h8`), while UCI expects the king's true destination (`e1g1`,
+  `e8g8`). The book move was passed through verbatim, so any book line containing a castling
+  move produced a move no GUI can play. The translation is applied only when the piece on the
+  origin square really is the king, because a rook moving from e1 to h1 encodes identically.
+
+- **An unreadable book file terminated the engine.** `Book::get_book_move` called
+  `process::exit(1)` when the configured `BookFile` could not be opened, so a mistyped path took
+  the process down mid-tournament. The failure is now reported once and the engine falls back to
+  the embedded book, and ultimately to searching.
+
+### Added
+
+- **The opening book is compiled into the binary.** `Performance.bin`, 92,954 PolyGlot entries,
+  is embedded with `include_bytes!` and parsed once on first use. A freshly built engine now has
+  a genuine opening repertoire with no configuration at all, and — more importantly for
+  matchplay — two builds can no longer differ merely because one of them found its book file and
+  the other did not. `BookFile` still overrides it, and the small hand-written repertoire remains
+  as a last resort for positions the embedded book does not cover. The binary grows from 3.6 MB
+  to 5.1 MB.
+
+- **`BookMaxPly` (`Config::book_max_ply`, default `0` = unlimited).** A 93,000-entry book reaches
+  well into the middlegame on main lines, which would leave the opening rather than the search
+  deciding a test game. The option stops the book after a fixed number of half-moves of the
+  transmitted game.
+
+- **`scripts/make_opening_lines.py`.** Samples unique opening lines of fixed length from the book
+  by driving the engine over UCI, and writes them as one space-separated move list per row. It
+  uses the engine rather than parsing the book itself, which keeps it dependency-free and makes
+  it an end-to-end check of the key at the same time: a wrong key yields no lines whatsoever. A
+  book move returns instantly with no `info` output, and that is how a line that has left the
+  book early is detected and discarded.
+
+- **`scripts/pairing_elo.py`.** Reports Elo per pairing from a PGN, as
+  `skills/engine_release_procedure.md` requires, together with two confidence intervals: the
+  unpaired one that treats every game as independent, and the paired one that treats a single
+  opening played with both colour assignments as one observation. The second is the honest
+  interval for a run driven by an openings file.
+
+### Changed (test harness, `../matt-magie`)
+
+Matt-Magie gained an optional `openings = <file>` key in its `.trn` format. Each colour-swapped
+game pair is played from the same opening line, so the strength of the opening cancels out of the
+comparison instead of remaining as noise. Two further corrections were needed there: engine
+options from `engine_options` were previously sent to the White side only, leaving the Black
+engine on its own defaults for `Hash`, `Threads` and `OwnBook` in every match ever run; and the
+first `go` of a game omitted `winc`/`binc`, so the opening move was budgeted against a clock the
+engine could not see the increment of.
+
+### Not changed
+
+`src/search_service.rs`, `src/eval_service.rs` and `src/move_gen_service.rs` are untouched, and
+no search parameter default moved. With `OwnBook=false` — which every gauntlet configuration
+sets — this release is functionally identical to v0.32.0, and that identity is itself one of the
+measurements below.
+
+
+
 ## [V0.32.0] - 2026-08-25
 
 Second delivery against Milestone 1 of `task.md`, and the load-bearing one: specification 1.2.1.

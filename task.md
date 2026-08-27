@@ -449,18 +449,16 @@ the mean completed iteration over the 35-position LCT II suite at 1s per move.
     - `[x]` **One-Reply Extension**: `enable_one_reply_extension` in `Config`, UCI
       `EnableOneReplyExtension`. Applied at the node once the move list is known, so the single
       legal move is already counted and the extra ply costs one node.
-    - `[ ]` **Opening Diversity for Matchplay** — *prerequisite for everything below*. Matt-Magie
-      starts every game from the initial position with no book, so each match samples whichever
-      openings the clock happens to produce. The three matches above are mutually inconsistent by
-      **41 Elo**: `unfiltered - disabled = -10.1`, `deep - disabled = +34.2`, and
-      `deep - unfiltered = +2.8`, where transitivity demands the last figure be near +44. The
-      real resolution of this setup is therefore roughly +/-40 Elo, not the +/-25 the intervals
-      report, because the interval only models correlation *within* one match and not the
-      variance *between* opening pools. Until a start-position book or a seeded FEN set exists,
-      no search change smaller than about 40 Elo can be validated here, and no default should be
-      changed on matchplay evidence alone.
-    - `[ ]` **Re-run the Deep Restriction** against v0.30.1 with 2000-3000 games once opening
-      diversity is in place, and set `check_extension_min_depth` from that result.
+    - `[x]` **Opening Diversity for Matchplay** — *prerequisite for everything below*. Delivered
+      in v0.33.0; see 2.2.7 for what was built and what it measures. Matt-Magie played every game
+      from the initial position with no book, so each match sampled whichever openings the clock
+      happened to produce, and the three matches above are mutually inconsistent by **41 Elo**:
+      `unfiltered - disabled = -10.1`, `deep - disabled = +34.2`, and `deep - unfiltered = +2.8`,
+      where transitivity demands the last figure be near +44. Matches are now played from a file
+      of book-derived opening lines, one line per colour-swapped game pair.
+    - `[ ]` **Re-run the Deep Restriction** against v0.33.0 with 500+ games per pairing on the
+      new harness, and set `check_extension_min_depth` from that result. The replay in 2.2.7 is
+      too small to decide it, and it is the first thing the harness should be spent on.
     - `[ ]` **SPSA Tuning**: register the five parameters in `tuning/parameters.json` and
       `tuning/groups.json` and tune `check_extension_min_depth` jointly with the LMR and RFP
       depth thresholds it interacts with.
@@ -470,6 +468,62 @@ the mean completed iteration over the 35-position LCT II suite at 1s per move.
       contains three checks after the root move and would resolve at nominal depth 4, but needs
       depth 5. Beyond the lost ply this leaves the root scoring forcing moves on a shallower tree
       than the interior does, which is a standing source of score instability between iterations.
+
+#### 2.2.7 Matchplay Harness — ✅ Rebuilt and validated (v0.33.0)
+
+The blocking item above was an opening book. Providing one uncovered that the engine could not
+read a book at all: `src/polyglot.rs` generated its 781 Zobrist constants from a linear
+congruential generator instead of transcribing the published table, ordered the piece kinds with
+White first where the format puts Black first, mirrored the board vertically on top of a mailbox
+that already matched PolyGlot's layout, and attached the side-to-move constant to Black where the
+specification attaches it to White. Any one of the four makes every key wrong, and the test suite
+could not see any of them because it built its test books from the engine's own key. Setting
+`BookFile` had therefore always been silently ignored. See the v0.33.0 changelog entry.
+
+**What the harness now is.** `Performance.bin` (92,954 entries) is compiled into the binary;
+`scripts/make_opening_lines.py` samples unique fixed-length lines from it by driving the engine
+over UCI; Matt-Magie reads them through a new `openings = <file>` key in the `.trn` and plays
+**one line per colour-swapped game pair**. Two defects in Matt-Magie itself were fixed at the same
+time and both had been present in every measurement in this document: `engine_options` reached
+the White side only, so the Black engine ran on default `Hash`, `Threads` and `OwnBook` in every
+match ever played, and the first `go` of a game omitted `winc`/`binc`.
+
+`scripts/pairing_elo.py` reports Elo per pairing with two intervals, the unpaired one and the
+paired one that treats an opening played with both colour assignments as a single observation.
+
+**Validation, all at 1000ms + 100ms with 98 eight-ply opening lines.**
+
+| Run | Expectation | Measured |
+| :--- | :--- | :--- |
+| v0.33.0 vs v0.32.0, 200 games | 0 Elo — identical search with `OwnBook=false` | **+8.7**, 95% CI [-26, +44] |
+| v0.30.3 vs v0.30.0, 100 games | ~+209, the known fail-soft regression | **+219.9**, 95% CI [+164, +289] |
+
+The null run establishes the figure this document has never had: **the resolution is +/-35 Elo at
+200 games**, which scales to +/-16 Elo at 1000. The signal run establishes that the harness is
+sensitive enough to see a real regression. Both are also the release test for v0.33.0 itself,
+since the null run is what proves the release changed no playing strength.
+
+**The transitivity replay is inconclusive, and says so.** The three check-extension builds were
+replayed at 100 games per pairing:
+
+| Comparison | Elo | 95% CI |
+| :--- | ---: | :--- |
+| deep - unfiltered | +34.9 | +/- 54.0 |
+| unfiltered - off | +10.4 | +/- 56.9 |
+| deep - off, measured | +3.5 | +/- 49.8 |
+| deep - off, implied by transitivity | +45.3 | +/- 78.4 |
+| **gap** | **+41.8** | **+/- 92.9, z = 0.88** |
+
+The gap is again roughly 41 Elo, but at 100 games per pairing that is 0.88 standard deviations
+and therefore exactly what ordinary sampling noise produces. This run neither reproduces nor
+refutes the original inconsistency; it only shows nothing anomalous. A transitivity check needs
+roughly 500 games per pairing to have any power, and that run is the same run the open Deep
+Restriction item requires — it should be spent there rather than repeated in isolation.
+
+**What is still not established.** That the *nominal* interval is now honest. The original defect
+was variance *between* opening pools, which a single match cannot expose whatever its size. The
+first genuine test is the next 500-games-per-pairing run: if its pairings are mutually consistent,
+the pool variance is gone.
 
 ### 2.3 Fail-Soft Alpha-Beta — ⛔ Tried and Reverted (v0.30.0 → v0.30.3)
 
