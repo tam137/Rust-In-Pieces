@@ -163,9 +163,15 @@ def report(path, opening_plies, prefix_plies, cluster_plies):
         sum(len(rows) - 1 for rows in repeated.values()), len(repeated)))
     print("  same colours and first %d plies                  %6d in %d groups" % (
         prefix_plies, sum(len(rows) - 1 for rows in near.values()), len(near)))
-    if repeated:
-        print("\n  WARNING: identical games carry no new information but are counted as")
-        print("           observations. The opening pool is too small for this run length.")
+    # A handful of repeats over thousands of games is noise rather than a pool that is too
+    # small: the 4800-game gauntlet of 2026-08-27 produced exactly one, and warning on that
+    # teaches the reader to skip the warning. Half a percent is where it starts to matter.
+    duplicate_share = sum(len(rows) - 1 for rows in repeated.values()) / len(games)
+    if duplicate_share > 0.005:
+        print("\n  WARNING: %.1f%% of games are exact repeats. They carry no new information"
+              % (100.0 * duplicate_share))
+        print("           but are counted as observations. The opening pool is too small for")
+        print("           this run length - scripts/book_lines.py builds a wider one.")
     print()
 
     # --- opening reuse -----------------------------------------------------------------
