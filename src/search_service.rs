@@ -630,6 +630,58 @@ impl SearchService {
             }
         }
 
+        // 0.6. Razoring at depth 1.
+        //
+        // When the static evaluation trails the window by more than `razoring_margin`, one ply is
+        // very unlikely to recover the gap, and the node's whole move loop is spent proving a
+        // fail-low that a Quiescence Search can establish directly. The qsearch is a verification,
+        // not an assumption: only a score that confirms the fail-low is returned, so a tactical
+        // recovery inside the horizon still puts the node back into the normal search.
+        //
+        // This overlaps by construction with Futility Pruning, which at depth 1 already deletes
+        // the quiet, unimportant moves under a narrower margin. What razoring adds is the rest of
+        // the node - captures, promotions, checking moves, the TT move, killers and the counter
+        // move - each of which is otherwise played and searched at depth 0, i.e. one qsearch per
+        // move where the rule needs one for the whole node.
+        //
+        // The early return deliberately bypasses the Transposition Table write below, exactly as
+        // Null Move Pruning and Reverse Futility Pruning do. `task.md` 8.1 cost roughly two
+        // hundred Elo by writing a fail-soft score into the table; a rule that returns before the
+        // store cannot repeat it.
+        if config.enable_razoring
+            && depth == 1
+            && !is_pv
+            && !turn.gives_check
+            && alpha.abs() < 20000
+            && beta.abs() < 20000
+        {
+            if white {
+                if static_eval + config.razoring_margin <= alpha {
+                    let mut razor_pv = [None; 128];
+                    let razor_eval = self.minimax(
+                        board, turn, 0, white,
+                        alpha, alpha + 1, stats, config, service, context,
+                        false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                        counter_moves
+                    ).1;
+                    if razor_eval <= alpha {
+                        return (None, razor_eval);
+                    }
+                }
+            } else if static_eval - config.razoring_margin >= beta {
+                let mut razor_pv = [None; 128];
+                let razor_eval = self.minimax(
+                    board, turn, 0, white,
+                    beta - 1, beta, stats, config, service, context,
+                    false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                    counter_moves
+                ).1;
+                if razor_eval >= beta {
+                    return (None, razor_eval);
+                }
+            }
+        }
+
         let counter_move = if config.enable_counter_moves && ply > 0 {
             counter_moves[turn.from as usize][turn.to as usize]
         } else {
@@ -1484,6 +1536,9 @@ mod tests {
         let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
         let mut config = Config::for_tests();
         config.enable_check_extension = check_extension;
+        // Razoring's quiet-mate blind spot (task.md 3.2) is orthogonal to what this helper
+        // tests; pin it off so callers see only the check-extension behaviour they asked for.
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         let result = service.search.get_moves(
@@ -1653,6 +1708,9 @@ mod tests {
         config.enable_check_extension = true;
         config.enable_lmp = true;
         config.enable_bad_capture_pruning = true;
+        // This canary is about the LMP/SEE `gives_check` guards, not razoring's separate,
+        // already-pinned blind spot at this same depth (task.md 3.2).
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         let result = service.search.get_moves(
@@ -1663,6 +1721,145 @@ mod tests {
         assert!(result.get_eval() > 30000,
             "LMP and SEE pruning must not delete the smothered mate, got eval {}",
             result.get_eval());
+    }
+
+    #[test]
+    fn test_razoring_default_is_on() {
+        // Razoring's round-robin gauntlet against suprah-0.35.2 on host C decided it: 1034
+        // games, 517 pairs, SPRT H1 accepted (elo0=-10, elo1=0), LLR +2.991 against a +2.944
+        // bound, razoring ahead by 14.1 Elo, paired 95% CI [-1, +30]. `task.md` section 3.3
+        // records the run.
+        let config = Config::new();
+        assert!(config.enable_razoring,
+            "the razoring gauntlet decided H1 (not harmful); the default ships on");
+        assert_eq!(config.razoring_margin, 300);
+    }
+
+    #[test]
+    fn test_razoring_changes_the_tree() {
+        // The rule fires. It is asserted as a change rather than as a shrink for the same reason
+        // as LMP: cutting a node short turns a cutting node into a fail-low one, PVS then widens
+        // the parent's window and re-searches, so the node count is not monotone in how much is
+        // pruned. What must be true is that the tree moves at all - a rule that leaves the tree
+        // untouched is a rule whose default never took effect.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_razoring = false);
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 300;
+        });
+
+        assert_ne!(with, without,
+            "razoring must change the searched tree ({} with vs {} without)", with, without);
+    }
+
+    #[test]
+    fn test_razoring_margin_neutralises_the_rule_when_unreachable() {
+        // The trigger is `static_eval + margin <= alpha`, and the rule is additionally gated on
+        // `alpha.abs() < 20000`. A margin above that bound therefore makes the condition
+        // unsatisfiable and must leave the tree bit-identical. This is the counterpart of
+        // `lmp_max_depth = 0`: a way to switch the rule off from the tuner without the flag, and
+        // a guard against a margin that silently disables what it is supposed to shape.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_razoring = false);
+        let unreachable = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 25000;
+        });
+
+        assert_eq!(baseline, unreachable,
+            "an unreachable margin must leave the tree untouched ({} vs {})",
+            baseline, unreachable);
+    }
+
+    #[test]
+    fn test_razoring_only_fires_at_depth_one() {
+        // Razoring is specified at depth 1 and nowhere else. A search to depth 1 from the root
+        // has no interior node at depth 1 below it that is both non-PV and out of check, so the
+        // guard is exercised instead through the margin: the rule must be reachable at a depth
+        // that contains depth-1 nodes and must leave a depth-1 root search alone.
+        let root_without = search_nodes(CHECK_RICH_FEN, 1, |c| c.enable_razoring = false);
+        let root_with = search_nodes(CHECK_RICH_FEN, 1, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 0;
+        });
+
+        assert_eq!(root_without, root_with,
+            "a depth-1 root search is a PV node and must not be razored ({} vs {})",
+            root_without, root_with);
+    }
+
+    /// Searches Philidor's Legacy with razoring enabled and reports the score.
+    fn search_smothered_mate_razored(depth: i32, margin: i16) -> i16 {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = true;
+        config.razoring_margin = margin;
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, depth, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        ).get_eval()
+    }
+
+    #[test]
+    fn test_razoring_finds_the_smothered_mate_once_it_is_inside_the_search() {
+        // The canary of `task.md` 8.2, applied to razoring. Razoring does not delete a move the
+        // way the rejected SEE material filter did - it replaces a depth-1 node with a Quiescence
+        // Search and returns only if that search confirms the fail-low - so the mate has to
+        // survive at every depth at which the mating line is not sitting on the razored horizon.
+        for depth in [6, 7, 8] {
+            let eval = search_smothered_mate_razored(depth, 300);
+            assert!(eval > 30000,
+                "razoring must keep the smothered mate at depth {}, got eval {}", depth, eval);
+        }
+    }
+
+    #[test]
+    fn test_razoring_loses_a_mate_delivered_on_the_razored_horizon() {
+        // A known and measured cost of the rule, pinned rather than hidden.
+        //
+        // At depth 5 the mating move `Nf7#` is played from a node the rule razors: after the
+        // queen sacrifice White is a queen down, so the static evaluation trails alpha by more
+        // than any usable margin. The verification search cannot see the refutation, because
+        // `minimax` at `depth <= 0` calls `generate_valid_moves_list_capture` when not in check -
+        // Suprah's Quiescence Search generates captures only and never a quiet checking move, and
+        // `Nf7#` is quiet. The rule then returns the fail-low it was given.
+        //
+        // The margin is not the lever: the loss is identical at 200, 300, 500, 900 and 1500,
+        // because a queen deficit exceeds all of them. Depth is the lever, and one more iteration
+        // is enough - the test above shows the mate coming back at depth 6, 7 and 8, where the
+        // mating node is no longer at depth 1.
+        //
+        // If razoring is ever wanted at depth >= 2, this is the defect that has to be fixed
+        // first, and the fix is in the Quiescence Search rather than in razoring: it would have
+        // to generate checking moves at its first ply.
+        for margin in [200, 300, 500, 900, 1500] {
+            assert!(search_smothered_mate_razored(5, margin) < 30000,
+                "the depth-5 loss is a pinned known limitation; if it no longer reproduces at \
+                 margin {}, the Quiescence Search changed and this test should be deleted rather \
+                 than adjusted", margin);
+        }
+
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = false;
+        let mut stats = Stats::new();
+        let without = service.search.get_moves(
+            &mut board, 5, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        ).get_eval();
+
+        assert!(without > 30000,
+            "without razoring the mate is found at depth 5; that is what makes this a cost of \
+             the rule rather than a property of the position (got {})", without);
     }
 
     #[test]
@@ -1875,6 +2072,9 @@ mod tests {
         let mut config = Config::for_tests();
         config.enable_check_extension = true;
         config.check_extension_max_ply = 0;
+        // Match the razoring=false baseline `search_smothered_mate` now pins, so this stays a
+        // check-extension-only comparison.
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         service.search.get_moves(
