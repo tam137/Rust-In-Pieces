@@ -1485,27 +1485,32 @@ mod tests {
     }
 
     #[test]
-    fn test_lmp_and_bad_capture_pruning_ship_disabled() {
-        // Both rules are unmeasured until the four-way round robin in `task.md` prices them.
-        // They ship off, and the advertised UCI defaults in `src/threads.rs` say so.
+    fn test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled() {
+        // Matchplay priced both rules. LMP beats v0.34.0 by +19.4 Elo [+10, +29] over 3000 games
+        // in a direct cross-version pairing; bad capture pruning adds +3.3 Elo [-4, +11] on top
+        // of it, pooled over 4600 games on two machines, and is therefore not enabled here.
+        // The advertised UCI defaults in `src/threads.rs` must say the same.
         let config = Config::new();
-        assert!(!config.enable_lmp, "LMP must ship disabled until matchplay prices it");
+        assert!(config.enable_lmp, "LMP is measured positive and ships enabled");
         assert!(!config.enable_bad_capture_pruning,
-            "bad capture pruning must ship disabled until matchplay prices it");
+            "bad capture pruning measured neutral on top of LMP and ships disabled");
     }
 
     #[test]
-    fn test_lmp_and_bad_capture_pruning_are_neutral_when_disabled() {
-        // With both flags off the search tree must be the one v0.34.0 already had, so the
-        // measurement baseline is the released engine rather than a third configuration.
-        let baseline = search_nodes(CHECK_RICH_FEN, 7, |_| {});
-        let explicitly_off = search_nodes(CHECK_RICH_FEN, 7, |c| {
-            c.enable_lmp = false;
+    fn test_the_shipped_default_is_the_configuration_that_was_measured() {
+        // The release rests on one matchplay number, and that number belongs to exactly one
+        // configuration: LMP on, bad capture pruning off. This pins the default tree to it, so a
+        // later edit to an unrelated default cannot quietly ship something else. It is the unit
+        // test counterpart of the node-identity check v0.34.0 ran on its release candidate.
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmp = true;
             c.enable_bad_capture_pruning = false;
         });
 
-        assert_eq!(baseline, explicitly_off,
-            "the disabled rules must not perturb the tree ({} vs {})", baseline, explicitly_off);
+        assert_eq!(default_tree, measured_variant,
+            "the shipped default must be the measured variant ({} vs {})",
+            default_tree, measured_variant);
     }
 
     #[test]
@@ -1548,8 +1553,9 @@ mod tests {
     #[test]
     fn test_lmp_max_depth_zero_neutralises_the_rule() {
         // As with `check_extension_max_ply`, a zero bound switches the feature off from the
-        // tuner without touching the enable flag.
-        let baseline = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        // tuner without touching the enable flag. The baseline is an explicitly LMP-free tree
+        // rather than the default one, because from v0.35.0 the default has LMP enabled.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmp = false);
         let bounded_out = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.enable_lmp = true;
             c.lmp_max_depth = 0;
