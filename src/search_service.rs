@@ -1653,6 +1653,9 @@ mod tests {
         let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
         let mut config = Config::for_tests();
         config.enable_check_extension = check_extension;
+        // Razoring's quiet-mate blind spot (task.md 3.2) is orthogonal to what this helper
+        // tests; pin it off so callers see only the check-extension behaviour they asked for.
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         let result = service.search.get_moves(
@@ -1864,6 +1867,9 @@ mod tests {
         config.enable_check_extension = true;
         config.enable_lmp = true;
         config.enable_bad_capture_pruning = true;
+        // This canary is about the LMP/SEE `gives_check` guards, not razoring's separate,
+        // already-pinned blind spot at this same depth (task.md 3.2).
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         let result = service.search.get_moves(
@@ -1877,14 +1883,14 @@ mod tests {
     }
 
     #[test]
-    fn test_razoring_default_is_off() {
-        // Razoring is built, exposed and tested, but its shipped default is a search parameter
-        // default, and rule 2 of `skills/engine_release_procedure.md` binds that to a
-        // cross-version gauntlet. None has been run. Until one has, the default stays off and the
-        // release keeps the v0.35.2 tree; `task.md` section 3 records the open measurement.
+    fn test_razoring_default_is_on() {
+        // Razoring's round-robin gauntlet against suprah-0.35.2 on host C decided it: 1034
+        // games, 517 pairs, SPRT H1 accepted (elo0=-10, elo1=0), LLR +2.991 against a +2.944
+        // bound, razoring ahead by 14.1 Elo, paired 95% CI [-1, +30]. `task.md` section 3.3
+        // records the run.
         let config = Config::new();
-        assert!(!config.enable_razoring,
-            "the razoring default is open until a gauntlet has priced it");
+        assert!(config.enable_razoring,
+            "the razoring gauntlet decided H1 (not harmful); the default ships on");
         assert_eq!(config.razoring_margin, 300);
     }
 
@@ -2003,6 +2009,7 @@ mod tests {
         config.enable_check_extension = true;
         config.enable_lmp = true;
         config.enable_bad_capture_pruning = true;
+        config.enable_razoring = false;
         let mut stats = Stats::new();
         let without = service.search.get_moves(
             &mut board, 5, true, &mut stats, &config, &service,
@@ -2224,6 +2231,9 @@ mod tests {
         let mut config = Config::for_tests();
         config.enable_check_extension = true;
         config.check_extension_max_ply = 0;
+        // Match the razoring=false baseline `search_smothered_mate` now pins, so this stays a
+        // check-extension-only comparison.
+        config.enable_razoring = false;
         let mut stats = Stats::new();
 
         service.search.get_moves(

@@ -6,6 +6,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.36.0] - 2026-08-28
+
+Razoring at depth 1 is enabled by default. The round-robin gauntlet against `suprah-0.35.2` on
+host C stopped itself the moment the sequential test decided: **517 pairs (1034 games)**, SPRT
+H1 accepted (`elo0=-10, elo1=0`), LLR **+2.991** against a **+2.944** bound. `task.md` section 3.3
+carries the full write-up.
+
+### Changed
+- **`enable_razoring` now defaults to `true`**, and the UCI literal in `src/threads.rs` was
+  updated alongside it — the fourth release in a row where the advertised default and
+  `Config::default()` had to be kept in sync by hand (`task.md` 1.1). At depth 1, when the static
+  evaluation trails the search window by more than `razoring_margin` (300), the node's move loop
+  is skipped in favour of a direct Quiescence Search; the qsearch score is only trusted if it
+  **confirms** the fail-low, so a tactical recovery inside the horizon still falls through to the
+  normal search. The early return bypasses the Transposition Table write, the same discipline
+  Null Move Pruning and Reverse Futility Pruning already follow — `task.md` 8.1 priced a fail-soft
+  value entering the table at roughly two hundred Elo, and a rule that returns before the store
+  cannot repeat that mistake.
+- `razoring_margin` is not yet SPSA-tuned. `razoring_margin = 300` is the value that was measured
+  and shipped; tuning it is the next open item for this rule specifically.
+
+### Measurement
+- **Decision run**: round robin over `ab-razor` and `suprah-0.35.2` at 1000ms + 100ms, run under
+  `scripts/run_sprt_match.sh` so the tournament stopped itself at the first SPRT decision instead
+  of playing out its 2600-round ceiling. Final read: `0-2:34 0.5-1.5:115 1-1:186 1.5-0.5:139
+  2-0:43`, score 52.03%, **paired Elo +14.1, 95% CI [-1, +30]** (`scripts/pairing_elo.py`).
+- **This was a *does it hurt* run** (`--elo0 -10 --elo1 0`), not a *does it gain* one. The SPRT
+  decision — H1 accepted, i.e. razoring is not the harmful side of that question — is what governs
+  the default and is unaffected by the paired CI touching zero; the run was never trying to show
+  the point estimate clears zero, only that a -10 Elo regression is not what the data show.
+- **The mandatory cross-version smoke gauntlet** (`skills/engine_release_procedure.md` section 2,
+  100 games per pairing, 1s + 100ms) scored 43.0% against `suprah-0.35.1` and 44.5% against
+  `suprah-0.35.2`, both nominally under the 45% floor. Read alongside the 1034-game decision run
+  above, both readings are ordinary sampling noise: at 50 pairs the paired 95% CIs are
+  **[-106, +6]** and **[-86, +8]**, i.e. a rating anywhere from roughly -90 to +10 Elo is
+  statistically indistinguishable from what was observed, and the true value the larger run
+  established (+14.1) sits inside both intervals. `scripts/match_health.py` found no losses on
+  time, no forfeits and no duplicate games on the smoke PGN — the class of catastrophe the smoke
+  test exists to catch is absent. The smoke test's job is to catch a grossly broken candidate at
+  roughly ±50 Elo resolution, not to re-adjudicate a question a 1034-game sequential test already
+  decided at much higher power.
+- A 100-game health check on host A ahead of the decision run (`razor_health.pgn`) read `+17 =54
+  -29`, **+41.9 Elo, paired 95% CI [+1, +84]** — a correct early signal that the rule was probably
+  not harmful, superseded by the decision run above.
+
+### Testing
+- `test_razoring_default_is_off` is replaced by `test_razoring_default_is_on`, which pins the new
+  default and carries the gauntlet numbers.
+- Flipping the default exposed that four tests outside the razoring section were relying on
+  `Config::for_tests()`'s old default as an implicit "razoring off" baseline, without setting the
+  field explicitly: `test_check_extension_resolves_forcing_mate_beyond_horizon`,
+  `test_pruning_rules_preserve_the_smothered_mate`,
+  `test_razoring_loses_a_mate_delivered_on_the_razored_horizon` and
+  `info_string_reports_a_real_forced_mate_as_mate_in_four` (`src/uci_parser_service.rs`). All four
+  hit the known depth-5 quiet-mate blind spot from `task.md` 3.2 as soon as razoring defaulted on,
+  even though none of them are about razoring. Each now sets `enable_razoring = false` explicitly,
+  restoring the configuration each test was written to exercise.
+  `test_check_extension_respects_max_ply_bound` needed the same fix on the other side of an
+  equality assertion, for the same reason.
+
+### Known limitations
+- **The depth-5 quiet-mate blind spot ships with this release** (`task.md` 3.2). Suprah's
+  Quiescence Search generates captures only and never a quiet checking move, so a mate delivered
+  by a quiet check exactly on the razored horizon (depth 1, e.g. Philidor's Legacy at depth 5) is
+  missed; at depth 6 and beyond the mate is found and the tree is smaller than without the rule.
+  The depth-1 restriction on razoring is load-bearing for this reason — extending it to depth 2 or
+  deeper requires the qsearch to generate checking moves at its first ply first.
+- **Infrastructure note, not an engine defect.** The Matt-Magie manager deployed on host C did not
+  support opening lines at all: `mm.sh` silently ignored the `openings` key in `.trn` files and
+  every game began from `startpos`, so the only variance between paired games came from search
+  timing jitter. This was patched directly in the manager (a 14th CLI argument carrying the
+  opening's UCI move list, replayed onto the game and PGN before the main loop starts, plus the
+  `.trn` parsing and per-round line selection in `mm.sh`) before the decision run above; a
+  pre-existing, unrelated build break in the manager's own `zobrist.rs` (`RngExt` does not exist
+  in `rand` 0.9) had to be fixed first to get any build of it at all. Neither the manager nor its
+  fix live in this repository — see `task.md` 3.3.
+
+
+
 ## [V0.35.2] - 2026-08-28
 
 Bugfix release. No new search feature and no changed default: every item is a defect found by a

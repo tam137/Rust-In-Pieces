@@ -12,17 +12,17 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.35.2** on `master` (HCE), **v0.35.2-NNUE** on `feature/nnue-evaluation` |
+| Released | **v0.36.0** on `master` (HCE), **v0.36.0-NNUE** on `feature/nnue-evaluation` |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
-| Uncommitted | nothing. Razoring (section 3) is committed and **off by default** |
-| Blocked on | one gauntlet, for the razoring default. Nothing else is waiting on a measurement. |
-| Next session runs on | **host C (ARM)** — resolve `<mm>` and rebuild the binaries there; nothing from host A runs or transfers |
+| Uncommitted | nothing |
+| Blocked on | nothing. The razoring gauntlet (section 3) is done; Singular Extensions (section 4) is next |
+| Next session runs on | **host C (ARM)** — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
-1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C. Sections 1 and 2 are built, measured and released. Section 3 is built and
-measured on a corpus but not in games; sections 4 to 7 are not started. Section 10 is the
-measurement infrastructure.
+1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C.
+Sections 1 to 3 are built, measured and released; sections 4 to 7 are not started. Section 10 is
+the measurement infrastructure.
 
 > [!IMPORTANT]
 > **Elo numbers do not carry across hosts**, and the work has moved three times. Runs are labelled
@@ -32,7 +32,7 @@ measurement infrastructure.
 > | :--- | :--- | :--- |
 > | **host A** | 20-core x86-64 | up to 2026-08-27, and again from 2026-08-28 |
 > | **host B** | 12-core x86-64 | the deciding LMP/SEE gauntlet, 2026-08-27 evening |
-> | **host C** | ARM | from 2026-08-29, the razoring gauntlet onward |
+> | **host C** | ARM | from 2026-08-28, the razoring gauntlet onward |
 >
 > Nothing in the match manager's directory crosses between hosts: `*.pgn` and `books/` are
 > gitignored, so only `.trn` files and the repository itself travel. **Compare ratings only within
@@ -47,82 +47,39 @@ measurement infrastructure.
 | v0.35.0 | Late Move Pruning enabled | **+19.4 Elo** [+10, +29] vs v0.34.0, 3000 games |
 | v0.35.1 | SEE pruning of bad captures also enabled, for hand comparison | +3.3 [-3.9, +10.5] on top of LMP — neutral |
 | v0.35.2 | Four defect repairs, no changed default, gauntlet waived | — |
+| v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games |
 
-Sections 1 and 2 carry the numbers and the reasoning. Two lessons from that round were general
+Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
 enough to become rules below rather than history: **a run must pair the configuration it exists to
-qualify** (rule 2), and **no intermediate value of a difference-of-differences is a result,
-however stable it looks** — `both - lmp` read +12.0 [+2, +22] over three stable checkpoints at 78%
-of a 9000-game run and finished at +3.9.
+qualify** (rule 2), **no intermediate value of a difference-of-differences is a result, however
+stable it looks** — `both - lmp` read +12.0 [+2, +22] over three stable checkpoints at 78% of a
+9000-game run and finished at +3.9 — and **a sequential test can decide *does it hurt* long before
+its point estimate is precise**: the razoring gauntlet's LLR crossed the H1 bound at 517 pairs
+while the running Elo estimate was still swinging between +2.7 and +24.5 a few hundred games
+earlier.
 
-### The next action — run the razoring gauntlet on host C
+### The next action — Singular Extensions, once the trigger depth is resolved
 
-**This is the one thing blocking the next release.** Section 3 is written, guarded, unit-tested
-and measured on a fixed-depth corpus: **-7.7% to -20.1% searched nodes and about -15% search
-time** at depth 11, depending on the margin. It ships **off**, because a shipped default is a
-search parameter default and rule 2 binds that to a cross-version gauntlet. Only the default is
-open — the code is free to keep either way.
+**Razoring shipped in v0.36.0 and is no longer blocking anything.** The gauntlet in section 3.3
+decided it: SPRT H1 accepted, +14.1 Elo, paired 95% CI [-1, +30], 1034 games on host C. Sections 1
+to 3 are now built, measured and released.
 
-> [!IMPORTANT]
-> **The gauntlet runs on host C (ARM), in a fresh session, and nothing measured on host A carries
-> over to it.** Resolve `<mm>` first (see below); it is not where it was on host A. Re-measure the
-> two per-host numbers before trusting them — the concurrency ceiling and games/minute in "How to
-> run a measurement" are host A's. Existing PGNs do not travel between hosts and must not be read
-> together with the new one.
-
-Step by step:
-
-1. **Resolve `<mm>`** and confirm `mm.sh`, `engines/` and `openings_mixed.txt` are there. Copy
-   `openings/book_mixed.txt` to `<mm>/openings_mixed.txt` if it is missing.
-2. **Rebuild every binary the run needs, natively on host C.** Everything in `<mm>/engines/` was
-   built on an x86-64 host and will not run. That is `ab-razor` (suffix `Cargo.toml` to
-   `0.35.2-RAZOR` and set `enable_razoring = true` in `src/config.rs`), and the reference
-   `suprah-0.35.2` from the released tag. **Restore `Cargo.toml` and `src/config.rs` afterwards.**
-   The recipe is in "How to run a measurement"; do not use `./build_and_release.sh` for a
-   throwaway variant, it rewrites `CHANGELOG.md` and `Cargo.toml`.
-3. **Verify the binaries actually differ** before spending hours on them. `scripts/uci_driver.py`
-   does this in seconds and does not need the harness:
-   ```bash
-   python3 -c "import sys; sys.path.insert(0,'scripts'); from uci_driver import search; \
-     [print(e, search('<mm>/engines/'+e, \
-       'r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1', 11).time_ms) \
-      for e in ['suprah-0.35.2','ab-razor']]"
-   ```
-   On host A the equivalent pair read 337 ms against 286 ms. The absolute numbers will differ on
-   ARM; what must hold is that `ab-razor` is the faster of the two. If they are equal, the default
-   did not take effect and the run would have measured nothing.
-4. **Calibrate concurrency on host C.** `floor(nproc * 0.75) - 1`, then 120 games at that setting
-   and `scripts/match_health.py` on the result. A non-zero forfeit count means step down, not
-   correct.
-5. **Plan the run before starting it.** `scripts/sprt.py --plan --elo0 -10 --elo1 0` — the *does it
-   hurt* framing, which is the right one when the code exists and only the default is open. On
-   host A's pair variance that costs about 800 games at a true +20 and 1100 at +13, against 1340
-   and 2490 for *does it gain*, and about 3900 either way if the rule is truly neutral. Re-run
-   `--plan` with host C's own variance rather than trusting those rows.
-6. **Run it as a round robin over `ab-razor` and `suprah-0.35.2`**, not a gauntlet — rule 2: in
-   gauntlet mode only the challenger plays everyone, and the pairing that decides has to exist.
-   `suprah-0.35.2` is the released reference, so this is a cross-version check and not a self-A/B;
-   `ab-noraz` is the same code as the reference and is only worth adding as a third engine if a
-   same-build control is wanted.
-7. **Read it per pairing** with `scripts/pairing_elo.py`, never off the scoreboard, and check
-   `scripts/match_health.py` before believing any of it.
-8. **Then set the default** in `src/config.rs` **and** the UCI literal in `src/threads.rs`, and
-   only then consider tuning `razoring_margin` by SPSA.
-
-A 100-game health check has already been run on host A (`<mm>/razor_health.pgn`): clean, no
-forfeits, no duplicate games, design effect 1.00, and razoring ahead at **+41.9 Elo, 95% CI
-[+1, +84]**. At this harness's resolution 100 games are worth about +/-50 Elo, so that interval
-barely clearing zero says the rule is probably not harmful and nothing more. **It is a sign, not
-a result, and it does not substitute for step 5 to 7.**
+The next backlog item is Singular Extensions (section 4), and it is not a ready-to-run recipe the
+way the razoring gauntlet was — read section 10.5 **before** writing any code. At the current
+depth 9 to 10 match time control, the trigger (`depth >= 8` at a non-root PV node with a
+qualifying TT entry) is close to untestable: it fires only at plies 0 to 2 and nowhere else, so a
+measurement run risks pricing a feature that almost never activates. Decide the trigger depth or
+the time control the feature will actually be tested at before building `enable_singular_extensions`,
+`singular_margin` and `singular_depth_reduction`.
 
 ### The backlog after that, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | Razoring: the gauntlet, then the default | 3 | Code is done. One measurement away from shipping |
-| 2 | Singular Extensions | 4 | Largest search item; needs TT-move exclusion. Read 10.5 first — at depth 9 to 10 it fires at plies 0 to 2 and nowhere else |
-| 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
-| 5 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
+| 1 | Singular Extensions | 4 | Largest search item; needs TT-move exclusion. Read 10.5 first — at depth 9 to 10 it fires at plies 0 to 2 and nowhere else |
+| 2 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| 4 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
 
 The proposal that used to be section 11 — damping the check exemption — was measured on
 2026-08-28 and is dead. It is written up as a negative result in 8.5.
@@ -133,7 +90,6 @@ A new session can start from this table; each row says where the detail is.
 
 | Open | Where | Kind |
 | :--- | :--- | :--- |
-| **Razoring gauntlet on host C, then set the default** | 3.3 | blocking the next release |
 | Advertised UCI defaults drift from `Config::default()` — twelve stale literals | 1.1 | correctness of the facade only |
 | `lmp_max_depth` is inert above 4; the tuner and UCI still advertise a dead range | 10.6 | dead tuning range |
 | `Config::search_threads` is written in four places and read in none | 10.6a | dead code |
@@ -415,9 +371,9 @@ which is the same lesson as 8.3 from the other direction.
 > The `!gives_check` guard here is kept for a checking sacrifice that *is* a capture. The Philidor
 > canary itself belongs to LMP — see the note in section 1.
 
-## 3. Razoring at depth 1 — built, measured on a corpus, **off by default pending a gauntlet**
+## 3. Razoring at depth 1 — ✅ shipped enabled in v0.36.0 (+14.1 Elo, CI crosses zero)
 
-`[Impact: unmeasured in games]` `[Complexity: Medium]`
+`[Impact: measured, does-it-hurt confirmed]` `[Complexity: Medium]`
 
 At depth 1, when the static evaluation trails the window by more than `razoring_margin`, one ply
 is unlikely to recover the gap and the node's whole move loop is spent proving a fail-low. The
@@ -425,10 +381,11 @@ rule runs a Quiescence Search directly and returns that score **only if it confi
 otherwise the node falls through to the normal search. The qsearch is a verification, not an
 assumption.
 
-**Built.** `enable_razoring` (**default `false`**) and `razoring_margin` (300) in `src/config.rs`;
-the rule sits in `minimax` as step 0.6, after Reverse Futility Pruning and before move generation;
-UCI options `EnableRazoring` / `RazoringMargin`; `razoring_margin` registered in
-`tuning/parameters.json`. Six tests in `src/search_service.rs`.
+**Shipped.** `enable_razoring` (**default `true`** since v0.36.0) and `razoring_margin` (300) in
+`src/config.rs`; the rule sits in `minimax` as step 0.6, after Reverse Futility Pruning and before
+move generation; UCI options `EnableRazoring` / `RazoringMargin`; `razoring_margin` registered in
+`tuning/parameters.json`. Seven tests in `src/search_service.rs` (`test_razoring_default_is_on`
+replaces the earlier `test_razoring_default_is_off`).
 
 **Guards**: `depth == 1`, `!is_pv`, not in check, and a mate-score bound on both `alpha` and
 `beta`. The early return **bypasses the transposition table write**, exactly as Null Move Pruning
@@ -482,24 +439,48 @@ sacrifice at *every* depth. It is still a real cost, and it is the reason the de
 is load-bearing: **if razoring is ever wanted at depth >= 2, the qsearch has to generate checking
 moves at its first ply first.**
 
-### 3.3 What is still owed
+### 3.3 The gauntlet, and the result
 
-* `[ ]` A cross-version gauntlet against `suprah-0.35.2`, framed as *does it hurt*
-  (`--elo0 -10 --elo1 0`), run as a **round robin** so both configurations get a direct pairing.
-  Build `ab-razor` and `ab-noraz` natively on the host that runs it, from v0.35.2 with the version
-  suffixes `-RAZOR` / `-NORAZ` so the PGN separates them into two rows. The step-by-step is in
-  "The next action".
-* `[ ]` Set `enable_razoring` from that result, in `src/config.rs` **and** in the UCI literal in
-  `src/threads.rs` — the third release in a row had to fix one of those by hand (1.1).
-* `[ ]` Only then tune `razoring_margin` by SPSA. Tuning a parameter of a rule that is off is
-  tuning nothing.
+**The decision run: round robin over `ab-razor` and `suprah-0.35.2` on host C**, `--elo0 -10
+--elo1 0` (*does it hurt*), run under `scripts/run_sprt_match.sh` so the sequential stopping rule
+ended it the moment the pairing decided rather than at the planned ceiling of 2600 rounds
+(5200 games). It stopped at **517 pairs (1034 games)**: LLR **+2.991** against the H1 bound of
+**+2.944**, **H1 accepted** — razoring is not the harmful side of the *does it hurt* question.
 
-The 100-game health check already run **on host A** is `<mm>/razor_health.trn` /
+| | |
+| :--- | :--- |
+| Pair outcomes | `0-2:34  0.5-1.5:115  1-1:186  1.5-0.5:139  2-0:43` |
+| Score | 52.03% |
+| Paired Elo | **+14.1**, 95% CI **[-1, +30]** (517 pairs) |
+| Unpaired Elo | -14.1 for the reference build, 95% CI [-30, +2] — same magnitude, opposite sign, from `scripts/pairing_elo.py` |
+
+**Read the interval correctly.** This was a *does it hurt* run, not a *does it gain* one: the SPRT
+decision (H1 accepted) is the thing that governs the default, and it is robust — the CI crossing
+zero does not undo it, because the test was never trying to establish that the point estimate
+clears zero, only that a -10 Elo regression is not what the data show. Section 2's SEE pruning
+result is the precedent for this reading; unlike that one, this run's own LLR crossed a bound
+rather than being left to settle from hand comparison.
+
+**The default is set**: `enable_razoring` in `src/config.rs` and the UCI literal in
+`src/threads.rs` both now default `true` — the fourth release in a row that had to fix one of
+those two by hand (1.1). `razoring_margin` is not yet SPSA-tuned; tuning it is the next open item
+for this rule specifically, now that the default it shapes is shipping.
+
+**Infrastructure note for host C.** The Matt-Magie manager deployed in `<mm>` (source in
+`<mm>/src`, not tracked by this repository's git history) did not support opening lines at all —
+`mm.sh` silently ignored the `openings` key and every game started from `startpos`, so the only
+variance between paired games came from search timing jitter. This was patched directly in
+`<mm>/src/main.rs` (a 14th CLI argument carrying a space-separated UCI move list, replayed onto
+the game and PGN before the loop starts) and `<mm>/mm.sh` (loads `openings_lines` from the file
+named by the `openings` key and passes one per round, cycling). A pre-existing, unrelated build
+break in `<mm>/src/zobrist.rs` (`RngExt` does not exist in `rand` 0.9; the trait is `Rng`) had to
+be fixed first to get any build at all. None of this travels with the repository — if `<mm>`'s
+manager is redeployed or replaced on a future host, the same gap will need patching again.
+
+The 100-game health check from before the gauntlet, **on host A**, is `<mm>/razor_health.trn` /
 `razor_health.pgn`: `+17 =54 -29` for the razoring build, **+41.9 Elo, paired 95% CI [+1, +84]**,
-zero losses on time, zero duplicate games, design effect 1.00. At this harness's resolution 100
-games are worth about +/-50 Elo, so the interval barely clearing zero is a sign that the rule is
-not harmful, and nothing more. The `.trn` travels to another host; the PGN and the binaries do
-not.
+zero losses on time, zero duplicate games, design effect 1.00. It correctly signalled "probably
+not harmful" ahead of the real decision; it was never a substitute for the round robin above.
 
 ## 4. Singular Extensions (SE)
 

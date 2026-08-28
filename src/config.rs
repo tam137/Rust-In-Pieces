@@ -416,10 +416,11 @@ impl Config {
             lmp_base_moves: 3,
             enable_bad_capture_pruning: true,
             bad_capture_see_threshold: -50,
-            // Off by default. The rule is built and its parameters are exposed, but the shipped
-            // default is a search parameter default and rule 2 of the release procedure binds it
-            // to a cross-version gauntlet that has not been run. See `task.md` section 3.
-            enable_razoring: false,
+            // On by default since the round-robin gauntlet against suprah-0.35.2 on host C:
+            // 1034 games, 517 pairs, SPRT H1 accepted (elo0=-10, elo1=0), LLR +2.991 against a
+            // +2.944 bound, razoring ahead by 14.1 Elo, paired 95% CI [-1, +30]. See `task.md`
+            // section 3.3.
+            enable_razoring: true,
             razoring_margin: 300,
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
