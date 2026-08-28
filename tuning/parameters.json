@@ -406,7 +406,7 @@
     },
     "aspiration_window_multiplier": {
         "value": 4,
-        "min": 0,
+        "min": 2,
         "max": 10
     },
     "lmr_history_good_threshold": {
