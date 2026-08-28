@@ -93,7 +93,10 @@
         "lmr_history_good_threshold",
         "lmr_history_bad_threshold",
         "rfp_margin_per_depth",
-        "rfp_max_depth"
+        "rfp_max_depth",
+        "lmp_max_depth",
+        "lmp_base_moves",
+        "bad_capture_see_threshold"
     ],
     "all": [
         "is_hashed_rank_bonus",
@@ -179,6 +182,9 @@
         "lmr_history_good_threshold",
         "lmr_history_bad_threshold",
         "rfp_margin_per_depth",
-        "rfp_max_depth"
+        "rfp_max_depth",
+        "lmp_max_depth",
+        "lmp_base_moves",
+        "bad_capture_see_threshold"
     ]
 }

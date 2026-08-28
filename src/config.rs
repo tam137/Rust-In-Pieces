@@ -172,6 +172,14 @@ pub struct Config {
     pub futility_max_depth: i32,
     pub futility_margin_base: i16,
     pub futility_margin_slope: i16,
+    /// Late Move Pruning: skip quiet moves appearing late in the move list at low depth.
+    pub enable_lmp: bool,
+    pub lmp_max_depth: i32,
+    pub lmp_base_moves: i32,
+    /// SEE pruning of bad captures: skip captures losing more than
+    /// `bad_capture_see_threshold * depth` centipawns by Static Exchange Evaluation.
+    pub enable_bad_capture_pruning: bool,
+    pub bad_capture_see_threshold: i16,
     pub enable_delta_pruning: bool,
     pub delta_pruning_margin: i16,
     pub enable_counter_moves: bool,
@@ -399,6 +407,11 @@ impl Config {
             futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,
+            enable_lmp: true,
+            lmp_max_depth: 4,
+            lmp_base_moves: 3,
+            enable_bad_capture_pruning: false,
+            bad_capture_see_threshold: -50,
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
             enable_counter_moves: true,
