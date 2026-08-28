@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.35.0] - 2026-08-28
+
+Late Move Pruning is enabled by default. Measured over **3000 games** in a direct pairing against
+v0.34.0 at 1000ms + 100ms, LMP is worth **+19.4 Elo**, 95% CI [+10, +29]. No search code changed:
+this release flips one default and corrects the documentation and tests that assumed the old one.
+
+### Changed
+- `enable_lmp` now defaults to **true**. At depths 1 to `lmp_max_depth` (4), when not in check,
+  quiet moves appearing after `lmp_base_moves + 2 * depth^2` prior quiet moves are skipped
+  outright rather than searched at reduced depth. The rule complements LMR and Futility Pruning,
+  which already run in the same move loop.
+- `option name EnableLmp` now advertises `default true`. The UCI option strings in
+  `src/threads.rs` are hardcoded literals rather than derived from `Config::default()`, so they
+  drift from the values they claim to report unless changed by hand. This is the same class of
+  defect that was fixed for `EnableCheckExtension` in v0.34.0.
+- `enable_bad_capture_pruning` remains **false**. Pruning captures with
+  `SEE < bad_capture_see_threshold * depth` was built and measured alongside LMP and does not
+  earn its place: **-8.9 Elo on its own**, and **+3.3 Elo [-4, +11]** when added on top of LMP,
+  pooled over 4600 games across two different machines. The code and its tests are retained; the
+  rule is not disproven, it is smaller than this harness can resolve. See `task.md` section 2.
+
+### Measurement
+- The deciding run was a three-way round robin over LMP-only, both-rules and the released
+  v0.34.0, 9000 games at 1000ms + 100ms, `concurrency = 14`, 1500 pairs per pairing. Per pairing:
+  LMP - v0.34.0 **+19.4** [+10, +29]; both - v0.34.0 **+28.8** [+20, +38]; both - LMP **+3.9**
+  [-5, +13], which covers zero. The least-squares fit over all three pairings places LMP at
+  **+21.2 +/- 7.5** and both at **+27.0 +/- 7.4** against the anchor.
+- A round robin was used rather than a gauntlet on purpose. In gauntlet mode only the challenger
+  plays everyone, so the preceding run never paired LMP-only against v0.34.0 and could not
+  provide the cross-version check that `skills/engine_release_procedure.md` mandates for any
+  change to a search parameter default.
+- `both - LMP` is the quantity that decided against bad capture pruning, and it is the noisiest
+  in the design. It read +13.2, +10.5, +4.7 and +2.2 as the preceding run accumulated games, and
+  +3.1, +14.9, +11.6, +12.0 and +3.9 in this one. Both runs cross zero repeatedly and both settle
+  near it. Intermediate values from this quantity are not results.
+- Harness health on the deciding run: **no losses on time** in 9000 games, 6 identical games,
+  White scores 55.97%. The design effect is 1.00 on two of the three pairings and 1.87 on
+  LMP - v0.34.0; widening that interval accordingly leaves **+19.4 [+6, +32]**, still clear of
+  zero.
+
+### Testing
+- `test_lmp_and_bad_capture_pruning_ship_disabled` asserted the old defaults and would have
+  failed; it is replaced by `test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled`,
+  which pins the new pair and carries the Elo figures that justify them.
+- `test_lmp_and_bad_capture_pruning_are_neutral_when_disabled` compared an explicitly disabled
+  configuration against the default one, which is no longer the same tree. It is replaced by
+  `test_the_shipped_default_is_the_configuration_that_was_measured`, which asserts that the
+  default search tree is node-identical to the LMP-on, bad-capture-off variant that was actually
+  played. This is the unit test counterpart of the node-identity check v0.34.0 ran on its
+  release candidate.
+- `test_lmp_max_depth_zero_neutralises_the_rule` used the default configuration as its
+  "LMP off" baseline and became vacuous; it now disables LMP explicitly.
+
+### Known limitations
+- `quiet_count` in `src/search_service.rs` stops incrementing at 64 because it indexes the
+  `searched_quiet_moves` array that feeds the history malus. The LMP threshold is
+  `lmp_base_moves + 2 * depth^2`, i.e. 75 at depth 6, so from `lmp_max_depth = 6` upwards the
+  rule silently never fires. At the shipping default of 4 the cap does not bind and this release
+  is unaffected, but `LmpMaxDepth` advertises `max 10` and `tuning/parameters.json` registers a
+  maximum of 8, so both a user and an SPSA run can wander into a region where the parameter does
+  nothing. Tracked in `task.md` section 10.6.
+
 ## [V0.34.0] - 2026-08-27
 
 Check Extensions are disabled by default. Measured over **1000 games per pairing** at 1000ms +

@@ -406,7 +406,7 @@ impl Config {
             futility_max_depth: 4,
             futility_margin_base: 120,
             futility_margin_slope: 80,
-            enable_lmp: false,
+            enable_lmp: true,
             lmp_max_depth: 4,
             lmp_base_moves: 3,
             enable_bad_capture_pruning: false,
