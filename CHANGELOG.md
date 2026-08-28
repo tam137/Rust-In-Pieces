@@ -8,42 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [V0.36.0] - 2026-08-28
 
-Razoring at depth 1, ported from master v0.36.0. `src/search_service.rs` gains the razoring block
-verbatim (the identical guards: `depth == 1`, `!is_pv`, not in check, mate-score bounds on both
-`alpha` and `beta`, and an early return that bypasses the Transposition Table write), plus the
-seven razoring tests. This branch's protected SPSA-tuned values in `src/config.rs` are untouched
-(`use_nnue = true`, `lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold =
-550`, `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
-`your_turn_bonus = 18`).
-
-### Changed
-- **`enable_razoring` now defaults to `true`**, matching master v0.36.0, with the UCI literal in
-  `src/threads.rs` updated alongside it. `razoring_margin` defaults to 300 and is registered in
-  `tuning/parameters.json`; `setoption name EnableRazoring` / `RazoringMargin` are wired in
-  `src/game_handler.rs`, which master's port had not yet needed to touch on this branch until now.
-
-### Measurement
-- **The decision was made on the HCE decision run**, not re-measured on this branch: round robin
-  over `ab-razor` and `suprah-0.35.2` on host C, 1000ms + 100ms, stopped by
-  `scripts/run_sprt_match.sh` at **517 pairs (1034 games)** — SPRT H1 accepted (`elo0=-10,
-  elo1=0`), LLR **+2.991** against a **+2.944** bound, **paired Elo +14.1, 95% CI [-1, +30]**. See
-  `task.md` section 3.3 on `master` for the full write-up; this branch never diverges from
-  master's search parameter defaults, only from its SPSA-tuned values.
-- **The mandatory cross-version smoke gauntlet** (`skills/engine_release_procedure.md` section 2,
-  100 games per pairing, 1s + 100ms) scored **50.0%** against `suprah-0.35.1-nnue` and **53.5%**
-  against `suprah-0.35.2-nnue` — both comfortably clear of the 45% floor, no losses on time, no
-  duplicate games. This branch's smoke gauntlet is a clean pass, unlike master's (see master's
-  V0.36.0 entry), which is consistent with both being noisy readings of the same underlying,
-  already-decided effect.
-
-### Testing
-- Ported the razoring test module byte-for-byte from master (`test_razoring_default_is_on` and
-  six other tests), and the same four-plus-one test fixes the default flip required there:
-  `search_smothered_mate`, `test_pruning_rules_preserve_the_smothered_mate`,
-  `test_check_extension_respects_max_ply_bound` and
-  `info_string_reports_a_real_forced_mate_as_mate_in_four` (`src/uci_parser_service.rs`) now pin
-  `enable_razoring = false` explicitly, restoring the configuration each was written to exercise
-  now that `Config::for_tests()`'s default has changed.
+- Ported razoring from master v0.36.0, enabled by default (`enable_razoring = true`); UCI literal
+  in `src/threads.rs` updated alongside it.
+- Wired `EnableRazoring` / `RazoringMargin` into `game_handler.rs`'s `setoption` handler — new for
+  this branch.
+- Decision carried from master's HCE gauntlet, not re-measured here: SPRT H1 accepted, 1034 games
+  (517 pairs), paired **+14.1 Elo [-1, +30]**. See `task.md` 3.3 on `master`.
+- Smoke gauntlet vs `suprah-0.35.1-nnue` / `suprah-0.35.2-nnue`: 50.0% / 53.5%, clean.
+- Ported the same five test fixes the default flip required on master.
+- Protected SPSA-tuned values unchanged.
 
 
 
