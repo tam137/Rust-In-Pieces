@@ -6,6 +6,102 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.35.2] - 2026-08-28
+
+Bugfix release. No new search feature and no changed default: every item is a defect found by a
+full audit of `src/search_service.rs` on 2026-08-28. One of them - the Static Exchange Evaluation
+of en passant - was shipped in v0.35.1 and removes legal moves from the search tree, which is why
+this release exists.
+
+> [!NOTE]
+> **No gauntlet was run for this release.** It was waived deliberately: the changes are defect
+> repairs, they touch no shipped parameter default, and the two that move the search tree move it
+> by putting a legal move back into it and by correcting a mate score by one unit. The next
+> release that changes search *behaviour* is still bound by rule 2 of
+> `skills/engine_release_procedure.md`.
+
+### Fixed
+- **Static Exchange Evaluation mis-scored every en passant capture by a full pawn, and the
+  shipped bad capture pruning then deleted the move from the tree.** `see` seeded its swap list
+  from `board.get_piece_at(mv.to)`, but en passant is the one capture whose victim does not stand
+  on the arrival square - the captured pawn is beside it. The victim was therefore scored 0
+  instead of `PIECE_EVAL_PAWN`, and the captured pawn was additionally left inside `occupied`,
+  where it kept blocking the exchange rays. Measured on
+  `rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6`: `see(exd6 e.p.) = -100` where the
+  true value is 0, a pawn for a pawn.
+
+  With the v0.35.1 defaults (`enable_bad_capture_pruning = true`, `bad_capture_see_threshold =
+  -50`) the guard `see_value < bad_capture_see_threshold * depth` held at depth 1, so a legal and
+  perfectly sound capture was **pruned outright**; the tuner's bound of -10 for that parameter
+  extends the deletion to depth 9. Independently of that parameter, the quiescence gate
+  `!see_ge(.., 0)` skipped every en passant capture whose arrival square was defended, so the
+  move was never resolved near the horizon either. `see` now detects the case from
+  `mv.to == board.field_for_en_passante` with a pawn mover and a non-zero `capture`, seeds
+  `gain[0]` with the pawn value, and clears the captured pawn's square from `occupied` before the
+  swap list is built.
+- **Mate scores were not colour-symmetric, and the engine under-reported every mate delivered by
+  Black by one move.** `src/model.rs` documents the contract as `MATE_SCORE - ply` for a win and
+  `-(MATE_SCORE - ply)` for a loss, and `format_score` decodes exactly that. The search returned
+  `i16::MIN + 1 + ply` for a `BlackWin`, which is `-(MATE_SCORE + 1 - ply)` - one unit too
+  extreme. On an exact colour mirror of the same mate in three
+  (`1k1r4/pp1b1R2/3q2pp/4p3/2B5/4Q3/PPP2B2/2K5 b`, 1...Qd1+ 2.Kxd1 Bg4+ 3.Kc1 Rd1#) Black reported
+  `mate 2` and White `mate 3`. All four mate constants - both terminal returns and both Mate
+  Distance Pruning bounds - are now expressed through `MATE_SCORE`, so the bounds are exactly as
+  wide as the scores the terminal nodes can produce and both sides now report `mate 3`.
+- **The aspiration re-search loop could fail to terminate under a tunable parameter.** The window
+  is widened with `delta.saturating_mul(aspiration_window_multiplier)` and escapes to a full
+  window only once `delta` reaches `aspiration_window_max_delta`. With a multiplier of 0 the delta
+  collapsed to 0, `alpha = best_score - 0` never moved, and the escape hatch became unreachable; a
+  multiplier of 1 left `delta` stationary with the same result. With `target_time == None`
+  (`go depth`, `go infinite`) nothing sets the stop flag, so `get_moves` spun forever and never
+  emitted `bestmove`. `tuning/parameters.json` declared `"min": 0` for the multiplier and
+  `game_handler.rs` accepts it via `setoption`, so an SPSA run could hang the engine. The widening
+  is now strictly monotone by construction - the initial delta is clamped to at least 1 and the
+  effective multiplier to at least 2 - and the tuner's minimum for the multiplier is raised to 2.
+  Both clamps are no-ops at the shipped defaults of 15 and 4.
+- **The Null Move verification search ran at the wrong ply.** The null move is undone before the
+  verification search, so `board`, `white` and `turn` all describe the parent node again, but the
+  call passed `ply + 1`. Mate Distance Pruning then clamped `beta` one ply tighter than the
+  position warrants, and the verification node wrote a transposition table entry under the
+  **parent's** own hash with any mate score normalised against `ply + 1`. On a verified cutoff the
+  parent returns immediately and never writes its own entry, so that mis-normalised score was left
+  standing as the table's entry for the position. It now runs at `ply`.
+
+### Changed
+- The Late Move Pruning counter no longer shares its ceiling with the history-malus store.
+  `quiet_count` doubled as the write index into the 64-entry `searched_quiet_moves` array and
+  stopped incrementing there, while LMP fires at `quiet_count > lmp_base_moves + 2 * depth^2` -
+  a threshold that exceeds 64 from depth 6 upwards. `lmp_max_depth` values of 6 to 8, all inside
+  the tuner's declared range, were therefore silent no-ops, recorded as a known limitation in
+  v0.35.0 and v0.35.1. The two counters are now separate: `searched_quiet_len` bounds the array
+  writes and the history-malus iteration, `quiet_count` counts without a ceiling.
+
+  **The shipped default tree does not move.** At `lmp_max_depth = 4` the threshold is at most 35,
+  which the old counter always reached before its cap. Note also that the array size was never the
+  only thing making the rule inert up there: `2 * depth^2` is 72 at depth 6 and 101 at depth 7,
+  and a single node with that many searched quiet moves is rare in practical play. The change
+  removes a latent trap and a false ceiling; it is not expected to change playing strength.
+
+### Testing
+- `test_see_scores_en_passant_as_an_equal_pawn_trade` pins both halves of the corrected exchange:
+  a defended en passant capture is worth exactly 0, an undefended one a whole pawn. It reads the
+  move out of the real generator rather than assembling a `Turn` by hand, so it also pins that the
+  generator marks en passant with a non-zero `capture` - the property that routes the move into
+  the pruning gate in the first place.
+- `test_mate_scores_are_colour_symmetric` searches the mate in three and its exact colour mirror
+  and asserts the two scores are exact negatives, then asserts both decode to `mate 3` through
+  `format_score`. A one-sided fix would fail the first assertion, a symmetric but wrongly offset
+  one the second.
+- `test_aspiration_re_search_terminates_with_a_degenerate_widening_schedule` runs a fixed-depth
+  search with `aspiration_window_initial_delta = 0` and `aspiration_window_multiplier = 0` on its
+  own thread with a timeout, so a regression fails the test instead of hanging the suite.
+- `test_the_shipped_default_is_the_configuration_that_was_measured` now runs both of its searches
+  with `use_zobrist = true`. It claimed node identity with the binary that played the 3000-game
+  round robin, but ran under `Config::for_tests()`, which disables the transposition table - so it
+  compared two trees the released engine never searches. The assertion it makes is unchanged.
+
+
+
 ## [V0.35.1] - 2026-08-28
 
 SEE pruning of bad captures is enabled by default, **on top of** the Late Move Pruning shipped in
