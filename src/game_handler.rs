@@ -100,6 +100,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     "check_extension_min_depth" | "checkextensionmindepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_min_depth = v; },
                                     "check_extension_max_depth" | "checkextensionmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_depth = v; },
                                     "enable_one_reply_extension" | "enableonereplyextension" => active_config.enable_one_reply_extension = val_str.eq_ignore_ascii_case("true"),
+                                    "enable_lmp" | "enablelmp" => active_config.enable_lmp = val_str.eq_ignore_ascii_case("true"),
+                                    "lmp_max_depth" | "lmpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmp_max_depth = v; },
+                                    "lmp_base_moves" | "lmpbasemoves" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmp_base_moves = v; },
+                                    "enable_bad_capture_pruning" | "enablebadcapturepruning" => active_config.enable_bad_capture_pruning = val_str.eq_ignore_ascii_case("true"),
+                                    "bad_capture_see_threshold" | "badcaptureseethreshold" => if let Ok(v) = val_str.parse::<i16>() { active_config.bad_capture_see_threshold = v; },
                                     "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
                                     "aggressiveness" => match val_str.as_str() {
                                         "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),

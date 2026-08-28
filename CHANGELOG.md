@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.35.0-NNUE] - 2026-08-28
+
+Ports Late Move Pruning and SEE pruning of bad captures from master, and enables LMP by default.
+This is the NNUE counterpart of master's v0.35.0. The branch was two master releases behind on
+this feature: LMP and bad capture pruning landed on master **after** v0.34.0 and had never been
+ported, so this release brings across the rules themselves as well as the default that was
+decided for them.
+
+> [!NOTE]
+> **The Elo figures below were measured on the HCE build, not on NNUE.** Per
+> `skills/nnue_porting_and_release_procedure.md` the NNUE branch adopts master's search changes
+> without re-pricing them. LMP is a move-ordering-independent rule keyed on remaining depth, so
+> the mechanism transfers, but the magnitude on an NNUE evaluation is unmeasured.
+
+### Added
+- **Late Move Pruning.** At depths 1 to `lmp_max_depth` (4), when not in check, quiet moves
+  appearing after `lmp_base_moves + 2 * depth^2` prior quiet moves are skipped outright rather
+  than searched at reduced depth. With the shipped values that is 5, 11, 21 and 35 quiet moves by
+  depth. The guards are all load-bearing: not in check, `!is_pv`, non-capture, non-promotion,
+  `!current_turn.gives_check`, and a mate-score bound on **both** `alpha` and `beta` - the
+  existing Futility guard bounds only `alpha`, which is incomplete for the minimising side in
+  this asymmetric `minimax`.
+- **SEE pruning of bad captures**, shipped disabled. A capture is pruned when its Static Exchange
+  Evaluation falls below `bad_capture_see_threshold * depth`. It costs no extra SEE call: the
+  move loop already ran `see_ge(..., 0)` on each capture's first selection in order to demote it,
+  and that call now yields the exchange value instead of a boolean.
+- UCI options `EnableLmp`, `LmpMaxDepth`, `LmpBaseMoves`, `EnableBadCapturePruning` and
+  `BadCaptureSeeThreshold`; `lmp_max_depth`, `lmp_base_moves` and `bad_capture_see_threshold`
+  registered in `tuning/parameters.json` and in the `search_and_ordering` and `all` groups.
+
+### Changed
+- `enable_lmp` defaults to **true**, matching master v0.35.0. On the HCE build this measured
+  **+19.4 Elo**, 95% CI [+10, +29], in a direct 3000-game pairing against v0.34.0 at
+  1000ms + 100ms.
+- `enable_bad_capture_pruning` defaults to **false**. On HCE the rule measured **-8.9 Elo** on its
+  own and **+3.3 Elo** [-4, +11] when added on top of LMP, pooled over 4600 games on two machines
+  - a null result. The NNUE counterpart of master's v0.35.1 ships it enabled for hand comparison.
+
+### Protected during the port
+- All NNUE-branch SPSA parameters were verified unchanged after the cherry-pick: `lmr_divisor`
+  140, `lmr_move_threshold` 2, `lmr_history_bad_threshold` 550, `aspiration_window_initial_delta`
+  16, `aspiration_window_multiplier` 5, `rfp_margin_per_depth` 80, `rfp_max_depth` 3,
+  `your_turn_bonus` 18 and `use_nnue` true. `git diff` on `src/config.rs` showed additions only.
+- `CHANGELOG.md`, `Cargo.toml`, `task.md` and `build_and_release.sh` are branch-owned and were
+  restored from the branch rather than taken from master.
+
+### Testing
+- The eight tests that came across with the feature all pass unchanged on this branch:
+  `test_lmp_changes_the_tree`, `test_lmp_base_moves_controls_how_much_is_pruned`,
+  `test_lmp_max_depth_zero_neutralises_the_rule`, `test_bad_capture_pruning_restricts_the_tree`,
+  `test_bad_capture_see_threshold_tightens_with_its_value`,
+  `test_pruning_rules_preserve_the_smothered_mate`,
+  `test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled` and
+  `test_the_shipped_default_is_the_configuration_that_was_measured`.
+- 160 tests pass with zero compiler warnings.
+
 ## [V0.34.0-NNUE] - 2026-08-27
 
 Ports master's v0.34.0 to the NNUE branch. Check Extensions are disabled by default. The branch is
