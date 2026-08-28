@@ -1485,27 +1485,28 @@ mod tests {
     }
 
     #[test]
-    fn test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled() {
-        // Matchplay priced both rules. LMP beats v0.34.0 by +19.4 Elo [+10, +29] over 3000 games
-        // in a direct cross-version pairing; bad capture pruning adds +3.3 Elo [-4, +11] on top
-        // of it, pooled over 4600 games on two machines, and is therefore not enabled here.
-        // The advertised UCI defaults in `src/threads.rs` must say the same.
+    fn test_v0_35_1_ships_both_pruning_rules_enabled() {
+        // v0.35.1 is the both-rules build, released alongside v0.35.0 so the two configurations
+        // can be compared by hand. LMP carries the measured gain: +19.4 Elo [+10, +29] against
+        // v0.34.0 over 3000 games. Bad capture pruning is enabled here despite measuring
+        // +3.3 Elo [-4, +11] on top of LMP, pooled over 4600 games on two machines - a neutral
+        // result, not a positive one. v0.35.0 is the configuration the measurement supports.
         let config = Config::new();
         assert!(config.enable_lmp, "LMP is measured positive and ships enabled");
-        assert!(!config.enable_bad_capture_pruning,
-            "bad capture pruning measured neutral on top of LMP and ships disabled");
+        assert!(config.enable_bad_capture_pruning,
+            "v0.35.1 is the both-rules build; v0.35.0 ships bad capture pruning off");
     }
 
     #[test]
     fn test_the_shipped_default_is_the_configuration_that_was_measured() {
-        // The release rests on one matchplay number, and that number belongs to exactly one
-        // configuration: LMP on, bad capture pruning off. This pins the default tree to it, so a
-        // later edit to an unrelated default cannot quietly ship something else. It is the unit
+        // v0.35.1 ships the `ab-both` configuration, so its default tree must be node-identical
+        // to the binary that actually played the 3000-game round robin. This pins it, so a later
+        // edit to an unrelated default cannot quietly ship a third configuration. It is the unit
         // test counterpart of the node-identity check v0.34.0 ran on its release candidate.
         let default_tree = search_nodes(CHECK_RICH_FEN, 7, |_| {});
         let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.enable_lmp = true;
-            c.enable_bad_capture_pruning = false;
+            c.enable_bad_capture_pruning = true;
         });
 
         assert_eq!(default_tree, measured_variant,
