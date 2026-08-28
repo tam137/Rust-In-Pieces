@@ -410,7 +410,7 @@ impl Config {
             enable_lmp: true,
             lmp_max_depth: 4,
             lmp_base_moves: 3,
-            enable_bad_capture_pruning: false,
+            enable_bad_capture_pruning: true,
             bad_capture_see_threshold: -50,
             enable_delta_pruning: false,
             delta_pruning_margin: 300,

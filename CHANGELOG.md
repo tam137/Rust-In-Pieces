@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.35.1-NNUE] - 2026-08-28
+
+SEE pruning of bad captures is enabled by default, on top of the Late Move Pruning shipped in
+v0.35.0-NNUE. The NNUE counterpart of master's v0.35.1, and like it a deliberate second
+configuration for hand testing rather than a measured improvement.
+
+> [!IMPORTANT]
+> **v0.35.0-NNUE is the configuration the measurement supports, not this one.** On the HCE build,
+> adding bad capture pruning on top of LMP measured **+3.3 Elo, 95% CI [-4, +11]**, pooled over
+> 4600 games on two different machines - a result that covers zero. On its own the rule measured
+> **-8.9 Elo**. Neither figure was re-measured on NNUE. This release exists so the two
+> configurations can be compared by hand over longer time controls and on hardware the automated
+> harness has not seen. If in doubt, run v0.35.0-NNUE.
+
+### Changed
+- `enable_bad_capture_pruning` now defaults to **true**. A capture is pruned outright when its
+  Static Exchange Evaluation falls below `bad_capture_see_threshold * depth` (-50 per ply). The
+  threshold tightens with depth, so the rule bites near the horizon and is nearly inert in the
+  upper tree.
+- `option name EnableBadCapturePruning` now advertises `default true`, keeping the hardcoded UCI
+  literal in `src/threads.rs` in step with `Config::default()`.
+
+### Why this ships despite a null result
+- The rule **costs nothing at runtime**. The move loop already called `see_ge(..., 0)` on each
+  capture's first selection in order to demote it below the quiet moves; that call now yields the
+  exchange value rather than a boolean and serves both the demotion and the prune decision. The
+  demotion still drops the rank below zero, which is what prevents the branch from firing twice
+  on the same move.
+- It was **never measured negative in combination with LMP** on HCE: +2.2 Elo [-10, +14] over
+  1600 games on one machine and +3.9 Elo [-5, +13] over 3000 games on another.
+- It **shrinks the tree at every depth measured**, unlike LMP: -2.8 / -7.0 / -8.4% at depths 6, 7
+  and 8 with the transposition table enabled.
+
+### Protected during the port
+- NNUE-branch SPSA parameters verified unchanged after the cherry-pick: `lmr_divisor` 140,
+  `lmr_move_threshold` 2, `lmr_history_bad_threshold` 550 and `use_nnue` true. `CHANGELOG.md`,
+  `Cargo.toml` and `task.md` were restored from the branch rather than taken from master.
+
+### Testing
+- `test_v0_35_1_ships_both_pruning_rules_enabled` pins the new pair of defaults, and
+  `test_the_shipped_default_is_the_configuration_that_was_measured` asserts the default search
+  tree is node-identical to the both-rules variant.
+- 160 tests pass with zero compiler warnings.
+
 ## [V0.35.0-NNUE] - 2026-08-28
 
 Ports Late Move Pruning and SEE pruning of bad captures from master, and enables LMP by default.
