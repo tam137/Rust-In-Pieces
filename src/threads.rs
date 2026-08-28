@@ -103,7 +103,7 @@ pub fn uci_command_processor(
                     stdout.write("option name EnableLmp type check default true");
                     stdout.write("option name LmpMaxDepth type spin default 4 min 1 max 10");
                     stdout.write("option name LmpBaseMoves type spin default 3 min 0 max 20");
-                    stdout.write("option name EnableBadCapturePruning type check default false");
+                    stdout.write("option name EnableBadCapturePruning type check default true");
                     stdout.write("option name BadCaptureSeeThreshold type spin default -50 min -400 max 0");
                     stdout.write("option name AspirationWindowMaxDelta type spin default 1000 min 50 max 30000");
                     stdout.write("option name EnableCheckExtension type check default false");
