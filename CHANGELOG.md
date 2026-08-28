@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.35.1] - 2026-08-28
+
+SEE pruning of bad captures is enabled by default, **on top of** the Late Move Pruning shipped in
+v0.35.0. This is a deliberate second configuration for hand testing, not a measured improvement.
+
+> [!IMPORTANT]
+> **v0.35.0 is the configuration the measurement supports, not this one.** Adding bad capture
+> pruning on top of LMP measured **+3.3 Elo, 95% CI [-4, +11]**, pooled over 4600 games on two
+> different machines - a result that covers zero. This release exists so the two configurations
+> can be compared by hand over longer time controls and on hardware the automated harness has not
+> seen. If in doubt, run v0.35.0.
+
+### Changed
+- `enable_bad_capture_pruning` now defaults to **true**. A capture is pruned outright when its
+  Static Exchange Evaluation falls below `bad_capture_see_threshold * depth` (-50 per ply). The
+  threshold tightens with depth, so the rule bites near the horizon and is nearly inert in the
+  upper tree. Captures with SEE < 0 were already sorted to the end of the move list; this prunes
+  the worst of them instead of searching them.
+- `option name EnableBadCapturePruning` now advertises `default true`, keeping the hardcoded UCI
+  literal in `src/threads.rs` in step with `Config::default()`.
+
+### Why this ships despite a null result
+- The rule **costs nothing at runtime**. The move loop already called `see_ge(..., 0)` on each
+  capture's first selection in order to demote it below the quiet moves. That call now yields the
+  exchange *value* rather than a boolean and serves both the demotion and the prune decision, so
+  no additional SEE evaluation is performed. The demotion still drops the rank below zero, which
+  is what prevents the branch from firing twice on the same move.
+- It was **never measured negative in combination with LMP**. On its own the rule is worth
+  **-8.9 Elo** and is the weakest of the four configurations tested; added to LMP it measured
+  **+2.2 Elo** [-10, +14] over 1600 games on one machine and **+3.9 Elo** [-5, +13] over 3000
+  games on another. Both intervals cover zero, and neither point estimate is negative.
+- It **shrinks the tree at every depth measured**, unlike LMP: -4.2 / -7.7 / -7.7% at depths 6, 7
+  and 8 without the transposition table, and -2.8 / -7.0 / -8.4% with it. Fewer nodes for no
+  measured Elo is the same lesson as the Stage-0 short-circuit in `task.md` section 8.3, read
+  from the other direction.
+
+### Testing
+- `test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled` is replaced by
+  `test_v0_35_1_ships_both_pruning_rules_enabled`, which pins the new pair of defaults and records
+  in its own comment that v0.35.0, not this release, is the configuration the Elo measurement
+  supports.
+- `test_the_shipped_default_is_the_configuration_that_was_measured` now asserts the default search
+  tree is node-identical to the both-rules variant, which is the `ab-both` binary that played the
+  3000-game round robin behind v0.35.0's numbers.
+
+### Known limitations
+- The `quiet_count` cap documented under v0.35.0 is unchanged and still applies: from
+  `lmp_max_depth = 6` upwards LMP silently never fires. The shipping default of 4 is unaffected.
+
 ## [V0.35.0] - 2026-08-28
 
 Late Move Pruning is enabled by default. Measured over **3000 games** in a direct pairing against
