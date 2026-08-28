@@ -832,15 +832,23 @@ changes are ported selectively. See `skills/nnue_porting_and_release_procedure.m
   `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
   `your_turn_bonus = 18`. The `UseNNUE` UCI option is advertised as `default true`.
 * Everything else in `src/` can be taken from master wholesale.
-* The branch is level with master at **`v0.35.1-NNUE`**. The v0.35.0-NNUE port was larger than a
-  default flip: LMP and SEE pruning landed on master *after* v0.34.0 and had never been ported, so
-  the release brought across five `Config` fields, the prune logic, five UCI options, three SPSA
-  registrations and eight tests. All protected values were verified unchanged after the
-  cherry-pick and `git diff HEAD -- src/config.rs` showed additions only.
-* **Open: the branch has not played a game since `v0.30.0-nnue`.** A gauntlet against
-  `suprah-0.30.0-nnue` should show a large gain, since the branch carried the fail-soft regression
-  for its whole dormancy, and it would confirm three defaults that were all measured on the HCE
-  evaluation and merely assumed to transfer: `enable_check_extension = false` (-23.7 Elo on HCE),
+* The branch is level with master at **`v0.36.0-NNUE`**, ported from master v0.36.0: the razoring
+  block (verbatim, same guards), the seven razoring tests, and — new for this port —
+  `enablerazoring` / `razoringmargin` wiring in `src/game_handler.rs`'s `setoption` handler, which
+  no earlier port had needed to touch. The decision was not re-measured on this branch; it carries
+  master's SPRT result (3.3) because the razoring guards and the search parameter default are
+  identical here, and only the branch's own SPSA-tuned values differ. A mandatory 100-game smoke
+  gauntlet against `suprah-0.35.1-nnue` and `suprah-0.35.2-nnue` scored 50.0% and 53.5%, clear of
+  the 45% floor, with no forfeits and no duplicate games — a health check on the port, not a
+  pricing run. Local branch history had also silently fallen behind `origin/feature/nnue-evaluation`
+  by six releases (stuck at `v0.30.0-NNUE` locally while `v0.35.2-NNUE` was already tagged on the
+  remote); resolved with `git branch -f feature/nnue-evaluation origin/feature/nnue-evaluation`
+  before this port started, and worth checking for on any host where the branch has not been
+  touched in a while.
+* **Open: no gauntlet against `suprah-0.30.0-nnue` specifically has been run.** The branch now
+  plays real games again (the smoke gauntlet above), which the entries below this one could not
+  say, but the three defaults that were measured on the HCE evaluation and merely assumed to
+  transfer remain unconfirmed on this branch: `enable_check_extension = false` (-23.7 Elo on HCE),
   `enable_lmp = true` (+19.4) and the choice to leave bad capture pruning off. Each is a search
   property that should carry, but the branch has its own LMR tuning, so none is confirmed.
 
