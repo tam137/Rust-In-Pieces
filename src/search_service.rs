@@ -80,7 +80,14 @@ impl SearchService {
 
         let mut alpha: i16 = i16::MIN;
         let mut beta: i16 = i16::MAX;
-        let mut delta = config.aspiration_window_initial_delta;
+        // The re-search loop below terminates only because `delta` grows until it reaches
+        // `aspiration_window_max_delta` and the full-window escape hatch fires. Both of these
+        // parameters are SPSA-tunable, and a delta of zero or a multiplier below two would
+        // leave the widening stationary and the loop unable to finish. Clamping the two
+        // inputs here keeps the guarantee a property of the search rather than of the tuner's
+        // declared ranges; at the shipped defaults (15 and 4) both clamps are no-ops.
+        let mut delta = config.aspiration_window_initial_delta.max(1);
+        let widening_multiplier = config.aspiration_window_multiplier.max(2);
 
         if let Some(val) = prev_eval {
             alpha = val.saturating_sub(delta);
@@ -272,7 +279,7 @@ impl SearchService {
                 } else {
                     beta = best_score.saturating_add(delta);
                 }
-                delta = delta.saturating_mul(config.aspiration_window_multiplier);
+                delta = delta.saturating_mul(widening_multiplier);
                 continue;
             }
 
@@ -351,13 +358,28 @@ impl SearchService {
         let mut gain = [0i16; 32];
         let mut depth = 0;
 
-        let victim = board.get_piece_at(mv.to);
-        gain[0] = self.get_piece_value(victim, config);
-
         let mut current_attacker = board.get_piece_at(mv.from);
 
         let mut occupied = board.occupied;
         occupied &= !(1u64 << from);
+
+        // En passant is the one capture whose victim does not stand on the arrival square: the
+        // captured pawn is beside it, so `get_piece_at(mv.to)` reports an empty square and the
+        // pawn would additionally keep blocking the exchange rays. Both have to be corrected
+        // before the swap list is built, or a defended en passant capture scores a full pawn
+        // too low and is pruned as a losing capture.
+        let is_en_passant = (current_attacker == 10 || current_attacker == 20)
+            && mv.capture != 0
+            && mv.promotion == 0
+            && mv.to as i8 == board.field_for_en_passante;
+
+        gain[0] = if is_en_passant {
+            let captured_sq = if current_attacker == 10 { to - 8 } else { to + 8 };
+            occupied &= !(1u64 << captured_sq);
+            crate::pst::PIECE_EVAL_PAWN
+        } else {
+            self.get_piece_value(board.get_piece_at(mv.to), config)
+        };
 
         let mut white_to_move = !board.white_to_move;
 
@@ -431,16 +453,18 @@ impl SearchService {
         };
         let may_extend = extensions_used < extension_budget;
 
-        // Mate Distance Pruning at node entry
+        // Mate Distance Pruning at node entry. Both bounds are expressed through
+        // `MATE_SCORE` so they stay exactly as wide as the scores the terminal nodes
+        // below can actually produce.
         if ply > 0 {
-            let mate_value = i16::MAX - 1 - ply as i16;
+            let mate_value = crate::model::MATE_SCORE - ply as i16;
             if mate_value < beta {
                 beta = beta.min(mate_value);
                 if alpha >= beta {
                     return (None, beta);
                 }
             }
-            let mate_value = i16::MIN + 1 + ply as i16;
+            let mate_value = -(crate::model::MATE_SCORE - ply as i16);
             if mate_value > alpha {
                 alpha = alpha.max(mate_value);
                 if alpha >= beta {
@@ -563,13 +587,19 @@ impl SearchService {
             let is_cutoff = if white { null_eval >= beta } else { null_eval <= alpha };
 
             if is_cutoff {
-                // Verification Search for high depths
+                // Verification Search for high depths. The null move has already been undone,
+                // so this re-searches *this* node at a reduced depth and therefore runs at
+                // `ply`, not `ply + 1`: the position's distance from the root has not changed.
+                // Passing `ply + 1` would tighten Mate Distance Pruning by one ply and would
+                // write a mate score normalised against the wrong ply under this node's own
+                // hash - which the early return below then leaves in place as the entry for
+                // this position.
                 if depth >= config.nmp_verification_threshold {
                     let mut verify_pv = [None; 128];
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth, white,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, &mut verify_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, true, &mut verify_pv, ply, killer_moves, history_table, counter_moves
                     ).1;
 
                     let verify_cutoff = if white { verify_eval >= beta } else { verify_eval <= alpha };
@@ -749,8 +779,8 @@ impl SearchService {
             if turns.is_empty() {
                 if in_check {
                     return match board.game_status {
-                        GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
-                        GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
+                        GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
+                        GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
                         GameStatus::Draw => (None, 0),
                         _ => panic!("RIP no defined game end"),
                     };
@@ -899,8 +929,8 @@ impl SearchService {
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
             return match board.game_status {
-                GameStatus::WhiteWin => (None, i16::MAX - 1 - ply as i16),
-                GameStatus::BlackWin => (None, i16::MIN + 1 + ply as i16),
+                GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
+                GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
                 GameStatus::Draw => (None, 0),
                 _ => panic!("RIP no defined game end"),
             };
@@ -936,7 +966,14 @@ impl SearchService {
         #[cfg(feature = "search-diag")]
         let mut diag_first_class = crate::search_diag::MoveClass::Quiet;
         let mut child_pv = [None; 128];
+        // Two separate counters. `searched_quiet_len` bounds the writes into the fixed-size
+        // history-malus store, while `quiet_count` counts quiet moves without a ceiling so the
+        // Late Move Pruning threshold stays reachable. Sharing one counter capped the LMP
+        // trigger at 64 and made `lmp_max_depth` values from 6 upwards silent no-ops, because
+        // `lmp_base_moves + 2 * depth^2` exceeds 64 there. The shipped default of 4 has a
+        // threshold of 35 and is unaffected, so the default search tree does not move.
         let mut searched_quiet_moves = [None; 64];
+        let mut searched_quiet_len = 0;
         let mut quiet_count = 0;
 
         let mut i = 0;
@@ -1074,8 +1111,11 @@ impl SearchService {
                     };
                 }
             }
-            if current_turn.capture == 0 && quiet_count < 64 {
-                searched_quiet_moves[quiet_count] = Some(*current_turn);
+            if current_turn.capture == 0 {
+                if searched_quiet_len < searched_quiet_moves.len() {
+                    searched_quiet_moves[searched_quiet_len] = Some(*current_turn);
+                    searched_quiet_len += 1;
+                }
                 quiet_count += 1;
             }
             stats.add_calculated_nodes(1);
@@ -1263,7 +1303,7 @@ impl SearchService {
 
                     // History Malus for previously searched quiet moves
                     if config.enable_history_malus {
-                        for bad_move_opt in searched_quiet_moves.iter().take(quiet_count) {
+                        for bad_move_opt in searched_quiet_moves.iter().take(searched_quiet_len) {
                             if let Some(bad_move) = *bad_move_opt {
                                 if bad_move != *current_turn {
                                     let b_from = bad_move.from as usize;
@@ -1503,8 +1543,13 @@ mod tests {
         // to the binary that actually played the 3000-game round robin. This pins it, so a later
         // edit to an unrelated default cannot quietly ship a third configuration. It is the unit
         // test counterpart of the node-identity check v0.34.0 ran on its release candidate.
-        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        //
+        // Both searches run with the transposition table **on**. `Config::for_tests()` disables
+        // it, and comparing two TT-less trees would have left the released search path - the one
+        // the round robin actually played - untested by the gate that claims to pin it.
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
         let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
             c.enable_lmp = true;
             c.enable_bad_capture_pruning = true;
         });
@@ -2357,9 +2402,139 @@ mod tests {
             stats_disabled.calculated_nodes
         );
     }
+
+    /// Builds the node-level context a move generator needs, so a test can obtain the exact
+    /// `Turn` values the search would see rather than hand-assembling them.
+    fn generate_moves_for(fen: &str) -> (Service, crate::model::Board, crate::model::MoveList) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let config = Config::for_tests();
+        let mut stats = Stats::new();
+        let state = fresh_engine_state();
+        let zobrist_table = state.zobrist_table.read().unwrap().clone();
+        let history_table = [[0u32; 64]; 64];
+        let context = crate::model::SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &state.stop_flag,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 1,
+        };
+        let mut turns = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(
+            &mut board, &mut stats, &config, &context, true, &mut turns);
+        drop(context);
+        (service, board, turns)
+    }
+
+    #[test]
+    fn test_see_scores_en_passant_as_an_equal_pawn_trade() {
+        // En passant is the only capture whose victim does not stand on the arrival square.
+        // Seeding the swap list from `get_piece_at(mv.to)` reads the empty square behind the
+        // black pawn and scores the whole capture a full pawn too low. With the shipped
+        // `enable_bad_capture_pruning` that turned a legal, perfectly sound capture into a
+        // "losing capture" and deleted it from the tree at depth 1, and dropped it from
+        // quiescence at every depth.
+        let config = Config::for_tests();
+
+        // Black has just played d7-d5. d6 is covered by the pawns on c7 and e7, so exd6 e.p.
+        // is a pawn for a pawn: SEE 0.
+        let (service, board, turns) =
+            generate_moves_for("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        let defended = turns.moves[..turns.len]
+            .iter()
+            .find(|t| t.to_algebraic() == "e5d6")
+            .expect("e5xd6 e.p. must be generated");
+        assert_ne!(defended.capture, 0, "the generator marks en passant as a capture");
+        assert_eq!(
+            service.search.see(&board, defended, &config, &service.move_gen), 0,
+            "a defended en passant capture trades pawn for pawn and is worth exactly 0");
+
+        // The same capture with no defender on d6 wins the pawn outright.
+        let (service, board, turns) =
+            generate_moves_for("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 3");
+        let undefended = turns.moves[..turns.len]
+            .iter()
+            .find(|t| t.to_algebraic() == "e5d6")
+            .expect("e5xd6 e.p. must be generated");
+        assert_eq!(
+            service.search.see(&board, undefended, &config, &service.move_gen),
+            crate::pst::PIECE_EVAL_PAWN,
+            "an undefended en passant capture wins a whole pawn");
+    }
+
+    /// Searches a position to a fixed depth and returns the score from White's point of view.
+    fn search_score(fen: &str, depth: i32) -> i16 {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let config = Config::for_tests();
+        let mut stats = Stats::new();
+        service.search.get_moves(
+            &mut board, depth, white, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        ).get_eval()
+    }
+
+    #[test]
+    fn test_mate_scores_are_colour_symmetric() {
+        // `model.rs` defines the contract: `MATE_SCORE - ply` for a win, `-(MATE_SCORE - ply)`
+        // for a loss, and `format_score` decodes exactly that. Returning `i16::MIN + 1 + ply`
+        // for a Black win is one unit too extreme, which made the engine report a mate in three
+        // as `mate 2` whenever Black was the mating side.
+        //
+        // The two positions are exact colour mirrors of the same mate in three
+        // (1...Qd1+ 2.Kxd1 Bg4+ 3.Kc1 Rd1#), so their scores must be exact negatives.
+        let black_mates = search_score("1k1r4/pp1b1R2/3q2pp/4p3/2B5/4Q3/PPP2B2/2K5 b - - 0 1", 5);
+        let white_mates = search_score("2k5/ppp2b2/4q3/2b5/4P3/3Q2PP/PP1B1r2/1K1R4 w - - 0 1", 5);
+
+        assert!(black_mates < -crate::model::MATE_SCORE_THRESHOLD,
+            "Black must find the forced mate, got {}", black_mates);
+        assert_eq!(-black_mates, white_mates,
+            "mirrored mate scores must be exact negatives (Black {}, White {})",
+            black_mates, white_mates);
+
+        // And the distance must decode to the true mate in three on both sides.
+        let parser = crate::uci_parser_service::UciParserService {};
+        assert_eq!("mate 3", parser.format_score(-black_mates));
+        assert_eq!("mate 3", parser.format_score(white_mates));
+    }
+
+    #[test]
+    fn test_aspiration_re_search_terminates_with_a_degenerate_widening_schedule() {
+        // The re-search loop escapes to a full window only once `delta` reaches
+        // `aspiration_window_max_delta`. Both inputs to the widening are SPSA-tunable, and a
+        // multiplier below two leaves `delta` stationary, so the escape hatch is never reached
+        // and `alpha` never moves. With `target_time == None` nothing sets the stop flag either,
+        // so the search used to spin forever without ever emitting a move.
+        //
+        // The search runs on its own thread so a regression fails this test instead of hanging
+        // the whole suite.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let service = Service::new();
+            let mut board = service.fen.set_fen(CHECK_RICH_FEN);
+            let mut config = Config::for_tests();
+            config.enable_aspiration = true;
+            config.aspiration_window_initial_delta = 0;
+            config.aspiration_window_multiplier = 0;
+            let mut stats = Stats::new();
+            let result = service.search.get_moves(
+                &mut board, 4, true, &mut stats, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, Some(-20_000),
+            );
+            tx.send(result.variants.first().and_then(|v| v.best_move).is_some()).ok();
+        });
+
+        let found_a_move = rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the aspiration re-search loop must terminate for every tunable multiplier");
+        assert!(found_a_move, "the search must still return a move");
+    }
 }
-
-
-
-
-
