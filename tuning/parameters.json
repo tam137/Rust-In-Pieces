@@ -433,5 +433,10 @@
         "value": -50,
         "min": -200,
         "max": -10
+    },
+    "razoring_margin": {
+        "value": 300,
+        "min": 50,
+        "max": 800
     }
 }
