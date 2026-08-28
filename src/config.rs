@@ -180,6 +180,11 @@ pub struct Config {
     /// `bad_capture_see_threshold * depth` centipawns by Static Exchange Evaluation.
     pub enable_bad_capture_pruning: bool,
     pub bad_capture_see_threshold: i16,
+    /// Razoring at depth 1: when the static evaluation trails the window by more than
+    /// `razoring_margin`, verify with a Quiescence Search instead of searching the node, and
+    /// return that score if it confirms the fail-low.
+    pub enable_razoring: bool,
+    pub razoring_margin: i16,
     pub enable_delta_pruning: bool,
     pub delta_pruning_margin: i16,
     pub enable_counter_moves: bool,
@@ -412,6 +417,12 @@ impl Config {
             lmp_base_moves: 3,
             enable_bad_capture_pruning: true,
             bad_capture_see_threshold: -50,
+            // On by default since the round-robin gauntlet against suprah-0.35.2 on host C:
+            // 1034 games, 517 pairs, SPRT H1 accepted (elo0=-10, elo1=0), LLR +2.991 against a
+            // +2.944 bound, razoring ahead by 14.1 Elo, paired 95% CI [-1, +30]. See `task.md`
+            // section 3.3.
+            enable_razoring: true,
+            razoring_margin: 300,
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
             enable_counter_moves: true,

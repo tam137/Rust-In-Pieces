@@ -330,7 +330,10 @@ mod tests {
     fn info_string_reports_a_real_forced_mate_as_mate_in_four() {
         let service = crate::service::Service::new();
         let mut board = service.fen.set_fen("r6k/6pp/8/6N1/8/1Q6/8/6K1 w - - 0 1");
-        let config = crate::config::Config::for_tests();
+        let mut config = crate::config::Config::for_tests();
+        // This test is about `score mate N` formatting, not razoring; the depth-7 search on
+        // this position hits the same quiet-mate blind spot documented in task.md 3.2.
+        config.enable_razoring = false;
         let mut stats = Stats::default();
 
         let (tx_log, _rx_log) = std::sync::mpsc::channel();

@@ -48,7 +48,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 .replace("enableqstt", "enable_qs_tt")
                                 .replace("futilitymaxdepth", "futility_max_depth")
                                 .replace("futilitymarginbase", "futility_margin_base")
-                                .replace("futilitymarginslope", "futility_margin_slope");
+                                .replace("futilitymarginslope", "futility_margin_slope")
+                                .replace("enablerazoring", "enable_razoring")
+                                .replace("razoringmargin", "razoring_margin");
                             let val_str = parts[val_idx+1..].join(" ");
 
                             if param_name == "aggressiveness" {
@@ -242,6 +244,8 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                      "candidate_passed_pawn_bonus" | "candidatepassedpawnbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.candidate_passed_pawn_bonus = v; },
                                      "pawn_storm_bonus" | "pawnstormbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_storm_bonus = v; },
                                      "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
+                                    "enablerazoring" | "enable_razoring" => { active_config.enable_razoring = val_str.to_lowercase() == "true"; },
+                                    "razoringmargin" | "razoring_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.razoring_margin = v; },
                                     _ => {}
                                 }
                             }
