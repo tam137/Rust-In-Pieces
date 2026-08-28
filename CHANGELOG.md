@@ -2413,8 +2413,8 @@ Fail-soft reduces node count by 16.4% with aspiration enabled and by 5.4% with i
   - Updated the deployment payload inside `deploy.sh` in the Matt-Magie wrapper to automatically bundle and copy all `.trn` tournament configuration files (such as `test_gauntlet.trn`) to the remote server, enabling full tournament setups out-of-the-box.
 
 ### Fixed
-- **Symbolic Link Resolution on Remote ARM Server**:
-  - Re-created the missing `/home/mattmagie/mattmagie/` target directory on the remote server to fully resolve the broken symbolical link `/root/mattmagie`, ensuring completely warning-free native compilation and deployments.
+- **Symbolic Link Resolution on the Remote ARM Host**:
+  - Re-created the missing Matt-Magie target directory on the remote host to fully resolve a broken symbolic link, ensuring completely warning-free native compilation and deployments. (Concrete paths redacted 2026-08-28 under the host and infrastructure policy in `AGENTS.md`.)
 
 
 

@@ -26,10 +26,10 @@ assumption about the draw rate, which a normal approximation would.
 
 Usage:
     # Verdict on the pairing between two engines, from whatever is in the PGN right now.
-    scripts/sprt.py ../matt-magie/gauntlet_lmp.pgn --engines BOTH LMP
+    scripts/sprt.py <mm>/gauntlet_lmp.pgn --engines BOTH LMP
 
     # How the test would have progressed, and where it would have stopped.
-    scripts/sprt.py ../matt-magie/gauntlet_lmp.pgn --engines BOTH LMP --trajectory
+    scripts/sprt.py <mm>/gauntlet_lmp.pgn --engines BOTH LMP --trajectory
 
 Exit codes are meant for a watchdog:
     0  H1 accepted - the first engine is stronger by at least `--elo1`

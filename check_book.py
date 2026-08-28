@@ -1,3 +1,4 @@
+import argparse
 import re
 
 # Exact map of positions present in book.rs
@@ -28,9 +29,16 @@ book_rs_fen_moves = {
     "rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 0 3": ["g8f6", "f8b4", "d5e4"],
 }
 
+# The PGN lives in the Matt-Magie working directory, whose location differs per host, so it is a
+# required argument rather than a constant. See the path policy in `AGENTS.md`.
+parser = argparse.ArgumentParser(
+    description="Reports moves played out of book that book.rs does not contain.")
+parser.add_argument("pgn", help="path to the PGN to check, e.g. <mm>/all.pgn")
+args = parser.parse_args()
+
 print("=== CHECKING GAMES IN PGN FOR MOVES ABSENT FROM BOOK.RS ===")
 
-with open("/home/mattmagie/mattmagie/all.pgn", "r", encoding="utf-8", errors="ignore") as f:
+with open(args.pgn, "r", encoding="utf-8", errors="ignore") as f:
     content = f.read()
 
 games = content.split("[Event ")

@@ -12,82 +12,138 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.35.0** and **v0.35.1** on `master` (HCE), **v0.35.0-NNUE** and **v0.35.1-NNUE** on `feature/nnue-evaluation` |
+| Released | **v0.35.2** on `master` (HCE), **v0.35.2-NNUE** on `feature/nnue-evaluation` |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
-| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing |
-| Uncommitted | nothing |
-| Blocked on | nothing. Sections 1 and 2 are shipped; the backlog starts at section 3. |
+| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
+| Uncommitted | nothing. Razoring (section 3) is committed and **off by default** |
+| Blocked on | one gauntlet, for the razoring default. Nothing else is waiting on a measurement. |
+| Next session runs on | **host C (ARM)** — resolve `<mm>` and rebuild the binaries there; nothing from host A runs or transfers |
 
-The engine searches at roughly 6.5 M nodes/s, and reaches **depth 9 to 10** at the 1s + 0.1s
-match time control. Sections 1 and 2 are built, measured and released; sections 3 to 7 are not
-started. Section 10 is the measurement infrastructure and section 11 a proposal.
+The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
+1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C. Sections 1 and 2 are built, measured and released. Section 3 is built and
+measured on a corpus but not in games; sections 4 to 7 are not started. Section 10 is the
+measurement infrastructure.
 
 > [!IMPORTANT]
-> **Elo numbers do not carry across machines**, and the work has moved twice. Measurements before
-> 2026-08-27 and from 2026-08-28 onward are from the **20-core Intel Core Ultra 7 265HX**
-> (`DE-517XPM4`, 15 GB); the deciding gauntlet of 2026-08-27 evening ran on a **12-core AMD Ryzen
-> AI MAX PRO 390** (24 threads, 23 GB). Nothing in `../matt-magie/` crosses between them: `*pgn`
-> and `books/` are gitignored, so only `.trn` files and the repository itself travel. Compare
-> ratings only within one run, and never read two PGNs from different hosts together.
+> **Elo numbers do not carry across hosts**, and the work has moved three times. Runs are labelled
+> by host throughout this file:
+>
+> | Host | What | When |
+> | :--- | :--- | :--- |
+> | **host A** | 20-core x86-64 | up to 2026-08-27, and again from 2026-08-28 |
+> | **host B** | 12-core x86-64 | the deciding LMP/SEE gauntlet, 2026-08-27 evening |
+> | **host C** | ARM | from 2026-08-29, the razoring gauntlet onward |
+>
+> Nothing in the match manager's directory crosses between hosts: `*.pgn` and `books/` are
+> gitignored, so only `.trn` files and the repository itself travel. **Compare ratings only within
+> one run, and never read two PGNs from different hosts together.** Per-host figures such as
+> games/minute and the concurrency ceiling have to be re-measured on each host, never carried
+> over.
 
-### What was decided, and what shipped
+### What has shipped
 
-**Late Move Pruning ships enabled; SEE pruning of bad captures does not.** Two runs on two
-machines priced them, and v0.35.0 and v0.35.1 were released on 2026-08-28.
+| Version | What | Measured |
+| :--- | :--- | :--- |
+| v0.35.0 | Late Move Pruning enabled | **+19.4 Elo** [+10, +29] vs v0.34.0, 3000 games |
+| v0.35.1 | SEE pruning of bad captures also enabled, for hand comparison | +3.3 [-3.9, +10.5] on top of LMP — neutral |
+| v0.35.2 | Four defect repairs, no changed default, gauntlet waived | — |
 
-The deciding run was a three-way round robin over `ab-both`, `ab-lmp` and `suprah-0.34.0` —
-9000 games, 3000 per pairing, 1000ms + 100ms, `concurrency = 14`, `openings_mixed.txt`,
-`../matt-magie/gauntlet_lmp2.pgn`.
+Sections 1 and 2 carry the numbers and the reasoning. Two lessons from that round were general
+enough to become rules below rather than history: **a run must pair the configuration it exists to
+qualify** (rule 2), and **no intermediate value of a difference-of-differences is a result,
+however stable it looks** — `both - lmp` read +12.0 [+2, +22] over three stable checkpoints at 78%
+of a 9000-game run and finished at +3.9.
 
-| Pairing | Elo (paired) | 95% CI | |
-| :--- | ---: | :--- | :--- |
-| `ab-lmp` - `suprah-0.34.0` | **+19.4** | [+10, +29] | **significant** |
-| `ab-both` - `suprah-0.34.0` | +28.8 | [+20, +38] | significant |
-| `ab-both` - `ab-lmp` | +3.9 | [-5, +13] | covers zero |
+### The next action — run the razoring gauntlet on host C
 
-Least-squares over all three pairings: `lmp` **+21.2 +/- 7.5**, `both` **+27.0 +/- 7.4**,
-residuals +/-1.8.
+**This is the one thing blocking the next release.** Section 3 is written, guarded, unit-tested
+and measured on a fixed-depth corpus: **-7.7% to -20.1% searched nodes and about -15% search
+time** at depth 11, depending on the margin. It ships **off**, because a shipped default is a
+search parameter default and rule 2 binds that to a cross-version gauntlet. Only the default is
+open — the code is free to keep either way.
 
-**A round robin was used rather than a gauntlet on purpose.** The preceding run on the Ryzen was
-`mode = gauntlet` with `ab-both` as challenger, and in gauntlet mode only the challenger plays
-everyone. It therefore never paired `ab-lmp` against `suprah-0.34.0`, and the LMP-only
-configuration — the one that shipped — had no direct cross-version check. Its rating there was
-chained through `ab-both` at +12.0 +/- 17.6, an interval covering zero. **If a run exists to
-qualify one configuration, that configuration has to be in a pairing.**
+> [!IMPORTANT]
+> **The gauntlet runs on host C (ARM), in a fresh session, and nothing measured on host A carries
+> over to it.** Resolve `<mm>` first (see below); it is not where it was on host A. Re-measure the
+> two per-host numbers before trusting them — the concurrency ceiling and games/minute in "How to
+> run a measurement" are host A's. Existing PGNs do not travel between hosts and must not be read
+> together with the new one.
 
-**`both - lmp` is the quantity that decided against SEE pruning, and it is the reason both runs
-had to go the distance.** Its trajectory: +13.2, +10.5, +4.7, +2.2 on the Ryzen, then +3.1, +14.9,
-+11.6, +12.0, +3.9 here. It crossed zero in both runs and settled near zero in both. Pooled over
-4600 games on two machines it is **+3.3, 95% CI [-3.9, +10.5]**. At 78% of the second run it read
-+12.0 [+2, +22] over three stable checkpoints and looked converged; it was not. **Treat no
-intermediate value of a difference-of-differences as a result, however stable it looks.**
+Step by step:
 
-v0.35.1 ships the both-rules configuration anyway, at the user's request, so the two can be
-compared by hand at longer time controls and on hardware the harness has not seen. Its changelog
-states that v0.35.0 is the configuration the measurement supports.
+1. **Resolve `<mm>`** and confirm `mm.sh`, `engines/` and `openings_mixed.txt` are there. Copy
+   `openings/book_mixed.txt` to `<mm>/openings_mixed.txt` if it is missing.
+2. **Rebuild every binary the run needs, natively on host C.** Everything in `<mm>/engines/` was
+   built on an x86-64 host and will not run. That is `ab-razor` (suffix `Cargo.toml` to
+   `0.35.2-RAZOR` and set `enable_razoring = true` in `src/config.rs`), and the reference
+   `suprah-0.35.2` from the released tag. **Restore `Cargo.toml` and `src/config.rs` afterwards.**
+   The recipe is in "How to run a measurement"; do not use `./build_and_release.sh` for a
+   throwaway variant, it rewrites `CHANGELOG.md` and `Cargo.toml`.
+3. **Verify the binaries actually differ** before spending hours on them. `scripts/uci_driver.py`
+   does this in seconds and does not need the harness:
+   ```bash
+   python3 -c "import sys; sys.path.insert(0,'scripts'); from uci_driver import search; \
+     [print(e, search('<mm>/engines/'+e, \
+       'r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1', 11).time_ms) \
+      for e in ['suprah-0.35.2','ab-razor']]"
+   ```
+   On host A the equivalent pair read 337 ms against 286 ms. The absolute numbers will differ on
+   ARM; what must hold is that `ab-razor` is the faster of the two. If they are equal, the default
+   did not take effect and the run would have measured nothing.
+4. **Calibrate concurrency on host C.** `floor(nproc * 0.75) - 1`, then 120 games at that setting
+   and `scripts/match_health.py` on the result. A non-zero forfeit count means step down, not
+   correct.
+5. **Plan the run before starting it.** `scripts/sprt.py --plan --elo0 -10 --elo1 0` — the *does it
+   hurt* framing, which is the right one when the code exists and only the default is open. On
+   host A's pair variance that costs about 800 games at a true +20 and 1100 at +13, against 1340
+   and 2490 for *does it gain*, and about 3900 either way if the rule is truly neutral. Re-run
+   `--plan` with host C's own variance rather than trusting those rows.
+6. **Run it as a round robin over `ab-razor` and `suprah-0.35.2`**, not a gauntlet — rule 2: in
+   gauntlet mode only the challenger plays everyone, and the pairing that decides has to exist.
+   `suprah-0.35.2` is the released reference, so this is a cross-version check and not a self-A/B;
+   `ab-noraz` is the same code as the reference and is only worth adding as a third engine if a
+   same-build control is wanted.
+7. **Read it per pairing** with `scripts/pairing_elo.py`, never off the scoreboard, and check
+   `scripts/match_health.py` before believing any of it.
+8. **Then set the default** in `src/config.rs` **and** the UCI literal in `src/threads.rs`, and
+   only then consider tuning `razoring_margin` by SPSA.
 
-### The next action
-
-**Razoring at depth 1 — section 3.** Nothing is blocked and nothing is waiting on a measurement.
-It is the smallest remaining item, sits in the same move loop as the two rules just shipped, and
-`skills/matchplay_measurement_procedure.md` now has everything needed to price it: state the
-hypothesis with `sprt.py --plan` before building, then run it as a *does it hurt* question once
-the code exists and only the default is open.
-
-Price it against **`suprah-0.35.0`**, which is now the reference release.
+A 100-game health check has already been run on host A (`<mm>/razor_health.pgn`): clean, no
+forfeits, no duplicate games, design effect 1.00, and razoring ahead at **+41.9 Elo, 95% CI
+[+1, +84]**. At this harness's resolution 100 games are worth about +/-50 Elo, so that interval
+barely clearing zero says the rule is probably not harmful and nothing more. **It is a sign, not
+a result, and it does not substitute for step 5 to 7.**
 
 ### The backlog after that, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | Razoring at depth 1 | 3 | Small, self-contained, same move loop |
+| 1 | Razoring: the gauntlet, then the default | 3 | Code is done. One measurement away from shipping |
 | 2 | Singular Extensions | 4 | Largest search item; needs TT-move exclusion. Read 10.5 first — at depth 9 to 10 it fires at plies 0 to 2 and nowhere else |
 | 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
 | 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
 | 5 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
 
-Section 11 is a proposal rather than a backlog item: it starts with a diagnostic that can kill it
-for the price of one build.
+The proposal that used to be section 11 — damping the check exemption — was measured on
+2026-08-28 and is dead. It is written up as a negative result in 8.5.
+
+### Everything still open, in one place
+
+A new session can start from this table; each row says where the detail is.
+
+| Open | Where | Kind |
+| :--- | :--- | :--- |
+| **Razoring gauntlet on host C, then set the default** | 3.3 | blocking the next release |
+| Advertised UCI defaults drift from `Config::default()` — twelve stale literals | 1.1 | correctness of the facade only |
+| `lmp_max_depth` is inert above 4; the tuner and UCI still advertise a dead range | 10.6 | dead tuning range |
+| `Config::search_threads` is written in four places and read in none | 10.6a | dead code |
+| Singular Extensions are close to untestable at depth 9 to 10 — decide trigger depth or time control **before** building | 4, 10.5 | open design question |
+| `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
+| NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
+| The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
+| Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
+| `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
+| Negamax refactor | 7 | last, no expected Elo |
 
 ### Rules that are not optional
 
@@ -114,6 +170,22 @@ for the price of one build.
    Milestone 1 were verified as bit-identical search trees before a single game was played, which
    is why they needed no Elo measurement at all.
 
+### First, resolve `<mm>` — it is not the same on every host
+
+`<mm>` throughout this file is the **Matt-Magie working directory**: where the engine binaries,
+`.trn` tournament files and PGNs live. It is a sibling of this repository on some hosts and
+somewhere else on others, and the repository is not always checked out at the same place either,
+so **resolve it once at the start of a session and use the result** rather than assuming a layout.
+
+```bash
+# From the repository root. Take the first hit that contains an `engines/` directory and mm.sh.
+find .. ~ -maxdepth 3 -name mm.sh -type f 2>/dev/null
+```
+
+Per `AGENTS.md`, the resolved value must not be written back into this file, `CHANGELOG.md` or a
+skill document. `build_and_release.sh` and `scripts/run_sprt_match.sh` carry a default and are the
+only two places allowed to.
+
 ### How to run a measurement
 
 > [!IMPORTANT]
@@ -133,7 +205,7 @@ for the price of one build.
 #      - edit the default in src/config.rs
 #      - set Cargo.toml to a suffixed semver prerelease, e.g. version = "0.34.0-LMP"
 #      - cargo build --release
-#      - cp target/release/suprah ../matt-magie/engines/ab-lmp
+#      - cp target/release/suprah <mm>/engines/ab-lmp
 #      - restore Cargo.toml and src/config.rs
 #
 #    Do NOT use ./build_and_release.sh for throwaway variants: it is the release pipeline and it
@@ -143,7 +215,7 @@ for the price of one build.
 #    Verify the variants really differ before spending hours on them: a fixed-depth node count on
 #    Kiwipete separates them in seconds and catches a default that did not take effect.
 
-# 2. Write ../matt-magie/<name>.trn and run it.
+# 2. Write <mm>/<name>.trn and run it.
 #      engines = <a>, <b>[, <c>, <d>]
 #      time_control = 1000
 #      increment = 100
@@ -156,14 +228,14 @@ for the price of one build.
 
 # 3. Read the result per pairing. Both a paired and an unpaired interval are printed; the paired
 #    one is the honest one when an openings file was used.
-python3 scripts/pairing_elo.py ../matt-magie/<name>.pgn
+python3 scripts/pairing_elo.py <mm>/<name>.pgn
 ```
 
 `OwnBook=false` matters: the engine carries a 93,000-entry book compiled into the binary and would
 otherwise play it on top of the manager's opening line. Appending to an existing PGN is safe —
 `pairing_elo.py` separates runs by the game-count denominator in the `Round` tag.
 
-**Throughput of the harness**, measured on the 20-core Intel host with the same pairing and time
+**Throughput of the harness**, measured on **host A** with the same pairing and time
 control, only `concurrency` varying:
 
 | `concurrency` | games/min | losses on time |
@@ -181,7 +253,7 @@ about two hours. Do not compile or run tests while a match is running.
 #### The opening pool
 
 `openings/book_mixed.txt` — **598 lines of mixed 8, 10 and 12 ply**, shuffled, copied to
-`../matt-magie/openings_mixed.txt`. Matt-Magie plays one line per colour-swapped game pair, so at
+`<mm>/openings_mixed.txt`. Matt-Magie plays one line per colour-swapped game pair, so at
 500 rounds every opening is played once; beyond that lines repeat, and at 1500 rounds each is
 played between two and three times.
 
@@ -211,9 +283,10 @@ Each of these was built, measured and reversed. The section named gives the numb
 | Check Extension, deep only | **-9.7 Elo** against the unfiltered extension; the earlier +34.2 was a no-book artefact | 8.2 |
 | Check Extension, SEE material filter | Deletes the queen sacrifice in Philidor's Legacy; fails the engine's own smothered-mate test | 8.2 |
 | SEE pruning of bad captures, **on its own** | **-8.9 Elo** over 500 games. Loses significantly to LMP and to both-enabled | 2 |
-| SEE pruning of bad captures, **on top of LMP** | **+3.3 Elo, [-3.9, +10.5]** pooled over 4600 games on two machines. Not shipped in v0.35.0; v0.35.1 carries it for hand comparison only | 2 |
+| SEE pruning of bad captures, **on top of LMP** | **+3.3 Elo, [-3.9, +10.5]** pooled over 4600 games on two hosts. Not shipped in v0.35.0; v0.35.1 carries it for hand comparison only | 2 |
 | Reading a difference-of-differences before a run ends | `both - lmp` crossed zero in both runs and looked converged at +12.0 [+2, +22] over three checkpoints before collapsing to +3.9 | Start Here |
 | Stage-0 short-circuit of the `MovePicker` | **-9.1% throughput**, 13 of 14 positions slower, on a bit-identical tree | 8.3 |
+| Damping the check exemption (LMR / LMP on checking moves) | **0.34% and 0.02% of the searched tree.** The move ordering already searches checking moves early, so the two rules would almost never have fired on them | 8.5 |
 | Removing the `pv_nodes` mutex from move generation | The lock is uncontended and free within noise; the ordering it provides is worth more than it costs | 8.4 |
 | `skip_strong_validation` as a proxy for movegen cost | Admits illegal moves and hangs the engine. The parameter no longer exists | 8.4 |
 
@@ -244,12 +317,8 @@ Futility guard bounds only `alpha`, which is incomplete for the minimising side 
 `minimax`.
 
 **Measured: +19.4 Elo, 95% CI [+10, +29]**, in a direct 3000-game pairing against `suprah-0.34.0`
-at 1000ms + 100ms. The least-squares fit over all three pairings of that run places it at
-**+21.2 +/- 7.5**. Correcting the pairing's interval for its design effect of 1.87 gives
-**[+6, +32]**, still clear of zero. Two earlier readings were weaker and both were undersized: the
-four-way round robin put it at +19.7 in a fit but could not resolve `base - lmp` (-20.9 [-43, +1]
-at 500 games), and the first gauntlet chained it through `ab-both` at +12.0 +/- 17.6 because
-gauntlet mode never paired it with the release.
+at 1000ms + 100ms on host A. Corrected for that pairing's design effect of 1.87 it is
+**[+6, +32]**, still clear of zero.
 
 > [!WARNING]
 > **LMP does not reliably shrink the tree in this engine, and the sign is depth-dependent.**
@@ -267,6 +336,8 @@ gauntlet mode never paired it with the release.
 > LMP that prunes quiet moves. Its `give_check_rank_bonus * 10000` ranks it far too early to be
 > pruned in practice; the `!gives_check` guard is what makes that a property of the rule rather
 > than of the current move ordering. `test_pruning_rules_preserve_the_smothered_mate` covers both.
+> **8.5 has since priced "far too early to be pruned in practice": with the guard removed, LMP
+> would delete 271 moves out of 2.2 M searched, 0.02% of the tree.**
 
 ### 1.1 Advertised UCI defaults drift from `Config::default()` — open
 
@@ -302,8 +373,8 @@ Captures with $SEE < 0$ are sorted to the end of the move list but still searche
 capture outright when $SEE < \text{bad\_capture\_see\_threshold} \cdot depth$. The threshold
 tightens with depth, so the rule bites near the horizon and is nearly inert in the upper tree.
 
-**Shipped, disabled.** `enable_bad_capture_pruning` (**default `false` in v0.35.0**, `true` in
-v0.35.1) and `bad_capture_see_threshold` (-50) in `src/config.rs`; UCI options
+**Shipped. The current default on `master` is `true`**, from v0.35.1 onward; v0.35.0 shipped it
+`false`. `enable_bad_capture_pruning` and `bad_capture_see_threshold` (-50) in `src/config.rs`; UCI options
 `EnableBadCapturePruning` / `BadCaptureSeeThreshold`; the threshold registered for tuning. The
 same pair of releases exists on `feature/nnue-evaluation`.
 
@@ -312,21 +383,20 @@ selection in order to demote it. That call now yields the *value* instead of a b
 both the prune decision and the demotion. The demotion still drops the rank below zero, which is
 what keeps the branch from firing twice on the same move — preserve that if you touch it.
 
-**Measured: -8.9 Elo** alone in the least-squares fit. It loses significantly to `lmp`
-(+31.4 [+9, +53]) and to `both` (+28.6 [+6, +51]). **On its own the rule is worse than nothing at
-`bad_capture_see_threshold = -50`.**
+**Measured: -8.9 Elo** alone in the least-squares fit, losing significantly to both `lmp` and
+`both`. **On its own the rule is worse than nothing at `bad_capture_see_threshold = -50`.**
 
 **And it adds nothing on top of LMP.** The interaction that made `both` beat `lmp` in the round
 robin — +18.1, the noisiest quantity in that design — never survived a full run. Measured as
 `both - lmp`:
 
-| Run | Machine | Games | Result |
+| Run | Host | Games | Result |
 | :--- | :--- | ---: | :--- |
-| `gauntlet_lmp.pgn`, 2026-08-27 | Ryzen | 1600 | +2.2 [-10, +14] |
-| `gauntlet_lmp2.pgn`, 2026-08-28 | Intel | 3000 | +3.9 [-5, +13] |
+| `gauntlet_lmp.pgn`, 2026-08-27 | host B | 1600 | +2.2 [-10, +14] |
+| `gauntlet_lmp2.pgn`, 2026-08-28 | host A | 3000 | +3.9 [-5, +13] |
 | pooled | both | 4600 | **+3.3 [-3.9, +10.5]** |
 
-The two machines differ by +1.7 Elo on this quantity, well inside noise. Pooling is defensible
+The two hosts differ by +1.7 Elo on this quantity, well inside noise. Pooling is defensible
 here in a way that pooling absolute ratings is not: `both - lmp` is an internal contrast between
 two binaries inside one run, so it does not depend on the host's speed the way a rating against a
 frozen opponent does.
@@ -342,19 +412,94 @@ without the transposition table, **-2.8 / -7.0 / -8.4%** with it. It bought fewe
 which is the same lesson as 8.3 from the other direction.
 
 > [!NOTE]
-> The Philidor warning that used to sit here was **filed against the wrong rule**. In
-> `SMOTHERED_MATE_FEN` the square g8 is empty, so `3.Qg8+` is a *quiet* checking move: it cannot
-> reach the capture rule at all. The rule that could delete it is LMP. See the note in section 1.
-> The `!gives_check` guard is kept here anyway, for a checking sacrifice that *is* a capture.
+> The `!gives_check` guard here is kept for a checking sacrifice that *is* a capture. The Philidor
+> canary itself belongs to LMP — see the note in section 1.
 
-## 3. Razoring at depth 1
+## 3. Razoring at depth 1 — built, measured on a corpus, **off by default pending a gauntlet**
 
-`[Impact: Medium]` `[Complexity: Medium]`
+`[Impact: unmeasured in games]` `[Complexity: Medium]`
 
-* At depth 1, if `static_eval + razoring_margin < alpha`, run a Quiescence Search directly. If the
-  result is still below alpha, return that score immediately.
-* **Tasks**:
-    - `[ ]` Add `enable_razoring: bool` and `razoring_margin: i16` to `Config`, exposed via UCI.
+At depth 1, when the static evaluation trails the window by more than `razoring_margin`, one ply
+is unlikely to recover the gap and the node's whole move loop is spent proving a fail-low. The
+rule runs a Quiescence Search directly and returns that score **only if it confirms the fail-low**;
+otherwise the node falls through to the normal search. The qsearch is a verification, not an
+assumption.
+
+**Built.** `enable_razoring` (**default `false`**) and `razoring_margin` (300) in `src/config.rs`;
+the rule sits in `minimax` as step 0.6, after Reverse Futility Pruning and before move generation;
+UCI options `EnableRazoring` / `RazoringMargin`; `razoring_margin` registered in
+`tuning/parameters.json`. Six tests in `src/search_service.rs`.
+
+**Guards**: `depth == 1`, `!is_pv`, not in check, and a mate-score bound on both `alpha` and
+`beta`. The early return **bypasses the transposition table write**, exactly as Null Move Pruning
+and Reverse Futility Pruning do — 8.1 cost roughly two hundred Elo by writing a fail-soft score
+into the table, and a rule that returns before the store cannot repeat it.
+
+### 3.1 What it is worth on a fixed-depth corpus
+
+14 positions at fixed depth 11, driven through `scripts/measure_razoring.py`. Node counts are the
+sum over every iteration of the iterative deepening; times are the engine's own cumulative
+`info ... time`, so process start-up is not counted.
+
+| `razoring_margin` | searched nodes | search time | positions whose move or score changed |
+| ---: | ---: | ---: | ---: |
+| 150 | **-20.1%** | -15.5% | 9 of 14 |
+| 300 | -7.7% | -16.0% | 8 of 14 |
+| 500 | -11.4% | **-16.3%** | 6 of 14 |
+| 800 | -10.1% | -14.1% | 3 of 14 |
+
+Three things to read out of that table, and one not to.
+
+* **Time falls by about 15% at every margin tested**, including the conservative end where the
+  rule changes only 3 of 14 best moves. That is the number that turns into depth in a game.
+* **Node count is not monotone in the margin** — 300 saves less than both 150 and 500. Same
+  mechanism as LMP (section 1): cutting a node short turns a cutting node into a fail-low one,
+  PVS widens the parent's window and re-searches. Do not tune on it.
+* **The per-position spread is enormous**: -53% on `Closed Centre`, +49% on `Sharp Tactical`. The
+  totals are carried by a few large positions.
+* **Do not read a default out of this table.** It is the exact shape of evidence that made the
+  Check Extension frontier restriction look like the best of four axes before it measured -26.8
+  Elo (rule 1). `razoring_margin = 300` is a literature-consistent starting point, not a finding.
+
+### 3.2 The cost: a mate delivered on the razored horizon
+
+Razoring loses Philidor's Legacy at depth 5, and the margin is not the lever — the loss is
+identical at 200, 300, 500, 900 and 1500, because after the queen sacrifice White is a queen down
+and no usable margin covers that.
+
+The mechanism is in the Quiescence Search, not in razoring. `minimax` at `depth <= 0` calls
+`generate_valid_moves_list_capture` when not in check: **Suprah's qsearch generates captures only
+and never a quiet checking move.** `Nf7#` is quiet, so the verification search cannot see the
+refutation and returns the fail-low it was given.
+
+**Depth is the lever, and one iteration is enough.** At depth 6, 7 and 8 the mate comes back, and
+the tree is smaller than without the rule. Both facts are pinned:
+`test_razoring_finds_the_smothered_mate_once_it_is_inside_the_search` and
+`test_razoring_loses_a_mate_delivered_on_the_razored_horizon`.
+
+This is materially different from the SEE material filter rejected in 8.2, which deleted the queen
+sacrifice at *every* depth. It is still a real cost, and it is the reason the depth-1 restriction
+is load-bearing: **if razoring is ever wanted at depth >= 2, the qsearch has to generate checking
+moves at its first ply first.**
+
+### 3.3 What is still owed
+
+* `[ ]` A cross-version gauntlet against `suprah-0.35.2`, framed as *does it hurt*
+  (`--elo0 -10 --elo1 0`), run as a **round robin** so both configurations get a direct pairing.
+  Build `ab-razor` and `ab-noraz` natively on the host that runs it, from v0.35.2 with the version
+  suffixes `-RAZOR` / `-NORAZ` so the PGN separates them into two rows. The step-by-step is in
+  "The next action".
+* `[ ]` Set `enable_razoring` from that result, in `src/config.rs` **and** in the UCI literal in
+  `src/threads.rs` — the third release in a row had to fix one of those by hand (1.1).
+* `[ ]` Only then tune `razoring_margin` by SPSA. Tuning a parameter of a rule that is off is
+  tuning nothing.
+
+The 100-game health check already run **on host A** is `<mm>/razor_health.trn` /
+`razor_health.pgn`: `+17 =54 -29` for the razoring build, **+41.9 Elo, paired 95% CI [+1, +84]**,
+zero losses on time, zero duplicate games, design effect 1.00. At this harness's resolution 100
+games are worth about +/-50 Elo, so the interval barely clearing zero is a sign that the rule is
+not harmful, and nothing more. The `.trn` travels to another host; the PGN and the binaries do
+not.
 
 ## 4. Singular Extensions (SE)
 
@@ -410,6 +555,10 @@ positions at fixed depth 10 and 764,055 interior nodes, on a node-identical tree
   `give_check_rank_bonus * 10000` = 50,000, which is what lets quiets outrank captures today and
   is why the current order cannot be produced lazily at all. It is 2.6% of interior nodes. Moving
   that bonus out of the rank function into stage assignment unlocks every stage below it.
+  A later measurement (8.5) sizes the same class from the other side: **5.9% of all searched
+  moves give check, 3.4% of them quiet.** That bonus is also why LMR and LMP practically never
+  fire on a checking move, so moving it is not the free reordering it looks like — it would hand
+  those two rules a class of moves they have never actually pruned.
 * **Killers and counters need no generation at all** — two or three remembered moves validated
   against `NodeMasks`, for 10.4%.
 * Stage 0's ceiling is presence, not quality: the PV/TT move cuts at 77.5% of nodes where it
@@ -517,7 +666,7 @@ does not reach parity.
     - `[ ]` Write the warm-table consistency regression test. The current suite passes completely
       on the broken build.
 
-Binaries and PGNs are kept outside the repository in `../matt-magie/engines/` and `../matt-magie/`:
+Binaries and PGNs are kept outside the repository, under `<mm>/engines/` and `<mm>/`:
 `ab-bisA` (fail-soft only), `ab-bisB` (bound reclassification only), `ab-revert`, `ab-ttclamp`,
 and `ab_bisect.pgn`, `ab_revert.pgn`, `ab_gauntlet.pgn`, `ab_ttclamp.pgn`.
 
@@ -564,9 +713,11 @@ other ply. With the extension off there is no asymmetry left to correct. Likewis
 all five parameters shape a feature that no longer runs. Re-open both only if
 `enable_check_extension` is ever set back to `true`.
 
-**See section 11 before treating this as closed.** The guards that make an extension expensive
-also exempt every checking move from LMR, futility, LMP and SEE pruning, whether or not the
-extension runs. Whether that exemption is itself the cost has not been measured.
+**The follow-up question this raised has since been answered, and the answer is no.** The guards
+that make an extension expensive also exempt every checking move from LMR, futility, LMP and SEE
+pruning, whether or not the extension runs; the obvious next thought was that the exemption, not
+the extension, was the cost. It was measured on 2026-08-28 and is worth 4.5% of the tree at the
+absolute most, 0.34% for the LMR half that the proposal was actually about. See 8.5.
 
 **This is also the clearest evidence in the repository that depth and test-suite accuracy are not
 adequate proxies for playing strength.** The frontier restriction was rated the most promising axis
@@ -626,6 +777,66 @@ Measured on v0.31.0 over 14 positions at fixed depth 10, 17,662,630 nodes.
 
 ---
 
+### 8.5 Damping the check exemption — ⛔ measured 2026-08-28, dead before a game was played
+
+This was section 11, a proposal rather than a backlog item, and it was written so that step 1
+could kill it for the price of one diagnostic build. It did.
+
+**The observation was correct.** A move that gives check is exempt from all four of Late Move
+Reductions, Late Move Pruning, Futility Pruning and the SEE pruning of bad captures, at once:
+
+| Rule | Guard | `src/search_service.rs` |
+| :--- | :--- | ---: |
+| SEE pruning of bad captures | `!turns.moves[i].gives_check` | ~1007 |
+| Late Move Pruning | `!current_turn.gives_check` | ~1037 |
+| Futility Pruning | `!current_turn.gives_check` | ~1053 |
+| Late Move Reductions | `!current_turn.gives_check` | ~1155 |
+
+**The inference from it was wrong.** Measured with `scripts/measure_check_exemption.py` over the
+same 14-position corpus at fixed depth 10, 2,201,819 searched moves, on a **node-identical**
+instrumented build:
+
+| | share of searched moves |
+| :--- | ---: |
+| moves that give check | 5.9% |
+| ... of which quiet | 3.4% |
+| moves searched while in check (a clean partition) | 4.3% |
+| tree below a checking move — **nests, so an upper bound** | 46.9% |
+
+That last row is the number that makes the item look large, and it is the misleading one:
+subtrees rooted at checking moves contain each other, so the sum counts nodes once per checking
+ancestor. The quantity that decides is what each rule would actually have removed with its guard
+dropped:
+
+| Rule | moves | share of tree below them |
+| :--- | ---: | ---: |
+| Late Move Reductions | 310 | **0.34%** |
+| Late Move Pruning | 271 | **0.02%** |
+| Futility Pruning | 13,055 | 1.78% |
+| SEE pruning of bad captures | 17,775 | 2.35% |
+| all four | 31,411 | **4.49%** |
+
+**The proposal was specifically `lmr_check_damping`, and LMR is the worst of the four: 310 moves
+out of 130,253, 0.01% of searched moves.** The reason is the move ordering the engine already has.
+A checking move carries `give_check_rank_bonus * 10000` = 50,000 and therefore sorts ahead of
+every quiet move, so `turn_counter > lmr_move_threshold` is almost never true for one. The guard
+is close to vacuous: removing it would change almost nothing, because the ordering already does
+what the guard claims to do. Section 1 says the same thing about LMP's guard from the other
+direction — it calls the guard "a property of the rule rather than of the current move ordering",
+and this measurement is what that costs: 0.02%.
+
+The two rules that *would* have removed something, Futility and SEE pruning, delete moves rather
+than reduce them, and both guards exist for the documented reason in 8.2 — an SEE gate on checking
+moves deletes the queen sacrifice in Philidor's Legacy. Trading a known tactical risk for at most
+4.1% of the tree, which is an upper bound inflated by nesting, is not a trade worth a gauntlet.
+
+**What to keep from it.** The instrumentation stays: `scripts/measure_check_exemption.py` and the
+`SEARCHDIAGCHECK` counters in `src/search_diag.rs` are cheap, node-identical and reusable. And the
+lesson generalises past this item — *the tree below a class of moves is not the prize; the prize
+is what a rule would actually have removed from it, and the two differed here by a factor of ten.*
+
+
+---
 ## 9. The NNUE Branch
 
 `feature/nnue-evaluation` carries its own SPSA-tuned parameters and is **never merged** — master
@@ -675,6 +886,24 @@ of the search, is what now paces the project.
 | `scripts/version_curve.py` | One rating scale across runs, anchored to a frozen opponent. |
 | `scripts/book_lines.py` | Walks a PolyGlot book directly. Surveys every book in `books/` for breadth, and builds pools from any of them without the engine. |
 | `scripts/test_sprt.py` | 20 tests over the statistics, standard library only. |
+| `scripts/uci_driver.py` | Drives a binary over UCI and **waits for `bestmove`**. See the warning below. |
+| `scripts/measure_check_exemption.py` | How much of the tree does a class of moves govern, and what would a rule have removed from it? Added for 8.5. |
+| `scripts/measure_razoring.py` | Searched nodes and search time for a rule toggled over UCI, on the fixed-depth corpus. Added for section 3. |
+
+> [!WARNING]
+> **A fixed `sleep` before `quit` is not a way to run a fixed-depth search.** The older scripts
+> start a search, sleep, then send `quit`; a search that has not finished by then is killed
+> mid-iteration and the numbers left on stderr are whichever iteration happened to complete. The
+> totals then move with machine load rather than with the change under test.
+> `scripts/uci_driver.py` reads stdout until `bestmove` instead, so the comparison is always the
+> same depth on both sides. `measure_check_exemption.py` and `measure_razoring.py` use it;
+> `measure_stage0.py` still does not.
+>
+> A second trap in the same place: **`search_diag::dump` runs once per iteration of the iterative
+> deepening and its counters are never reset, while `Stats` is fresh on each of those calls.** The
+> last `SEARCHDIAG*` line is therefore the cumulative total for the whole `go depth N`, and the
+> last `SEARCHTREE` line is only its final iteration. Summing `SEARCHTREE` gives the comparable
+> quantity. The two differ by more than a factor of two on the start position.
 
 ### 10.2 The test is pentanomial, and why that is not a detail
 
@@ -708,8 +937,8 @@ that. `--plan` would have said so in a second.
 
 ### 10.4 What was measured about the harness
 
-**Losses on time: zero** in the first 700 games at `concurrency = 9` on the 12-core Ryzen, and
-zero again in all 9000 games at `concurrency = 14` on the 20-core Intel host. Matt-Magie writes
+**Losses on time: zero** in the first 700 games at `concurrency = 9` on host B, and
+zero again in all 9000 games at `concurrency = 14` on host A. Matt-Magie writes
 `WhiteWinByTime` / `BlackWinByTime` into the `Termination` tag, so this is directly checkable, and
 `match_health.py` checks it. Raising concurrency is a legitimate way to buy throughput — it bought
 **+61%** here — but it must be re-checked at the new setting, it is capped by the 25% core-headroom
@@ -728,7 +957,7 @@ those opening families — and not on whether its interval is honest.
 
 **It is fixable, and the fix is free.** `books/` holds thirteen PolyGlot books — **not in version
 control**, `.gitignore` excludes the directory, so they have to be carried across by hand when the
-work moves machines — and
+work moves hosts — and
 `scripts/book_lines.py` walks them directly rather than asking the engine for a move, so it can
 draw **uniformly** instead of by popularity. Measured over 400 sampled 10-ply lines, distinct
 four-ply starts: `codekiddy.bin` 307, `DCbook_large.bin` 284, `Elo2400.bin` 279, against
@@ -759,7 +988,8 @@ Every remaining search item is a depth-conditional rule, and they are being pric
 of 9 to 10.
 
 * **LMP** fires at depths 1 to 4 of 9, a large share of the tree. Its measurement transfers.
-* **Razoring at depth 1** fires everywhere. Fine.
+  It cannot be made to fire above depth 4 at all — see 10.6.
+* **Razoring at depth 1** fires everywhere. Measured: -15% search time at depth 11 (section 3.1).
 * **ProbCut at depth ≥ 5** reaches only the top few plies. Its trigger depth is a tunable and has
   to be set against this harness, not against the literature.
 * **Singular Extensions at depth ≥ 8** fire at plies 0 to 2 and nowhere else. The feature as
@@ -767,26 +997,43 @@ of 9 to 10.
   makes it a different feature from the published one — or the time control goes up, and one ply
   costs a factor of ten in wall time. **Decide which before building it.**
 
-### 10.6 A defect found while reading the code
+### 10.6 `lmp_max_depth` is inert above 4, and the first diagnosis was wrong
 
-`quiet_count` in `src/search_service.rs` stops incrementing at 64, because it indexes the
-`searched_quiet_moves` array that feeds the history malus. The LMP threshold is
-`lmp_base_moves + 2 · depth²`, i.e. 5, 11, 21, 35, 53, **75**, 101, 131 for depths 1 to 8. From
-depth 6 up the threshold is above the cap and **LMP silently never fires**.
+The symptom is unchanged and still matters: **`tuning/parameters.json` registers `lmp_max_depth`
+with `max: 8` and the UCI facade in `src/threads.rs` advertises `max 10`, so SPSA and any GUI can
+wander over a flat region from 4 upwards and tune nothing.**
 
-`tuning/parameters.json` registers `lmp_max_depth` with `max: 8` and the UCI option advertises
-`max 10`, so SPSA can wander over a flat region from 5 to 8 and tune nothing.
+The cause originally recorded here was the `searched_quiet_moves` array bound, which stopped
+`quiet_count` at 64. That was real and **is fixed**: the two counters were separated in v0.35.x
+and `quiet_count` is now unbounded. It was not the binding constraint.
 
-**This got sharper with v0.35.0.** At the shipping default of 4 the cap does not bind, so the
-release is unaffected and the measurement behind it was valid. But LMP is now on by default, which
-means a user raising `LmpMaxDepth` through the UCI facade, or an SPSA run exploring up to 8, gets
-silence instead of an error. Both limits advertise a range the rule cannot honour. Documented
-under *Known limitations* in the v0.35.0 and v0.35.1 changelogs.
+The binding constraint is the threshold itself. `lmp_base_moves + 2 * depth^2` demands **53 quiet
+moves searched at a single depth-5 node and 75 at a depth-6 node**, and no node produces that
+many: a full move list is rarely over 50 moves, and beta cutoffs end most nodes long before it is
+exhausted. Measured at fixed depth 8 with the transposition table on, over Kiwipete, a middlegame
+and a closed centre, at `lmp_base_moves` 0 and 3: `lmp_max_depth` 4, 5, 6 and 8 all search the
+**bit-identical tree**.
 
-* `[ ]` Count quiet moves in a separate counter that is not bounded by the array length.
-* `[ ]` Add a test that LMP still changes the tree at `lmp_max_depth = 8`.
-* `[ ]` Until then, lower the advertised `max` in both `src/threads.rs` and
-  `tuning/parameters.json` to 5, so neither a GUI nor the tuner can enter the dead region.
+`test_lmp_max_depth_is_inert_above_four` pins the flat region, so a change to the growth term
+fails there loudly instead of silently widening what the tuner explores.
+
+* `[x]` Count quiet moves in a separate counter that is not bounded by the array length.
+* `[x]` Add a test covering `lmp_max_depth` above 4.
+* `[ ]` If depths above 4 are wanted, change the **growth term** — it is the quadratic that is
+  dead, not the counter and not the advertised bound. Until then, lowering the advertised `max`
+  to 4 in both places would be honest, and is a one-line change in each.
+
+### 10.6a Dead configuration: `search_threads`
+
+`Config::search_threads` defaults to 2 and is **written in four places and read in none** —
+`grep search_threads src/*.rs` finds only `src/config.rs`. The engine is single-threaded in
+search, and `src/threads.rs` says so at runtime: a `setoption name Threads` is answered with
+*"Single-threaded engine. Ignoring setoption threads"*.
+
+Nothing is broken by it, and one thing is confirmed by it: `engine_options = ... Threads=1` in
+every `.trn` file does nothing, and the 25% core-headroom calculation in "How to run a
+measurement" is right to assume one thread per engine. Delete the field when `src/config.rs` is
+next touched.
 
 ### 10.7 Not done, and why
 
@@ -797,73 +1044,4 @@ under *Known limitations* in the v0.35.0 and v0.35.1 changelogs.
   has looked. Balance filtering needs the engine to evaluate every candidate and was not done.
 * **Comparing the two pools.** One pairing, run twice, `sprt.py --plan` on each. That settles the
   cost question in one measurement and should precede adopting the new pool.
-* ~~**Raising `concurrency`.**~~ Done 2026-08-28: calibrated at 9 and 14 on the Intel host with
-  120 games each, `match_health.py` clean at both, and 14 adopted for the 9000-game run. 44.2 to
-  71.3 games/minute.
 
----
-
-## 11. Proposal: reduce late checking moves, then re-price the Check Extension
-
-`[Impact: unknown, plausibly high]` `[Complexity: Low]` — not started, and **measure step 1 first**.
-
-Section 8.2 disabled the Check Extension for +23.7 Elo and explained the cost as "an extension
-spends its extra ply at precisely the node class where every pruning stage is disabled". Reading
-the guards in `src/search_service.rs` sharpens that, and the sharper version suggests the
-extension may not have been the problem.
-
-Two different conditions switch rules off, and they are not the same node class.
-
-| Rule | off when **in check** (`turn.gives_check`) | off when the move **gives check** (`current_turn.gives_check`) |
-| :--- | :--- | :--- |
-| static evaluation | yes | — |
-| Null Move Pruning | yes | — |
-| Reverse Futility | yes | — |
-| Futility Pruning | yes | yes |
-| Late Move Pruning | yes | yes |
-| SEE pruning of bad captures | yes | yes |
-| **Late Move Reductions** | **no — evasions are reduced** | **yes** |
-
-So LMR does reduce evasions; what it never touches is a move that *gives* check. Together with the
-three pruning rules that also exempt it, **a checking move is exempt from every reduction and
-every pruning rule in the engine**. The Check Extension then granted that same class an extra
-ply on top, which is why it cost 1.75x the nodes at fixed depth.
-
-The question section 8.2 did not ask is whether the exemption itself is right. A quiet move that
-gives check late in the move list, with poor history, at low depth, is not obviously worth a full
-search — every strong engine reduces it, and reduces rather than deletes it precisely because the
-occasional queen sacrifice has to survive.
-
-### The order this has to be done in
-
-1. **Measure the size of the class before touching anything.** `src/search_diag.rs` and the
-   `search-diag` feature already exist and already classify a node's first move as
-   `QuietCheck`; that measured 2.6% of interior nodes. What is needed is different: the share of
-   *searched moves* that give check, and the share of subtree time spent under them. If it is
-   small, everything below is worthless and the item ends here for the price of one diagnostic
-   build.
-2. **Add `lmr_check_damping: i32`, defaulting to a value that reproduces today's tree.** A
-   checking move becomes reducible, with its reduction damped the way killers and counter moves
-   already are in the same block. A damping large enough to zero every reduction is the current
-   behaviour, so the default is bit-identical and provable by node count before a game is played.
-3. **Run the smothered-mate canary first.** `test_pruning_rules_preserve_the_smothered_mate`
-   covers LMP and SEE pruning; extend it to this. Reduction is safer than pruning but not safe:
-   this engine does **not** re-search a reduced move that fails low, so a reduced queen sacrifice
-   is effectively skipped. That is the whole risk of the item and the test is the only thing
-   watching it.
-4. **Price it against `suprah-0.35.0`** by the procedure in
-   `skills/matchplay_measurement_procedure.md`, as a *does it hurt* question — the code is a
-   damping factor and free to keep.
-5. **Only if it gains, re-open the Check Extension.** With checking moves reducible, the
-   mechanism that made the extension expensive is weaker, and the four cost-control axes in 8.2
-   are all still present as tunables. This is the reason the item is worth doing at all: 8.2
-   closed the extension as a feature, not as a question, and the three positive findings it
-   recorded — a ply earlier on Philidor's Legacy, more LCT II solutions at fixed depth — were
-   never disputed. Only the price was.
-
-> [!CAUTION]
-> Nothing above is measured. It is a reading of the guards plus the mechanism 8.2 already
-> established, and step 1 exists to kill it cheaply if the class is too small to matter. Do not
-> let the fact that it explains a known result stand in for evidence that changing it helps —
-> that is exactly the error 8.2 records, where the frontier restriction was the best of four axes
-> on every metric except the one that counts.

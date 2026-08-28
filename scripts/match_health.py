@@ -19,7 +19,7 @@ measurement chain. This reports the things that quietly invalidate a run:
   needs. See `scripts/sprt.py --plan`.
 
 Usage:
-    scripts/match_health.py ../matt-magie/gauntlet_lmp.pgn
+    scripts/match_health.py <mm>/gauntlet_lmp.pgn
 """
 
 import argparse
