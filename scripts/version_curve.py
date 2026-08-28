@@ -23,7 +23,7 @@ frozen binary at a fixed time control on one machine, and breaks across machines
 saying out loud, because it is exactly what happened to this project when the work moved hosts.
 
 Usage:
-    scripts/version_curve.py ../matt-magie/*.pgn --anchor 0.34.0
+    scripts/version_curve.py <mm>/*.pgn --anchor 0.34.0
 """
 
 import argparse

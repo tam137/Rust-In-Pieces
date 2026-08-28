@@ -1781,6 +1781,48 @@ mod tests {
     }
 
     #[test]
+    fn test_lmp_max_depth_is_inert_above_four() {
+        // `task.md` 10.6 asked for a test that LMP still moves the tree at `lmp_max_depth = 8`.
+        // It does not, and the reason is not the one that section originally gave.
+        //
+        // The array cap it blamed is gone - `quiet_count` has run unbounded since v0.35.x - but
+        // the threshold `lmp_base_moves + 2 * depth^2` outruns the position instead. At depth 5
+        // it demands 53 quiet moves searched at a single node, at depth 6 it demands 75, and no
+        // node produces that many: a full move list is rarely over 50 moves and beta cutoffs end
+        // most nodes long before it is exhausted. Every value from 4 upwards therefore searches
+        // exactly the same tree.
+        //
+        // The consequence is the one 10.6 cared about and it is unchanged: `tuning/parameters.json`
+        // registers `lmp_max_depth` with `max: 8` and the UCI facade advertises `max 10`, so SPSA
+        // and any GUI can wander over a flat region from 4 upwards and tune nothing. The fix is
+        // the growth term, not the counter and not the advertised bound.
+        //
+        // This test pins the flat region so that a future change to the threshold formula fails
+        // here loudly rather than silently widening what the tuner explores.
+        for (name, fen) in [
+            ("Kiwipete", CHECK_RICH_FEN),
+            ("Middlegame", "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6"),
+            ("ClosedCentre", "r1bq1rk1/pp2ppbp/2np1np1/8/2PNP3/2N1B3/PP2BPPP/R2Q1RK1 w - - 0 1"),
+        ] {
+            let shape = |max_depth: i32| {
+                search_nodes(fen, 8, move |c: &mut Config| {
+                    c.enable_lmp = true;
+                    c.lmp_base_moves = 0;
+                    c.lmp_max_depth = max_depth;
+                    c.use_zobrist = true;
+                })
+            };
+            let at_four = shape(4);
+            for max_depth in [5, 6, 8] {
+                assert_eq!(at_four, shape(max_depth),
+                    "{}: lmp_max_depth {} must still be inert; if it is not, the threshold \
+                     formula changed and `task.md` 10.6 needs rewriting rather than this test \
+                     adjusting", name, max_depth);
+            }
+        }
+    }
+
+    #[test]
     fn test_bad_capture_pruning_restricts_the_tree() {
         // Captures with SEE < 0 are searched at the tail of the move list today. Pruning the
         // worst of them removes nodes, and unlike LMP it does so at every depth measured

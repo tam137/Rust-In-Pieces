@@ -6,6 +6,16 @@ making it affordable.
 
 Read `task.md` "Rules that are not optional" first. Nothing here overrides them.
 
+> [!IMPORTANT]
+> **`<mm>` is the Matt-Magie working directory and is not the same on every host.** It is a
+> sibling of this repository on some and elsewhere on others. Resolve it once at the start of a
+> session — `find .. ~ -maxdepth 3 -name mm.sh -type f` — and substitute the result into every
+> command below. Per `AGENTS.md` the resolved value is never written back into a committed file.
+>
+> **Engine binaries do not travel between hosts.** Anything already in `<mm>/engines/` was built
+> for whatever architecture put it there; rebuild natively before using it. So do per-host figures
+> like the concurrency ceiling and games/minute: re-measure, never carry over.
+
 ---
 
 ## 1. The question decides the cost, not the feature
@@ -51,7 +61,7 @@ needs two **binaries**, not two option sets.
 sed -i 's/^version = "X.Y.Z"$/version = "X.Y.Z-TAG"/' Cargo.toml
 sed -i 's/^            <param>: <old>,$/            <param>: <new>,/' src/config.rs
 cargo build --release
-cp target/release/suprah ../matt-magie/engines/ab-<tag>
+cp target/release/suprah <mm>/engines/ab-<tag>
 git checkout -- Cargo.toml src/config.rs
 ```
 
@@ -62,13 +72,13 @@ throwaway variant. Plain `cargo build --release` is correct here.
 
 ```bash
 # 1. The id name really differs, or the variants collapse into one PGN row.
-(echo uci; sleep 0.6) | ../matt-magie/engines/ab-<tag> | grep '^id name'
+(echo uci; sleep 0.6) | <mm>/engines/ab-<tag> | grep '^id name'
 
 # 2. The default really took effect. A fixed-depth node count on Kiwipete separates them.
 KIWI="r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
 { echo uci; sleep 0.3; echo "setoption name OwnBook value false"; echo ucinewgame;
   echo "position fen $KIWI"; echo "go depth 9"; sleep 25; echo quit; } \
-  | ../matt-magie/engines/ab-<tag> | grep -o 'nodes [0-9]*' | tail -1
+  | <mm>/engines/ab-<tag> | grep -o 'nodes [0-9]*' | tail -1
 ```
 
 A rebuilt release must reproduce its recorded node count exactly. v0.34.0 is 1,192,961 at depth 9
@@ -89,7 +99,7 @@ It costs one extra opponent in a gauntlet and buys two things that cannot be rec
   incomparable pairings.
 
 ```bash
-python3 scripts/version_curve.py ../matt-magie/*.pgn --anchor "Rust-In-Pieces V0.34.0"
+python3 scripts/version_curve.py <mm>/*.pgn --anchor "Rust-In-Pieces V0.34.0"
 ```
 
 Runs connect through the engines they share. An engine that never played the anchor, directly or
@@ -109,10 +119,10 @@ starts again.
 
 ```bash
 # openings, once per machine
-cp openings/book_mixed.txt ../matt-magie/openings_mixed.txt
+cp openings/book_mixed.txt <mm>/openings_mixed.txt
 ```
 
-Write `../matt-magie/<name>.trn` with `rounds` set **generously** - the stopping rule, not the
+Write `<mm>/<name>.trn` with `rounds` set **generously** - the stopping rule, not the
 round count, ends the run:
 
 ```
@@ -137,7 +147,7 @@ scripts/run_sprt_match.sh <name>.trn <A> <B> --elo0 -10 --elo1 0
 The wrapper starts the tournament in its own process group, polls the PGN once a minute, and ends
 every game the moment the named pairing decides. The other pairings in a gauntlet keep playing
 until then, which is what makes the anchor comparison free. The LLR trace is written to
-`../matt-magie/<name>.sprt.log`.
+`<mm>/<name>.sprt.log`.
 
 A fixed-length run is still correct when the question is "how big is it" rather than "which way is
 it" - a number for `CHANGELOG.md`, say. Use `mm.sh -t` directly for that.
@@ -147,7 +157,7 @@ it" - a number for `CHANGELOG.md`, say. Use `mm.sh -t` directly for that.
 ## 5. Check the run before believing it
 
 ```bash
-python3 scripts/match_health.py ../matt-magie/<name>.pgn
+python3 scripts/match_health.py <mm>/<name>.pgn
 ```
 
 | What it reports | Act when |
@@ -161,8 +171,8 @@ python3 scripts/match_health.py ../matt-magie/<name>.pgn
 Then read the Elo per pairing:
 
 ```bash
-python3 scripts/pairing_elo.py ../matt-magie/<name>.pgn      # paired interval is the honest one
-python3 scripts/sprt.py ../matt-magie/<name>.pgn --engines <A> <B> --trajectory
+python3 scripts/pairing_elo.py <mm>/<name>.pgn      # paired interval is the honest one
+python3 scripts/sprt.py <mm>/<name>.pgn --engines <A> <B> --trajectory
 ```
 
 `--trajectory` replays the run and shows where the test would have stopped. Run it on every
@@ -208,7 +218,7 @@ best-play book with two. Neither is a defect; they are built to play well, not t
 scripts/book_lines.py --self-test        # nine published key vectors, plus castling
 scripts/book_lines.py --book books/codekiddy.bin --plies 10 --count 2000 \
     --temperature 0.25 --out openings/book_codekiddy_10ply.txt
-cp openings/book_codekiddy_10ply.txt ../matt-magie/openings_mixed.txt
+cp openings/book_codekiddy_10ply.txt <mm>/openings_mixed.txt
 ```
 
 `--temperature` is the one parameter that matters. At 1 moves are drawn by book weight, which is
