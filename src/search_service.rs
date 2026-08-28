@@ -949,12 +949,62 @@ impl SearchService {
             }
             turns.moves.swap(i, best_idx);
 
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                turns.moves[i].rank -= 100000;
-                continue; // rank decreased, re-evaluate this index
+            // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
+            // still in [0, 100000), and demoting it below zero keeps this branch from firing a
+            // second time when it is selected again from the tail of the list.
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
+                let see_value = self.see(board, &turns.moves[i], config, &service.move_gen);
+                if see_value < 0 {
+                    // 0.7. SEE pruning of bad captures. A capture that loses more than
+                    // `bad_capture_see_threshold * depth` is skipped outright rather than searched
+                    // at the tail of the move list. The threshold tightens with depth, so the rule
+                    // is aggressive near the horizon and nearly inert in the upper tree.
+                    //
+                    // `!gives_check` is the canary guard: an SEE gate on *checking* moves was
+                    // measured and rejected in `task.md` 8.2 because it deletes `3.Qg8+` of
+                    // Philidor's Legacy. That move is quiet rather than a capture, so it cannot
+                    // reach this branch, but a checking sacrifice that *is* a capture would.
+                    if config.enable_bad_capture_pruning
+                        && !is_pv
+                        && !turn.gives_check
+                        && !turns.moves[i].gives_check
+                        && turns.moves[i].promotion == 0
+                        && alpha.abs() < 20000
+                        && beta.abs() < 20000
+                        && see_value < config.bad_capture_see_threshold.saturating_mul(depth as i16)
+                    {
+                        i += 1;
+                        continue;
+                    }
+                    turns.moves[i].rank -= 100000;
+                    continue; // rank decreased, re-evaluate this index
+                }
             }
 
             let current_turn = &turns.moves[i];
+
+            // 0.75. Late Move Pruning (LMP). Once enough quiet moves have been searched at low
+            // depth, the remainder are statistically irrelevant and are skipped entirely instead
+            // of being searched at a reduced depth by LMR.
+            //
+            // `!current_turn.gives_check` keeps quiet sacrificial checks out of the rule. They are
+            // ranked with `give_check_rank_bonus * 10000` and therefore appear far too early to be
+            // pruned in practice, but the guard is what makes that a property of the rule rather
+            // than of the current move ordering.
+            if config.enable_lmp
+                && depth <= config.lmp_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && !current_turn.gives_check
+                && alpha.abs() < 20000
+                && beta.abs() < 20000
+                && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth
+            {
+                i += 1;
+                continue;
+            }
 
             // 0.8. Futility Pruning (FP) at low search depths
             if config.enable_futility_pruning
@@ -1432,6 +1482,141 @@ mod tests {
         );
 
         stats.calculated_nodes
+    }
+
+    #[test]
+    fn test_v0_35_0_ships_lmp_enabled_and_bad_capture_pruning_disabled() {
+        // Matchplay priced both rules. LMP beats v0.34.0 by +19.4 Elo [+10, +29] over 3000 games
+        // in a direct cross-version pairing; bad capture pruning adds +3.3 Elo [-4, +11] on top
+        // of it, pooled over 4600 games on two machines, and is therefore not enabled here.
+        // The advertised UCI defaults in `src/threads.rs` must say the same.
+        let config = Config::new();
+        assert!(config.enable_lmp, "LMP is measured positive and ships enabled");
+        assert!(!config.enable_bad_capture_pruning,
+            "bad capture pruning measured neutral on top of LMP and ships disabled");
+    }
+
+    #[test]
+    fn test_the_shipped_default_is_the_configuration_that_was_measured() {
+        // The release rests on one matchplay number, and that number belongs to exactly one
+        // configuration: LMP on, bad capture pruning off. This pins the default tree to it, so a
+        // later edit to an unrelated default cannot quietly ship something else. It is the unit
+        // test counterpart of the node-identity check v0.34.0 ran on its release candidate.
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |_| {});
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmp = true;
+            c.enable_bad_capture_pruning = false;
+        });
+
+        assert_eq!(default_tree, measured_variant,
+            "the shipped default must be the measured variant ({} vs {})",
+            default_tree, measured_variant);
+    }
+
+    #[test]
+    fn test_lmp_changes_the_tree() {
+        // LMP fires, and that is all this test claims. It deliberately does **not** assert that
+        // the tree shrinks, because measurement says it does not do so reliably: on
+        // `CHECK_RICH_FEN` with the transposition table enabled the searched-node count moves
+        // -6.5% at depth 6, -4.9% at depth 7 and **+10.9% at depth 8**.
+        //
+        // The mechanism is PVS. Pruning a late quiet move that would have produced a beta cutoff
+        // turns a cutting node into a fail-low one, and the parent then widens its null window and
+        // re-searches. LMP therefore buys shallower subtrees at the price of occasional
+        // re-searches, and which side wins is depth-dependent. Only matchplay settles it.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmp = false);
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmp = true);
+
+        assert_ne!(with, without,
+            "LMP must reach the move loop ({} with vs {} without)", with, without);
+    }
+
+    #[test]
+    fn test_lmp_base_moves_controls_how_much_is_pruned() {
+        // The threshold is `lmp_base_moves + 2 * depth^2`, so raising the base searches more
+        // quiet moves before the rule fires. This is the SPSA-facing lever, and unlike the
+        // absolute node count it is monotone.
+        let aggressive = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmp = true;
+            c.lmp_base_moves = 0;
+        });
+        let permissive = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmp = true;
+            c.lmp_base_moves = 12;
+        });
+
+        assert!(aggressive < permissive,
+            "a lower base must prune more ({} at base 0 vs {} at base 12)",
+            aggressive, permissive);
+    }
+
+    #[test]
+    fn test_lmp_max_depth_zero_neutralises_the_rule() {
+        // As with `check_extension_max_ply`, a zero bound switches the feature off from the
+        // tuner without touching the enable flag. The baseline is an explicitly LMP-free tree
+        // rather than the default one, because from v0.35.0 the default has LMP enabled.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmp = false);
+        let bounded_out = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmp = true;
+            c.lmp_max_depth = 0;
+        });
+
+        assert_eq!(baseline, bounded_out,
+            "lmp_max_depth = 0 must leave the tree untouched ({} vs {})", baseline, bounded_out);
+    }
+
+    #[test]
+    fn test_bad_capture_pruning_restricts_the_tree() {
+        // Captures with SEE < 0 are searched at the tail of the move list today. Pruning the
+        // worst of them removes nodes, and unlike LMP it does so at every depth measured
+        // (-4.2% at 6, -7.7% at 7, -7.7% at 8 without the table; -2.8/-7.0/-8.4% with it).
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_bad_capture_pruning = false);
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_bad_capture_pruning = true);
+
+        assert!(with < without,
+            "SEE pruning must shrink the tree ({} with vs {} without)", with, without);
+    }
+
+    #[test]
+    fn test_bad_capture_see_threshold_tightens_with_its_value() {
+        // The gate is `see < threshold * depth`. A more negative threshold demands a worse
+        // capture before pruning, so it must prune less.
+        let loose = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_bad_capture_pruning = true;
+            c.bad_capture_see_threshold = 0;
+        });
+        let strict = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_bad_capture_pruning = true;
+            c.bad_capture_see_threshold = -400;
+        });
+
+        assert!(loose < strict,
+            "a threshold nearer zero must prune more ({} at 0 vs {} at -400)", loose, strict);
+    }
+
+    #[test]
+    fn test_pruning_rules_preserve_the_smothered_mate() {
+        // The canary from `task.md` 8.2. An SEE gate on checking moves was rejected because it
+        // deletes `3.Qg8+` of Philidor's Legacy, a queen sacrifice with strongly negative SEE.
+        // `Qg8+` is a quiet checking move rather than a capture, so it is LMP that could drop
+        // it, not the capture rule; both are asserted because both carry a `gives_check` guard
+        // that exists for exactly this reason.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 5, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(result.get_eval() > 30000,
+            "LMP and SEE pruning must not delete the smothered mate, got eval {}",
+            result.get_eval());
     }
 
     #[test]
