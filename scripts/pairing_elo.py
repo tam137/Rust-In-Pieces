@@ -15,7 +15,7 @@ Two intervals are printed:
   games of a pair are strongly correlated by construction.
 
 Usage:
-    scripts/pairing_elo.py ../matt-magie/null_test.pgn
+    scripts/pairing_elo.py <mm>/null_test.pgn
 """
 
 import argparse

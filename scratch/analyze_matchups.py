@@ -2,7 +2,9 @@ import sys
 import re
 from collections import defaultdict
 
-log_file_path = "/home/mattmagie/mattmagie/mattmagie.log"
+# The Matt-Magie log lives outside the repository and its location differs per host, so it is
+# taken from the command line rather than hardcoded. See the path policy in `AGENTS.md`.
+log_file_path = sys.argv[1] if len(sys.argv) > 1 else "<mm>/mattmagie.log"
 
 # Game session tracker
 # A new game starts with "Matt-Magie" start or loaded eng lines.

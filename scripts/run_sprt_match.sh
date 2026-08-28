@@ -23,7 +23,9 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MM_DIR="$REPO_ROOT/../matt-magie"
+# Sibling of the repository by default; override with MM_DIR on a host with another layout.
+# See the path policy in AGENTS.md.
+MM_DIR="${MM_DIR:-$REPO_ROOT/../matt-magie}"
 POLL_SECONDS="${SPRT_POLL_SECONDS:-60}"
 
 if [[ $# -lt 3 ]]; then

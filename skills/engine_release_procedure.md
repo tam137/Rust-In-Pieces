@@ -21,7 +21,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    parameter default, the candidate MUST play a gauntlet against **at least the two preceding
    releases** before the pipeline is run:
    ```bash
-   # ../matt-magie/<name>.trn, mode = gauntlet, challenger listed first
+   # <mm>/<name>.trn, mode = gauntlet, challenger listed first
    engines = <candidate>, <previous release>, <release before that>
    time_control = 1000          # ALWAYS 1s + 100ms. Never longer.
    increment = 100
@@ -64,7 +64,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 > **LCT II Tactical Tests**: By default, Louguet Chess Test II (LCT II) tests are **NOT** executed during the standard release procedure. Do not run or document LCT II tests unless the USER explicitly requests or mentions LCT II testing beforehand. If the USER explicitly requests LCT II testing, refer to the dedicated [LCT2 Evaluation Procedure](skills/lct2_evaluation_procedure.md) skill to run and document LCT II results.
 
 ## 3. Pipeline Workflow
-The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), updating `CHANGELOG.md`, compiling optimized production binaries (both HCE and NNUE), deploying them to `../matt-magie/engines/`, and handling rollback on test/build failures.
+The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), updating `CHANGELOG.md`, compiling optimized production binaries (both HCE and NNUE), deploying them to `<mm>/engines/`, and handling rollback on test/build failures.
 
 ## 4. Release Versioning Classification
 - **Mandatory Engine Naming Scheme (`id name` in UCI)**:
