@@ -630,6 +630,58 @@ impl SearchService {
             }
         }
 
+        // 0.6. Razoring at depth 1.
+        //
+        // When the static evaluation trails the window by more than `razoring_margin`, one ply is
+        // very unlikely to recover the gap, and the node's whole move loop is spent proving a
+        // fail-low that a Quiescence Search can establish directly. The qsearch is a verification,
+        // not an assumption: only a score that confirms the fail-low is returned, so a tactical
+        // recovery inside the horizon still puts the node back into the normal search.
+        //
+        // This overlaps by construction with Futility Pruning, which at depth 1 already deletes
+        // the quiet, unimportant moves under a narrower margin. What razoring adds is the rest of
+        // the node - captures, promotions, checking moves, the TT move, killers and the counter
+        // move - each of which is otherwise played and searched at depth 0, i.e. one qsearch per
+        // move where the rule needs one for the whole node.
+        //
+        // The early return deliberately bypasses the Transposition Table write below, exactly as
+        // Null Move Pruning and Reverse Futility Pruning do. `task.md` 8.1 cost roughly two
+        // hundred Elo by writing a fail-soft score into the table; a rule that returns before the
+        // store cannot repeat it.
+        if config.enable_razoring
+            && depth == 1
+            && !is_pv
+            && !turn.gives_check
+            && alpha.abs() < 20000
+            && beta.abs() < 20000
+        {
+            if white {
+                if static_eval + config.razoring_margin <= alpha {
+                    let mut razor_pv = [None; 128];
+                    let razor_eval = self.minimax(
+                        board, turn, 0, white,
+                        alpha, alpha + 1, stats, config, service, context,
+                        false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                        counter_moves
+                    ).1;
+                    if razor_eval <= alpha {
+                        return (None, razor_eval);
+                    }
+                }
+            } else if static_eval - config.razoring_margin >= beta {
+                let mut razor_pv = [None; 128];
+                let razor_eval = self.minimax(
+                    board, turn, 0, white,
+                    beta - 1, beta, stats, config, service, context,
+                    false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                    counter_moves
+                ).1;
+                if razor_eval >= beta {
+                    return (None, razor_eval);
+                }
+            }
+        }
+
         let counter_move = if config.enable_counter_moves && ply > 0 {
             counter_moves[turn.from as usize][turn.to as usize]
         } else {
@@ -1043,6 +1095,21 @@ impl SearchService {
                 continue;
             }
 
+            // `task.md` section 11 measurement: would Late Move Pruning have deleted this move if
+            // the `gives_check` guard were not there? Evaluated here, where `quiet_count` still
+            // holds the value the rule itself saw, and consumed once the move has been searched.
+            #[cfg(feature = "search-diag")]
+            let diag_lmp_blocked = config.enable_lmp
+                && depth <= config.lmp_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && alpha.abs() < 20000
+                && beta.abs() < 20000
+                && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth;
+
             // 0.8. Futility Pruning (FP) at low search depths
             if config.enable_futility_pruning
                 && depth <= config.futility_max_depth
@@ -1071,6 +1138,31 @@ impl SearchService {
                     }
                 }
             }
+
+            // The same question for Futility Pruning. `is_important` is restated rather than
+            // hoisted so that the shipped rule above keeps its early exit and its codegen.
+            #[cfg(feature = "search-diag")]
+            let diag_fp_blocked = config.enable_futility_pruning
+                && depth <= config.futility_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && alpha.abs() < 20000
+                && !(Some(*current_turn) == tt_move
+                    || Some(*current_turn) == killer_moves[ply_idx][0]
+                    || Some(*current_turn) == killer_moves[ply_idx][1]
+                    || Some(*current_turn) == current_context.counter_move)
+                && {
+                    let futility_margin =
+                        config.futility_margin_base + config.futility_margin_slope * depth as i16;
+                    if white {
+                        static_eval + futility_margin <= alpha
+                    } else {
+                        static_eval - futility_margin >= beta
+                    }
+                };
 
             if stats.calculated_nodes & 1023 == 0 {
                 let elapsed = context.start_time.elapsed().as_millis() as i32;
@@ -1141,6 +1233,47 @@ impl SearchService {
             };
             let child_depth = depth - 1 + extension;
 
+            // And for Late Move Reductions, through the same helper the rule itself uses.
+            #[cfg(feature = "search-diag")]
+            let diag_lmr_blocked = config.enable_lmr
+                && depth >= 3
+                && turn_counter > config.lmr_move_threshold
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && Self::lmr_reduction(
+                    config,
+                    depth,
+                    turn_counter,
+                    is_pv,
+                    Some(*current_turn) == killer_moves[ply_idx][0]
+                        || Some(*current_turn) == killer_moves[ply_idx][1],
+                    Some(*current_turn) == current_context.counter_move,
+                    history_table[current_turn.from as usize][current_turn.to as usize],
+                ) > 0;
+
+            // The fourth guard: the SEE pruning of bad captures also exempts a checking move.
+            // `see` is recomputed here rather than remembered from the lazy-SEE block above,
+            // because a demoted capture is re-selected at a different index and no per-move slot
+            // exists to carry the flag across. The extra call costs the diag build time and
+            // nothing else — it cannot move the tree.
+            #[cfg(feature = "search-diag")]
+            let diag_see_blocked = config.enable_bad_capture_pruning
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture != 0
+                && current_turn.gives_check
+                && current_turn.promotion == 0
+                && alpha.abs() < 20000
+                && beta.abs() < 20000
+                && self.see(board, current_turn, config, &service.move_gen)
+                    < config.bad_capture_see_threshold.saturating_mul(depth as i16);
+
+            // `add_calculated_nodes` for this move has already run, so the delta taken after
+            // `undo_move` is the subtree below it and excludes the move itself.
+            #[cfg(feature = "search-diag")]
+            let diag_nodes_before = stats.calculated_nodes;
+
             let mi = board.do_move(current_turn);
 
             let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
@@ -1154,35 +1287,13 @@ impl SearchService {
                 && current_turn.promotion == 0 
                 && !current_turn.gives_check 
             {
-                let d_idx = (depth as usize).min(63);
-                let m_idx = (turn_counter as usize).min(63);
-                let mut reduction = config.lmr_table[d_idx][m_idx] as i32;
-
-                // PV-Knoten vorsichtiger reduzieren (Dämpfung um 1)
-                if is_pv {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
                 let is_killer = Some(*current_turn) == killer_moves[ply_idx][0]
                     || Some(*current_turn) == killer_moves[ply_idx][1];
-                if is_killer {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // Counter-Moves weniger stark reduzieren (Dämpfung um 1)
                 let is_counter = Some(*current_turn) == current_context.counter_move;
-                if is_counter {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
                 let hist_val = history_table[current_turn.from as usize][current_turn.to as usize];
-                if hist_val > config.lmr_history_good_threshold {
-                    reduction = reduction.saturating_sub(1);
-                } else if hist_val < config.lmr_history_bad_threshold {
-                    reduction = reduction.saturating_add(1);
-                }
+                let reduction = Self::lmr_reduction(
+                    config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
+                );
 
                 if reduction > 0 {
                     let clamped_reduction = reduction.clamp(1, depth - 2);
@@ -1260,6 +1371,18 @@ impl SearchService {
             }
 
             board.undo_move(current_turn, mi);
+
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_searched_move(
+                current_turn.gives_check,
+                current_turn.capture != 0,
+                turn.gives_check,
+                diag_lmr_blocked,
+                diag_lmp_blocked,
+                diag_fp_blocked,
+                diag_see_blocked,
+                (stats.calculated_nodes - diag_nodes_before) as u64,
+            );
 
             if white {
                 if eval < min_max_eval {
@@ -1369,6 +1492,52 @@ impl SearchService {
     }
 
     
+
+    /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
+    /// depth. A positive value means the move is reduced.
+    ///
+    /// Extracted from the move loop so that the `search-diag` measurement for `task.md` section
+    /// 11 can ask what the reduction *would* have been for a move that gives check, without
+    /// restating the damping terms and letting the two copies drift apart. The arithmetic and
+    /// its order are unchanged, so the shipped search tree is bit-identical to v0.35.2.
+    #[allow(clippy::too_many_arguments)]
+    fn lmr_reduction(
+        config: &Config,
+        depth: i32,
+        turn_counter: i32,
+        is_pv: bool,
+        is_killer: bool,
+        is_counter: bool,
+        hist_val: u32,
+    ) -> i32 {
+        let d_idx = (depth as usize).min(63);
+        let m_idx = (turn_counter as usize).min(63);
+        let mut reduction = config.lmr_table[d_idx][m_idx] as i32;
+
+        // PV-Knoten vorsichtiger reduzieren (Dämpfung um 1)
+        if is_pv {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
+        if is_killer {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // Counter-Moves weniger stark reduzieren (Dämpfung um 1)
+        if is_counter {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
+        if hist_val > config.lmr_history_good_threshold {
+            reduction = reduction.saturating_sub(1);
+        } else if hist_val < config.lmr_history_bad_threshold {
+            reduction = reduction.saturating_add(1);
+        }
+
+        reduction
+    }
 
     fn has_non_pawn_material(&self, board: &Board, white: bool) -> bool {
         if white {
@@ -1663,6 +1832,144 @@ mod tests {
         assert!(result.get_eval() > 30000,
             "LMP and SEE pruning must not delete the smothered mate, got eval {}",
             result.get_eval());
+    }
+
+    #[test]
+    fn test_razoring_default_is_off() {
+        // Razoring is built, exposed and tested, but its shipped default is a search parameter
+        // default, and rule 2 of `skills/engine_release_procedure.md` binds that to a
+        // cross-version gauntlet. None has been run. Until one has, the default stays off and the
+        // release keeps the v0.35.2 tree; `task.md` section 3 records the open measurement.
+        let config = Config::new();
+        assert!(!config.enable_razoring,
+            "the razoring default is open until a gauntlet has priced it");
+        assert_eq!(config.razoring_margin, 300);
+    }
+
+    #[test]
+    fn test_razoring_changes_the_tree() {
+        // The rule fires. It is asserted as a change rather than as a shrink for the same reason
+        // as LMP: cutting a node short turns a cutting node into a fail-low one, PVS then widens
+        // the parent's window and re-searches, so the node count is not monotone in how much is
+        // pruned. What must be true is that the tree moves at all - a rule that leaves the tree
+        // untouched is a rule whose default never took effect.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_razoring = false);
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 300;
+        });
+
+        assert_ne!(with, without,
+            "razoring must change the searched tree ({} with vs {} without)", with, without);
+    }
+
+    #[test]
+    fn test_razoring_margin_neutralises_the_rule_when_unreachable() {
+        // The trigger is `static_eval + margin <= alpha`, and the rule is additionally gated on
+        // `alpha.abs() < 20000`. A margin above that bound therefore makes the condition
+        // unsatisfiable and must leave the tree bit-identical. This is the counterpart of
+        // `lmp_max_depth = 0`: a way to switch the rule off from the tuner without the flag, and
+        // a guard against a margin that silently disables what it is supposed to shape.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_razoring = false);
+        let unreachable = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 25000;
+        });
+
+        assert_eq!(baseline, unreachable,
+            "an unreachable margin must leave the tree untouched ({} vs {})",
+            baseline, unreachable);
+    }
+
+    #[test]
+    fn test_razoring_only_fires_at_depth_one() {
+        // Razoring is specified at depth 1 and nowhere else. A search to depth 1 from the root
+        // has no interior node at depth 1 below it that is both non-PV and out of check, so the
+        // guard is exercised instead through the margin: the rule must be reachable at a depth
+        // that contains depth-1 nodes and must leave a depth-1 root search alone.
+        let root_without = search_nodes(CHECK_RICH_FEN, 1, |c| c.enable_razoring = false);
+        let root_with = search_nodes(CHECK_RICH_FEN, 1, |c| {
+            c.enable_razoring = true;
+            c.razoring_margin = 0;
+        });
+
+        assert_eq!(root_without, root_with,
+            "a depth-1 root search is a PV node and must not be razored ({} vs {})",
+            root_without, root_with);
+    }
+
+    /// Searches Philidor's Legacy with razoring enabled and reports the score.
+    fn search_smothered_mate_razored(depth: i32, margin: i16) -> i16 {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = true;
+        config.razoring_margin = margin;
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, depth, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        ).get_eval()
+    }
+
+    #[test]
+    fn test_razoring_finds_the_smothered_mate_once_it_is_inside_the_search() {
+        // The canary of `task.md` 8.2, applied to razoring. Razoring does not delete a move the
+        // way the rejected SEE material filter did - it replaces a depth-1 node with a Quiescence
+        // Search and returns only if that search confirms the fail-low - so the mate has to
+        // survive at every depth at which the mating line is not sitting on the razored horizon.
+        for depth in [6, 7, 8] {
+            let eval = search_smothered_mate_razored(depth, 300);
+            assert!(eval > 30000,
+                "razoring must keep the smothered mate at depth {}, got eval {}", depth, eval);
+        }
+    }
+
+    #[test]
+    fn test_razoring_loses_a_mate_delivered_on_the_razored_horizon() {
+        // A known and measured cost of the rule, pinned rather than hidden.
+        //
+        // At depth 5 the mating move `Nf7#` is played from a node the rule razors: after the
+        // queen sacrifice White is a queen down, so the static evaluation trails alpha by more
+        // than any usable margin. The verification search cannot see the refutation, because
+        // `minimax` at `depth <= 0` calls `generate_valid_moves_list_capture` when not in check -
+        // Suprah's Quiescence Search generates captures only and never a quiet checking move, and
+        // `Nf7#` is quiet. The rule then returns the fail-low it was given.
+        //
+        // The margin is not the lever: the loss is identical at 200, 300, 500, 900 and 1500,
+        // because a queen deficit exceeds all of them. Depth is the lever, and one more iteration
+        // is enough - the test above shows the mate coming back at depth 6, 7 and 8, where the
+        // mating node is no longer at depth 1.
+        //
+        // If razoring is ever wanted at depth >= 2, this is the defect that has to be fixed
+        // first, and the fix is in the Quiescence Search rather than in razoring: it would have
+        // to generate checking moves at its first ply.
+        for margin in [200, 300, 500, 900, 1500] {
+            assert!(search_smothered_mate_razored(5, margin) < 30000,
+                "the depth-5 loss is a pinned known limitation; if it no longer reproduces at \
+                 margin {}, the Quiescence Search changed and this test should be deleted rather \
+                 than adjusted", margin);
+        }
+
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        let mut stats = Stats::new();
+        let without = service.search.get_moves(
+            &mut board, 5, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        ).get_eval();
+
+        assert!(without > 30000,
+            "without razoring the mate is found at depth 5; that is what makes this a cost of \
+             the rule rather than a property of the position (got {})", without);
     }
 
     #[test]

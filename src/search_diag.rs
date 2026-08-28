@@ -1,4 +1,8 @@
-//! Stage-0 opportunity measurement for `task.md` specification 1.2.2.
+//! Search diagnostics, off by default behind the `search-diag` Cargo feature.
+//!
+//! Two measurements live here. The first, and the reason the module exists, is the Stage-0
+//! opportunity measurement for the staged `MovePicker`. The second is the size of the class of
+//! moves that give check, for `task.md` section 11 — see [`record_searched_move`].
 //!
 //! The staged `MovePicker` of 1.2.2 reorders moves and therefore changes the search tree by
 //! construction, which removes the node-identity gate that verified v0.31.0 and v0.32.0. Exactly
@@ -73,6 +77,59 @@ mod counters {
         AtomicU64::new(0),
     ];
 
+    // ---------------------------------------------------------------------------------------
+    // `task.md` section 11: how large is the class of moves that give check?
+    //
+    // A move that gives check is exempt from Late Move Reductions, Late Move Pruning, Futility
+    // Pruning and the SEE pruning of bad captures, all at once. Nothing has ever measured what
+    // that exemption costs. These counters size it directly: how many searched moves are in the
+    // class, how much of the searched tree hangs under them, and how much of that tree only
+    // exists because one of the four guards fired.
+    // ---------------------------------------------------------------------------------------
+
+    /// Moves that survived every pruning rule and were actually searched.
+    pub static SEARCHED_MOVES: AtomicU64 = AtomicU64::new(0);
+    /// Of those, moves that give check.
+    pub static SEARCHED_CHECKS: AtomicU64 = AtomicU64::new(0);
+    /// Of those, moves that give check and are not captures — the class section 11 is about.
+    pub static SEARCHED_QUIET_CHECKS: AtomicU64 = AtomicU64::new(0);
+    /// Searched moves whose own parent move gave check, i.e. moves made while in check. Unlike
+    /// the subtree sums below this is a clean partition of the tree — every searched move is
+    /// counted at most once — so it is the honest lower bound on how much of the search sits
+    /// inside the exempt class.
+    pub static MOVES_IN_CHECK: AtomicU64 = AtomicU64::new(0);
+
+    /// Interior nodes searched below all searched moves, i.e. the size of the searched tree
+    /// counted once per subtree. Used as the denominator for the three shares below; it is a
+    /// deterministic proxy for time and, unlike a wall clock, cannot perturb the tree it counts.
+    pub static SUBTREE_TOTAL: AtomicU64 = AtomicU64::new(0);
+    /// Of that tree, the part below a move that gives check.
+    pub static SUBTREE_CHECK: AtomicU64 = AtomicU64::new(0);
+
+    /// Checking moves that met every Late Move Reduction condition except the `gives_check`
+    /// guard, and whose damped reduction would have been positive. These were searched at full
+    /// depth solely because of the guard.
+    pub static LMR_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// The tree below them. This is what a reduction would have shrunk rather than deleted.
+    pub static SUBTREE_LMR_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// Checking moves that met every Late Move Pruning condition except the `gives_check` guard.
+    pub static LMP_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// The tree below them. This is what the rule would have deleted outright.
+    pub static SUBTREE_LMP_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// Checking moves that met every Futility Pruning condition except the `gives_check` guard.
+    pub static FP_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// The tree below them.
+    pub static SUBTREE_FP_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// Checking captures that met every condition of the SEE pruning of bad captures except the
+    /// `gives_check` guard. This is the fourth and last rule the exemption switches off.
+    pub static SEE_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// The tree below them.
+    pub static SUBTREE_SEE_BLOCKED: AtomicU64 = AtomicU64::new(0);
+
+    pub fn add(counter: &AtomicU64, value: u64) {
+        counter.fetch_add(value, Ordering::Relaxed);
+    }
+
     pub fn bump(counter: &AtomicU64) {
         counter.fetch_add(1, Ordering::Relaxed);
     }
@@ -120,6 +177,63 @@ pub fn record_cutoff(turn_counter: i32, first_searched_rank: i32, first_class: M
                 counters::bump(&counters::STAGE0_CUTOFF);
             }
             counters::bump(&counters::CUTOFF_BY_CLASS[first_class as usize]);
+        }
+    }
+}
+
+/// Records one move that was actually searched, for `task.md` section 11.
+///
+/// `subtree_nodes` is the number of interior nodes the search visited below this move, taken as
+/// the delta of `Stats::calculated_nodes` across `do_move`/`undo_move`. It is used instead of a
+/// wall clock because it is deterministic and free: a timer around every move would perturb the
+/// tree it is measuring, and the node-identity gate in `scripts/measure_stage0.py` would then be
+/// unable to certify the measurement.
+///
+/// The three `*_blocked` flags mean "this move met every condition of that rule except the
+/// `gives_check` guard". They are the actionable quantity: the tree below a blocked move exists
+/// only because a move that gives check is currently exempt from every reduction and every
+/// pruning rule in the engine.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_searched_move(
+    gives_check: bool,
+    is_capture: bool,
+    parent_gives_check: bool,
+    lmr_blocked: bool,
+    lmp_blocked: bool,
+    fp_blocked: bool,
+    see_blocked: bool,
+    subtree_nodes: u64,
+) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::SEARCHED_MOVES);
+        counters::add(&counters::SUBTREE_TOTAL, subtree_nodes);
+        if parent_gives_check {
+            counters::bump(&counters::MOVES_IN_CHECK);
+        }
+        if gives_check {
+            counters::bump(&counters::SEARCHED_CHECKS);
+            counters::add(&counters::SUBTREE_CHECK, subtree_nodes);
+            if !is_capture {
+                counters::bump(&counters::SEARCHED_QUIET_CHECKS);
+            }
+        }
+        if lmr_blocked {
+            counters::bump(&counters::LMR_BLOCKED);
+            counters::add(&counters::SUBTREE_LMR_BLOCKED, subtree_nodes);
+        }
+        if lmp_blocked {
+            counters::bump(&counters::LMP_BLOCKED);
+            counters::add(&counters::SUBTREE_LMP_BLOCKED, subtree_nodes);
+        }
+        if fp_blocked {
+            counters::bump(&counters::FP_BLOCKED);
+            counters::add(&counters::SUBTREE_FP_BLOCKED, subtree_nodes);
+        }
+        if see_blocked {
+            counters::bump(&counters::SEE_BLOCKED);
+            counters::add(&counters::SUBTREE_SEE_BLOCKED, subtree_nodes);
         }
     }
 }
@@ -174,6 +288,26 @@ pub fn dump() {
         eprintln!(
             "SEARCHDIAGCLASS pv_tt={} capture={} quiet_check={} killer_counter={} quiet={}",
             by_class[0], by_class[1], by_class[2], by_class[3], by_class[4],
+        );
+
+        eprintln!(
+            "SEARCHDIAGCHECK searched={} checks={} quiet_checks={} in_check={} subtree_total={} \
+             subtree_check={} lmr_blocked={} subtree_lmr={} lmp_blocked={} subtree_lmp={} \
+             fp_blocked={} subtree_fp={} see_blocked={} subtree_see={}",
+            counters::read(&counters::SEARCHED_MOVES),
+            counters::read(&counters::SEARCHED_CHECKS),
+            counters::read(&counters::SEARCHED_QUIET_CHECKS),
+            counters::read(&counters::MOVES_IN_CHECK),
+            counters::read(&counters::SUBTREE_TOTAL),
+            counters::read(&counters::SUBTREE_CHECK),
+            counters::read(&counters::LMR_BLOCKED),
+            counters::read(&counters::SUBTREE_LMR_BLOCKED),
+            counters::read(&counters::LMP_BLOCKED),
+            counters::read(&counters::SUBTREE_LMP_BLOCKED),
+            counters::read(&counters::FP_BLOCKED),
+            counters::read(&counters::SUBTREE_FP_BLOCKED),
+            counters::read(&counters::SEE_BLOCKED),
+            counters::read(&counters::SUBTREE_SEE_BLOCKED),
         );
     }
 }
