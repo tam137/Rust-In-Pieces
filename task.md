@@ -12,18 +12,19 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.37.1** on `master` (HCE), the negamax refactor. The NNUE branch is two releases behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — neither the v0.37.0 nor the v0.37.1 port has been done |
+| Released | **v0.37.2** on `master` (HCE), five defect repairs. The NNUE branch is three releases behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — none of the v0.37.x ports has been done |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
 | Uncommitted | nothing |
-| Unreleased | nothing. The negamax refactor shipped as v0.37.1 on 2026-08-29 |
-| Blocked on | nothing. The next action is 7.2, and it is deterministic and costs no games |
+| Unreleased | nothing. v0.37.2 shipped on 2026-08-29 |
+| Blocked on | nothing. The next action is 7.1, and its first step is deterministic and costs no games |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
 1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C.
-Sections 1 to 4 are built, measured and released, section 7 is built and awaiting its gauntlet,
-and sections 5 and 6 are not started. Section 10 is the measurement infrastructure.
+Sections 1 to 4 are built, measured and released, section 7 is released and its two open
+questions are now separated — 7.2 is answered, 7.1 is not — and sections 5 and 6 are not started.
+Section 10 is the measurement infrastructure.
 
 > [!IMPORTANT]
 > **Elo numbers do not carry across hosts**, and the work has moved three times. Runs are labelled
@@ -51,6 +52,7 @@ and sections 5 and 6 are not started. Section 10 is the measurement infrastructu
 | v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games — read as an upper estimate, see 4.3 |
 | v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Two independent SPRTs accepted H1 (elo0=-10, elo1=0); pooled **+10.2 Elo [-1, +22] over 2591 games**, best read as **+5 to +10** |
 | v0.37.1 | The negamax refactor. No behaviour change | Node-identical to v0.37.0 on 28 positions at depth 8 and 10. Smoke gauntlet on host C: 52.0% vs v0.37.0, 50.5% vs v0.36.0, 100 games each — neither is a measurement |
+| v0.37.2 | Five defect repairs: a colour-asymmetric pawn mask, thirteen inert UCI options, twelve drifting advertised defaults, a dead config field, a dead tuning range | The pawn fix is deterministic — 0 of 21,300 mirror pairs asymmetric, from 65 of 1,905 before. **Not priced**. Smoke gauntlet on host C: 48.5% vs v0.37.1, 52.5% vs v0.37.0, 100 games each, no losses on time |
 
 Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
 enough to become rules below rather than history: **a run must pair the configuration it exists to
@@ -64,25 +66,29 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — establish where the colour asymmetry lives (7.2)
+### The next action — the empty-window Transposition Table bound (7.1)
 
-The negamax refactor shipped as **v0.37.1** on 2026-08-29 and the search now sits on a clean
-negamax base, which is what the next three items wanted. The next action is 7.2, and it is chosen
-because it is the cheapest question left: **evaluate a position and its colour mirror and require
-the two scores to be exact negatives.** That is deterministic, costs no games, and separates
-evaluation from search in a single run — if `EvalService::calc_eval` is already asymmetric on a
-static position, nothing about the search needs looking at yet.
+7.2 is answered. The colour asymmetry is a **move-ordering tie-break artefact**, not a defect: the
+generated move set is the exact mirror image and every move's rank is identical, but the list
+order is not mirror-invariant, and LMP, LMR and Futility Pruning all key on a move's index. One
+genuine evaluation asymmetry surfaced on the way and shipped as a fix in v0.37.2. The full
+measurement, including what it eliminates, is in 7.2.
 
-Only after that is it worth deciding whether the asymmetry is worth anything. A colour-asymmetric
-evaluation is a real strength defect in half the games, but it has never been priced here, and
-this document's own history (8.1, 8.2) is the argument for pricing before fixing.
+The next action is **7.1**, the Transposition Table bound stored on an empty `alpha == beta`
+window. Its first step is the 8.1 cold-versus-warm gate, which is deterministic and costs no
+games. Two things now qualify that step, both established this session:
+
+* Making `bound_for` colour-blind does **not** reduce the mirror asymmetry, so 7.1 can no longer
+  borrow 7.2's motivation. It has to stand on its own defect argument.
+* There is a **second, independent source of cold-versus-warm drift** in the evaluation, recorded
+  in 10.8. Run the gate against both or it will credit 7.1 with drift it does not cause.
 
 ### The backlog, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | Colour asymmetry: where does it live? | 7.2 | Deterministic, costs no games, and separates evaluation from search in one run. Highest information per unit of cost on this list |
-| 2 | The empty-window Transposition Table bound | 7.1 | A bound the search never proved, at 0.25% of stores. Run the 8.1 cold-versus-warm gate before spending a single game on it |
+| 1 | The empty-window Transposition Table bound | 7.1 | Run the 8.1 cold-versus-warm gate first, against both this and 10.8. Deterministic, costs no games |
+| 2 | Lazy Evaluation reads an unfilled pawn hash table | 10.8 | Same gate, same run. A tree change, so it needs pricing after it |
 | 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
 | 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
 
@@ -92,6 +98,10 @@ this document's own history (8.1, 8.2) is the argument for pricing before fixing
 > (8.1) is one of the most reliable gains in the literature and cost roughly two hundred Elo here,
 > and the Check Extension frontier restriction (8.2) was the best of four axes on every
 > deterministic metric and measured -26.8 Elo in games.
+>
+> v0.37.2 is not a counter-example. The one tree change in it — the pawn mask of 7.2 — was
+> released as a **correctness** repair with a deterministic proof and an explicit statement that
+> it is unpriced, not as a strength claim.
 
 The `MovePicker` item is the most dangerous in this document — **read 5.2 and 8.3 before writing
 any code**. 8.3 is a stage-0 short-circuit that was built, verified node-identical, measured
@@ -109,18 +119,20 @@ A new session can start from this table; each row says where the detail is.
 
 | Open | Where | Kind |
 | :--- | :--- | :--- |
-| Advertised UCI defaults drift from `Config::default()` — twelve stale literals | 1.1 | correctness of the facade only |
-| `lmp_max_depth` is inert above 4; the tuner and UCI still advertise a dead range | 10.6 | dead tuning range |
-| `Config::search_threads` is written in four places and read in none | 10.6a | dead code |
+| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1 | defect, needs pricing |
+| The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
+| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | 10.8 | defect, needs pricing |
 | `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
 | The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
 | Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
-| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1 | defect, needs pricing |
-| The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
-| The engine is not colour-symmetric: mirrored positions search 2-3x different trees | 7.2 | open measurement |
+| Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
+
+Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
+(1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
+(10.6), and the evaluation half of the colour asymmetry (7.2).
 
 ### Rules that are not optional
 
@@ -316,31 +328,42 @@ at 1000ms + 100ms on host A. Corrected for that pairing's design effect of 1.87 
 > **8.5 has since priced "far too early to be pruned in practice": with the guard removed, LMP
 > would delete 271 moves out of 2.2 M searched, 0.02% of the tree.**
 
-### 1.1 Advertised UCI defaults drift from `Config::default()` — open
+### 1.1 The UCI facade lied twice — ✅ both fixed in v0.37.2
 
-The option strings in `src/threads.rs` are hardcoded literals. A comparison against
-`Config::default()` finds **twelve** stale numeric defaults, not one, all from SPSA runs that
-updated `src/config.rs` and not `src/threads.rs`:
+Two independent defects in the same facade, found by auditing the advertised option list against
+`Config` and verified end-to-end against the shipped v0.37.1 binary.
 
-| Option | Advertised | Actual | | Option | Advertised | Actual |
-| :--- | ---: | ---: | :-- | :--- | ---: | ---: |
-| `KingOpenFileMalus` | 40 | 37 | | `LazyEvalMinGamePhase` | 50 | 60 |
-| `ThreatMinorAttacksRook` | 15 | 13 | | `KnightOutpostTrueMg` | 30 | 29 |
-| `ThreatMinorAttacksQueen` | 30 | 24 | | `BishopOutpostTrueMg` | 20 | 21 |
-| `ConnectedPassedPawnEg` | 30 | 29 | | `BishopOutpostTrueEg` | 10 | 11 |
-| `KingPawnShieldKingside` | 39 | 37 | | `OppositeBishopsDrawScale` | 50 | 51 |
-| `KingPieceShieldKingside` | 16 | 15 | | `RookBehindEnemyPassedPawnEg` | 25 | 24 |
+**Twelve advertised defaults had drifted**, one SPSA run at a time, because `src/config.rs` was
+updated and `src/threads.rs` was not — `KingOpenFileMalus` advertised 40 against an actual 37,
+`LazyEvalMinGamePhase` 50 against 60, `ThreatMinorAttacksQueen` 30 against 24, and nine more.
+Three separate releases had each corrected one of these by hand.
 
-No search behaviour depends on it — `scripts/apply_spsa.py` reads `tuning/parameters.json`, not the
-UCI output — so this is the facade that GUIs and third-party harnesses read, nothing more. The fix
-is to derive the strings from `Config::default()` rather than to correct twelve literals that will
-drift again.
+**Thirteen of the sixty-one advertised options were inert.** `setoption` joined the whitespace
+tokens of the name with `_` and lowercased the result, so a single-token CamelCase name collapsed
+to `connectedpassedpawnmg` and matched no arm — the arms were written in snake_case, and only
+those that happened to carry a hand-written lowercase alias worked. The engine advertised
+`ConnectedPassedPawnMg`, `KnightOutpostTrueMg`, `BishopOutpostTrueMg/Eg`, `KingPawnShieldKingside/
+Queenside`, `KingPieceShieldKingside/Queenside`, `OppositeBishopsDrawScale`,
+`RookBehindEnemyPassedPawnMg/Eg` and `ConnectedPassedPawnEg`, accepted them, and silently ignored
+the value. Eight of these are also among the twelve stale defaults, which is why the two defects
+were mistaken for one.
 
-The two `check`-type options in this family are current: `EnableLmp` was corrected to `default
-true` in v0.35.0 and `EnableBadCapturePruning` to `default true` in v0.35.1, each by hand in the
-same commit that moved the corresponding `Config` default. That is the third release in a row to
-fix one of these literals by hand — `EnableCheckExtension` was the one in v0.34.0 — which is the
-argument for deriving them.
+SPSA was never affected: `tuning/parameters.json` uses snake_case throughout, and
+`scripts/apply_spsa.py` writes `src/config.rs` directly. What it affected is every GUI and
+third-party harness, including the `engine_options` line of every `.trn` file.
+
+**The repair is structural, not twelve corrected literals.** The option list moved into
+`threads::uci_options(&Config)`, which reads every default from the configuration, so drift is no
+longer expressible. The dispatch moved into `Config::apply_uci_option`, which matches the name
+case-insensitively with separators removed, so `ConnectedPassedPawnMg`,
+`connected_passed_pawn_mg` and `Connected Passed Pawn Mg` are one option. Three tests hold the
+line: `test_every_advertised_uci_option_is_accepted`,
+`test_every_advertised_spin_option_changes_the_configuration` — which catches an arm that parses
+a value and then drops it, not merely a missing arm — and
+`test_uci_option_names_ignore_case_and_separators`.
+
+`SyzygyPath` was removed from the advertised list in the same release. There is no tablebase code
+in the engine, so advertising it invited a GUI to configure something that does not exist.
 
 ## 2. SEE pruning of bad captures — ⛔ measured neutral, off in v0.35.0, on in v0.35.1
 
@@ -759,54 +782,114 @@ written during that abandoned iteration stay in the table.
 `orig_alpha == orig_beta` and `!white`, and print it where `crate::search_diag::dump()` is called
 at the end of `get_moves`. The numbers above came from exactly that, over `go depth 9`.
 
+**It is not the source of the colour asymmetry.** Measured 2026-08-29: a build with the `if
+white` deleted and one order kept searches mirrored positions at a mean node ratio of 1.79 against
+the baseline's 1.85, and the score gaps are unchanged. 7.1 was the last search-side suspect 7.2
+had, and it is eliminated — the asymmetry is a move-ordering artefact (7.2). This defect therefore
+has to stand on its own argument, which is the unproven bound, not the asymmetry.
+
 * **Tasks**:
     - `[ ]` Run the 8.1 gate first, not a match. This defect is "an unproven bound in a table that
       outlives the move", which is 8.1's mechanism exactly, so the cold-versus-warm drift
       measurement is the cheap deterministic test and it costs no games. 8.1 records the shape:
       search a fixed 60-move sequence twice with one build, once clearing the table per position
-      and once letting it accumulate, and count positions drifting more than 50cp.
+      and once letting it accumulate, and count positions drifting more than 50cp. **Run it
+      against 10.8 in the same pass** — there is a second, independent source of cold-versus-warm
+      drift in the evaluation, and the gate cannot tell them apart on its own.
     - `[ ]` Then price the correction. `Self::bound_for` holds both orders side by side and the fix
       is one edit; it moves the tree, so rule 1 applies.
     - `[ ]` Decide whether the root should break out of its move loop on an aspiration fail high.
       If it should, the empty window stops existing and the tie-break becomes unreachable — which
       may be the better fix, and is a tree change in its own right.
 
-### 7.2 The engine is not colour-symmetric — open
+### 7.2 The engine is not colour-symmetric — ✅ cause established 2026-08-29, one half fixed in v0.37.2
 
 `scripts/verify_negamax_identity.py` searches every corpus position twice, once as published and
 once colour-swapped. A colour-swapped position is strategically identical to its original, so a
-symmetric engine would search a near-identical tree and return the same score. Measured on the
-v0.37.0 baseline at depth 8:
+symmetric engine would search a near-identical tree and return the same score. Reproduced on the
+v0.37.1 baseline at depth 8 — the node counts match the v0.37.0 reading exactly, so the refactor
+did not move them:
 
-| Position | As published | Colour-swapped | |
-| :--- | ---: | ---: | :--- |
-| Kiwipete | 121,779 interior nodes | 57,158 | 2.1x |
-| Sharp French | 45,742 | 124,245 | 2.7x |
-| Sharp Tactical | 12,941 | 35,542 | 2.7x |
-| Middlegame | +34 cp | +68 cp | 34 cp apart |
-| Rook Endgame | +165 cp | +136 cp | 29 cp apart |
+| Position | As published | Colour-swapped | Ratio | Score | Mirror |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| Pawn Endgame | 383 | 1,300 | 3.39x | +19 | +19 |
+| Sharp Tactical | 12,941 | 35,542 | 2.75x | -98 | -96 |
+| Sharp French | 45,742 | 124,245 | 2.72x | -23 | -39 |
+| Kiwipete | 121,779 | 57,158 | 2.13x | -44 | -2 |
+| Middlegame | 23,561 | 33,173 | 1.41x | +73 | +33 |
 
-The start position is excluded from that reading — with Black to move it is a genuinely different
-position, not a mirror.
+Mean ratio 1.85 over 13 positions, 7 of them above 1.5x. UCI scores are relative to the side to
+move, so a symmetric engine returns the *same* number for both, not its negation.
 
-Section 7 narrows the cause: the refactored build is node-identical on all 28 positions, so the
-asymmetry does **not** live in the search's colour branches, which are now gone. The remaining
-candidates are `eval_service.rs`, move ordering, and the empty-window bound defect of 7.1 — which
-is colour-dependent by construction and is the only search-side suspect that survives.
+**The cause is move ordering, and it is not a defect that can be repaired by a margin or a
+constant.** Four measurements, in the order they eliminate things:
 
-**Reproducing it.** `scripts/verify_negamax_identity.py` exposes the mirror as
-`swap_colours(fen)` — rank order reversed, every piece letter case-swapped, castling rights
-swapped, the en passant rank mirrored. Import it and search both, or write the check as a unit
-test against `EvalService::calc_eval` directly, which is the cheaper of the two and the one that
-separates evaluation from search.
+1. **Evaluation is not the cause.** `EvalService::calc_eval` was mirror-checked over 4,260
+   positions replayed from the shipped opening books, at five windows each so that Lazy Evaluation
+   is live. One genuine asymmetry was found and is fixed in v0.37.2 (below); with it, 0 of 21,300
+   (position, window) pairs disagree.
+2. **The Transposition Table tie-break is not the cause.** Making `bound_for` colour-blind — the
+   7.1 correction — leaves the mean node ratio at 1.79 and the score gaps unchanged. It remains a
+   defect worth pricing, but it does not produce this.
+3. **SEE is not the cause.** Mirror-checked over 479 captures on the same corpus: none disagree.
+4. **The move list is.** For every corpus position and its mirror the generated move *set* is the
+   exact mirror image and every move's *rank* is identical — move ordering is perfectly
+   colour-symmetric in what it scores. The *sequence* is not. `generate_moves_list_for_piece`
+   walks piece and target bitboards by ascending square index, which a colour mirror reverses,
+   and the root's selection sort keeps the earlier list position on a rank tie (`>`, not `>=`).
+   Ties are everywhere: whole quiet-move blocks share rank 0 and captures share an MVV bucket.
+
+**Why a reordered list changes the score and not just the node count.** LMP, LMR and Futility
+Pruning all key on the move's *index* in the list, so a position and its mirror prune and reduce
+different moves. Turning off every rule that is inexact or index-keyed — LMP, LMR, futility, RFP,
+NMP, razoring, singular extensions, bad-capture pruning, Lazy Evaluation — collapses the score
+gaps and leaves the trees apart, which is the signature of an ordering effect rather than an
+evaluation error:
+
+| Depth 7, 13 positions | Score gaps | Worst | Node ratio (mean / worst) |
+| :--- | ---: | ---: | ---: |
+| Default rules | 12 of 13 nonzero, 185 cp | 55 cp | 2.34 / 9.98 |
+| Order-dependent rules off | 2 of 13 nonzero, 10 cp | 7 cp | 1.76 / 4.89 |
+| Order-dependent rules off, **plus the v0.37.2 pawn fix** | **1 of 13, 7 cp** | 7 cp | **1.28 / 1.87** |
+
+Alpha-beta returns the same value under any move order, so the residual 7 cp on one position is
+what is left of the inexact rules that have no off switch — quiescence pruning and the
+Transposition Table.
+
+#### The evaluation half, fixed in v0.37.2
+
+`white_pawn_structure_score` and `black_pawn_structure_score` counted enemy pawns on the adjacent
+files with an **index** threshold where a **rank** predicate was meant. On an adjacent-files mask
+an index threshold also admits the pawn's own rank — `sq + 1` for White, `sq - 1` for Black — and
+a colour mirror flips the rank while leaving the file alone, so the two masks were not mirror
+images.
+
+On `r1bqkb1r/1ppp1ppp/p1n2n2/1B6/3pP3/5N2/PPP2PPP/RNBQ1RK1 w kq - 0 6` the black d4 pawn counts
+one enemy on the adjacent files and the mirrored white d5 pawn counts two, because e5 sits on the
+candidate's own rank and was counted for one colour only. `friendly >= enemy` then holds for one
+side and not the other, and at `candidate_passed_pawn_bonus = 8` with advancement 2 that is
+exactly the 8 cp middlegame / 16 cp endgame the sweep measured. It moved 13 of 381 positions.
+
+Pinned by `test_candidate_passed_pawn_mask_is_colour_symmetric` and
+`test_candidate_passed_pawn_ignores_same_rank_enemy_pawns`.
+
+#### The ordering half — open, and probably not worth fixing
+
+Making the tree symmetric means making move generation order mirror-invariant: iterate the piece
+and target bitboards from the far rank for the side to move rather than from square zero. That is
+a tree change across every node in the search, it would need pricing like any other, and **there
+is no argument that symmetry itself is worth Elo** — a tie-break has to go one way or the other,
+and nothing says the mirrored order is better than the published one. What the measurement does
+establish is that the 2-3x figure is a tie-break artefact and not evidence of a defect, so it
+should stop being carried in this document as an open bug.
 
 * **Tasks**:
-    - `[ ]` Establish where the asymmetry lives. Evaluating a position and its colour mirror and
-      requiring the two scores to be exact negatives is a deterministic check that costs no games,
-      and it separates evaluation from search in one run. Start with `calc_eval` on a static
-      position — if that is already asymmetric, nothing about the search needs looking at yet.
-    - `[ ]` Only then decide whether it is worth anything. A colour-asymmetric evaluation is a
-      real strength defect in half the games, but it has never been priced here.
+    - `[x]` Establish where the asymmetry lives. Done: move-list order, with a genuine but small
+      evaluation contribution now fixed.
+    - `[x]` Fix the evaluation half. Shipped in v0.37.2.
+    - `[ ]` Decide whether mirror-invariant move generation is worth measuring at all. It is a
+      tree change with no prior reason to gain, and this document's history (8.1, 8.2) argues for
+      not building it on aesthetics.
 
 ---
 
@@ -1227,21 +1310,21 @@ fails there loudly instead of silently widening what the tuner explores.
 
 * `[x]` Count quiet moves in a separate counter that is not bounded by the array length.
 * `[x]` Add a test covering `lmp_max_depth` above 4.
+* `[x]` Lower the advertised bound to 4 in both places. Done in v0.37.2: `src/threads.rs` now
+  advertises `max 4` and `tuning/parameters.json` registers `max: 4`, pinned by
+  `test_lmp_max_depth_advertises_only_its_live_range`.
 * `[ ]` If depths above 4 are wanted, change the **growth term** — it is the quadratic that is
-  dead, not the counter and not the advertised bound. Until then, lowering the advertised `max`
-  to 4 in both places would be honest, and is a one-line change in each.
+  dead, not the counter and not the advertised bound.
 
-### 10.6a Dead configuration: `search_threads`
+### 10.6a Dead configuration: `search_threads` — ✅ removed in v0.37.2
 
-`Config::search_threads` defaults to 2 and is **written in four places and read in none** —
-`grep search_threads src/*.rs` finds only `src/config.rs`. The engine is single-threaded in
-search, and `src/threads.rs` says so at runtime: a `setoption name Threads` is answered with
-*"Single-threaded engine. Ignoring setoption threads"*.
+`Config::search_threads` defaulted to 2 and was **written in four places and read in none**. The
+engine is single-threaded in search, and `src/threads.rs` says so at runtime: a `setoption name
+Threads` is answered with *"Single-threaded engine. Ignoring setoption threads"*.
 
-Nothing is broken by it, and one thing is confirmed by it: `engine_options = ... Threads=1` in
-every `.trn` file does nothing, and the 25% core-headroom calculation in "How to run a
-measurement" is right to assume one thread per engine. Delete the field when `src/config.rs` is
-next touched.
+One thing was confirmed by it before it went: `engine_options = ... Threads=1` in every `.trn`
+file does nothing, and the 25% core-headroom calculation in "How to run a measurement" is right to
+assume one thread per engine.
 
 ### 10.7 Not done, and why
 
@@ -1252,4 +1335,41 @@ next touched.
   has looked. Balance filtering needs the engine to evaluate every candidate and was not done.
 * **Comparing the two pools.** One pairing, run twice, `sprt.py --plan` on each. That settles the
   cost question in one measurement and should precede adopting the new pool.
+
+### 10.8 Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure — open
+
+`EvalService::cheap_eval` reads the pawn hash table but **never fills it**. On a miss
+`struct_mg`/`struct_eg` stay at zero, so the Lazy Evaluation cutoff in `calc_eval` compares a
+score with the entire pawn-structure term absent against `alpha`/`beta`, and
+`lazy_eval_margin_search = 180` does not cover it. The full evaluation below computes the term and
+stores it, so the *second* visit to the same pawn structure compares a different number.
+
+Measured over the corpus at five windows, the same position evaluated with a cold and a warm pawn
+table:
+
+| Position | Window | Cold | Warm | Drift |
+| :--- | :--- | ---: | ---: | ---: |
+| Sharp French | (-300, -299) | 44 | 103 | 59 |
+| King Attack | (200, 400) | 20 | 62 | 42 |
+| Closed Centre | (-300, -299) | 64 | 102 | 38 |
+| Open Sicilian | (-300, -299) | 48 | 85 | 37 |
+| Kiwipete | (-300, -299) | 84 | 104 | 20 |
+
+Six of seventy (position, window) pairs drift. The bound each call returns is still sound — the
+claim "at or beyond this bound" holds either way — but the *value* is not a function of the
+position alone, and `static_eval` is that value: it drives Reverse Futility Pruning
+(`search_service.rs`, rule 0.5), razoring (0.6) and Futility Pruning in the move loop. All three
+therefore prune on the fill state of a table rather than on the position.
+
+This is 8.1's mechanism — a value that outlives the move — from a second direction, which is why
+7.1's cold-versus-warm gate has to be run against both or it will credit 7.1 with this drift.
+
+The likely repair is one branch: on a pawn-table miss, skip the Lazy Evaluation cutoff and fall
+through to the full evaluation, which stores the term. Lazy Evaluation is only sound when the
+cheap score is complete. It is a tree change, so rule 1 applies.
+
+* **Tasks**:
+    - `[ ]` Run the 8.1 cold-versus-warm gate over the 60-move sequence, against this and 7.1
+      together, and attribute the drift.
+    - `[ ]` Price the repair.
 

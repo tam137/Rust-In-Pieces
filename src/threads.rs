@@ -17,6 +17,82 @@ use crate::model::RIP_COULDN_SEND_TO_GAME_CMD_QUEUE;
 use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 
 
+/// The UCI options this engine advertises, with every default read from the supplied
+/// `Config` rather than written out as a literal.
+///
+/// Twelve advertised defaults had drifted from the value the engine actually uses, one SPSA
+/// run at a time, and three separate releases each corrected one by hand. Deriving them here
+/// makes that drift impossible, and exposing the list as data lets
+/// `test_every_advertised_uci_option_is_accepted` check the other half of the same facade:
+/// that every name the engine advertises actually reaches a field. See `task.md` 1.1.
+pub fn uci_options(defaults: &Config) -> Vec<String> {
+    vec![
+        "option name Hash type spin default 128 min 1 max 1024".to_string(),
+        "option name Threads type spin default 1 min 1 max 8".to_string(),
+        format!("option name Move Overhead type spin default {} min 0 max 5000", defaults.move_overhead),
+        "option name BookFile type string default <empty>".to_string(),
+        format!("option name OwnBook type check default {}", defaults.use_book),
+        format!("option name CacheBookInRam type check default {}", defaults.cache_book_in_ram),
+        format!("option name BookMaxPly type spin default {} min 0 max 128", defaults.book_max_ply),
+        "option name Aggressiveness type string default Normal".to_string(),
+        format!("option name EnablePositionalCap type check default {}", defaults.enable_positional_cap),
+        format!("option name PositionalCapDamping type spin default {} min 1 max 100", defaults.positional_cap_damping),
+        format!("option name KingOpenFileMalus type spin default {} min 0 max 500", defaults.king_open_file_malus),
+        format!("option name KingHalfOpenFileMalus type spin default {} min 0 max 500", defaults.king_half_open_file_malus),
+        format!("option name KingRingDefenderValue type spin default {} min 0 max 10", defaults.king_ring_defender_value),
+        format!("option name ThreatMinorAttacksRook type spin default {} min 0 max 200", defaults.threat_minor_attacks_rook),
+        format!("option name ThreatMinorAttacksQueen type spin default {} min 0 max 200", defaults.threat_minor_attacks_queen),
+        format!("option name ThreatRookAttacksQueen type spin default {} min 0 max 200", defaults.threat_rook_attacks_queen),
+        "option name LogPath type string default <empty>".to_string(),
+        format!("option name ConnectedPassedPawnMg type spin default {} min -500 max 500", defaults.connected_passed_pawn_mg),
+        format!("option name ConnectedPassedPawnEg type spin default {} min -500 max 500", defaults.connected_passed_pawn_eg),
+        format!("option name KnightOutpostTrueMg type spin default {} min -500 max 500", defaults.knight_outpost_true_mg),
+        format!("option name KnightOutpostTrueEg type spin default {} min -500 max 500", defaults.knight_outpost_true_eg),
+        format!("option name BishopOutpostTrueMg type spin default {} min -500 max 500", defaults.bishop_outpost_true_mg),
+        format!("option name BishopOutpostTrueEg type spin default {} min -500 max 500", defaults.bishop_outpost_true_eg),
+        format!("option name KingPawnShieldKingside type spin default {} min -500 max 500", defaults.king_pawn_shield_kingside),
+        format!("option name KingPawnShieldQueenside type spin default {} min -500 max 500", defaults.king_pawn_shield_queenside),
+        format!("option name KingPieceShieldKingside type spin default {} min -500 max 500", defaults.king_piece_shield_kingside),
+        format!("option name KingPieceShieldQueenside type spin default {} min -500 max 500", defaults.king_piece_shield_queenside),
+        format!("option name OppositeBishopsDrawScale type spin default {} min 0 max 100", defaults.opposite_bishops_draw_scale),
+        format!("option name RookBehindEnemyPassedPawnMg type spin default {} min -500 max 500", defaults.rook_behind_enemy_passed_pawn_mg),
+        format!("option name RookBehindEnemyPassedPawnEg type spin default {} min -500 max 500", defaults.rook_behind_enemy_passed_pawn_eg),
+        format!("option name EnableLazyEval type check default {}", defaults.enable_lazy_eval),
+        format!("option name LazyEvalMinGamePhase type spin default {} min 0 max 256", defaults.lazy_eval_min_game_phase),
+        format!("option name LazyEvalMarginSearch type spin default {} min 10 max 1000", defaults.lazy_eval_margin_search),
+        format!("option name LazyEvalMarginQs type spin default {} min 10 max 1000", defaults.lazy_eval_margin_qs),
+        format!("option name EnableFutilityPruning type check default {}", defaults.enable_futility_pruning),
+        format!("option name FutilityMaxDepth type spin default {} min 1 max 10", defaults.futility_max_depth),
+        format!("option name FutilityMarginBase type spin default {} min 0 max 500", defaults.futility_margin_base),
+        format!("option name FutilityMarginSlope type spin default {} min 0 max 300", defaults.futility_margin_slope),
+        format!("option name EnableRazoring type check default {}", defaults.enable_razoring),
+        format!("option name RazoringMargin type spin default {} min 50 max 800", defaults.razoring_margin),
+        format!("option name EnableLmp type check default {}", defaults.enable_lmp),
+        // // `lmp_max_depth` is inert above 4: the `lmp_base_moves + 2 * depth^2` threshold
+        // // demands more quiet moves at a single node than any node produces. See
+        // // `task.md` 10.6, pinned by `test_lmp_max_depth_is_inert_above_four`.
+        format!("option name LmpMaxDepth type spin default {} min 1 max 4", defaults.lmp_max_depth),
+        format!("option name LmpBaseMoves type spin default {} min 0 max 20", defaults.lmp_base_moves),
+        format!("option name EnableBadCapturePruning type check default {}", defaults.enable_bad_capture_pruning),
+        format!("option name BadCaptureSeeThreshold type spin default {} min -400 max 0", defaults.bad_capture_see_threshold),
+        format!("option name AspirationWindowMaxDelta type spin default {} min 50 max 30000", defaults.aspiration_window_max_delta),
+        format!("option name EnableCheckExtension type check default {}", defaults.enable_check_extension),
+        format!("option name CheckExtensionMaxPly type spin default {} min 0 max 127", defaults.check_extension_max_ply),
+        format!("option name CheckExtensionRequireSafe type check default {}", defaults.check_extension_require_safe),
+        format!("option name CheckExtensionBudgetDivisor type spin default {} min 0 max 16", defaults.check_extension_budget_divisor),
+        format!("option name CheckExtensionMinDepth type spin default {} min 0 max 32", defaults.check_extension_min_depth),
+        format!("option name CheckExtensionMaxDepth type spin default {} min 0 max 32", defaults.check_extension_max_depth),
+        format!("option name EnableOneReplyExtension type check default {}", defaults.enable_one_reply_extension),
+        format!("option name EnableSingularExtensions type check default {}", defaults.enable_singular_extensions),
+        format!("option name SingularMinDepth type spin default {} min 2 max 32", defaults.singular_min_depth),
+        format!("option name SingularTtDepthMargin type spin default {} min 0 max 8", defaults.singular_tt_depth_margin),
+        format!("option name SingularMargin type spin default {} min 0 max 64", defaults.singular_margin),
+        format!("option name SingularDepthReduction type spin default {} min 0 max 8", defaults.singular_depth_reduction),
+        format!("option name UseNNUE type check default {}", defaults.use_nnue),
+        "option name NnueModelPath type string default eval_models/quantised.bin".to_string(),
+    ]
+}
+
 pub fn std_reader(sender: mpsc::Sender<String>, _config: &Config) {
     loop {
         let mut uci_token = String::new();
@@ -59,69 +135,16 @@ pub fn uci_command_processor(
                     } else {
                         format!("id name Rust-In-Pieces V{}", config.version)
                     };
+                    // Every advertised default is read from `Config::default()` rather than written out as a
+                    // literal. Twelve of them had drifted from the value the engine actually
+                    // uses, one SPSA run at a time, and three earlier releases each corrected
+                    // one by hand. See `task.md` 1.1.
+                    let defaults = Config::new();
                     stdout.write(&name_str);
                     stdout.write("id author Jan Lange");
-                    stdout.write("option name Hash type spin default 128 min 1 max 1024");
-                    stdout.write("option name Threads type spin default 1 min 1 max 8");
-                    stdout.write("option name Move Overhead type spin default 0 min 0 max 5000");
-                    stdout.write("option name SyzygyPath type string default <empty>");
-                    stdout.write("option name BookFile type string default <empty>");
-                    stdout.write("option name OwnBook type check default true");
-                    stdout.write("option name CacheBookInRam type check default true");
-                    stdout.write("option name BookMaxPly type spin default 0 min 0 max 128");
-                    stdout.write("option name Aggressiveness type string default Normal");
-                    stdout.write("option name EnablePositionalCap type check default true");
-                    stdout.write("option name PositionalCapDamping type spin default 5 min 1 max 100");
-                    stdout.write("option name KingOpenFileMalus type spin default 40 min 0 max 500");
-                    stdout.write("option name KingHalfOpenFileMalus type spin default 20 min 0 max 500");
-                    stdout.write("option name KingRingDefenderValue type spin default 1 min 0 max 10");
-                    stdout.write("option name ThreatMinorAttacksRook type spin default 15 min 0 max 200");
-                    stdout.write("option name ThreatMinorAttacksQueen type spin default 30 min 0 max 200");
-                    stdout.write("option name ThreatRookAttacksQueen type spin default 20 min 0 max 200");
-                    stdout.write("option name LogPath type string default <empty>");
-                    stdout.write("option name ConnectedPassedPawnMg type spin default 15 min -500 max 500");
-                    stdout.write("option name ConnectedPassedPawnEg type spin default 30 min -500 max 500");
-                    stdout.write("option name KnightOutpostTrueMg type spin default 30 min -500 max 500");
-                    stdout.write("option name KnightOutpostTrueEg type spin default 15 min -500 max 500");
-                    stdout.write("option name BishopOutpostTrueMg type spin default 20 min -500 max 500");
-                    stdout.write("option name BishopOutpostTrueEg type spin default 10 min -500 max 500");
-                    stdout.write("option name KingPawnShieldKingside type spin default 39 min -500 max 500");
-                    stdout.write("option name KingPawnShieldQueenside type spin default 25 min -500 max 500");
-                    stdout.write("option name KingPieceShieldKingside type spin default 16 min -500 max 500");
-                    stdout.write("option name KingPieceShieldQueenside type spin default 10 min -500 max 500");
-                    stdout.write("option name OppositeBishopsDrawScale type spin default 50 min 0 max 100");
-                    stdout.write("option name RookBehindEnemyPassedPawnMg type spin default 10 min -500 max 500");
-                    stdout.write("option name RookBehindEnemyPassedPawnEg type spin default 25 min -500 max 500");
-                    stdout.write("option name EnableLazyEval type check default true");
-                    stdout.write("option name LazyEvalMinGamePhase type spin default 50 min 0 max 256");
-                    stdout.write("option name LazyEvalMarginSearch type spin default 180 min 10 max 1000");
-                    stdout.write("option name LazyEvalMarginQs type spin default 120 min 10 max 1000");
-                    stdout.write("option name EnableFutilityPruning type check default true");
-                    stdout.write("option name FutilityMaxDepth type spin default 4 min 1 max 10");
-                    stdout.write("option name FutilityMarginBase type spin default 120 min 0 max 500");
-                    stdout.write("option name FutilityMarginSlope type spin default 80 min 0 max 300");
-                    stdout.write("option name EnableRazoring type check default true");
-                    stdout.write("option name RazoringMargin type spin default 300 min 50 max 800");
-                    stdout.write("option name EnableLmp type check default true");
-                    stdout.write("option name LmpMaxDepth type spin default 4 min 1 max 10");
-                    stdout.write("option name LmpBaseMoves type spin default 3 min 0 max 20");
-                    stdout.write("option name EnableBadCapturePruning type check default true");
-                    stdout.write("option name BadCaptureSeeThreshold type spin default -50 min -400 max 0");
-                    stdout.write("option name AspirationWindowMaxDelta type spin default 1000 min 50 max 30000");
-                    stdout.write("option name EnableCheckExtension type check default false");
-                    stdout.write("option name CheckExtensionMaxPly type spin default 64 min 0 max 127");
-                    stdout.write("option name CheckExtensionRequireSafe type check default false");
-                    stdout.write("option name CheckExtensionBudgetDivisor type spin default 0 min 0 max 16");
-                    stdout.write("option name CheckExtensionMinDepth type spin default 0 min 0 max 32");
-                    stdout.write("option name CheckExtensionMaxDepth type spin default 0 min 0 max 32");
-                    stdout.write("option name EnableOneReplyExtension type check default false");
-                    stdout.write("option name EnableSingularExtensions type check default true");
-                    stdout.write("option name SingularMinDepth type spin default 6 min 2 max 32");
-                    stdout.write("option name SingularTtDepthMargin type spin default 3 min 0 max 8");
-                    stdout.write("option name SingularMargin type spin default 2 min 0 max 64");
-                    stdout.write("option name SingularDepthReduction type spin default 0 min 0 max 8");
-                    stdout.write("option name UseNNUE type check default false");
-                    stdout.write("option name NnueModelPath type string default eval_models/quantised.bin");
+                    for option in uci_options(&defaults) {
+                        stdout.write(&option);
+                    }
                     stdout.write("uciok");
                 }
 
