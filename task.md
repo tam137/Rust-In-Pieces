@@ -47,7 +47,8 @@ the measurement infrastructure.
 | v0.35.0 | Late Move Pruning enabled | **+19.4 Elo** [+10, +29] vs v0.34.0, 3000 games |
 | v0.35.1 | SEE pruning of bad captures also enabled, for hand comparison | +3.3 [-3.9, +10.5] on top of LMP — neutral |
 | v0.35.2 | Four defect repairs, no changed default, gauntlet waived | — |
-| v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games |
+| v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games — read as an upper estimate, see 4.3 |
+| v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Two independent SPRTs accepted H1 (elo0=-10, elo1=0); pooled **+10.2 Elo [-1, +22] over 2591 games**, best read as **+5 to +10** |
 
 Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
 enough to become rules below rather than history: **a run must pair the configuration it exists to
@@ -56,30 +57,30 @@ stable it looks** — `both - lmp` read +12.0 [+2, +22] over three stable checkp
 9000-game run and finished at +3.9 — and **a sequential test can decide *does it hurt* long before
 its point estimate is precise**: the razoring gauntlet's LLR crossed the H1 bound at 517 pairs
 while the running Elo estimate was still swinging between +2.7 and +24.5 a few hundred games
-earlier.
+earlier — and, established in v0.37.0, **a stopped SPRT decides whether to ship but overstates by
+how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game confirmation run of
+the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
+above.
 
-### The next action — Singular Extensions, once the trigger depth is resolved
+### The next action — `MovePicker` stages 1 to 3
 
-**Razoring shipped in v0.36.0 and is no longer blocking anything.** The gauntlet in section 3.3
-decided it: SPRT H1 accepted, +14.1 Elo, paired 95% CI [-1, +30], 1034 games on host C. Sections 1
-to 3 are now built, measured and released.
+**Sections 1 to 4 are built, measured and released.** v0.37.0 shipped singular extensions at
+trigger depth 6 and nothing in the search backlog is blocked on a measurement any more.
 
-The next backlog item is Singular Extensions (section 4), and it is not a ready-to-run recipe the
-way the razoring gauntlet was — read section 10.5 **before** writing any code. At the current
-depth 9 to 10 match time control, the trigger (`depth >= 8` at a non-root PV node with a
-qualifying TT entry) is close to untestable: it fires only at plies 0 to 2 and nowhere else, so a
-measurement run risks pricing a feature that almost never activates. Decide the trigger depth or
-the time control the feature will actually be tested at before building `enable_singular_extensions`,
-`singular_margin` and `singular_depth_reduction`.
+The next backlog item is the staged `MovePicker` (section 5), and it is the most dangerous item in
+this document — **read 5.2 and 8.3 before writing any code**. 8.3 is a stage-0 short-circuit that
+was built, verified node-identical, measured negative and reverted; 5.2 states the constraint that
+governs the whole item (the history table must be snapshotted at node entry). It is a throughput
+change, not a tree change, so it is priced differently from sections 1 to 4: the question is nodes
+per second at equal tree, and only then games.
 
 ### The backlog after that, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | Singular Extensions | 4 | Largest search item; needs TT-move exclusion. Read 10.5 first — at depth 9 to 10 it fires at plies 0 to 2 and nowhere else |
-| 2 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
-| 4 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
+| 1 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 2 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| 3 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
 
 The proposal that used to be section 11 — damping the check exemption — was measured on
 2026-08-28 and is dead. It is written up as a negative result in 8.5.
@@ -93,7 +94,7 @@ A new session can start from this table; each row says where the detail is.
 | Advertised UCI defaults drift from `Config::default()` — twelve stale literals | 1.1 | correctness of the facade only |
 | `lmp_max_depth` is inert above 4; the tuner and UCI still advertise a dead range | 10.6 | dead tuning range |
 | `Config::search_threads` is written in four places and read in none | 10.6a | dead code |
-| Singular Extensions are close to untestable at depth 9 to 10 — decide trigger depth or time control **before** building | 4, 10.5 | open design question |
+| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
 | The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
@@ -482,26 +483,71 @@ The 100-game health check from before the gauntlet, **on host A**, is `<mm>/razo
 zero losses on time, zero duplicate games, design effect 1.00. It correctly signalled "probably
 not harmful" ahead of the real decision; it was never a substitute for the round robin above.
 
-## 4. Singular Extensions (SE)
+## 4. Singular Extensions (SE) — ✅ shipped enabled in v0.37.0 (about +5 to +10 Elo)
 
-`[Impact: High]` `[Complexity: High]`
+**What ships.** At non-root nodes with `depth >= singular_min_depth`, when the TT entry is deep
+enough (`depth - singular_tt_depth_margin`), bounded in the direction that supports the move, and
+the TT move is the move about to be searched: a verification search at `(depth - 1) / 2 -
+singular_depth_reduction` around `tt_eval ∓ singular_margin * depth`, **excluding the TT move**.
+If nothing else reaches the threshold, the TT move gets +1 ply. Exclusion is per node and never
+inherited; an exclusion search is never stored in the TT and never answered from it.
 
-* **Trigger**: at non-root PV nodes with depth $\ge 8$, when a TT entry exists with
-  `depth >= search_depth - 3`, `entry_type == LowerBound | Exact`, and a valid TT best move.
-* **Verification search**: a reduced search at $\text{depth} = (\text{depth} - 1) / 2$ with the
-  singular window $[\text{tt\_eval} - s, \text{tt\_eval} - s + 1]$ where $s = 2 \cdot \text{depth}$,
-  **excluding the TT move**.
-* **Action**: if no other move meets the threshold, extend the TT move by $+1$ ply.
-* **Tasks**:
-    - `[ ]` Add `enable_singular_extensions`, `singular_margin`, `singular_depth_reduction`.
-    - `[ ]` Acceptance: a tactical suite confirms the $+1$ ply on forced tactical moves.
+Defaults: `enable_singular_extensions = true`, `singular_min_depth = 6`,
+`singular_tt_depth_margin = 3`, `singular_margin = 2`, `singular_depth_reduction = 0`. None SPSA-tuned.
 
-> [!NOTE]
-> SE grants extra plies, which is exactly what the Check Extension did before it was measured at
-> **-23.7 Elo** (8.2). The mechanism that made that expensive — an extension spends its ply at the
-> node class where Null Move, RFP and Futility Pruning are all disabled — does **not** apply here,
-> because SE extends a TT move at a PV node rather than every checking move. Price it against
-> v0.34.0 the same way regardless, and do not assume the sign.
+### 4.1 The trigger depth is 6, not the published 8
+
+10.5 asked for this before the feature was built. A fixed-depth census at depth 9 over 24 lines of
+`openings_mixed.txt`, behind the `search-diag` feature, priced every candidate in one run:
+
+| `singular_min_depth` | verifications | extensions | verification nodes | Δ tree |
+| ---: | ---: | ---: | ---: | ---: |
+| 8 (published) | 349 | 47 | 0.5% | +7.4% |
+| 7 | 1137 | 210 | 1.3% | +17.3% |
+| **6** | **2960** | **634** | **2.2%** | **+18.0%** |
+| 5 | 7112 | 1672 | 4.4% | +28.8% |
+| 4 | 17744 | 4512 | 5.8% | +36.7% |
+
+**Depth 6 dominates depth 7** — three times the extensions for the same tree cost — and 8 barely
+fires at a root depth of 9 to 10. Second finding, and the one that shapes future tuning: the
+verification search is only **2.2%** of the tree; the other 15.8% is the extra plies. Cheapening
+verification (`singular_depth_reduction`) cannot buy much. What matters is *which* moves extend.
+
+### 4.2 What it measured
+
+| run | games | score | Elo |
+| :--- | ---: | ---: | ---: |
+| pricing round robin, stopped by the SPRT | 546 | 54.40% | +30.6 |
+| pre-release cross-version smoke test | 100 | 45.50% | -31.4 |
+| confirmation round robin, stopped by the SPRT | 1945 | 50.95% | +6.6 |
+| **pooled** | **2591** | **51.47%** | **+10.2**, 95% CI [-1.0, +21.5] |
+
+Both round robins accepted H1 on *does it hurt* (`--elo0 -10 --elo1 0`), independently, at
+1000ms + 100ms on `openings_mixed.txt`. That is the gate and it is solid: **SE does not cost
+strength.** The size is single-digit — read it as **+5 to +10 Elo**, not the +30.6 the first run
+reported. A 35-position LCT II run could not distinguish the rule from off (17 → 18 of 35), which
+is the correct outcome for a change this size and is not evidence in either direction.
+
+### 4.3 A stopped SPRT is not an effect size — applies to every measurement in this document
+
+An SPRT stops the moment evidence crosses a bound, which means it stops *when the sample happens
+to be favourable*. The decision is valid; the score at the stopping moment is conditioned on
+having crossed and is therefore biased away from zero. Here that was a factor of four, and only
+the mandatory smoke test caught it.
+
+* **Razoring, 3.3**, stopped at 1034 games reporting +14.1 Elo, carries the same bias. Read it as
+  an upper estimate. It also explains why its CI crossed zero while its LLR crossed the bound.
+* **The rule going forward**: `scripts/run_sprt_match.sh` decides *whether to ship*. It does not
+  measure *how much*. When the size matters, run a fixed game count decided in advance. The
+  stopping rule and the effect size cannot come from the same run.
+
+### 4.4 Open
+
+* `singular_margin` (2), `singular_tt_depth_margin` (3), `singular_depth_reduction` (0) are
+  untuned. 4.1 argues the reduction is the least promising of the three.
+* Priced at one time control only. The trigger is depth-conditional, so 10.5 applies: at a longer
+  control depth 6 sits deeper in the tree and the number need not transfer.
+* Single-digit Elo is a thin margin to carry a default on. It passed the gate it was asked to pass.
 
 ## 5. Staged `MovePicker`
 
@@ -981,10 +1027,13 @@ of 9 to 10.
 * **Razoring at depth 1** fires everywhere. Measured: -15% search time at depth 11 (section 3.1).
 * **ProbCut at depth ≥ 5** reaches only the top few plies. Its trigger depth is a tunable and has
   to be set against this harness, not against the literature.
-* **Singular Extensions at depth ≥ 8** fire at plies 0 to 2 and nowhere else. The feature as
-  specified in section 4 is close to untestable here. Either its trigger depth comes down — which
-  makes it a different feature from the published one — or the time control goes up, and one ply
-  costs a factor of ten in wall time. **Decide which before building it.**
+* **Singular Extensions at depth ≥ 8** fire at plies 0 to 2 and nowhere else. ✅ **Resolved
+  2026-08-28**: the trigger depth came down. A fixed-depth census priced every candidate before a
+  game was played and settled on 6, where the rule grants three times the extensions of 7 for the
+  same tree cost (4.1). It is therefore a different feature from the published one, deliberately,
+  and it measured **about +5 to +10 Elo** over 2591 games (4.2). This is the template for the rest
+  of this list — the census cost one run and replaced an argument about the literature with a
+  number about this harness. Read **4.3** before quoting any stopped-SPRT number in this document.
 
 ### 10.6 `lmp_max_depth` is inert above 4, and the first diagnosis was wrong
 

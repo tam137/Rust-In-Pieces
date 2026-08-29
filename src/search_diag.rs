@@ -126,6 +126,34 @@ mod counters {
     /// The tree below them.
     pub static SUBTREE_SEE_BLOCKED: AtomicU64 = AtomicU64::new(0);
 
+    // ---------------------------------------------------------------------------------------
+    // `task.md` section 4: how often can a Singular Extension fire, and what does asking cost?
+    //
+    // The rule triggers on remaining depth, and this engine reaches a root depth of 9 to 10 at
+    // the match time control. Whether a given `singular_min_depth` fires often enough to be worth
+    // measuring in games — and how much of the tree the verification searches add — is exactly
+    // what these counters answer. See `task.md` 10.5.
+    // ---------------------------------------------------------------------------------------
+
+    /// Nodes that reached `is_singular`, i.e. every cheap guard passed and the Transposition
+    /// Table move was about to be searched.
+    pub static SINGULAR_CANDIDATES: AtomicU64 = AtomicU64::new(0);
+    /// Of those, nodes where the table entry supported the question and a verification search
+    /// actually ran. The gap to the line above is candidates lost to a shallow or wrongly bounded
+    /// entry.
+    pub static SINGULAR_VERIFICATIONS: AtomicU64 = AtomicU64::new(0);
+    /// Verification searches that concluded the Transposition Table move is singular, i.e.
+    /// extensions actually granted.
+    pub static SINGULAR_EXTENSIONS: AtomicU64 = AtomicU64::new(0);
+    /// Interior nodes spent inside verification searches. This is the price of the rule, in the
+    /// same unit as `SUBTREE_TOTAL`.
+    pub static SINGULAR_VERIFY_NODES: AtomicU64 = AtomicU64::new(0);
+    /// Verification searches by the remaining depth of the node that ran them, so one run reports
+    /// what every candidate `singular_min_depth` would have cost.
+    pub static SINGULAR_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Extensions granted, by the same depth index.
+    pub static SINGULAR_EXT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -238,6 +266,32 @@ pub fn record_searched_move(
     }
 }
 
+/// Records one node that reached the Singular Extension verification, for `task.md` section 4.
+///
+/// `verified` separates a node whose Transposition Table entry could support the question from
+/// one where it could not; `extended` is the outcome. `verify_nodes` is the interior tree the
+/// verification search walked, taken as a `Stats::calculated_nodes` delta, so the cost of the
+/// rule is reported in the same unit as the tree it is added to.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_singular(depth: i32, verified: bool, extended: bool, verify_nodes: u64) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::SINGULAR_CANDIDATES);
+        if !verified {
+            return;
+        }
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::SINGULAR_VERIFICATIONS);
+        counters::bump(&counters::SINGULAR_BY_DEPTH[bucket]);
+        counters::add(&counters::SINGULAR_VERIFY_NODES, verify_nodes);
+        if extended {
+            counters::bump(&counters::SINGULAR_EXTENSIONS);
+            counters::bump(&counters::SINGULAR_EXT_BY_DEPTH[bucket]);
+        }
+    }
+}
+
 /// Writes the size of the tree the search actually walked.
 ///
 /// The UCI `nodes` field reports `Stats::created_nodes`, i.e. the number of *generated* moves.
@@ -255,6 +309,8 @@ pub fn dump_tree(calculated_nodes: usize, eval_nodes: usize) {
 pub fn dump() {
     #[cfg(feature = "search-diag")]
     {
+        use std::sync::atomic::AtomicU64;
+
         let interior = counters::read(&counters::INTERIOR_NODES);
         if interior == 0 {
             return;
@@ -308,6 +364,27 @@ pub fn dump() {
             counters::read(&counters::SUBTREE_FP_BLOCKED),
             counters::read(&counters::SEE_BLOCKED),
             counters::read(&counters::SUBTREE_SEE_BLOCKED),
+        );
+
+        let by_depth = |table: &[AtomicU64; 32]| -> String {
+            table
+                .iter()
+                .enumerate()
+                .map(|(depth, slot)| (depth, counters::read(slot)))
+                .filter(|(_, count)| *count > 0)
+                .map(|(depth, count)| format!("{}:{}", depth, count))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        eprintln!(
+            "SEARCHDIAGSINGULAR candidates={} verifications={} extensions={} verify_nodes={} \
+             by_depth={} ext_by_depth={}",
+            counters::read(&counters::SINGULAR_CANDIDATES),
+            counters::read(&counters::SINGULAR_VERIFICATIONS),
+            counters::read(&counters::SINGULAR_EXTENSIONS),
+            counters::read(&counters::SINGULAR_VERIFY_NODES),
+            by_depth(&counters::SINGULAR_BY_DEPTH),
+            by_depth(&counters::SINGULAR_EXT_BY_DEPTH),
         );
     }
 }
