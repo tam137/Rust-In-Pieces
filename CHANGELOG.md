@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.37.1] - 2026-08-29
+
+- The search is now canonical **negamax** on side-to-move-relative scores. `minimax` lost its
+  `white` parameter and 20 of its 22 colour branches, and `singular_verification` lost both of its
+  own, including the bound test that existed only to compensate for absolute scores.
+- **No behaviour change.** The refactor is proven node-identical to v0.37.0 on 28 positions at
+  depth 8 and at depth 10 - the 14 shared corpus positions plus a colour-swapped copy of each,
+  because the shared corpus is white-to-move throughout and would not have caught a sign error on
+  the Black branch. See `task.md` section 7.
+- The scoring boundary is deliberately unchanged: `SearchResult` stays absolute and `get_moves`
+  negates the window in and the score out, so nothing outside the search sees the new scale.
+- Cross-version smoke gauntlet, 1s + 100ms, 100 games per pairing on an 8-core ARM host: 52.0%
+  against v0.37.0 and 50.5% against v0.36.0, no losses on time. Both intervals span zero widely,
+  which is what a node-identical change must look like - neither number is a measurement.
+- New tool `scripts/verify_negamax_identity.py`: drives a baseline and a candidate build through
+  UCI and compares their search trees position by position. Both builds must be compiled with
+  `--features search-diag` or the check refuses the run instead of reporting a false pass.
+- Known limitation, and the reason this is a refactor release and not a fix release: the
+  conversion exposed two defects and **neither is fixed here**, because both move the search tree
+  and therefore need pricing in games first.
+  - The transposition-table bound tie-break on an empty `alpha == beta` window is still
+    colour-dependent, and its Black half stores a bound the search never proved. It fires on 0.25%
+    of stores. See `task.md` 7.1.
+  - The engine is not colour-symmetric: mirrored positions search 2 to 3 times different trees.
+    Whether that lives in evaluation or in move ordering is not yet established. See `task.md` 7.2.
+
+
+
 ## [V0.37.0] - 2026-08-29
 
 - Singular Extensions (`enable_singular_extensions`) implemented and enabled by default: when the
