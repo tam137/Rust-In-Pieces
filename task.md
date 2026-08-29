@@ -16,13 +16,14 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
 | Uncommitted | nothing |
-| Blocked on | nothing. Sections 1 to 4 are built, measured and released; the staged `MovePicker` (section 5) is next |
-| Next session runs on | **host C (ARM)** — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers |
+| Unreleased | the **negamax refactor** is on `master` and is *not* in a release. It is proven node-identical to v0.37.0, so it changes no games — but it touches `src/search_service.rs` and therefore owes the mandatory gauntlet before `./build_and_release.sh` runs. See section 7 |
+| Blocked on | nothing. The gauntlet for the negamax refactor is the next action, and it is a smoke test, not a decision |
+| Next session runs on | **host C (ARM, 8 cores)** — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
 1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C.
-Sections 1 to 3 are built, measured and released; sections 4 to 7 are not started. Section 10 is
-the measurement infrastructure.
+Sections 1 to 4 are built, measured and released, section 7 is built and awaiting its gauntlet,
+and sections 5 and 6 are not started. Section 10 is the measurement infrastructure.
 
 > [!IMPORTANT]
 > **Elo numbers do not carry across hosts**, and the work has moved three times. Runs are labelled
@@ -62,25 +63,43 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — `MovePicker` stages 1 to 3
+### The next action — gauntlet and release the negamax refactor
 
-**Sections 1 to 4 are built, measured and released.** v0.37.0 shipped singular extensions at
-trigger depth 6 and nothing in the search backlog is blocked on a measurement any more.
+The negamax refactor (section 7) is committed on `master`, unreleased, and **proven node-identical
+to v0.37.0 on 28 positions at depth 8 and depth 10**. It plays exactly the same chess. Two things
+follow, and they are the whole next action:
 
-The next backlog item is the staged `MovePicker` (section 5), and it is the most dangerous item in
-this document — **read 5.2 and 8.3 before writing any code**. 8.3 is a stage-0 short-circuit that
-was built, verified node-identical, measured negative and reverted; 5.2 states the constraint that
-governs the whole item (the history table must be snapshotted at node entry). It is a throughput
-change, not a tree change, so it is priced differently from sections 1 to 4: the question is nodes
-per second at equal tree, and only then games.
+1. Run the cross-version gauntlet `skills/engine_release_procedure.md` mandates for any change to
+   `src/search_service.rs`. It is a **smoke test**, not a measurement: identity is already proven,
+   so the only thing the run can tell you is whether the build is broken. 1s + 100ms, 50 rounds,
+   challenger first, against v0.37.0 and v0.36.0.
+2. Release it as a patch. No behaviour change, so nothing needs pricing.
+
+Do that before anything else, because **the next three items all edit the same file**, and doing
+them on a clean negamax base is a fraction of the work it would be on the old asymmetric one.
 
 ### The backlog after that, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 2 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
-| 3 | Negamax refactor | 7 | Pure refactor, no expected Elo, high blast radius. Last. |
+| 1 | Colour asymmetry: where does it live? | 7.2 | Deterministic, costs no games, and separates evaluation from search in one run. Highest information per unit of cost on this list |
+| 2 | The empty-window Transposition Table bound | 7.1 | A bound the search never proved, at 0.25% of stores. Run the 8.1 cold-versus-warm gate before spending a single game on it |
+| 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+
+> [!IMPORTANT]
+> Items 1 and 2 are **not bugfixes to be bundled into a release**. Both move the search tree, so
+> rule 1 applies and both need pricing. This document's own history is the argument: fail-soft
+> (8.1) is one of the most reliable gains in the literature and cost roughly two hundred Elo here,
+> and the Check Extension frontier restriction (8.2) was the best of four axes on every
+> deterministic metric and measured -26.8 Elo in games.
+
+The `MovePicker` item is the most dangerous in this document — **read 5.2 and 8.3 before writing
+any code**. 8.3 is a stage-0 short-circuit that was built, verified node-identical, measured
+negative and reverted; 5.2 states the constraint that governs the whole item (the history table
+must be snapshotted at node entry). It is a throughput change, not a tree change, so it is priced
+differently from sections 1 to 4: the question is nodes per second at equal tree, and only then
+games.
 
 The proposal that used to be section 11 — damping the check exemption — was measured on
 2026-08-28 and is dead. It is written up as a negative result in 8.5.
@@ -100,7 +119,10 @@ A new session can start from this table; each row says where the detail is.
 | The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
 | Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
-| Negamax refactor | 7 | last, no expected Elo |
+| Negamax refactor: committed, node-identical, gauntlet not yet run | 7 | ready to release |
+| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1 | defect, needs pricing |
+| The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
+| The engine is not colour-symmetric: mirrored positions search 2-3x different trees | 7.2 | open measurement |
 
 ### Rules that are not optional
 
@@ -629,14 +651,160 @@ NNUE currently runs on **full recomputation per leaf** and is off by default on 
     - `[ ]` Validate the incremental accumulator against full recomputation.
     - `[ ]` Set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
 
-## 7. Negamax refactor — last
+## 7. Negamax refactor — ✅ built and proven node-identical, not yet released
 
 `[Impact: Low]` `[Complexity: High]`
 
-`src/search_service.rs` uses an asymmetric `minimax` with parallel `if white { ... } else { ... }`
-blocks across every pruning rule, PVS null-window and TT update. Converting to canonical negamax
-is a pure refactor with **no expected Elo**, and it would touch every pruning stage at once in a
-file whose last large change cost 209 Elo. Do it only when nothing better is available.
+`src/search_service.rs` used an asymmetric `minimax` with parallel `if white { ... } else { ... }`
+blocks across every pruning rule, PVS null-window and TT update. It is now canonical negamax on
+side-to-move-relative scores. `minimax` lost its `white` parameter and 20 of its 22 colour
+branches; `singular_verification` lost both of its own, including its reduced search and the bound
+test that existed only to compensate for absolute scores.
+
+The full transformation, the invariants it rests on and the sites it deliberately does not touch
+are in [`task/negamax_refactor_plan.md`](task/negamax_refactor_plan.md).
+
+| Gate | Result |
+| :--- | :--- |
+| `cargo test --release` and `cargo test` (debug, overflow checks on) | 176 passed, 0 failed |
+| Compiler warnings, with and without `search-diag` | none |
+| `scripts/verify_negamax_identity.py`, depth 8 and depth 10 | **28/28 identical** |
+| Cross-version gauntlet | **not run** — required by `skills/engine_release_procedure.md` before release |
+
+The corpus is the 14 shared positions **plus a colour-swapped copy of each**. The shared corpus is
+white-to-move throughout, which is exactly the blind spot a colour-symmetry refactor has: a sign
+error on the Black branch would have left all 14 of them identical.
+
+**Re-running the gate.** Both binaries must be `--features search-diag` builds, or no `SEARCHTREE`
+line is emitted and the check refuses the run rather than reporting a false pass:
+
+```bash
+git stash                      # or check out the pre-refactor commit into a worktree
+cargo build --release --features search-diag && cp target/release/suprah /tmp/suprah-baseline
+git stash pop
+cargo build --release --features search-diag && cp target/release/suprah /tmp/suprah-candidate
+scripts/verify_negamax_identity.py --baseline /tmp/suprah-baseline \
+                                   --candidate /tmp/suprah-candidate --depth 8
+```
+
+It drives the engine through `scripts/uci_driver.py`, so it waits for `bestmove` rather than
+sleeping; 28 positions at depth 8 take roughly eight minutes on an 8-core ARM host.
+
+* **Tasks**:
+    - `[ ]` Run the mandatory cross-version gauntlet from
+      `skills/engine_release_procedure.md` — challenger first, against v0.37.0 and v0.36.0, 1s +
+      100ms, 50 rounds, `openings_mixed.txt`. It is a smoke test, not a measurement: the change is
+      node-identical, so anything below roughly 45% against a predecessor means the build is
+      broken, not that the refactor costs Elo.
+    - `[ ]` Then release as a **patch**, `./build_and_release.sh`. No behaviour change, so the
+      CHANGELOG entry is a refactor entry.
+
+### 7.1 One site could not be merged, and it is a defect — open
+
+The first identity run failed 19 of 28 positions with matching scores and principal variations and
+a moved tree. A counter on every early return isolated it to the Transposition Table store, and a
+per-store dump named the case: **`alpha == beta` is reachable.** The root narrows
+`current_alpha`/`current_beta` towards each other as it searches its move list and can hand the
+next root move an empty window. At such a node both bound tests are true at once, so the order the
+two comparisons are written in picks the label. On the absolute scale that broke the tie towards
+`UpperBound` at a White node and `LowerBound` at a Black one; on the relative scale it breaks the
+same way for both.
+
+`Self::bound_for` reproduces the old, colour-dependent order, and restoring it made all 28
+positions identical — which also proves it was the *sole* source of divergence.
+
+**The Black half of that tie-break stores a bound the search never proved.** A Black node whose
+running score is still at `beta` has established that Black cannot get *below* `beta` — a lower
+bound. Labelling it `UpperBound` publishes "at most `beta`" into a table that outlives the move.
+That is the shape of the defect 8.1 records at roughly two hundred Elo, and the White half of the
+same tie-break is correct, so the engine stores a sound bound for one colour and an unsound one
+for the other.
+
+**How often it fires**, counted over 20 searches at depth 9 (the corpus plus six mirrors),
+295,163 Transposition Table stores in total:
+
+| | Stores | Share |
+| :--- | ---: | ---: |
+| On an empty window | 1,376 | 0.47% |
+| ...of those, at a Black node, i.e. an unproven bound | 727 | 0.25% |
+| ...of those, at depth >= 4, where the probe is most likely to trust them | 270 | 0.09% |
+
+It is concentrated rather than spread: three positions (Kiwipete, Closed Centre, King Attack)
+produce none at all, while Rook Endgame reaches 2.75% and Middlegame 2.07%. **Rarity is not an
+argument for ignoring it** — 8.1 cost 168 Elo on a defect that moved only 2 of 60 positions by
+more than 50cp.
+
+**Where the empty window comes from.** No interior node can create one: `alpha` only rises, the
+move loop breaks the moment `alpha >= beta`, the Transposition Table probe returns on the same
+condition, and Mate Distance Pruning returns when its clamp closes the window. The one remaining
+source is the root, which narrows `current_alpha`/`current_beta` towards each other as it searches
+its move list — and that can only close completely when `beta` is finite, i.e. **only under an
+aspiration window that is failing high**. The root does not break out of its move loop on a fail
+high; it finishes the iteration with an empty window and re-searches afterwards. The entries
+written during that abandoned iteration stay in the table.
+
+**Where the code is.**
+
+| What | Where |
+| :--- | :--- |
+| The tie-break itself | `SearchService::bound_for` in `src/search_service.rs` — both orders are written out side by side, so the correction is deleting the `if white` and keeping one |
+| Its two call sites | the Quiescence Search Transposition Table write and the main-search one, in `minimax` |
+| The behaviour is pinned by a test | `test_transposition_bound_tie_break_stays_colour_dependent_on_an_empty_window` — it will fail the moment the order is changed, which is the point |
+| Where the empty window is produced | `get_moves`: `current_alpha = current_alpha.max(...)` / `current_beta = current_beta.min(...)` inside the root move loop, and the fail-high branch of the aspiration re-search below it |
+
+**Reproducing the frequency table** takes a temporary counter, not a permanent one: call a static
+`AtomicU64` bump beside `Self::bound_for` in the main-search store, keyed on
+`orig_alpha == orig_beta` and `!white`, and print it where `crate::search_diag::dump()` is called
+at the end of `get_moves`. The numbers above came from exactly that, over `go depth 9`.
+
+* **Tasks**:
+    - `[ ]` Run the 8.1 gate first, not a match. This defect is "an unproven bound in a table that
+      outlives the move", which is 8.1's mechanism exactly, so the cold-versus-warm drift
+      measurement is the cheap deterministic test and it costs no games. 8.1 records the shape:
+      search a fixed 60-move sequence twice with one build, once clearing the table per position
+      and once letting it accumulate, and count positions drifting more than 50cp.
+    - `[ ]` Then price the correction. `Self::bound_for` holds both orders side by side and the fix
+      is one edit; it moves the tree, so rule 1 applies.
+    - `[ ]` Decide whether the root should break out of its move loop on an aspiration fail high.
+      If it should, the empty window stops existing and the tie-break becomes unreachable — which
+      may be the better fix, and is a tree change in its own right.
+
+### 7.2 The engine is not colour-symmetric — open
+
+`scripts/verify_negamax_identity.py` searches every corpus position twice, once as published and
+once colour-swapped. A colour-swapped position is strategically identical to its original, so a
+symmetric engine would search a near-identical tree and return the same score. Measured on the
+v0.37.0 baseline at depth 8:
+
+| Position | As published | Colour-swapped | |
+| :--- | ---: | ---: | :--- |
+| Kiwipete | 121,779 interior nodes | 57,158 | 2.1x |
+| Sharp French | 45,742 | 124,245 | 2.7x |
+| Sharp Tactical | 12,941 | 35,542 | 2.7x |
+| Middlegame | +34 cp | +68 cp | 34 cp apart |
+| Rook Endgame | +165 cp | +136 cp | 29 cp apart |
+
+The start position is excluded from that reading — with Black to move it is a genuinely different
+position, not a mirror.
+
+Section 7 narrows the cause: the refactored build is node-identical on all 28 positions, so the
+asymmetry does **not** live in the search's colour branches, which are now gone. The remaining
+candidates are `eval_service.rs`, move ordering, and the empty-window bound defect of 7.1 — which
+is colour-dependent by construction and is the only search-side suspect that survives.
+
+**Reproducing it.** `scripts/verify_negamax_identity.py` exposes the mirror as
+`swap_colours(fen)` — rank order reversed, every piece letter case-swapped, castling rights
+swapped, the en passant rank mirrored. Import it and search both, or write the check as a unit
+test against `EvalService::calc_eval` directly, which is the cheaper of the two and the one that
+separates evaluation from search.
+
+* **Tasks**:
+    - `[ ]` Establish where the asymmetry lives. Evaluating a position and its colour mirror and
+      requiring the two scores to be exact negatives is a deterministic check that costs no games,
+      and it separates evaluation from search in one run. Start with `calc_eval` on a static
+      position — if that is already asymmetric, nothing about the search needs looking at yet.
+    - `[ ]` Only then decide whether it is worth anything. A colour-asymmetric evaluation is a
+      real strength defect in half the games, but it has never been priced here.
 
 ---
 
