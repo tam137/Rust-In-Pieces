@@ -249,6 +249,35 @@ pub struct Config {
     /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
     /// keeps forced sequences — including sacrificial checks — inside the horizon.
     pub enable_one_reply_extension: bool,
+
+    /// Enables Singular Extensions: when the Transposition Table move is provably better than
+    /// every alternative at this node, it is searched one ply deeper.
+    ///
+    /// Ships **enabled** since v0.37.0 on roughly **+5 to +10 Elo over 2591 games** against
+    /// v0.36.0 — small and positive, not the +30.6 the first stopped SPRT reported. Two
+    /// independent round robins both accepted the *does it hurt* hypothesis. `task.md` 4.2, and
+    /// 4.3 for why a stopped SPRT's point estimate is not the effect size. The Check Extension of 8.2 is the cautionary case that made
+    /// the games mandatory: it looked right on every static metric and measured -23.7 Elo.
+    pub enable_singular_extensions: bool,
+    /// Lowest remaining depth at which singularity is verified.
+    ///
+    /// The published rule triggers at depth 8. This engine reaches a root depth of 9 to 10 at the
+    /// match time control, where a trigger of 8 fires at plies 0 to 1 and nowhere else, which is
+    /// too rare to price. The threshold is therefore a parameter rather than a constant, and its
+    /// default is chosen against this harness: a fixed-depth census settled on **6**, where the
+    /// rule grants three times the extensions of 7 for the same tree cost. `task.md` 4.1.
+    pub singular_min_depth: i32,
+    /// How much shallower than the current node the Transposition Table entry may be and still
+    /// be trusted as the singularity candidate: the entry qualifies at
+    /// `entry.depth >= depth - singular_tt_depth_margin`.
+    pub singular_tt_depth_margin: i32,
+    /// Centipawns per ply by which every alternative must fall short of the Transposition Table
+    /// score before the move counts as singular. The threshold is `singular_margin * depth`, so
+    /// the demand grows with the depth the score was established at.
+    pub singular_margin: i16,
+    /// Subtracted from the `(depth - 1) / 2` verification depth. `0` is the published reduction;
+    /// larger values buy a cheaper, blunter verification.
+    pub singular_depth_reduction: i32,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -464,6 +493,15 @@ impl Config {
             check_extension_min_depth: 0,
             check_extension_max_depth: 0,
             enable_one_reply_extension: false,
+            // On by default since v0.37.0: about +5 to +10 Elo over 2591 games against v0.36.0.
+            // The trigger
+            // depth is deliberately below the published 8 because the match search reaches depth
+            // 9 to 10 — see `task.md` 4.1 for the census that chose it.
+            enable_singular_extensions: true,
+            singular_min_depth: 6,
+            singular_tt_depth_margin: 3,
+            singular_margin: 2,
+            singular_depth_reduction: 0,
             log_path: std::sync::Arc::from(""),
         }
     }

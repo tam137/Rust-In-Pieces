@@ -175,7 +175,7 @@ impl SearchService {
                 };
 
                 let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                    current_alpha, current_beta, stats, config, service, &child_context, true, false, &mut child_pv,
+                    current_alpha, current_beta, stats, config, service, &child_context, true, false, None, &mut child_pv,
                     1, &mut killer_moves, &mut history_table, &mut counter_moves);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -411,6 +411,7 @@ impl SearchService {
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, is_pv: bool,
         skip_null_move: bool,
+        excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
@@ -474,6 +475,13 @@ impl SearchService {
         }
 
         let mut tt_move = None;
+        // The singularity candidate for this node: the de-normalised Transposition Table score,
+        // the depth it was established at, and the bound it carries. Captured separately from the
+        // cutoff below because Singular Extensions accept an entry up to
+        // `singular_tt_depth_margin` plies shallower than this node, which is less than the
+        // cutoff demands. Guarded by the feature flag so the shipped search pays one bool test
+        // and not the de-normalisation.
+        let mut tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)> = None;
 
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
@@ -482,7 +490,19 @@ impl SearchService {
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
                 tt_move = entry.decompress_move(board);
-                if entry.depth as i32 >= depth {
+                if config.enable_singular_extensions {
+                    let mut candidate_eval = entry.eval;
+                    if candidate_eval > 30000 {
+                        candidate_eval -= ply as i16;
+                    } else if candidate_eval < -30000 {
+                        candidate_eval += ply as i16;
+                    }
+                    tt_entry = Some((candidate_eval, entry.depth as i32, entry.entry_type));
+                }
+                // A verification search for Singular Extensions must not be answered out of the
+                // table: the entry describes this position *with* the excluded move in it, and
+                // returning it would hand back the very score the verification is trying to beat.
+                if excluded_move.is_none() && entry.depth as i32 >= depth {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
                     if entry_eval > 30000 {
@@ -569,13 +589,13 @@ impl SearchService {
                 self.minimax(
                     board, turn, reduced_depth, false,
                     beta - 1, beta, stats, config, service, context,
-                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+                    is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
                 ).1
             } else {
                 self.minimax(
                     board, turn, reduced_depth, true,
                     alpha, alpha + 1, stats, config, service, context,
-                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+                    is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
                 ).1
             };
 
@@ -599,7 +619,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth, white,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, &mut verify_pv, ply, killer_moves, history_table, counter_moves
+                        is_pv, true, None, &mut verify_pv, ply, killer_moves, history_table, counter_moves
                     ).1;
 
                     let verify_cutoff = if white { verify_eval >= beta } else { verify_eval <= alpha };
@@ -661,7 +681,7 @@ impl SearchService {
                     let razor_eval = self.minimax(
                         board, turn, 0, white,
                         alpha, alpha + 1, stats, config, service, context,
-                        false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                        false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
                         counter_moves
                     ).1;
                     if razor_eval <= alpha {
@@ -673,7 +693,7 @@ impl SearchService {
                 let razor_eval = self.minimax(
                     board, turn, 0, white,
                     beta - 1, beta, stats, config, service, context,
-                    false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
+                    false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
                     counter_moves
                 ).1;
                 if razor_eval >= beta {
@@ -908,7 +928,7 @@ impl SearchService {
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
                 let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
-                    alpha, beta, stats, config, service, &current_context, true, false, &mut child_pv,
+                    alpha, beta, stats, config, service, &current_context, true, false, None, &mut child_pv,
                     ply + 1, killer_moves, history_table, counter_moves);
                 let min_max_eval = min_max_result.1;
                 board.undo_move(capture_turn, mi);
@@ -1037,6 +1057,16 @@ impl SearchService {
                 }
             }
             turns.moves.swap(i, best_idx);
+
+            // The one move a Singular Extension verification search must not see. The exclusion
+            // is a property of this node alone and is never inherited: `minimax` is re-entered
+            // with `excluded_move` set and passes `None` to every child.
+            if let Some(excluded) = excluded_move {
+                if turns.moves[i] == excluded {
+                    i += 1;
+                    continue;
+                }
+            }
 
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
             // still in [0, 100000), and demoting it below zero keeps this branch from firing a
@@ -1217,7 +1247,7 @@ impl SearchService {
             // The Static Exchange Evaluation is computed before the move is played, and
             // only when the gate is actually enabled, so an unfiltered extension keeps
             // costing nothing extra.
-            let extension = if config.enable_check_extension
+            let check_extension = config.enable_check_extension
                 && current_turn.gives_check
                 && ply < config.check_extension_max_ply
                 && depth >= config.check_extension_min_depth
@@ -1225,12 +1255,30 @@ impl SearchService {
                     || depth <= config.check_extension_max_depth)
                 && may_extend
                 && (!config.check_extension_require_safe
-                    || self.see_ge(board, current_turn, 0, config, &service.move_gen))
-            {
-                1
-            } else {
-                0
-            };
+                    || self.see_ge(board, current_turn, 0, config, &service.move_gen));
+
+            // Singular Extension: the Transposition Table move is searched one ply deeper when no
+            // alternative comes within `singular_margin * depth` of it. The guards before the
+            // verification search are ordered by cost, cheapest first — the search itself is a
+            // reduced search of this whole node and is the only expensive term.
+            //
+            // `turns.len > 1` is not an optimisation. With a single legal move the exclusion
+            // search has nothing left to search, returns its fail-low bound, and would report
+            // every such node as singular; the One-Reply Extension already owns that case.
+            let singular_extension = !check_extension
+                && config.enable_singular_extensions
+                && may_extend
+                && excluded_move.is_none()
+                && ply > 0
+                && turns.len > 1
+                && depth >= config.singular_min_depth
+                && Some(*current_turn) == tt_move
+                && self.is_singular(
+                    board, turn, depth, white, ply, tt_entry, *current_turn,
+                    stats, config, service, context, killer_moves, history_table, counter_moves,
+                );
+
+            let extension = if check_extension || singular_extension { 1 } else { 0 };
             let child_depth = depth - 1 + extension;
 
             // And for Late Move Reductions, through the same helper the rule itself uses.
@@ -1303,7 +1351,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             alpha, alpha + 1, stats, config, service, &current_context,
-                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval <= alpha {
                             searched = true;
@@ -1312,7 +1360,7 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, reduced_depth, !white,
                             beta - 1, beta, stats, config, service, &current_context,
-                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                         if min_max_eval >= beta {
                             searched = true;
@@ -1329,28 +1377,28 @@ impl SearchService {
                             min_max_eval = self.minimax(
                                 board, current_turn, child_depth, !white,
                                 alpha, alpha + 1, stats, config, service, &current_context,
-                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
 
                             if min_max_eval > alpha && min_max_eval < beta {
                                 min_max_eval = self.minimax(
                                     board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
-                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                    true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
                             }
                         } else {
                             min_max_eval = self.minimax(
                                 board, current_turn, child_depth, !white,
                                 beta - 1, beta, stats, config, service, &current_context,
-                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                             ).1;
 
                             if min_max_eval < beta && min_max_eval > alpha {
                                 min_max_eval = self.minimax(
                                     board, current_turn, child_depth, !white,
                                     alpha, beta, stats, config, service, &current_context,
-                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                                    true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                                 ).1;
                             }
                         }
@@ -1358,14 +1406,14 @@ impl SearchService {
                         min_max_eval = self.minimax(
                             board, current_turn, child_depth, !white,
                             alpha, beta, stats, config, service, &current_context,
-                            is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
                     min_max_eval = self.minimax(
                         board, current_turn, child_depth, !white,
                         alpha, beta, stats, config, service, &current_context,
-                        is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
                 }
             }
@@ -1457,8 +1505,12 @@ impl SearchService {
             i += 1;
         }
 
-        // Transposition Table Write
-        if config.use_zobrist && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+        // Transposition Table Write. An exclusion search is never stored: its score describes a
+        // position with a legal move removed, and publishing that under this position's hash is
+        // the defect `task.md` 8.1 records as roughly two hundred Elo.
+        if config.use_zobrist
+            && excluded_move.is_none()
+            && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             let entry_type = if eval <= orig_alpha {
                 crate::zobrist::TranspositionType::UpperBound
             } else if eval >= orig_beta {
@@ -1492,6 +1544,126 @@ impl SearchService {
     }
 
     
+
+    /// Whether the Transposition Table move at this node is *singular*: whether every other
+    /// move falls short of the table's score by more than `singular_margin * depth`.
+    ///
+    /// The question is settled by a reduced search of this same position with that one move
+    /// excluded, over a null window placed exactly at the threshold, so that the search's own
+    /// fail-low or fail-high *is* the answer. Three properties of that search are established by
+    /// its arguments rather than by any code here:
+    ///
+    /// * it runs at `ply`, not `ply + 1`. The position has not changed, only the move list has,
+    ///   which is the same argument the Null Move verification search makes for itself. Passing
+    ///   `ply + 1` would tighten Mate Distance Pruning by a ply the search has not actually
+    ///   travelled.
+    /// * it passes `skip_null_move`. A Null Move verification inside it would re-enter this node
+    ///   a third time and would have to carry the exclusion with it; forbidding the rule is
+    ///   cheaper than threading it, and the verification is a null-window search that Reverse
+    ///   Futility Pruning already serves.
+    /// * `excluded_move` suppresses the Transposition Table cutoff and the Transposition Table
+    ///   store at the re-entered node, and nothing else. Every early return it can still take —
+    ///   Mate Distance Pruning, Null Move Pruning, Reverse Futility Pruning, razoring — either
+    ///   never consults the move list at all or, in razoring's case, verifies through a
+    ///   Quiescence Search that includes the excluded move. Including a move can only raise a
+    ///   maximising node's score and lower a minimising one's, so a razoring fail-low proven
+    ///   *with* the move implies the same fail-low without it. Each of those returns therefore
+    ///   errs towards "not singular", never towards a groundless extension.
+    ///
+    /// Returns `None` when the table entry cannot support the question at all, so the diagnostic
+    /// in [`Self::is_singular`] can separate a candidate that was refused from one that was
+    /// verified and found wanting. The caller of the search reads both as "no extension".
+    #[allow(clippy::too_many_arguments)]
+    fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
+        ply: i32,
+        tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
+        stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
+        killer_moves: &mut [[Option<Turn>; 2]; 128],
+        history_table: &mut [[u32; 64]; 64],
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<bool> {
+
+        let (tt_eval, tt_depth, tt_type) = tt_entry?;
+
+        // The entry has to be deep enough to be worth a verification search at all.
+        if tt_depth < depth - config.singular_tt_depth_margin {
+            return None;
+        }
+
+        // ...and it has to bound the score in the direction that makes "the table move really
+        // does achieve this" a true statement. Scores in this search are absolute rather than
+        // side-relative, so the published `BOUND_LOWER` condition is a *lower* bound only where
+        // White is to move; at a Black node the identical claim is an upper bound.
+        let bound_supports_the_move = match tt_type {
+            crate::zobrist::TranspositionType::Exact => true,
+            crate::zobrist::TranspositionType::LowerBound => white,
+            crate::zobrist::TranspositionType::UpperBound => !white,
+        };
+        if !bound_supports_the_move || tt_eval.abs() >= 20000 {
+            return None;
+        }
+
+        // A verification at depth 0 is a Quiescence Search, and the Quiescence Search generates
+        // its own moves without the exclusion. It would answer a different question.
+        let verification_depth = ((depth - 1) / 2 - config.singular_depth_reduction).max(0);
+        if verification_depth < 1 {
+            return None;
+        }
+
+        let margin = config.singular_margin.saturating_mul(depth as i16);
+        let mut singular_pv = [None; 128];
+
+        if white {
+            let threshold = tt_eval.saturating_sub(margin);
+            let eval = self.minimax(
+                board, turn, verification_depth, white,
+                threshold - 1, threshold, stats, config, service, context,
+                false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
+                counter_moves,
+            ).1;
+            Some(eval < threshold)
+        } else {
+            let threshold = tt_eval.saturating_add(margin);
+            let eval = self.minimax(
+                board, turn, verification_depth, white,
+                threshold, threshold + 1, stats, config, service, context,
+                false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
+                counter_moves,
+            ).1;
+            Some(eval > threshold)
+        }
+    }
+
+    /// [`Self::singular_verification`], plus the `task.md` section 4 diagnostic: how many nodes
+    /// asked the question, how many could be answered, how many said yes, and what the answers
+    /// cost in interior nodes. The counters are compiled out unless the `search-diag` feature is
+    /// on, and the node delta is taken around the call rather than inside it so the measurement
+    /// cannot reach into the search it measures.
+    #[allow(clippy::too_many_arguments)]
+    fn is_singular(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool, ply: i32,
+        tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
+        stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
+        killer_moves: &mut [[Option<Turn>; 2]; 128],
+        history_table: &mut [[u32; 64]; 64],
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> bool {
+
+        #[cfg(feature = "search-diag")]
+        let nodes_before = stats.calculated_nodes as u64;
+
+        let verdict = self.singular_verification(
+            board, turn, depth, white, ply, tt_entry, tt_move,
+            stats, config, service, context, killer_moves, history_table, counter_moves,
+        );
+
+        #[cfg(feature = "search-diag")]
+        crate::search_diag::record_singular(
+            depth,
+            verdict.is_some(),
+            verdict == Some(true),
+            stats.calculated_nodes as u64 - nodes_before,
+        );
+
+        verdict.unwrap_or(false)
+    }
 
     /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
     /// depth. A positive value means the move is reduced.
@@ -1927,6 +2099,97 @@ mod tests {
         assert_eq!(baseline, unreachable,
             "an unreachable margin must leave the tree untouched ({} vs {})",
             baseline, unreachable);
+    }
+
+    #[test]
+    fn test_singular_extensions_change_the_tree() {
+        // Asserted as a change rather than a shrink or a growth, for the same reason as LMP and
+        // razoring: an extension deepens one line and the deeper score moves the windows above
+        // it, so the node count is not monotone in how many plies are granted. What must be true
+        // is that the rule reaches the tree at all.
+        //
+        // Both searches run with the transposition table **on**. Singularity is a claim about a
+        // table entry, so with `use_zobrist` false the rule has nothing to ask and the test would
+        // pass against a completely dead feature - which is exactly what the next test pins.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+        });
+
+        assert_ne!(with, without,
+            "singular extensions must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_singular_extensions_are_inert_without_the_transposition_table() {
+        // The candidate is the table's best move, so without a table there is no candidate and
+        // the tree must stay bit-identical. This pins the guard order: the rule may never fall
+        // back to "extend the first move searched" when the entry it depends on is absent.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = false;
+        });
+        let enabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+        });
+
+        assert_eq!(baseline, enabled,
+            "without a transposition table the rule must be inert ({} vs {})",
+            baseline, enabled);
+    }
+
+    #[test]
+    fn test_an_unreachable_singular_min_depth_neutralises_the_rule() {
+        // The counterpart of `lmp_max_depth = 0` and of the unreachable razoring margin: a way to
+        // switch the rule off from the tuner without touching the flag, and a guard against a
+        // trigger depth that silently disables what it is supposed to shape.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+        });
+        let unreachable = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 64;
+        });
+
+        assert_eq!(baseline, unreachable,
+            "an unreachable trigger depth must leave the tree untouched ({} vs {})",
+            baseline, unreachable);
+    }
+
+    #[test]
+    fn test_the_shipped_singular_configuration_is_the_one_that_was_measured() {
+        // v0.37.0 ships the rule on at a trigger depth of 6, and that exact pair is what played
+        // the 546-game round robin. This pins both halves: a later edit that flips the flag back,
+        // or that moves the trigger depth to the published 8 on the strength of the literature,
+        // would ship a search that was never measured. It is the singular-extension counterpart
+        // of the test directly above, and of the node-identity check v0.34.0 ran on its candidate.
+        //
+        // Run with the transposition table **on**: singularity is a claim about a table entry, so
+        // with `use_zobrist` false both trees would be the same tree for the wrong reason.
+        let shipped = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 6;
+        });
+
+        assert!(Config::new().enable_singular_extensions,
+            "singular extensions ship enabled since v0.37.0 (task.md 4.2)");
+        assert_eq!(Config::new().singular_min_depth, 6,
+            "the measured trigger depth is 6, not the published 8 (task.md 4.1)");
+        assert_eq!(shipped, measured_variant,
+            "the shipped default must be the measured configuration ({} vs {})",
+            shipped, measured_variant);
     }
 
     #[test]
@@ -2634,6 +2897,7 @@ mod tests {
             &context,
             false,
             false,
+            None,
             &mut pv,
             1,
             &mut killer_moves,
