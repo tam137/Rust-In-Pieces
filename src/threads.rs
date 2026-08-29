@@ -115,6 +115,11 @@ pub fn uci_command_processor(
                     stdout.write("option name CheckExtensionMinDepth type spin default 0 min 0 max 32");
                     stdout.write("option name CheckExtensionMaxDepth type spin default 0 min 0 max 32");
                     stdout.write("option name EnableOneReplyExtension type check default false");
+                    stdout.write("option name EnableSingularExtensions type check default true");
+                    stdout.write("option name SingularMinDepth type spin default 6 min 2 max 32");
+                    stdout.write("option name SingularTtDepthMargin type spin default 3 min 0 max 8");
+                    stdout.write("option name SingularMargin type spin default 2 min 0 max 64");
+                    stdout.write("option name SingularDepthReduction type spin default 0 min 0 max 8");
                     stdout.write("option name UseNNUE type check default false");
                     stdout.write("option name NnueModelPath type string default eval_models/quantised.bin");
                     stdout.write("uciok");

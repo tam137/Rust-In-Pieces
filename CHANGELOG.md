@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.37.0] - 2026-08-29
+
+- Singular Extensions (`enable_singular_extensions`) implemented and enabled by default: when the
+  transposition table move is provably better than every alternative at a node, it is searched one
+  ply deeper. UCI literals in `src/threads.rs` updated alongside `Config::new()`.
+- Trigger depth defaults to **6**, not the published 8. A fixed-depth census over 24 opening lines
+  showed depth 6 grants three times the extensions of depth 7 for the same tree cost, while the
+  published 8 fires at plies 0 to 2 only. See `task.md` 4.1.
+- Measured at roughly **+5 to +10 Elo** over 2591 games against v0.36.0. Two independent round
+  robins each accepted the *does it hurt* hypothesis; pooled score 51.47%. See `task.md` 4.3.
+- New tunables, none SPSA-tuned yet: `singular_min_depth` (6), `singular_tt_depth_margin` (3),
+  `singular_margin` (2), `singular_depth_reduction` (0).
+- Verification searches are excluded from the transposition table write and from the table cutoff,
+  so an exclusion score is never published under the position's own hash.
+- Exclusion is per node and never inherited: `minimax` passes `None` to every child.
+- Known limitation: the gain is single-digit Elo and was priced at one time control only. The rule
+  is depth-conditional, so the number is not guaranteed to transfer to a longer control.
+- Methodology correction affecting earlier entries: a stopped SPRT decides *whether* to ship but
+  overstates *how much*. The first run here read +30.6 Elo and did not reproduce. v0.36.0's
+  **+14.1 Elo** for razoring carries the same bias and should be read as an upper estimate. See
+  `task.md` 4.4.
+
+
+
 ## [V0.36.0] - 2026-08-28
 
 - Razoring at depth 1 (`enable_razoring`) enabled by default; UCI literal in `src/threads.rs`
