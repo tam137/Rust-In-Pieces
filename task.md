@@ -12,11 +12,11 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.36.0** on `master` (HCE), **v0.36.0-NNUE** on `feature/nnue-evaluation` |
+| Released | **v0.37.0** on `master` (HCE). The NNUE branch is one release behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — the v0.37.0 port has not been done |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
 | Uncommitted | nothing |
-| Blocked on | nothing. The razoring gauntlet (section 3) is done; Singular Extensions (section 4) is next |
+| Blocked on | nothing. Sections 1 to 4 are built, measured and released; the staged `MovePicker` (section 5) is next |
 | Next session runs on | **host C (ARM)** — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
