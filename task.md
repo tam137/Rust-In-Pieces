@@ -12,13 +12,13 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.37.0** on `master` (HCE). The NNUE branch is one release behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — the v0.37.0 port has not been done |
+| Released | **v0.37.1** on `master` (HCE), the negamax refactor. The NNUE branch is two releases behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — neither the v0.37.0 nor the v0.37.1 port has been done |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
 | Uncommitted | nothing |
-| Unreleased | the **negamax refactor** is on `master` and is *not* in a release. It is proven node-identical to v0.37.0, so it changes no games — but it touches `src/search_service.rs` and therefore owes the mandatory gauntlet before `./build_and_release.sh` runs. See section 7 |
-| Blocked on | nothing. The gauntlet for the negamax refactor is the next action, and it is a smoke test, not a decision |
-| Next session runs on | **host C (ARM, 8 cores)** — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers |
+| Unreleased | nothing. The negamax refactor shipped as v0.37.1 on 2026-08-29 |
+| Blocked on | nothing. The next action is 7.2, and it is deterministic and costs no games |
+| Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
 1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C.
@@ -50,6 +50,7 @@ and sections 5 and 6 are not started. Section 10 is the measurement infrastructu
 | v0.35.2 | Four defect repairs, no changed default, gauntlet waived | — |
 | v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games — read as an upper estimate, see 4.3 |
 | v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Two independent SPRTs accepted H1 (elo0=-10, elo1=0); pooled **+10.2 Elo [-1, +22] over 2591 games**, best read as **+5 to +10** |
+| v0.37.1 | The negamax refactor. No behaviour change | Node-identical to v0.37.0 on 28 positions at depth 8 and 10. Smoke gauntlet on host C: 52.0% vs v0.37.0, 50.5% vs v0.36.0, 100 games each — neither is a measurement |
 
 Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
 enough to become rules below rather than history: **a run must pair the configuration it exists to
@@ -63,22 +64,20 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — gauntlet and release the negamax refactor
+### The next action — establish where the colour asymmetry lives (7.2)
 
-The negamax refactor (section 7) is committed on `master`, unreleased, and **proven node-identical
-to v0.37.0 on 28 positions at depth 8 and depth 10**. It plays exactly the same chess. Two things
-follow, and they are the whole next action:
+The negamax refactor shipped as **v0.37.1** on 2026-08-29 and the search now sits on a clean
+negamax base, which is what the next three items wanted. The next action is 7.2, and it is chosen
+because it is the cheapest question left: **evaluate a position and its colour mirror and require
+the two scores to be exact negatives.** That is deterministic, costs no games, and separates
+evaluation from search in a single run — if `EvalService::calc_eval` is already asymmetric on a
+static position, nothing about the search needs looking at yet.
 
-1. Run the cross-version gauntlet `skills/engine_release_procedure.md` mandates for any change to
-   `src/search_service.rs`. It is a **smoke test**, not a measurement: identity is already proven,
-   so the only thing the run can tell you is whether the build is broken. 1s + 100ms, 50 rounds,
-   challenger first, against v0.37.0 and v0.36.0.
-2. Release it as a patch. No behaviour change, so nothing needs pricing.
+Only after that is it worth deciding whether the asymmetry is worth anything. A colour-asymmetric
+evaluation is a real strength defect in half the games, but it has never been priced here, and
+this document's own history (8.1, 8.2) is the argument for pricing before fixing.
 
-Do that before anything else, because **the next three items all edit the same file**, and doing
-them on a clean negamax base is a fraction of the work it would be on the old asymmetric one.
-
-### The backlog after that, in order
+### The backlog, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
@@ -119,7 +118,6 @@ A new session can start from this table; each row says where the detail is.
 | The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
 | Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
-| Negamax refactor: committed, node-identical, gauntlet not yet run | 7 | ready to release |
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1 | defect, needs pricing |
 | The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
 | The engine is not colour-symmetric: mirrored positions search 2-3x different trees | 7.2 | open measurement |
@@ -651,7 +649,7 @@ NNUE currently runs on **full recomputation per leaf** and is off by default on 
     - `[ ]` Validate the incremental accumulator against full recomputation.
     - `[ ]` Set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
 
-## 7. Negamax refactor — ✅ built and proven node-identical, not yet released
+## 7. Negamax refactor — ✅ shipped in v0.37.1, node-identical, no Elo expected
 
 `[Impact: Low]` `[Complexity: High]`
 
@@ -669,7 +667,8 @@ are in [`task/negamax_refactor_plan.md`](task/negamax_refactor_plan.md).
 | `cargo test --release` and `cargo test` (debug, overflow checks on) | 176 passed, 0 failed |
 | Compiler warnings, with and without `search-diag` | none |
 | `scripts/verify_negamax_identity.py`, depth 8 and depth 10 | **28/28 identical** |
-| Cross-version gauntlet | **not run** — required by `skills/engine_release_procedure.md` before release |
+| Cross-version gauntlet, host C | **passed**, 2026-08-29. 1s + 100ms, 100 games per pairing, challenger first: **52.0%** against v0.37.0 (+37 =30 -33, +13.9 Elo [-37, +65] paired) and **50.5%** against v0.36.0 (+33 =35 -32, +3.5 Elo [-51, +59] paired). Zero losses on time, zero duplicate games, design effect 1.00 and 1.09 |
+| Release | **v0.37.1**, patch, 2026-08-29 |
 
 The corpus is the 14 shared positions **plus a colour-swapped copy of each**. The shared corpus is
 white-to-move throughout, which is exactly the blind spot a colour-symmetry refactor has: a sign
@@ -690,14 +689,17 @@ scripts/verify_negamax_identity.py --baseline /tmp/suprah-baseline \
 It drives the engine through `scripts/uci_driver.py`, so it waits for `bestmove` rather than
 sleeping; 28 positions at depth 8 take roughly eight minutes on an 8-core ARM host.
 
+Both gauntlet intervals span zero by a wide margin, which is the only reading a node-identical
+change admits. **Neither number is a measurement** and neither may be quoted as one: at 100 games
+a pairing resolves to roughly +/-50 Elo, and the run existed to catch a broken build, nothing
+finer. The +13.9 against v0.37.0 in particular is noise about a binary that searches the identical
+tree — see 4.3.
+
 * **Tasks**:
-    - `[ ]` Run the mandatory cross-version gauntlet from
-      `skills/engine_release_procedure.md` — challenger first, against v0.37.0 and v0.36.0, 1s +
-      100ms, 50 rounds, `openings_mixed.txt`. It is a smoke test, not a measurement: the change is
-      node-identical, so anything below roughly 45% against a predecessor means the build is
-      broken, not that the refactor costs Elo.
-    - `[ ]` Then release as a **patch**, `./build_and_release.sh`. No behaviour change, so the
-      CHANGELOG entry is a refactor entry.
+    - `[x]` Run the mandatory cross-version gauntlet from `skills/engine_release_procedure.md`.
+      Passed on host C, 2026-08-29; the numbers are in the table above.
+    - `[x]` Release as a **patch**. Shipped as **v0.37.1** on 2026-08-29 with a refactor CHANGELOG
+      entry that records both open defects as known limitations.
 
 ### 7.1 One site could not be merged, and it is a defect — open
 
