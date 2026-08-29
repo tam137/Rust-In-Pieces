@@ -174,8 +174,24 @@ impl SearchService {
                     root_depth: depth,
                 };
 
-                let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                    current_alpha, current_beta, stats, config, service, &child_context, true, false, None, &mut child_pv,
+                // `minimax` is negamax: its window and its score belong to the side to move at
+                // the node it is entered on, which here is the *opponent* of the side to move at
+                // the root. The root keeps the absolute, White-positive scale that
+                // `SearchResult`, the aspiration window and the UCI layer are written in, so the
+                // conversion happens here and nowhere else.
+                //
+                // `saturating_neg` matters: a full window starts at `i16::MIN`, and negating that
+                // overflows. The `i16::MIN + 1` it yields instead is erased by the child's own
+                // Mate Distance Pruning, which clamps the window to `+/-(MATE_SCORE - ply)`
+                // before anything reads it, so the search tree does not move.
+                let (child_alpha, child_beta) = if white {
+                    (current_beta.saturating_neg(), current_alpha.saturating_neg())
+                } else {
+                    (current_alpha, current_beta)
+                };
+
+                let min_max_result = self.minimax(board, turn, depth - 1,
+                    child_alpha, child_beta, stats, config, service, &child_context, true, false, None, &mut child_pv,
                     1, &mut killer_moves, &mut history_table, &mut counter_moves);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -187,7 +203,13 @@ impl SearchService {
                     break;
                 }
 
-                let min_max_eval = min_max_result.1;
+                // Back onto the absolute scale. The child is the opposite colour to the root,
+                // so a White root negates and a Black root does not.
+                let min_max_eval = if white {
+                    min_max_result.1.saturating_neg()
+                } else {
+                    min_max_result.1
+                };
 
                 if white {
                     if min_max_eval > search_result.best_score {
@@ -407,7 +429,16 @@ impl SearchService {
         self.see(board, mv, config, movegen) >= threshold
     }
 
-    fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
+    /// One negamax node. `alpha`, `beta` and the returned score are **relative to the side to
+    /// move**: a higher score is better for whoever is on move, whichever colour that is. The
+    /// absolute, White-positive scale that `SearchResult` and the UCI layer are written in is
+    /// entered and left exactly once, in [`Self::get_moves`].
+    ///
+    /// Three of the recursive calls below — the Null Move verification search, the razoring
+    /// Quiescence Search and [`Self::singular_verification`] — re-enter *this same node* with a
+    /// different move list or depth. They keep the window and the score as they are. Every other
+    /// recursion follows a `do_move` or a null move, and negates both.
+    fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, is_pv: bool,
         skip_null_move: bool,
@@ -418,14 +449,26 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64])
         -> (Option<Turn>, i16) {
 
+        // The two properties the whole negamax conversion rests on. `white` used to be threaded
+        // through as a parameter and was always the board's own side to move; and `get_moves`
+        // enters at ply 1, while the three same-node re-entries pass `ply` unchanged. The second
+        // one is what guarantees Mate Distance Pruning always runs, and therefore that `alpha`
+        // and `beta` are inside `[-(MATE_SCORE - ply), MATE_SCORE - ply]` before any other code
+        // reads them — which is what makes every negation below exact.
+        debug_assert!(ply > 0, "minimax entered at ply 0: Mate Distance Pruning would not run");
 
+        let white = board.white_to_move;
 
         for slot in pv.iter_mut() {
             *slot = None;
         }
 
         if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            return (None, if white { i16::MIN } else { i16::MAX });
+            // An abandoned search returns its worst possible score. `-i16::MAX` rather than
+            // `i16::MIN` so that a parent may negate it; the value is discarded by every caller
+            // once the stop flag is set, and the Transposition Table write below is skipped, so
+            // the one-unit difference from the pre-refactor sentinel reaches nothing.
+            return (None, -i16::MAX);
         }
 
         // Hard ply ceiling. Check Extensions can keep the remaining depth constant along a
@@ -433,9 +476,11 @@ impl SearchService {
         // static evaluation here guarantees that every ply-indexed table access below stays
         // within bounds and that the search tree remains finite.
         if ply >= MAX_PLY as i32 - 1 {
-            return (None, service.eval.calc_eval(
+            let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+            let absolute = service.eval.calc_eval(
                 board, config, &service.move_gen, &service.pawn_table,
-                alpha, beta, config.lazy_eval_margin_search));
+                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+            return (None, Self::relative_score(white, absolute));
         }
 
         // Saturating index for all ply-indexed tables (killer moves).
@@ -550,9 +595,16 @@ impl SearchService {
         let orig_alpha = alpha;
         let orig_beta = beta;
 
-        // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
+        // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check.
+        // Evaluation is absolute and this search is negamax, so the window is converted on the
+        // way in and the score on the way out. That single negation is what lets Reverse
+        // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
-            service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_search)
+            let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+            let absolute = service.eval.calc_eval(
+                board, config, &service.move_gen, &service.pawn_table,
+                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+            Self::relative_score(white, absolute)
         } else {
             0
         };
@@ -585,28 +637,21 @@ impl SearchService {
             }
             let mut null_pv = [None; 128];
 
-            let null_eval = if white {
-                self.minimax(
-                    board, turn, reduced_depth, false,
-                    beta - 1, beta, stats, config, service, context,
-                    is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
-                ).1
-            } else {
-                self.minimax(
-                    board, turn, reduced_depth, true,
-                    alpha, alpha + 1, stats, config, service, context,
-                    is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
-                ).1
-            };
+            // The side to move has changed even though no move was played, so this is one of
+            // the recursions that negates: the child searches the null window at `-beta`, and
+            // its score comes back on the opponent's scale.
+            let null_eval = -self.minimax(
+                board, turn, reduced_depth,
+                -beta, -beta + 1, stats, config, service, context,
+                is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+            ).1;
 
             // Undo Null Move
             board.white_to_move = old_white_to_move;
             board.field_for_en_passante = old_field_for_en_passante;
             board.cached_hash = old_hash;
 
-            let is_cutoff = if white { null_eval >= beta } else { null_eval <= alpha };
-
-            if is_cutoff {
+            if null_eval >= beta {
                 // Verification Search for high depths. The null move has already been undone,
                 // so this re-searches *this* node at a reduced depth and therefore runs at
                 // `ply`, not `ply + 1`: the position's distance from the root has not changed.
@@ -616,18 +661,19 @@ impl SearchService {
                 // this position.
                 if depth >= config.nmp_verification_threshold {
                     let mut verify_pv = [None; 128];
+                    // Same node, same side to move, same ply: the window and the score pass
+                    // through unchanged.
                     let verify_eval = self.minimax(
-                        board, turn, reduced_depth, white,
+                        board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
                         is_pv, true, None, &mut verify_pv, ply, killer_moves, history_table, counter_moves
                     ).1;
 
-                    let verify_cutoff = if white { verify_eval >= beta } else { verify_eval <= alpha };
-                    if verify_cutoff {
-                        return (None, if white { beta } else { alpha });
+                    if verify_eval >= beta {
+                        return (None, beta);
                     }
                 } else {
-                    return (None, if white { beta } else { alpha });
+                    return (None, beta);
                 }
             }
         }
@@ -640,13 +686,9 @@ impl SearchService {
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
             let margin = config.rfp_margin_per_depth * depth as i16;
-            
-            if white {
-                if static_eval - margin >= beta {
-                    return (None, static_eval - margin); // Beta cutoff
-                }
-            } else if static_eval + margin <= alpha {
-                return (None, static_eval + margin); // Alpha cutoff
+
+            if static_eval - margin >= beta {
+                return (None, static_eval - margin); // Beta cutoff
             }
         }
 
@@ -674,31 +716,19 @@ impl SearchService {
             && !turn.gives_check
             && alpha.abs() < 20000
             && beta.abs() < 20000
+            && static_eval + config.razoring_margin <= alpha
         {
-            if white {
-                if static_eval + config.razoring_margin <= alpha {
-                    let mut razor_pv = [None; 128];
-                    let razor_eval = self.minimax(
-                        board, turn, 0, white,
-                        alpha, alpha + 1, stats, config, service, context,
-                        false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
-                        counter_moves
-                    ).1;
-                    if razor_eval <= alpha {
-                        return (None, razor_eval);
-                    }
-                }
-            } else if static_eval - config.razoring_margin >= beta {
-                let mut razor_pv = [None; 128];
-                let razor_eval = self.minimax(
-                    board, turn, 0, white,
-                    beta - 1, beta, stats, config, service, context,
-                    false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
-                    counter_moves
-                ).1;
-                if razor_eval >= beta {
-                    return (None, razor_eval);
-                }
+            let mut razor_pv = [None; 128];
+            // Same node at depth 0, i.e. a Quiescence Search of this position: the window and
+            // the score pass through unchanged.
+            let razor_eval = self.minimax(
+                board, turn, 0,
+                alpha, alpha + 1, stats, config, service, context,
+                false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
+                counter_moves
+            ).1;
+            if razor_eval <= alpha {
+                return (None, razor_eval);
             }
         }
 
@@ -782,63 +812,44 @@ impl SearchService {
 
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
-            let mut eval = if white { i16::MIN } else { i16::MAX };
+            // Dead store: in check the move loop always assigns before this is read, because a
+            // check with no legal reply returns as checkmate above; out of check `stand_pat`
+            // takes its place immediately below.
+            let mut eval = -i16::MAX;
             let mut best_move: Option<Turn> = None;
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_qs);
+                let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+                stand_pat = Self::relative_score(white, service.eval.calc_eval(
+                    board, config, &service.move_gen, &service.pawn_table,
+                    abs_alpha, abs_beta, config.lazy_eval_margin_qs));
                 eval = stand_pat;
 
-                // Stand-pat cutoffs
-                if white {
-                    if stand_pat >= beta {
-                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                            let mut stored_eval = stand_pat;
-                            if stand_pat > 30000 {
-                                stored_eval = stand_pat.saturating_add(ply as i16);
-                            } else if stand_pat < -30000 {
-                                stored_eval = stand_pat.saturating_sub(ply as i16);
-                            }
-                            context.zobrist_table.insert_entry(
-                                board.cached_hash,
-                                crate::zobrist::TranspositionEntry {
-                                    key: board.cached_hash,
-                                    eval: stored_eval,
-                                    depth: 0,
-                                    entry_type: crate::zobrist::TranspositionType::LowerBound,
-                                    best_move: 0,
-                                    padding: [0; 2],
-                                },
-                            );
+                // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can
+                // reach, so a score at or above beta ends the node and is stored as such.
+                if stand_pat >= beta {
+                    if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        let mut stored_eval = stand_pat;
+                        if stand_pat > 30000 {
+                            stored_eval = stand_pat.saturating_add(ply as i16);
+                        } else if stand_pat < -30000 {
+                            stored_eval = stand_pat.saturating_sub(ply as i16);
                         }
-                        return (None, stand_pat);
+                        context.zobrist_table.insert_entry(
+                            board.cached_hash,
+                            crate::zobrist::TranspositionEntry {
+                                key: board.cached_hash,
+                                eval: stored_eval,
+                                depth: 0,
+                                entry_type: crate::zobrist::TranspositionType::LowerBound,
+                                best_move: 0,
+                                padding: [0; 2],
+                            },
+                        );
                     }
-                    alpha = alpha.max(stand_pat);
-                } else {
-                    if stand_pat <= alpha {
-                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                            let mut stored_eval = stand_pat;
-                            if stand_pat > 30000 {
-                                stored_eval = stand_pat.saturating_add(ply as i16);
-                            } else if stand_pat < -30000 {
-                                stored_eval = stand_pat.saturating_sub(ply as i16);
-                            }
-                            context.zobrist_table.insert_entry(
-                                board.cached_hash,
-                                crate::zobrist::TranspositionEntry {
-                                    key: board.cached_hash,
-                                    eval: stored_eval,
-                                    depth: 0,
-                                    entry_type: crate::zobrist::TranspositionType::UpperBound,
-                                    best_move: 0,
-                                    padding: [0; 2],
-                                },
-                            );
-                        }
-                        return (None, stand_pat);
-                    }
-                    beta = beta.min(stand_pat);
+                    return (None, stand_pat);
                 }
+                alpha = alpha.max(stand_pat);
             }
 
             let mut turns = crate::model::MoveList::new();
@@ -850,12 +861,7 @@ impl SearchService {
 
             if turns.is_empty() {
                 if in_check {
-                    return match board.game_status {
-                        GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
-                        GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
-                        GameStatus::Draw => (None, 0),
-                        _ => panic!("RIP no defined game end"),
-                    };
+                    return (None, Self::terminal_score(board, ply));
                 }
                 return (None, stand_pat);
             }
@@ -893,11 +899,7 @@ impl SearchService {
                         _ => 0,
                     };
                     let delta_margin = config.delta_pruning_margin;
-                    if white {
-                        if stand_pat + gain + delta_margin < alpha {
-                            continue;
-                        }
-                    } else if stand_pat - gain - delta_margin > beta {
+                    if stand_pat + gain + delta_margin < alpha {
                         continue;
                     }
                 }
@@ -927,23 +929,14 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
-                let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
-                    alpha, beta, stats, config, service, &current_context, true, false, None, &mut child_pv,
-                    ply + 1, killer_moves, history_table, counter_moves);
-                let min_max_eval = min_max_result.1;
+                let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
+                    -beta, -alpha, stats, config, service, &current_context, true, false, None, &mut child_pv,
+                    ply + 1, killer_moves, history_table, counter_moves).1;
                 board.undo_move(capture_turn, mi);
 
-                if white {
-                    if eval < min_max_eval {
-                        eval = min_max_eval;
-                        alpha = alpha.max(min_max_eval);
-                        best_move = Some(*capture_turn);
-                        pv[0] = Some(*capture_turn);
-                        pv[1..].copy_from_slice(&child_pv[..127]);
-                    }
-                } else if eval > min_max_eval {
+                if eval < min_max_eval {
                     eval = min_max_eval;
-                    beta = beta.min(min_max_eval);
+                    alpha = alpha.max(min_max_eval);
                     best_move = Some(*capture_turn);
                     pv[0] = Some(*capture_turn);
                     pv[1..].copy_from_slice(&child_pv[..127]);
@@ -956,13 +949,7 @@ impl SearchService {
 
             // Transposition Table Write for Quiescence Search
             if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                let entry_type = if eval <= orig_alpha {
-                    crate::zobrist::TranspositionType::UpperBound
-                } else if eval >= orig_beta {
-                    crate::zobrist::TranspositionType::LowerBound
-                } else {
-                    crate::zobrist::TranspositionType::Exact
-                };
+                let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
 
                 let mut stored_eval = eval;
                 // Normalize mate score
@@ -996,16 +983,11 @@ impl SearchService {
         // starting the score outside the window instead of at its bound measured **-168 Elo**
         // over 60 games against an otherwise identical build. Do not reintroduce it without a
         // cross-version gauntlet, and see specification 2.3 in `task.md`.
-        let mut eval = if white { alpha } else { beta };
+        let mut eval = alpha;
         let mut best_move: Option<Turn> = None;
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
-            return match board.game_status {
-                GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
-                GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
-                GameStatus::Draw => (None, 0),
-                _ => panic!("RIP no defined game end"),
-            };
+            return (None, Self::terminal_score(board, ply));
         }
 
         // Stage-0 opportunity measurement (`task.md` 1.2.2). The scan is `cfg`-gated rather
@@ -1157,12 +1139,7 @@ impl SearchService {
 
                 if !is_important {
                     let futility_margin = config.futility_margin_base + config.futility_margin_slope * depth as i16;
-                    if white {
-                        if static_eval + futility_margin <= alpha {
-                            i += 1;
-                            continue;
-                        }
-                    } else if static_eval - futility_margin >= beta {
+                    if static_eval + futility_margin <= alpha {
                         i += 1;
                         continue;
                     }
@@ -1187,11 +1164,7 @@ impl SearchService {
                 && {
                     let futility_margin =
                         config.futility_margin_base + config.futility_margin_slope * depth as i16;
-                    if white {
-                        static_eval + futility_margin <= alpha
-                    } else {
-                        static_eval - futility_margin >= beta
-                    }
+                    static_eval + futility_margin <= alpha
                 };
 
             if stats.calculated_nodes & 1023 == 0 {
@@ -1274,7 +1247,7 @@ impl SearchService {
                 && depth >= config.singular_min_depth
                 && Some(*current_turn) == tt_move
                 && self.is_singular(
-                    board, turn, depth, white, ply, tt_entry, *current_turn,
+                    board, turn, depth, ply, tt_entry, *current_turn,
                     stats, config, service, context, killer_moves, history_table, counter_moves,
                 );
 
@@ -1324,7 +1297,9 @@ impl SearchService {
 
             let mi = board.do_move(current_turn);
 
-            let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
+            // Dead store: either the reduced search below assigns it, or the Principal
+            // Variation Search does.
+            let mut min_max_eval = -i16::MAX;
             let mut searched = false;
 
             // 1. Late Move Reductions (LMR)
@@ -1346,73 +1321,42 @@ impl SearchService {
                 if reduction > 0 {
                     let clamped_reduction = reduction.clamp(1, depth - 2);
                     let reduced_depth = depth - 1 - clamped_reduction;
-                    
-                    if white {
-                        min_max_eval = self.minimax(
-                            board, current_turn, reduced_depth, !white,
-                            alpha, alpha + 1, stats, config, service, &current_context,
-                            false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                        ).1;
-                        if min_max_eval <= alpha {
-                            searched = true;
-                        }
-                    } else {
-                        min_max_eval = self.minimax(
-                            board, current_turn, reduced_depth, !white,
-                            beta - 1, beta, stats, config, service, &current_context,
-                            false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                        ).1;
-                        if min_max_eval >= beta {
-                            searched = true;
-                        }
+
+                    min_max_eval = -self.minimax(
+                        board, current_turn, reduced_depth,
+                        -alpha - 1, -alpha, stats, config, service, &current_context,
+                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    ).1;
+                    // The reduced search failed low, so the move is confirmed uninteresting and
+                    // no full-depth re-search is needed.
+                    if min_max_eval <= alpha {
+                        searched = true;
                     }
                 }
             }
 
             // 2. Principal Variation Search (PVS)
             if !searched {
-                if config.enable_pvs {
-                    if turn_counter > 1 {
-                        if white {
-                            min_max_eval = self.minimax(
-                                board, current_turn, child_depth, !white,
-                                alpha, alpha + 1, stats, config, service, &current_context,
-                                false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                            ).1;
+                if config.enable_pvs && turn_counter > 1 {
+                    min_max_eval = -self.minimax(
+                        board, current_turn, child_depth,
+                        -alpha - 1, -alpha, stats, config, service, &current_context,
+                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    ).1;
 
-                            if min_max_eval > alpha && min_max_eval < beta {
-                                min_max_eval = self.minimax(
-                                    board, current_turn, child_depth, !white,
-                                    alpha, beta, stats, config, service, &current_context,
-                                    true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                                ).1;
-                            }
-                        } else {
-                            min_max_eval = self.minimax(
-                                board, current_turn, child_depth, !white,
-                                beta - 1, beta, stats, config, service, &current_context,
-                                false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                            ).1;
-
-                            if min_max_eval < beta && min_max_eval > alpha {
-                                min_max_eval = self.minimax(
-                                    board, current_turn, child_depth, !white,
-                                    alpha, beta, stats, config, service, &current_context,
-                                    true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                                ).1;
-                            }
-                        }
-                    } else {
-                        min_max_eval = self.minimax(
-                            board, current_turn, child_depth, !white,
-                            alpha, beta, stats, config, service, &current_context,
-                            is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    // The null window only proved the move is not worse than the best so far.
+                    // A score strictly inside the real window has to be established properly.
+                    if min_max_eval > alpha && min_max_eval < beta {
+                        min_max_eval = -self.minimax(
+                            board, current_turn, child_depth,
+                            -beta, -alpha, stats, config, service, &current_context,
+                            true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
-                    min_max_eval = self.minimax(
-                        board, current_turn, child_depth, !white,
-                        alpha, beta, stats, config, service, &current_context,
+                    min_max_eval = -self.minimax(
+                        board, current_turn, child_depth,
+                        -beta, -alpha, stats, config, service, &current_context,
                         is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
                 }
@@ -1432,22 +1376,9 @@ impl SearchService {
                 (stats.calculated_nodes - diag_nodes_before) as u64,
             );
 
-            if white {
-                if eval < min_max_eval {
-                    eval = min_max_eval;
-                    alpha = alpha.max(min_max_eval);
-                    best_move = Some(*current_turn);
-                    pv[0] = Some(*current_turn);
-                    pv[1..].copy_from_slice(&child_pv[..127]);
-                    if config.in_debug && turn_counter > 30 {
-                        stats.add_turn_nr_gt_threshold(1);
-                        stats.add_log(format!("{}, move {} was the {} lvl:{}",
-                        service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
-                    };
-                }
-            } else if eval > min_max_eval {
+            if eval < min_max_eval {
                 eval = min_max_eval;
-                beta = beta.min(min_max_eval);
+                alpha = alpha.max(min_max_eval);
                 best_move = Some(*current_turn);
                 pv[0] = Some(*current_turn);
                 pv[1..].copy_from_slice(&child_pv[..127]);
@@ -1511,13 +1442,7 @@ impl SearchService {
         if config.use_zobrist
             && excluded_move.is_none()
             && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            let entry_type = if eval <= orig_alpha {
-                crate::zobrist::TranspositionType::UpperBound
-            } else if eval >= orig_beta {
-                crate::zobrist::TranspositionType::LowerBound
-            } else {
-                crate::zobrist::TranspositionType::Exact
-            };
+            let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
 
             let mut stored_eval = eval;
             // Normalize mate score
@@ -1574,7 +1499,7 @@ impl SearchService {
     /// in [`Self::is_singular`] can separate a candidate that was refused from one that was
     /// verified and found wanting. The caller of the search reads both as "no extension".
     #[allow(clippy::too_many_arguments)]
-    fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
+    fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32,
         ply: i32,
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
@@ -1590,14 +1515,14 @@ impl SearchService {
         }
 
         // ...and it has to bound the score in the direction that makes "the table move really
-        // does achieve this" a true statement. Scores in this search are absolute rather than
-        // side-relative, so the published `BOUND_LOWER` condition is a *lower* bound only where
-        // White is to move; at a Black node the identical claim is an upper bound.
-        let bound_supports_the_move = match tt_type {
-            crate::zobrist::TranspositionType::Exact => true,
-            crate::zobrist::TranspositionType::LowerBound => white,
-            crate::zobrist::TranspositionType::UpperBound => !white,
-        };
+        // does achieve this" a true statement. Scores are relative to the side to move, so the
+        // published `BOUND_LOWER` condition holds at either colour: an upper bound cannot
+        // support a claim that a move reaches a score.
+        let bound_supports_the_move = matches!(
+            tt_type,
+            crate::zobrist::TranspositionType::Exact
+                | crate::zobrist::TranspositionType::LowerBound
+        );
         if !bound_supports_the_move || tt_eval.abs() >= 20000 {
             return None;
         }
@@ -1612,25 +1537,16 @@ impl SearchService {
         let margin = config.singular_margin.saturating_mul(depth as i16);
         let mut singular_pv = [None; 128];
 
-        if white {
-            let threshold = tt_eval.saturating_sub(margin);
-            let eval = self.minimax(
-                board, turn, verification_depth, white,
-                threshold - 1, threshold, stats, config, service, context,
-                false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
-                counter_moves,
-            ).1;
-            Some(eval < threshold)
-        } else {
-            let threshold = tt_eval.saturating_add(margin);
-            let eval = self.minimax(
-                board, turn, verification_depth, white,
-                threshold, threshold + 1, stats, config, service, context,
-                false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
-                counter_moves,
-            ).1;
-            Some(eval > threshold)
-        }
+        // Same node, same side to move, same ply — only the move list differs — so the window
+        // and the score pass through unchanged.
+        let threshold = tt_eval.saturating_sub(margin);
+        let eval = self.minimax(
+            board, turn, verification_depth,
+            threshold - 1, threshold, stats, config, service, context,
+            false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
+            counter_moves,
+        ).1;
+        Some(eval < threshold)
     }
 
     /// [`Self::singular_verification`], plus the `task.md` section 4 diagnostic: how many nodes
@@ -1639,7 +1555,7 @@ impl SearchService {
     /// on, and the node delta is taken around the call rather than inside it so the measurement
     /// cannot reach into the search it measures.
     #[allow(clippy::too_many_arguments)]
-    fn is_singular(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool, ply: i32,
+    fn is_singular(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32,
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
@@ -1650,7 +1566,7 @@ impl SearchService {
         let nodes_before = stats.calculated_nodes as u64;
 
         let verdict = self.singular_verification(
-            board, turn, depth, white, ply, tt_entry, tt_move,
+            board, turn, depth, ply, tt_entry, tt_move,
             stats, config, service, context, killer_moves, history_table, counter_moves,
         );
 
@@ -1709,6 +1625,80 @@ impl SearchService {
         }
 
         reduction
+    }
+
+    /// Classify a fail-hard score against the window this node actually searched.
+    ///
+    /// `alpha == beta` is reachable — the root's own window bookkeeping can narrow
+    /// `current_alpha`/`current_beta` onto each other and hand the next root move an empty
+    /// window — and there *both* comparisons are true at once, so their order decides the label.
+    /// The pre-negamax search made that decision on the absolute, White-positive scale, which
+    /// broke the tie towards `UpperBound` at a White node and towards what is `LowerBound` on
+    /// this relative scale at a Black node. Reproducing that split is the one place where the
+    /// conversion cannot be colour-blind, and it is what keeps the refactor node-identical.
+    ///
+    /// The Black half of that split stores a bound the search never proved. It is a pre-existing
+    /// defect, not one introduced here, and correcting it moves the search tree — so it is
+    /// recorded and priced separately; see `task/negamax_refactor_plan.md`.
+    #[inline(always)]
+    fn bound_for(white: bool, eval: i16, orig_alpha: i16, orig_beta: i16)
+        -> crate::zobrist::TranspositionType {
+        use crate::zobrist::TranspositionType;
+        if white {
+            if eval <= orig_alpha {
+                TranspositionType::UpperBound
+            } else if eval >= orig_beta {
+                TranspositionType::LowerBound
+            } else {
+                TranspositionType::Exact
+            }
+        } else if eval >= orig_beta {
+            TranspositionType::LowerBound
+        } else if eval <= orig_alpha {
+            TranspositionType::UpperBound
+        } else {
+            TranspositionType::Exact
+        }
+    }
+
+    /// The window this node is searching, restated on the absolute, White-positive scale that
+    /// [`crate::eval_service::EvalService::calc_eval`] compares its Lazy Evaluation cutoffs
+    /// against. The search itself is negamax and carries a side-to-move-relative window, so at a
+    /// Black node the two bounds swap and change sign.
+    #[inline(always)]
+    fn absolute_window(white: bool, alpha: i16, beta: i16) -> (i16, i16) {
+        if white {
+            (alpha, beta)
+        } else {
+            (beta.saturating_neg(), alpha.saturating_neg())
+        }
+    }
+
+    /// An absolute, White-positive evaluation restated on this node's side-to-move-relative
+    /// scale. The inverse of [`Self::absolute_window`] for a single score.
+    #[inline(always)]
+    fn relative_score(white: bool, absolute: i16) -> i16 {
+        if white { absolute } else { absolute.saturating_neg() }
+    }
+
+    /// The score of a position with no legal move, relative to the side to move.
+    ///
+    /// Negamax collapses what used to be two mate constants into one: the side to move is the
+    /// side with no reply, so if the position is not a draw it is checkmate *against* the side
+    /// to move, and `board.game_status` can only name the opponent as the winner.
+    fn terminal_score(board: &Board, ply: i32) -> i16 {
+        match board.game_status {
+            GameStatus::WhiteWin | GameStatus::BlackWin => {
+                debug_assert_ne!(
+                    board.game_status == GameStatus::WhiteWin,
+                    board.white_to_move,
+                    "the side to move cannot be the winner at a node with no legal move"
+                );
+                -(crate::model::MATE_SCORE - ply as i16)
+            }
+            GameStatus::Draw => 0,
+            _ => panic!("RIP no defined game end"),
+        }
     }
 
     fn has_non_pawn_material(&self, board: &Board, white: bool) -> bool {
@@ -2888,7 +2878,6 @@ mod tests {
             &mut board,
             &dummy_turn,
             0, // Quiescence search depth
-            true, // white
             -30000,
             30000,
             &mut stats,
@@ -3127,6 +3116,53 @@ mod tests {
         let parser = crate::uci_parser_service::UciParserService {};
         assert_eq!("mate 3", parser.format_score(-black_mates));
         assert_eq!("mate 3", parser.format_score(white_mates));
+    }
+
+    #[test]
+    fn test_terminal_score_is_always_a_loss_for_the_side_to_move() {
+        // Negamax collapses the two mate constants into one, and that collapse is only sound
+        // because the side to move at a node with no legal reply is never the winner. Both
+        // mirrors of the same mate must therefore produce the identical relative score.
+        use crate::model::GameStatus;
+
+        let mut white_mated = Service::new().fen.set_fen("7k/8/8/8/8/8/5q2/7K w - - 0 1");
+        white_mated.game_status = GameStatus::BlackWin;
+        let mut black_mated = Service::new().fen.set_fen("7K/8/8/8/8/8/5Q2/7k b - - 0 1");
+        black_mated.game_status = GameStatus::WhiteWin;
+
+        let expected = -(crate::model::MATE_SCORE - 7);
+        assert_eq!(crate::search_service::SearchService::terminal_score(&white_mated, 7), expected);
+        assert_eq!(crate::search_service::SearchService::terminal_score(&black_mated, 7), expected);
+
+        let mut drawn = Service::new().fen.set_fen("7k/8/8/8/8/8/8/7K w - - 0 1");
+        drawn.game_status = GameStatus::Draw;
+        assert_eq!(crate::search_service::SearchService::terminal_score(&drawn, 7), 0);
+    }
+
+    #[test]
+    fn test_transposition_bound_tie_break_stays_colour_dependent_on_an_empty_window() {
+        // `alpha == beta` is reachable: the root narrows `current_alpha`/`current_beta` towards
+        // each other as it searches, and the next root move can be handed an empty window. There
+        // both bound tests are true at once and their order picks the label.
+        //
+        // The pre-negamax search decided that on the absolute, White-positive scale. Reproducing
+        // the split is what keeps the negamax conversion node-identical, so it is pinned here
+        // rather than left to the order two comparisons happen to be written in.
+        //
+        // The Black half is a defect — it publishes a bound the search never proved — and it is
+        // deliberately not corrected here. See `task/negamax_refactor_plan.md`.
+        use crate::search_service::SearchService;
+        use crate::zobrist::TranspositionType;
+
+        assert_eq!(SearchService::bound_for(true, -34, -34, -34), TranspositionType::UpperBound);
+        assert_eq!(SearchService::bound_for(false, -34, -34, -34), TranspositionType::LowerBound);
+
+        // On any window the search can actually resolve, the label does not depend on colour.
+        for white in [true, false] {
+            assert_eq!(SearchService::bound_for(white, 10, 20, 40), TranspositionType::UpperBound);
+            assert_eq!(SearchService::bound_for(white, 50, 20, 40), TranspositionType::LowerBound);
+            assert_eq!(SearchService::bound_for(white, 30, 20, 40), TranspositionType::Exact);
+        }
     }
 
     #[test]
