@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.37.2] - 2026-08-29
+
+Five defect repairs. No new feature, no changed search default.
+
+- **The evaluation was not colour-symmetric.** The candidate-passed-pawn rule counted enemy pawns
+  on the adjacent files with an index threshold where a rank predicate was meant, which also
+  admitted the pawn's own rank - `sq + 1` for White, `sq - 1` for Black. A colour mirror flips the
+  rank and leaves the file alone, so the same structure scored 8 cp (middlegame) / 16 cp (endgame)
+  differently depending on which colour held it. A position and its mirror now evaluate to exact
+  negatives on 0 of 21,300 (position, window) pairs, from 65 of 1,905 before.
+- **Thirteen of the sixty-one advertised UCI options were inert.** `setoption` matched the
+  lowercased name with `_` between whitespace tokens, so a single-token CamelCase name collapsed to
+  something no arm carried: the engine advertised `ConnectedPassedPawnMg`, `KnightOutpostTrueMg`,
+  `KingPawnShieldKingside` and ten more, accepted them, and silently ignored the value. Names are
+  now matched case-insensitively with separators removed, so the advertised spelling, snake_case
+  and a spaced spelling are one option. SPSA was never affected.
+- **Twelve advertised defaults had drifted** from `Config`, one tuning run at a time. The option
+  list moved into `threads::uci_options(&Config)` and reads every default from the configuration,
+  so the drift is no longer expressible.
+- `SyzygyPath` is no longer advertised: there is no tablebase code in the engine.
+- Removed the dead `Config::search_threads`, written in four places and read in none. `LmpMaxDepth`
+  now advertises `max 4` in UCI and in `tuning/parameters.json`, because it is inert above 4.
+- The `setoption` dispatch moved from `game_handler.rs` into `Config::apply_uci_option`, which
+  reports back what the caller must do about the opening book instead of reaching for it. Four new
+  tests hold the facade, including one that fails for an option that parses a value and drops it.
+- **The colour asymmetry of `task.md` 7.2 is explained and is not a defect.** Mirrored positions
+  search 2 to 3 times different trees because the move list order is not mirror-invariant -
+  generation walks bitboards by ascending square index - while LMP, LMR and Futility Pruning all
+  key on a move's index. The generated move set and every move's rank are exactly mirrored. The
+  transposition-table tie-break of 7.1 and SEE were both eliminated as causes.
+- The pawn fix moves the search tree and is **not priced**. Mandatory cross-version smoke gauntlet
+  on an 8-core ARM host, 1s + 100ms, 100 games per pairing: 48.5% against v0.37.1 and 52.5%
+  against v0.37.0, no losses on time. Both intervals span zero widely; neither is a measurement.
+- Known limitation, unchanged: the transposition-table bound on an empty `alpha == beta` window is
+  still colour-dependent and its Black half stores a bound the search never proved (`task.md` 7.1).
+  Newly recorded: `cheap_eval` reads the pawn hash table but never fills it, so Lazy Evaluation
+  compares a score missing the pawn structure on first visit (`task.md` 10.8). Both move the tree
+  and need pricing.
+
+
+
 ## [V0.37.1] - 2026-08-29
 
 - The search is now canonical **negamax** on side-to-move-relative scores. `minimax` lost its

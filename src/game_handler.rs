@@ -37,224 +37,36 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     let parts: Vec<&str> = command.split_whitespace().collect();
                     if let Some(name_idx) = parts.iter().position(|&r| r.to_lowercase() == "name") {
                         if let Some(val_idx) = parts.iter().position(|&r| r.to_lowercase() == "value") {
-                            let param_name = parts[name_idx+1..val_idx].join("_").to_lowercase()
-                                .replace("enablepositionalcap", "enable_positional_cap")
-                                .replace("enablelazyeval", "enable_lazy_eval")
-                                .replace("lazyevalmingamephase", "lazy_eval_min_game_phase")
-                                .replace("lazyevalmarginsearch", "lazy_eval_margin_search")
-                                .replace("lazyevalmarginqs", "lazy_eval_margin_qs")
-                                .replace("positionalcapdamping", "positional_cap_damping")
-                                .replace("enablefutilitypruning", "enable_futility_pruning")
-                                .replace("enableqstt", "enable_qs_tt")
-                                .replace("futilitymaxdepth", "futility_max_depth")
-                                .replace("futilitymarginbase", "futility_margin_base")
-                                .replace("futilitymarginslope", "futility_margin_slope")
-                                .replace("enablerazoring", "enable_razoring")
-                                .replace("razoringmargin", "razoring_margin");
+                            let param_name = parts[name_idx+1..val_idx].join(" ");
                             let val_str = parts[val_idx+1..].join(" ");
-
-                            if param_name == "aggressiveness" {
-                                if val_str.to_lowercase().contains("high") {
-                                    active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
-                                } else if val_str.to_lowercase().contains("aggressive") {
-                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
-                                } else {
-                                    active_config.set_aggressiveness(crate::config::Aggressiveness::Normal);
-                                }
-                            } else if param_name == "enable_lazy_eval" {
-                                active_config.enable_lazy_eval = val_str.to_lowercase() == "true";
-                            } else if param_name == "usennue" || param_name == "use_nnue" {
-                                active_config.use_nnue = val_str.to_lowercase() == "true";
-                            } else if param_name == "nnuemodelpath" || param_name == "nnue_model_path" {
-                                active_config.nnue_model_path = val_str.clone();
-                            } else if param_name == "enable_positional_cap" {
-                                active_config.enable_positional_cap = val_str.to_lowercase() == "true";
-                            } else if param_name == "move_overhead" {
-                                if let Ok(overhead) = val_str.parse::<u64>() { active_config.move_overhead = overhead; }
+                            let effect = active_config.apply_uci_option(&param_name, &val_str);
+                            if effect == crate::config::UciOptionEffect::Unknown {
+                                logger.send(format!("Unknown option ignored: {} = {}\n", param_name, val_str)).ok();
                             } else {
-                                match param_name.as_str() {
-                                    "nmp_depth_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_depth_threshold = v; },
-                                    "nmp_reduction" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_reduction = v; },
-                                    "nmp_verification_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_verification_threshold = v; },
-                                    "nmp_dynamic_divisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.nmp_dynamic_divisor = v; },
-                                    "lmr_move_threshold" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_move_threshold = v; },
-                                    "lmr_divisor" | "lmr_divisor_scaled" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmr_divisor = v; active_config.recalculate_lmr_table(); },
-                                    "killer_move_1_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_1_rank_bonus = v; },
-                                    "killer_move_2_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.killer_move_2_rank_bonus = v; },
-                                    "counter_move_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.counter_move_rank_bonus = v; },
-                                    "is_hashed_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.is_hashed_rank_bonus = v; },
-                                    "give_check_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_check_rank_bonus = v; },
-                                    "is_pv_node_rank_bonus" => if let Ok(v) = val_str.parse::<i32>() { active_config.is_pv_node_rank_bonus = v; },
-                                    "give_promotion_rank_bonus_queen" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_queen = v; },
-                                    "give_promotion_rank_bonus_knight" => if let Ok(v) = val_str.parse::<i32>() { active_config.give_promotion_rank_bonus_knight = v; },
-                                    "history_max_threshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.history_max_threshold = v; },
-                                    "aspiration_window_initial_delta" | "aspirationwindowinitialdelta" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_initial_delta = v; },
-                                    "aspiration_window_multiplier" | "aspirationwindowmultiplier" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_multiplier = v; },
-                                    "aspiration_window_max_delta" | "aspirationwindowmaxdelta" => if let Ok(v) = val_str.parse::<i16>() { active_config.aspiration_window_max_delta = v; },
-                                    "lmr_history_good_threshold" | "lmrhistorygoodthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_good_threshold = v; },
-                                    "lmr_history_bad_threshold" | "lmrhistorybadthreshold" => if let Ok(v) = val_str.parse::<u32>() { active_config.lmr_history_bad_threshold = v; },
-                                    "rfp_margin_per_depth" | "rfpmarginperdepth" => if let Ok(v) = val_str.parse::<i16>() { active_config.rfp_margin_per_depth = v; },
-                                    "rfp_max_depth" | "rfpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.rfp_max_depth = v; },
-                                    "enable_check_extension" | "enablecheckextension" => active_config.enable_check_extension = val_str.eq_ignore_ascii_case("true"),
-                                    "check_extension_max_ply" | "checkextensionmaxply" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_ply = v; },
-                                    "check_extension_require_safe" | "checkextensionrequiresafe" => active_config.check_extension_require_safe = val_str.eq_ignore_ascii_case("true"),
-                                    "check_extension_budget_divisor" | "checkextensionbudgetdivisor" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_budget_divisor = v; },
-                                    "check_extension_min_depth" | "checkextensionmindepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_min_depth = v; },
-                                    "check_extension_max_depth" | "checkextensionmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.check_extension_max_depth = v; },
-                                    "enable_one_reply_extension" | "enableonereplyextension" => active_config.enable_one_reply_extension = val_str.eq_ignore_ascii_case("true"),
-                                    "enable_singular_extensions" | "enablesingularextensions" => active_config.enable_singular_extensions = val_str.eq_ignore_ascii_case("true"),
-                                    "singular_min_depth" | "singularmindepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.singular_min_depth = v; },
-                                    "singular_tt_depth_margin" | "singularttdepthmargin" => if let Ok(v) = val_str.parse::<i32>() { active_config.singular_tt_depth_margin = v; },
-                                    "singular_margin" | "singularmargin" => if let Ok(v) = val_str.parse::<i16>() { active_config.singular_margin = v; },
-                                    "singular_depth_reduction" | "singulardepthreduction" => if let Ok(v) = val_str.parse::<i32>() { active_config.singular_depth_reduction = v; },
-                                    "enable_lmp" | "enablelmp" => active_config.enable_lmp = val_str.eq_ignore_ascii_case("true"),
-                                    "lmp_max_depth" | "lmpmaxdepth" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmp_max_depth = v; },
-                                    "lmp_base_moves" | "lmpbasemoves" => if let Ok(v) = val_str.parse::<i32>() { active_config.lmp_base_moves = v; },
-                                    "enable_bad_capture_pruning" | "enablebadcapturepruning" => active_config.enable_bad_capture_pruning = val_str.eq_ignore_ascii_case("true"),
-                                    "bad_capture_see_threshold" | "badcaptureseethreshold" => if let Ok(v) = val_str.parse::<i16>() { active_config.bad_capture_see_threshold = v; },
-                                    "your_turn_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.your_turn_bonus = v; },
-                                    "aggressiveness" => match val_str.as_str() {
-                                        "Normal" => active_config.set_aggressiveness(crate::config::Aggressiveness::Normal),
-                                        "Aggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::Aggressive),
-                                        "HighAggressive" => active_config.set_aggressiveness(crate::config::Aggressiveness::HighAggressive),
-                                        _ => {}
-                                    },
-                                    "enablepositionalcap" | "enable_positional_cap" => {
-                                        active_config.enable_positional_cap = val_str == "true";
-                                    },
-                                    "positionalcapdamping" | "positional_cap_damping" => {
-                                        if let Ok(v) = val_str.parse::<i16>() { active_config.positional_cap_damping = v; }
-                                    },
-                                    "moveoverhead" | "move_overhead" => {
-                                        if let Ok(v) = val_str.parse::<u64>() { active_config.move_overhead = v; }
-                                    },
-                                     "kingopenfilemalus" | "king_open_file_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_malus = v; },
-                                     "kinghalfopenfilemalus" | "king_half_open_file_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_half_open_file_malus = v; },
-                                     "kingringdefendervalue" | "king_ring_defender_value" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_defender_value = v; },
-                                     "threatminorattacksrook" | "threat_minor_attacks_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_rook = v; },
-                                     "threatminorattacksqueen" | "threat_minor_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_minor_attacks_queen = v; },
-                                     "threatrookattacksqueen" | "threat_rook_attacks_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.threat_rook_attacks_queen = v; },
-                                     "logpath" | "log_path" => { active_config.log_path = std::sync::Arc::from(val_str.as_str()); },
-                                     "bookfile" | "book_file" => {
-                                         active_config.book_file = val_str.to_string();
-                                         book.clear_polyglot_cache();
-                                         // Load eagerly: a book that was named and cannot be read
-                                         // has to fail here, at the handshake, and not silently
-                                         // turn into a searched move in the middle of a game.
-                                         book.preload_or_exit(&active_config, Some(&logger));
-                                     },
-                                     "bookmaxply" | "book_max_ply" => if let Ok(v) = val_str.parse::<i32>() { active_config.book_max_ply = v; },
-                                     "cachebookinram" | "cache_book_in_ram" => {
-                                         active_config.cache_book_in_ram = val_str.to_lowercase() == "true";
-                                         if !active_config.cache_book_in_ram {
-                                             book.clear_polyglot_cache();
-                                         }
-                                     },
-                                     "ownbook" | "own_book" | "usebook" | "use_book" => {
-                                         active_config.use_book = val_str.to_lowercase() == "true";
-                                         // The book may have been named before it was switched on.
-                                         book.preload_or_exit(&active_config, Some(&logger));
-                                     },
-                                    "pawn_structure" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_structure = v; },
-                                    "pawn_supports_knight_outpost" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_supports_knight_outpost = v; },
-                                    "pawn_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_centered = v; },
-                                    "pawn_undeveloped_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_undeveloped_malus = v; },
-                                    "pawn_on_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_last_rank_bonus = v; },
-                                    "pawn_on_before_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_before_last_rank_bonus = v; },
-                                    "pawn_on_before_before_last_rank_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_on_before_before_last_rank_bonus = v; },
-                                    "pawn_defends_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_defends_bishop = v; },
-                                    "pawn_double_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_double_malus = v; },
-                                    "pawn_isolated_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_isolated_malus = v; },
-                                    "pawn_backward_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_backward_malus = v; },
-                                    "protected_passed_pawn_middlegame" => if let Ok(v) = val_str.parse::<i16>() { active_config.protected_passed_pawn_middlegame = v; },
-                                    "protected_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.protected_passed_pawn_endgame = v; },
-                                    "undeveloped_knight_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_knight_malus = v; },
-                                    "knight_on_rim_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_on_rim_malus = v; },
-                                    "knight_centered" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_centered = v; },
-                                    "knight_blockes_pawn" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_blockes_pawn = v; },
-                                    "knight_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_mobility_factor = v; },
-                                    "undeveloped_bishop_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_bishop_malus = v; },
-                                    "bishop_pair_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_pair_bonus = v; },
-                                    "bishop_trapped_at_rim_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_trapped_at_rim_malus = v; },
-                                    "bishop_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_mobility_factor = v; },
-                                    "rook_open_file" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file = v; },
-                                    "rook_half_open_file" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_half_open_file = v; },
-                                    "rook_doubled_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_doubled_bonus = v; },
-                                    "rook_behind_passed_pawn_middlegame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_middlegame = v; },
-                                    "rook_behind_passed_pawn_endgame" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_passed_pawn_endgame = v; },
-                                    "rook_on_seventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh = v; },
-                                    "rook_mobility_factor" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_mobility_factor = v; },
-                                    "queen_mobility_factor" | "queenmobilityfactor" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_mobility_factor = v; },
-                                    "king_passer_dist_weight" | "kingpasserdistweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_passer_dist_weight = v; },
-                                    "undeveloped_king_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.undeveloped_king_malus = v; },
-                                    "king_ring_attack_knight" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_knight = v; },
-                                    "king_ring_attack_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_bishop = v; },
-                                    "king_ring_attack_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_rook = v; },
-                                    "king_ring_attack_queen" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_ring_attack_queen = v; },
-                                    "king_opposition_bonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_opposition_bonus = v; },
-                                    "king_pawn_shield" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_pawn_shield = v; },
-                                    "king_piece_shield" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_piece_shield = v; },
-                                    "king_pawn_shield_kingside" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_pawn_shield_kingside = v; },
-                                    "king_pawn_shield_queenside" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_pawn_shield_queenside = v; },
-                                    "king_piece_shield_kingside" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_piece_shield_kingside = v; },
-                                    "king_piece_shield_queenside" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_piece_shield_queenside = v; },
-                                    "connected_passed_pawn_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.connected_passed_pawn_mg = v; },
-                                    "connected_passed_pawn_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.connected_passed_pawn_eg = v; },
-                                    "knight_outpost_true_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_outpost_true_mg = v; },
-                                    "knight_outpost_true_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_outpost_true_eg = v; },
-                                    "bishop_outpost_true_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_outpost_true_mg = v; },
-                                    "bishop_outpost_true_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_outpost_true_eg = v; },
-                                     "opposite_bishops_draw_scale" => if let Ok(v) = val_str.parse::<i16>() { active_config.opposite_bishops_draw_scale = v; },
-                                     "enable_endgame_mopup" | "enableendgamemopup" => { active_config.enable_endgame_mopup = val_str.to_lowercase() == "true"; },
-                                     "mopup_center_weight" | "mopupcenterweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_center_weight = v; },
-                                     "mopup_proximity_weight" | "mopupproximityweight" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_proximity_weight = v; },
-                                     "mopup_eval_threshold" | "mopupevalthreshold" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_eval_threshold = v; },
-                                     "mopup_max_game_phase" | "mopupmaxgamephase" => if let Ok(v) = val_str.parse::<i16>() { active_config.mopup_max_game_phase = v; },
-                                     "rook_behind_enemy_passed_pawn_mg" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_enemy_passed_pawn_mg = v; },
-                                    "rook_behind_enemy_passed_pawn_eg" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_behind_enemy_passed_pawn_eg = v; },
-                                    "king_trapp_at_baseline_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_trapp_at_baseline_malus = v; },
-                                    "king_in_check_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_in_check_malus = v; },
-                                    "king_in_double_check_malus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_in_double_check_malus = v; },
-                                    "pawn_attacks_opponent_fig" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_attacks_opponent_fig = v; },
-                                    "pawn_attacks_opponent_fig_with_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_attacks_opponent_fig_with_tempo = v; },
-                                    "queen_in_attack" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_in_attack = v; },
-                                    "queen_in_attack_with_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.queen_in_attack_with_tempo = v; },
-                                    "knight_attacks_bishop" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop = v; },
-                                    "knight_attacks_rook" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook = v; },
-                                    "knight_attacks_bishop_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_bishop_tempo = v; },
-                                    "knight_attacks_rook_tempo" => if let Ok(v) = val_str.parse::<i16>() { active_config.knight_attacks_rook_tempo = v; },
-                                    "delta_pruning_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.delta_pruning_margin = v; },
-                                    "lazy_eval_margin_search" | "lazyevalmarginsearch" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_search = v; },
-                                    "lazy_eval_margin_qs" | "lazyevalmarginqs" => if let Ok(v) = val_str.parse::<i16>() { active_config.lazy_eval_margin_qs = v; },
-                                    "lazy_eval_min_game_phase" => if let Ok(v) = val_str.parse::<u32>() { active_config.lazy_eval_min_game_phase = v; },
-                                    "king_danger_weight_1" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_1 = v; },
-                                    "king_danger_weight_2" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_2 = v; },
-                                    "king_danger_weight_3" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_3 = v; },
-                                    "king_danger_weight_4" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_4 = v; },
-                                    "king_danger_weight_5" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_danger_weight_5 = v; },
-                                    "enablefutilitypruning" | "enable_futility_pruning" => { active_config.enable_futility_pruning = val_str.to_lowercase() == "true"; },
-                                    "enableqstt" | "enable_qs_tt" => { active_config.enable_qs_tt = val_str.to_lowercase() == "true"; },
-                                    "futilitymaxdepth" | "futility_max_depth" => if let Ok(v) = val_str.parse::<i32>() { active_config.futility_max_depth = v; },
-                                    "futilitymarginbase" | "futility_margin_base" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_base = v; },
-                                     "king_open_file_heavy_threat_malus" | "kingopenfileheavythreatmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.king_open_file_heavy_threat_malus = v; },
-                                     "rook_open_file_attacks_king" | "rookopenfileattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_king = v; },
-                                     "rook_open_file_attacks_queen" | "rookopenfileattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_open_file_attacks_queen = v; },
-                                     "pawn_phalanx_mg" | "pawnphalanxmg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_mg = v; },
-                                     "pawn_phalanx_eg" | "pawnphalanxeg" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_phalanx_eg = v; },
-                                     "bishop_diagonal_attacks_king" | "bishopdiagonalattacksking" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_king = v; },
-                                     "bishop_diagonal_attacks_queen" | "bishopdiagonalattacksqueen" => if let Ok(v) = val_str.parse::<i16>() { active_config.bishop_diagonal_attacks_queen = v; },
-                                     "rook_on_seventh_king_cutoff" | "rookonseventhkingcutoff" => if let Ok(v) = val_str.parse::<i16>() { active_config.rook_on_seventh_king_cutoff = v; },
-                                     "rooks_doubled_on_seventh" | "rooksdoubledonseventh" => if let Ok(v) = val_str.parse::<i16>() { active_config.rooks_doubled_on_seventh = v; },
-                                     "passed_pawn_blockaded_malus" | "passedpawnblockadedmalus" => if let Ok(v) = val_str.parse::<i16>() { active_config.passed_pawn_blockaded_malus = v; },
-                                     "candidate_passed_pawn_bonus" | "candidatepassedpawnbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.candidate_passed_pawn_bonus = v; },
-                                     "pawn_storm_bonus" | "pawnstormbonus" => if let Ok(v) = val_str.parse::<i16>() { active_config.pawn_storm_bonus = v; },
-                                     "futilitymarginslope" | "futility_margin_slope" => if let Ok(v) = val_str.parse::<i16>() { active_config.futility_margin_slope = v; },
-                                    "enablerazoring" | "enable_razoring" => { active_config.enable_razoring = val_str.to_lowercase() == "true"; },
-                                    "razoringmargin" | "razoring_margin" => if let Ok(v) = val_str.parse::<i16>() { active_config.razoring_margin = v; },
-                                    _ => {}
-                                }
+                                logger.send(format!("Received option: {} = {}\n", param_name, val_str)).ok();
                             }
-                            logger.send(format!("Received option: {} = {}\n", param_name, val_str)).ok();
+                            // The three options that invalidate a loaded book. `Config` does not
+                            // own the book, so it reports the effect and the reaction lives here.
+                            match effect {
+                                crate::config::UciOptionEffect::BookFileChanged => {
+                                    book.clear_polyglot_cache();
+                                    // Load eagerly: a book that was named and cannot be read has to
+                                    // fail here, at the handshake, and not silently turn into a
+                                    // searched move in the middle of a game.
+                                    book.preload_or_exit(&active_config, Some(&logger));
+                                }
+                                crate::config::UciOptionEffect::BookEnabledChanged => {
+                                    // The book may have been named before it was switched on.
+                                    book.preload_or_exit(&active_config, Some(&logger));
+                                }
+                                crate::config::UciOptionEffect::BookCacheChanged => {
+                                    if !active_config.cache_book_in_ram {
+                                        book.clear_polyglot_cache();
+                                    }
+                                }
+                                crate::config::UciOptionEffect::Stored
+                                | crate::config::UciOptionEffect::Unknown => {}
+                            }
                         }
                     }
                 }

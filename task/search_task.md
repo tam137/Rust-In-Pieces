@@ -18,21 +18,21 @@ Every new pruning or reduction feature **must** be fully configurable via the `C
 
 ## Active Search Tasks
 
-### 1. Late Move Pruning (LMP)
+### 1. Late Move Pruning (LMP) — ✅ shipped enabled in v0.35.0
 *   **Description**: At shallow depths, quiet moves appearing late in the move list are statistically irrelevant and can be skipped entirely instead of being searched at a reduced depth. Complements the existing LMR and Futility Pruning stages.
 *   **Metadata**: `[Impact: High]` `[Complexity: Low]`
 *   **Tasks**:
-    - `[ ]` Add `enable_lmp: bool`, `lmp_max_depth: i32` and `lmp_base_moves: i32` to `Config`.
-    - `[ ]` In the `minimax` move loop, when not in check and `depth <= lmp_max_depth`, prune all further quiet moves once the quiet move counter exceeds `lmp_base_moves + 2 * depth^2`.
-    - `[ ]` Expose both parameters via UCI `setoption` for SPSA tuning.
+    - `[x]` Add `enable_lmp: bool`, `lmp_max_depth: i32` and `lmp_base_moves: i32` to `Config`.
+    - `[x]` In the `minimax` move loop, when not in check and `depth <= lmp_max_depth`, prune all further quiet moves once the quiet move counter exceeds `lmp_base_moves + 2 * depth^2`.
+    - `[x]` Expose both parameters via UCI `setoption` for SPSA tuning.
 
-### 3. SEE-Pruning in the Main Search (Bad Capture Pruning)
+### 3. SEE-Pruning in the Main Search (Bad Capture Pruning) — ⛔ measured neutral, shipped enabled in v0.35.1
 *   **Description**: Currently, captures with $SEE < 0$ are sorted to the end of the move list. This task introduces hard pruning for extremely bad captures at low depths.
 *   **Metadata**: `[Impact: High]` `[Complexity: Medium]`
 *   **Tasks**:
-    - `[ ]` Add `enable_bad_capture_pruning: bool` and `bad_capture_see_threshold: i16` to `Config`.
-    - `[ ]` In the `minimax` move loop, if a move is a capture, check its SEE score.
-    - `[ ]` If the SEE score is lower than a depth-dependent threshold (e.g., $SEE < -50 \cdot depth$), prune the capture entirely (`continue`).
+    - `[x]` Add `enable_bad_capture_pruning: bool` and `bad_capture_see_threshold: i16` to `Config`.
+    - `[x]` In the `minimax` move loop, if a move is a capture, check its SEE score.
+    - `[x]` If the SEE score is lower than a depth-dependent threshold (e.g., $SEE < -50 \cdot depth$), prune the capture entirely (`continue`).
 
 ### 4. Late Move Reductions (LMR) for Bad Captures
 *   **Description**: Instead of only reducing quiet moves, apply depth reductions (LMR) to captures that lose material ($SEE < 0$).
