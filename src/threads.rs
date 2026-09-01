@@ -88,6 +88,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name SingularTtDepthMargin type spin default {} min 0 max 8", defaults.singular_tt_depth_margin),
         format!("option name SingularMargin type spin default {} min 0 max 64", defaults.singular_margin),
         format!("option name SingularDepthReduction type spin default {} min 0 max 8", defaults.singular_depth_reduction),
+        format!("option name EnableSingularMulticut type check default {}", defaults.enable_singular_multicut),
         format!("option name UseNNUE type check default {}", defaults.use_nnue),
         "option name NnueModelPath type string default eval_models/quantised.bin".to_string(),
     ]
@@ -227,6 +228,12 @@ pub fn uci_command_processor(
                         if let Some(val_str) = parts.last() {
                             active_use_nnue = val_str.to_lowercase() == "true";
                         }
+                        // ...and the token still has to reach the game thread, which owns the
+                        // only `Config` the search ever reads. Intercepting it here to rename the
+                        // engine and then dropping it left the option advertised, accepted and
+                        // inert — the defect v0.37.2 set out to eliminate, re-introduced by its
+                        // own repair. `task.md` 1.1.
+                        tx_game_command.send(uci_token.clone()).ok();
                     } else if token_lower.contains("name threads") && token_lower.contains("value") {
                         let parts: Vec<&str> = uci_token.split_whitespace().collect();
                         if let Some(val_str) = parts.last() {
