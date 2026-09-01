@@ -12,7 +12,7 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.37.2** on `master` (HCE), five defect repairs. The NNUE branch is three releases behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — none of the v0.37.x ports has been done |
+| Released | **v0.37.2** on `master` (HCE), five defect repairs, and **v0.37.2-NNUE** on `feature/nnue-evaluation` since 2026-09-01 — the branch is level with master again, and the port is unpriced (9) |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
 | Uncommitted | nothing |
@@ -128,15 +128,17 @@ A new session can start from this table; each row says where the detail is.
 | `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
-| The NNUE branch has not played a game since v0.30.0-nnue | 9 | unverified defaults |
+| The NNUE branch has never had a pricing run — only 100-game smoke gauntlets, so three defaults measured on HCE are still assumed rather than confirmed there | 9 | unverified defaults |
 | Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
 | Singular Extensions have the extension without the singular-beta multicut that pays for it, and measure -1.4 Elo without it | 4.4, 10.10 | proposal, well motivated |
+| `setoption name UseNNUE` is swallowed in the UCI thread and never reaches the configuration | 1.1 | defect, one line, no pricing — bundle into the next release |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
 (1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
-(10.6), and the evaluation half of the colour asymmetry (7.2).
+(10.6), and the evaluation half of the colour asymmetry (7.2). The facade is not sound yet — the
+same repair left `UseNNUE` inert, which is the row above.
 
 Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth
 (10.10), and the scoreboard configuration that could not price them (10.9).
@@ -349,7 +351,7 @@ at 1000ms + 100ms on host A. Corrected for that pairing's design effect of 1.87 
 > **8.5 has since priced "far too early to be pruned in practice": with the guard removed, LMP
 > would delete 271 moves out of 2.2 M searched, 0.02% of the tree.**
 
-### 1.1 The UCI facade lied twice — ✅ both fixed in v0.37.2
+### 1.1 The UCI facade lied twice — ✅ both fixed in v0.37.2, and the repair made a third option inert
 
 Two independent defects in the same facade, found by auditing the advertised option list against
 `Config` and verified end-to-end against the shipped v0.37.1 binary.
@@ -385,6 +387,34 @@ a value and then drops it, not merely a missing arm — and
 
 `SyzygyPath` was removed from the advertised list in the same release. There is no tablebase code
 in the engine, so advertising it invited a GUI to configure something that does not exist.
+
+**A third option went inert in the same release, and it is still open on `master`.** The dispatch
+moved into `Config::apply_uci_option`, but `src/threads.rs` still intercepts
+`setoption name UseNNUE` in the UCI thread in order to update the advertised id name — and does
+not forward the token to the game thread, which is the only place `apply_uci_option` is ever
+called. The engine therefore renames itself from `Rust-In-Pieces V<version>` to
+`RIP V<version>-NNUE` and goes on evaluating with whatever it started with. `NnueModelPath` sits
+in the same handler, is not intercepted, and is applied normally.
+
+**The three tests cannot see it, and that is the general lesson.** All three call
+`config.apply_uci_option(...)` directly. They prove that an advertised option exists, is accepted
+and lands in the configuration — and it does, the arm is there and correct. What no test
+exercises is the routing above them: `threads::uci_command_processor` decides which tokens reach
+the game thread at all, and an option that chain swallows is invisible to every test that starts
+at `Config`. The next interception written into that if/else chain will be equally invisible. A
+test that drives the UCI thread rather than the configuration is what would close the class; the
+one-line repair below does not.
+
+**The repair is one line and needs no pricing.** Forward the token after updating
+`active_use_nnue`. `use_nnue` ships `false` on `master`, so no shipped search tree moves and rule
+1 is not triggered — this is a correctness repair to bundle into whatever release comes next, not
+an item for the backlog.
+
+It is already fixed on `feature/nnue-evaluation`, released there as v0.37.2-NNUE, where it costs
+real behaviour: that branch ships `use_nnue = true`, so the option is the only way to compare the
+network against the classical evaluation inside one binary. Verified there at the start position
+at depth 9 — cp 54 and e2e4 with the network, cp 19 and b1c3 with `UseNNUE false`, against the
+HCE build's cp 20 and b1c3.
 
 ## 2. SEE pruning of bad captures — ⛔ measured neutral, off in v0.35.0, on in v0.35.1
 
@@ -1159,9 +1189,12 @@ changes are ported selectively. See `skills/nnue_porting_and_release_procedure.m
 * Protected `config.rs` values: `use_nnue = true`, `lmr_divisor = 140` with its `lmr_table`,
   `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`,
   `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
-  `your_turn_bonus = 18`. The `UseNNUE` UCI option is advertised as `default true`.
+  `your_turn_bonus = 18`. Since v0.37.2 the advertised UCI defaults are read from `Config`, so
+  the branch no longer needs a facade delta of its own — `UseNNUE` advertises `default true`
+  because the configuration says so, and a port that re-adds a literal here is reintroducing the
+  drift 1.1 removed.
 * Everything else in `src/` can be taken from master wholesale.
-* The branch is level with master at **`v0.36.0-NNUE`**, ported from master v0.36.0: the razoring
+* The **`v0.36.0-NNUE`** port, from master v0.36.0: the razoring
   block (verbatim, same guards), the seven razoring tests, and — new for this port —
   `enablerazoring` / `razoringmargin` wiring in `src/game_handler.rs`'s `setoption` handler, which
   no earlier port had needed to touch. The decision was not re-measured on this branch; it carries
@@ -1174,6 +1207,18 @@ changes are ported selectively. See `skills/nnue_porting_and_release_procedure.m
   remote); resolved with `git branch -f feature/nnue-evaluation origin/feature/nnue-evaluation`
   before this port started, and worth checking for on any host where the branch has not been
   touched in a while.
+* The branch is level with master at **`v0.37.2-NNUE`**, released 2026-09-01: a full catch-up
+  carrying v0.37.0's singular extensions, v0.37.1's canonical negamax search and v0.37.2's five
+  defect repairs at once. v0.37.2 alone could not be applied — its UCI and configuration repairs
+  act on options v0.37.0 introduced and on the search v0.37.1 rewrote. The port was cheap for a
+  reason worth remembering: `git diff <sync point> feature/nnue-evaluation -- src/` showed the
+  branch carries **no search-side deltas of its own**, so `search_service.rs`, `search_diag.rs`
+  and `game_handler.rs` were taken from master wholesale and are byte-identical to it. Only
+  `config.rs`, `eval_service.rs` and `nnue_service.rs` needed hand work. `build_and_release.sh`
+  also took master's `MM_DIR` override while keeping the `-nnue` suffix; neither branch's copy was
+  correct on its own. **No gauntlet was run and the port is not priced**: singular extensions ship
+  there for parity with master, which has since measured them at -1.4 Elo on HCE (10.10), not as a
+  strength claim for the network.
 * **Open: no gauntlet against `suprah-0.30.0-nnue` specifically has been run.** The branch now
   plays real games again (the smoke gauntlet above), which the entries below this one could not
   say, but the three defaults that were measured on the HCE evaluation and merely assumed to
