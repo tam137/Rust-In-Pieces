@@ -14,14 +14,17 @@ measured and reversed, and two of them looked excellent on every metric except g
 | :--- | :--- |
 | Released | **v0.37.2** on `master` (HCE), five defect repairs. The NNUE branch is three releases behind at **v0.36.0-NNUE** on `feature/nnue-evaluation` — none of the v0.37.x ports has been done |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
-| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A |
+| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
 | Uncommitted | nothing |
 | Unreleased | nothing. v0.37.2 shipped on 2026-08-29 |
-| Blocked on | nothing. The next action is 7.1, and its first step is deterministic and costs no games |
+| Blocked on | nothing. The next action is a new feature; 4.4's singular-beta multicut is the best-motivated candidate, and 7.1 is the cheapest because its first step is deterministic and costs no games |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
-1s + 0.1s match time control there. Both figures are host-dependent and unmeasured on host C.
+1s + 0.1s match time control there. The throughput figure is still unmeasured on host C; the
+depth is not — host C reaches a **median root depth of 8** at 1s + 0.1s and of **5** at the
+1s + 0.03s the version scoreboard uses, which is below the depth Singular Extensions need to fire
+at all (10.9).
 Sections 1 to 4 are built, measured and released, section 7 is released and its two open
 questions are now separated — 7.2 is answered, 7.1 is not — and sections 5 and 6 are not started.
 Section 10 is the measurement infrastructure.
@@ -49,10 +52,10 @@ Section 10 is the measurement infrastructure.
 | v0.35.0 | Late Move Pruning enabled | **+19.4 Elo** [+10, +29] vs v0.34.0, 3000 games |
 | v0.35.1 | SEE pruning of bad captures also enabled, for hand comparison | +3.3 [-3.9, +10.5] on top of LMP — neutral |
 | v0.35.2 | Four defect repairs, no changed default, gauntlet waived | — |
-| v0.36.0 | Razoring enabled by default | SPRT H1 accepted (elo0=-10, elo1=0) on host C, **+14.1 Elo, paired 95% CI [-1, +30]**, 1034 games — read as an upper estimate, see 4.3 |
-| v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Two independent SPRTs accepted H1 (elo0=-10, elo1=0); pooled **+10.2 Elo [-1, +22] over 2591 games**, best read as **+5 to +10** |
+| v0.36.0 | Razoring enabled by default | Gated by an SPRT that read +14.1. Re-priced 2026-09-01 with a fixed-N run on host C: **+4.2 Elo, paired 95% CI [-2, +11]**, 6000 games (10.10) |
+| v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Gated by two SPRTs that pooled to +10.2. Re-priced 2026-09-01 with a fixed-N run on host C: **-1.4 Elo, paired 95% CI [-8, +5]**, 6000 games — the rule pays nothing as shipped (10.10) |
 | v0.37.1 | The negamax refactor. No behaviour change | Node-identical to v0.37.0 on 28 positions at depth 8 and 10. Smoke gauntlet on host C: 52.0% vs v0.37.0, 50.5% vs v0.36.0, 100 games each — neither is a measurement |
-| v0.37.2 | Five defect repairs: a colour-asymmetric pawn mask, thirteen inert UCI options, twelve drifting advertised defaults, a dead config field, a dead tuning range | The pawn fix is deterministic — 0 of 21,300 mirror pairs asymmetric, from 65 of 1,905 before. **Not priced**. Smoke gauntlet on host C: 48.5% vs v0.37.1, 52.5% vs v0.37.0, 100 games each, no losses on time |
+| v0.37.2 | Five defect repairs: a colour-asymmetric pawn mask, thirteen inert UCI options, twelve drifting advertised defaults, a dead config field, a dead tuning range | The pawn fix is deterministic — 0 of 21,300 mirror pairs asymmetric, from 65 of 1,905 before. Priced 2026-09-01 against v0.37.0: **+2.4 Elo, paired 95% CI [-4, +9]**, 6000 games (10.10). Smoke gauntlet on host C: 48.5% vs v0.37.1, 52.5% vs v0.37.0, 100 games each, no losses on time |
 
 Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
 enough to become rules below rather than history: **a run must pair the configuration it exists to
@@ -129,10 +132,14 @@ A new session can start from this table; each row says where the detail is.
 | Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
+| Singular Extensions have the extension without the singular-beta multicut that pays for it, and measure -1.4 Elo without it | 4.4, 10.10 | proposal, well motivated |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
 (1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
 (10.6), and the evaluation half of the colour asymmetry (7.2).
+
+Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth
+(10.10), and the scoreboard configuration that could not price them (10.9).
 
 ### Rules that are not optional
 
@@ -158,6 +165,20 @@ Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen ine
 5. **Prefer a node-identity check to a match wherever one exists.** Both throughput wins in
    Milestone 1 were verified as bit-identical search trees before a single game was played, which
    is why they needed no Elo measurement at all.
+6. **Before pricing a depth-gated rule, measure the root depth the time control produces, and
+   check the rule fires there.** The scoreboard run of 10.9 plays at a median root depth of 5,
+   where Singular Extensions are provably inert — node counts with the rule on and off are
+   identical on 24 of 24 positions at root depth 5 and 6 — so v0.37.x plays v0.36.0's chess in
+   about 88% of its moves there. The cost of such a rule also grows with root depth: the census
+   of 4.1 read +18.0% tree at depth 9 and the same corpus reads +51.2% at depth 11. A number
+   taken below the depth of play transfers in neither direction.
+7. **Gate with a sequential test if you like, but never quote its score as the effect size.** The
+   stopping rule and the number have to come from different runs. Every feature since v0.35.0 was
+   gated with `--elo0 -10 --elo1 0`, which cannot establish a gain at all, and its stopping score
+   went into the release notes: +14.1 for razoring, +5 to +10 for singular extensions. Re-priced
+   with fixed-N runs of 6000 games the same two changes measure **+4.2** and **-1.4** (10.10).
+   Decide the game count before the run, publish the interval, and treat any reading taken before
+   that count as an excursion rather than a preview.
 
 ### First, resolve `<mm>` — it is not the same on every host
 
@@ -415,7 +436,7 @@ which is the same lesson as 8.3 from the other direction.
 > The `!gives_check` guard here is kept for a checking sacrifice that *is* a capture. The Philidor
 > canary itself belongs to LMP — see the note in section 1.
 
-## 3. Razoring at depth 1 — ✅ shipped enabled in v0.36.0 (+14.1 Elo, CI crosses zero)
+## 3. Razoring at depth 1 — ✅ shipped enabled in v0.36.0 (measured +4.2 Elo, CI crosses zero)
 
 `[Impact: measured, does-it-hurt confirmed]` `[Complexity: Medium]`
 
@@ -526,7 +547,7 @@ The 100-game health check from before the gauntlet, **on host A**, is `<mm>/razo
 zero losses on time, zero duplicate games, design effect 1.00. It correctly signalled "probably
 not harmful" ahead of the real decision; it was never a substitute for the round robin above.
 
-## 4. Singular Extensions (SE) — ✅ shipped enabled in v0.37.0 (about +5 to +10 Elo)
+## 4. Singular Extensions (SE) — ✅ shipped enabled in v0.37.0 (measured -1.4 Elo, pays nothing)
 
 **What ships.** At non-root nodes with `depth >= singular_min_depth`, when the TT entry is deep
 enough (`depth - singular_tt_depth_margin`), bounded in the direction that supports the move, and
@@ -567,8 +588,10 @@ verification (`singular_depth_reduction`) cannot buy much. What matters is *whic
 
 Both round robins accepted H1 on *does it hurt* (`--elo0 -10 --elo1 0`), independently, at
 1000ms + 100ms on `openings_mixed.txt`. That is the gate and it is solid: **SE does not cost
-strength.** The size is single-digit — read it as **+5 to +10 Elo**, not the +30.6 the first run
-reported. A 35-position LCT II run could not distinguish the rule from off (17 → 18 of 35), which
+strength.** The size was read as **+5 to +10 Elo**, not the +30.6 the first run reported. Both
+figures are too high: a fixed-N run of 6000 games measures **-1.4 Elo [-8, +5]** (10.10). The gate
+was answered correctly — the rule does not cost strength — and the size was never established by
+it. A 35-position LCT II run could not distinguish the rule from off (17 → 18 of 35), which
 is the correct outcome for a change this size and is not evidence in either direction.
 
 ### 4.3 A stopped SPRT is not an effect size — applies to every measurement in this document
@@ -578,19 +601,26 @@ to be favourable*. The decision is valid; the score at the stopping moment is co
 having crossed and is therefore biased away from zero. Here that was a factor of four, and only
 the mandatory smoke test caught it.
 
-* **Razoring, 3.3**, stopped at 1034 games reporting +14.1 Elo, carries the same bias. Read it as
-  an upper estimate. It also explains why its CI crossed zero while its LLR crossed the bound.
+* **Razoring, 3.3**, stopped at 1034 games reporting +14.1 Elo, carries the same bias. It also
+  explains why its CI crossed zero while its LLR crossed the bound. A fixed-N run has since put it
+  at **+4.2 Elo [-2, +11]** (10.10), so the bias was roughly a factor of three here and a factor
+  of four for singular extensions.
 * **The rule going forward**: `scripts/run_sprt_match.sh` decides *whether to ship*. It does not
   measure *how much*. When the size matters, run a fixed game count decided in advance. The
   stopping rule and the effect size cannot come from the same run.
 
 ### 4.4 Open
 
-* `singular_margin` (2), `singular_tt_depth_margin` (3), `singular_depth_reduction` (0) are
-  untuned. 4.1 argues the reduction is the least promising of the three.
-* Priced at one time control only. The trigger is depth-conditional, so 10.5 applies: at a longer
-  control depth 6 sits deeper in the tree and the number need not transfer.
-* Single-digit Elo is a thin margin to carry a default on. It passed the gate it was asked to pass.
+* **The rule is worth nothing as shipped.** A fixed-N run of 6000 games at 1s + 100ms, where it
+  fires in 93.3% of moves, measures **-1.4 Elo [-8, +5]** against v0.36.0 (10.10). The +5 to +10
+  recorded at release came from two stopped SPRTs and sits at or above the upper edge of that
+  interval.
+* **The missing rebate is the first thing to try, not the tuning.** The implementation extends and
+  never collects: no singular-beta multicut, no negative extension. Its tree cost grows with root
+  depth — +5.3% at depth 9, +51.2% at depth 11 — so it buys depth in one line and pays for it
+  everywhere else. `singular_margin` (2), `singular_tt_depth_margin` (3) and
+  `singular_depth_reduction` (0) remain untuned, but tuning a rule that measures at zero is the
+  worse investment of the two.
 
 ## 5. Staged `MovePicker`
 
@@ -1284,9 +1314,10 @@ of 9 to 10.
   2026-08-28**: the trigger depth came down. A fixed-depth census priced every candidate before a
   game was played and settled on 6, where the rule grants three times the extensions of 7 for the
   same tree cost (4.1). It is therefore a different feature from the published one, deliberately,
-  and it measured **about +5 to +10 Elo** over 2591 games (4.2). This is the template for the rest
-  of this list — the census cost one run and replaced an argument about the literature with a
-  number about this harness. Read **4.3** before quoting any stopped-SPRT number in this document.
+  and its gate accepted over 2591 games (4.2) — though a fixed-N run has since measured the rule
+  at **-1.4 Elo** (10.10), so what the census bought was the right trigger depth for a rule that
+  does not pay. The census itself is still the template for the rest of this list: it cost one run
+  and replaced an argument about the literature with a number about this harness. Read **4.3** before quoting any stopped-SPRT number in this document.
 
 ### 10.6 `lmp_max_depth` is inert above 4, and the first diagnosis was wrong
 
@@ -1373,3 +1404,119 @@ cheap score is complete. It is a tree change, so rule 1 applies.
       together, and attribute the drift.
     - `[ ]` Price the repair.
 
+
+### 10.9 The version scoreboard is run below the depth its own rules need — measured 2026-08-31
+
+The 21-engine round robin in `<mm>/neu.pgn` — 28,755 games, 2026-08-29 to 2026-08-31, host C —
+puts v0.35.x and v0.37.x level and was read as the two shipped features having cost strength.
+Neither half of that reading survives. There is no regression, and the run cannot see the
+features at all.
+
+**The scoreboard is not what it looks like.** Read per pairing (rule 3), by block:
+
+| Comparison | Games | Score | Elo, 95% CI |
+| :--- | ---: | ---: | :--- |
+| **v0.35.x vs v0.37.x** | 1686 | 50.09% | **+0.6 [-12.5, +13.7]** |
+| v0.34.0 vs v0.35.x | 360 | 47.50% | -17.4 [-45.4, +10.4] |
+| v0.34.0 vs v0.37.x | 562 | 46.98% | -21.0 [-43.5, +1.3] |
+| v0.33.1 vs v0.35.x | 360 | 46.67% | -23.2 [-51.5, +4.8] |
+| v0.33.1 vs v0.37.x | 562 | 45.91% | -28.5 [-52.1, -5.2] |
+
+Against both neutral references the newer block is, if anything, marginally ahead. The
+`summary.py` ranking that started this misleads for a second reason: v0.37.0 carries 3600 extra
+gauntlet games in the same PGN, so its Bradley-Terry row is fitted against a different opponent
+mix from everyone else's.
+
+**The noise floor, measured rather than assumed.** v0.37.0 and v0.37.1 are node-identical (7),
+and this run rates them **+40.7 Elo apart over 120 games**. That is the calibration: a 120-game
+pairing here resolves nothing below roughly ±50 Elo. The pairing that prompted the question —
+v0.35.2 over v0.37.2 at 58.2% of 122 games, +57.5 Elo — sits inside that band. The run also uses
+`OwnBook=true` instead of an openings file, so its pairs do not share a line and rule 2's
+pairing does not apply; the paired interval `pairing_elo.py` would print is unavailable.
+
+**The time control is the actual finding.** `<mm>/tournament.trn` sets `time_control = 1000,
+increment = 30`. The engine logs 35 to 85 ms per move at that control. Root depth on 120
+positions sampled from `neu.pgn`'s own games, `suprah-0.37.2`, `Hash=512`:
+
+| Control | ms/move | Median depth | Distribution | Moves reaching depth >= 7 |
+| :--- | ---: | ---: | :--- | ---: |
+| `neu.pgn`, 1s + 30ms | ~60 | **5** | 2:2 3:2 4:21 5:48 6:33 7:10 8:2 9:2 | **11.7%** |
+| every measurement run, 1s + 100ms | ~120 | 8 | 6:5 7:31 8:38 9:24 10:15 11+:4 | 93.3% |
+
+**Singular Extensions cannot fire below root depth 7.** The rule needs `depth >=
+singular_min_depth` (6) *and* `ply > 0`, so at a root depth of 6 the root is excluded by the ply
+guard and its children are at depth 5. Node counts of `suprah-0.37.2` with the option on and off,
+24 lines of `openings_mixed.txt`:
+
+| Root depth | Positions with identical node counts | Δ tree |
+| ---: | :--- | ---: |
+| 5 | **24 / 24** | 0.0% |
+| 6 | **24 / 24** | 0.0% |
+| 7 | 0 / 24 | +50.7% |
+| 8 | 0 / 24 | +15.5% |
+| 9 | 0 / 24 | +5.3% |
+| 10 | 0 / 24 | +50.9% |
+
+In `neu.pgn`, v0.37.x therefore plays bit-identical chess to v0.36.0 in about 88% of its moves.
+What is left between the two blocks is razoring, which measures **-3.9% nodes** at fixed depth 10
+on the same corpus — a small throughput win that works at every depth, worth a few Elo at most.
+An expected delta of +1 to +3 Elo against a ±50 Elo per-pairing noise floor is not a measurement,
+and +0.6 [-12.5, +13.7] is exactly what it should produce. **Nothing is broken.**
+
+**4.1 priced the rule where it barely fires.** That census ran at a fixed depth of 9 and read
++18.0% tree cost for trigger depth 6. Reproduced here on the same 24 lines: +5.3% at depth 9,
+**+51.2% at depth 11**, and a median of **+75.1% per position** there. The cost of a
+depth-gated rule grows with root depth, so a census taken below the depth of play understates it.
+At 1s fixed time the rule costs about 0.2 ply (12.00 against 11.80 on five positions), which is
+what a single-digit Elo result looks like from the other side. The implementation has the
+extension and not its usual rebate: no singular-beta multicut, no negative extension. That is
+where the tree cost is normally paid back, and adding it is a separate item.
+
+**What the scoreboard configuration had to change**, none of which is in this repository. All
+three were applied on host C on 2026-08-31:
+
+* `increment = 30` to `100` or more, or the run cannot price anything depth-gated.
+* `openings = openings_mixed.txt` instead of `OwnBook = true`, so pairs share a line and rule 2's
+  paired interval exists.
+* `Hash = 512` against the `Hash = 64` every measurement run uses — a run that exists to qualify a
+  configuration must pair that configuration.
+
+**The superiority run that was never made has now been made.** Every feature since v0.35.0 was
+gated with `--elo0 -10 --elo1 0`, which is the right question for code that already exists (10.3)
+but never establishes a gain. Run on host C on 2026-08-31, v0.37.2 against v0.35.2 with
+`--elo0 0 --elo1 10`: **H0 accepted after 1938 games**, LLR -3.37 against a bound of -2.944, score
+49.02%. v0.37.2 is not +10 Elo over v0.35.2. What the three shipped steps are worth individually
+is 10.10.
+
+### 10.10 Every step from v0.35.2 re-priced with fixed-N runs — measured 2026-09-01
+
+10.9 closed the question the scoreboard had raised and left one open: what the two shipped
+features are actually worth. Three runs answered it, one per step of the chain. All ran on host C
+at 1s + 100ms with `Hash=64`, `OwnBook=false`, `openings_mixed.txt` and concurrency 5, each over a
+game count fixed before the run started, and each read with `scripts/pairing_elo.py`.
+
+| Step | Recorded at release | Measured | 95% CI | Games |
+| :--- | :--- | ---: | :--- | ---: |
+| v0.35.2 → v0.36.0, razoring | +14.1 | **+4.2** | [-2, +11] | 6000 |
+| v0.36.0 → v0.37.0, singular extensions | +5 to +10 | **-1.4** | [-8, +5] | 6000 |
+| v0.37.0 → v0.37.2, five defect repairs | not priced | **+2.4** | [-4, +9] | 6000 |
+| **The three steps together** | **~+20** | **+5.2** | | 18,000 |
+| v0.35.2 → v0.37.2 directly | | -6.8 | [-18, +5] | 1938, SPRT-stopped |
+
+Two releases whose headlines promise about +20 Elo between them bought **+5.2**, measured at a
+time control where both rules demonstrably fire. Singular extensions pay nothing as shipped, and
+the defect repairs of v0.37.2 — the colour-asymmetric pawn mask above all — are the only step of
+the three whose measured value exceeds what was claimed for it, because nothing was claimed.
+
+**The chain disagrees with the sum, and the chain is the weaker number.** +5.2 against -6.8 is a
+12 Elo gap at roughly 1.6σ, which is not enough to call a contradiction, and the chain figure is
+the only one of the four produced by a test that stopped the moment its sample turned favourable.
+That is biased low by construction (4.3). Where the two disagree, the fixed-N runs are the
+evidence.
+
+**An unbiased run still wanders, which is the whole argument against reading a stopped one.** The
+singular-extension run read **+8.3** at 1434 games, then -3.7, then -2.4, and settled at **-1.4**
+at 6000. The razoring run read +7.4 at 4170 and +4.2 at 6000. The v0.37.2 run read +8.7 at 2552
+and +2.4 at 6000. An interim reading is not a smaller version of the final one; it is an
+excursion, and a sequential test that stops on such an excursion keeps it as the answer. Every
+figure in this file names its game count for that reason.
