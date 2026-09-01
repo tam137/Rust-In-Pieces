@@ -15,9 +15,9 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Released | **v0.37.2** on `master` (HCE), five defect repairs, and **v0.37.2-NNUE** on `feature/nnue-evaluation` since 2026-09-01 — the branch is level with master again, and the port is unpriced (9) |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
-| Uncommitted | nothing |
+| Uncommitted | the 8.1 gate harness — `scripts/measure_cold_warm_drift.py`, its tests, the `Session` class in `scripts/uci_driver.py` — and this file's record of what it measured (10.11). No source change |
 | Unreleased | nothing. v0.37.2 shipped on 2026-08-29 |
-| Blocked on | nothing. The next action is a new feature; 4.4's singular-beta multicut is the best-motivated candidate, and 7.1 is the cheapest because its first step is deterministic and costs no games |
+| Blocked on | nothing. The next action is 4.4's singular-beta multicut. 7.1 and 10.8 were the cheaper candidates and the deterministic gate that qualified them has now cleared both (10.11) |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
@@ -25,8 +25,9 @@ The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 
 depth is not — host C reaches a **median root depth of 8** at 1s + 0.1s and of **5** at the
 1s + 0.03s the version scoreboard uses, which is below the depth Singular Extensions need to fire
 at all (10.9).
-Sections 1 to 4 are built, measured and released, section 7 is released and its two open
-questions are now separated — 7.2 is answered, 7.1 is not — and sections 5 and 6 are not started.
+Sections 1 to 4 are built, measured and released, section 7 is released and both of its open
+questions are now answered — 7.2 by the move-ordering measurement, 7.1 by the 8.1 gate of 10.11 —
+and sections 5 and 6 are not started.
 Section 10 is the measurement infrastructure.
 
 > [!IMPORTANT]
@@ -69,35 +70,36 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — the empty-window Transposition Table bound (7.1)
+### The next action — the singular-beta multicut (4.4)
 
-7.2 is answered. The colour asymmetry is a **move-ordering tie-break artefact**, not a defect: the
-generated move set is the exact mirror image and every move's rank is identical, but the list
-order is not mirror-invariant, and LMP, LMR and Futility Pruning all key on a move's index. One
-genuine evaluation asymmetry surfaced on the way and shipped as a fix in v0.37.2. The full
-measurement, including what it eliminates, is in 7.2.
+The 8.1 cold-versus-warm gate is run, against 7.1 and 10.8 in the same pass, and it clears both:
+closing either channel does not reduce the drift, at depth 9 or at depth 11 (10.11). Both stay in
+this document as defect reports — the unproven bound is still unproven, the incomplete cheap score
+is still incomplete — but neither moves a played search measurably, so neither is priced and
+neither leads the backlog. That is two 6000-game runs not spent, decided deterministically and
+without playing a game.
 
-The next action is **7.1**, the Transposition Table bound stored on an empty `alpha == beta`
-window. Its first step is the 8.1 cold-versus-warm gate, which is deterministic and costs no
-games. Two things now qualify that step, both established this session:
-
-* Making `bound_for` colour-blind does **not** reduce the mirror asymmetry, so 7.1 can no longer
-  borrow 7.2's motivation. It has to stand on its own defect argument.
-* There is a **second, independent source of cold-versus-warm drift** in the evaluation, recorded
-  in 10.8. Run the gate against both or it will credit 7.1 with drift it does not cause.
+The next action is **4.4**, the singular-beta multicut. Singular Extensions ship enabled and
+measure **-1.4 Elo** [-8, +5] over 6000 games (10.10): the implementation extends and never
+collects, so it buys depth in one line and pays for it everywhere else, at +51.2% tree by depth
+11. The rebate is the missing half of a rule the engine already runs, which makes it the
+best-motivated change available and the only backlog item whose failure mode has already been
+measured. Tuning `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` is
+the worse investment of the two while the rule measures at zero.
 
 ### The backlog, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | The empty-window Transposition Table bound | 7.1 | Run the 8.1 cold-versus-warm gate first, against both this and 10.8. Deterministic, costs no games |
-| 2 | Lazy Evaluation reads an unfilled pawn hash table | 10.8 | Same gate, same run. A tree change, so it needs pricing after it |
-| 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| 1 | The singular-beta multicut | 4.4 | The rule it completes ships enabled and measures -1.4 Elo without it. The only item whose failure mode is already measured |
+| 2 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| — | The empty-window Transposition Table bound, and the unfilled pawn hash table | 7.1, 10.8 | Measured 2026-09-01 not to drift a warm table (10.11). Correctness reports, no longer strength work |
 
 > [!IMPORTANT]
-> Items 1 and 2 are **not bugfixes to be bundled into a release**. Both move the search tree, so
-> rule 1 applies and both need pricing. This document's own history is the argument: fail-soft
+> The two items in the last row are **not bugfixes to be bundled into a release** — no more now
+> that the gate has cleared them than before it. Both still move the search tree, so rule 1
+> applies and both would need pricing. This document's own history is the argument: fail-soft
 > (8.1) is one of the most reliable gains in the literature and cost roughly two hundred Elo here,
 > and the Check Extension frontier restriction (8.2) was the best of four axes on every
 > deterministic metric and measured -26.8 Elo in games.
@@ -122,9 +124,9 @@ A new session can start from this table; each row says where the detail is.
 
 | Open | Where | Kind |
 | :--- | :--- | :--- |
-| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1 | defect, needs pricing |
+| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1, 10.11 | defect, measured not to drift a warm table, unpriced |
 | The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
-| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | 10.8 | defect, needs pricing |
+| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | 10.8, 10.11 | defect, measured not to drift a warm table, unpriced |
 | `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
@@ -784,7 +786,7 @@ tree — see 4.3.
     - `[x]` Release as a **patch**. Shipped as **v0.37.1** on 2026-08-29 with a refactor CHANGELOG
       entry that records both open defects as known limitations.
 
-### 7.1 One site could not be merged, and it is a defect — open
+### 7.1 One site could not be merged, and it is a defect — gated 2026-09-01, no measurable drift, unpriced
 
 The first identity run failed 19 of 28 positions with matching scores and principal variations and
 a moved tree. A counter on every early return isolated it to the Transposition Table store, and a
@@ -848,16 +850,18 @@ the baseline's 1.85, and the score gaps are unchanged. 7.1 was the last search-s
 had, and it is eliminated — the asymmetry is a move-ordering artefact (7.2). This defect therefore
 has to stand on its own argument, which is the unproven bound, not the asymmetry.
 
+**The gate is run, and it clears this defect of the drift it was suspected of — 2026-09-01.**
+Making `bound_for` colour-blind does not reduce cold-versus-warm drift at depth 9 or at depth 11;
+at depth 11 it raises the worst position from 49cp to 86. The 2x2, run against 10.8 in the same
+pass, is in 10.11. Nothing above is retracted — the bound is still one the search never proved, on
+0.25% of stores — but the defect no longer heads the backlog and is not priced.
+
 * **Tasks**:
-    - `[ ]` Run the 8.1 gate first, not a match. This defect is "an unproven bound in a table that
-      outlives the move", which is 8.1's mechanism exactly, so the cold-versus-warm drift
-      measurement is the cheap deterministic test and it costs no games. 8.1 records the shape:
-      search a fixed 60-move sequence twice with one build, once clearing the table per position
-      and once letting it accumulate, and count positions drifting more than 50cp. **Run it
-      against 10.8 in the same pass** — there is a second, independent source of cold-versus-warm
-      drift in the evaluation, and the gate cannot tell them apart on its own.
-    - `[ ]` Then price the correction. `Self::bound_for` holds both orders side by side and the fix
-      is one edit; it moves the tree, so rule 1 applies.
+    - `[x]` Run the 8.1 gate first, not a match. Done 2026-09-01, against 10.8 in the same pass:
+      no drift attributable to this (10.11).
+    - `[ ]` Price the correction **if a reason to make it returns**. `Self::bound_for` holds both
+      orders side by side and the fix is one edit; it moves the tree, so rule 1 applies, and the
+      one deterministic reading now available on it is unfavourable.
     - `[ ]` Decide whether the root should break out of its move loop on an aspiration fail high.
       If it should, the empty window stops existing and the tie-break becomes unreachable — which
       may be the better fix, and is a tree change in its own right.
@@ -1249,7 +1253,9 @@ of the search, is what now paces the project.
 | `scripts/version_curve.py` | One rating scale across runs, anchored to a frozen opponent. |
 | `scripts/book_lines.py` | Walks a PolyGlot book directly. Surveys every book in `books/` for breadth, and builds pools from any of them without the engine. |
 | `scripts/test_sprt.py` | 20 tests over the statistics, standard library only. |
-| `scripts/uci_driver.py` | Drives a binary over UCI and **waits for `bestmove`**. See the warning below. |
+| `scripts/uci_driver.py` | Drives a binary over UCI and **waits for `bestmove`**. See the warning below. `Session` keeps one process across many searches, so the hash tables are under the caller's control instead of empty every time. |
+| `scripts/measure_cold_warm_drift.py` | Does a build's score for a position depend on how full its hash tables are? The 8.1 gate, with the 2x2 that attributes what it finds. Added for 10.11. |
+| `scripts/test_cold_warm_drift.py` | 28 tests over the drift arithmetic, standard library only. |
 | `scripts/measure_check_exemption.py` | How much of the tree does a class of moves govern, and what would a rule have removed from it? Added for 8.5. |
 | `scripts/measure_razoring.py` | Searched nodes and search time for a rule toggled over UCI, on the fixed-depth corpus. Added for section 3. |
 
@@ -1412,7 +1418,7 @@ assume one thread per engine.
 * **Comparing the two pools.** One pairing, run twice, `sprt.py --plan` on each. That settles the
   cost question in one measurement and should precede adopting the new pool.
 
-### 10.8 Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure — open
+### 10.8 Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure — gated 2026-09-01, no measurable drift, unpriced
 
 `EvalService::cheap_eval` reads the pawn hash table but **never fills it**. On a miss
 `struct_mg`/`struct_eg` stay at zero, so the Lazy Evaluation cutoff in `calc_eval` compares a
@@ -1444,10 +1450,17 @@ The likely repair is one branch: on a pawn-table miss, skip the Lazy Evaluation 
 through to the full evaluation, which stores the term. Lazy Evaluation is only sound when the
 cheap score is complete. It is a tree change, so rule 1 applies.
 
+**The gate is run, and it does not find this either — 2026-09-01.** `EnableLazyEval false`
+closes this channel completely and by option, without a rebuild, and closing it does not reduce
+cold-versus-warm drift at either depth (10.11). The mechanism above is real and deterministic —
+the cheap score is genuinely incomplete on a pawn-table miss — but it does not move a searched
+score measurably.
+
 * **Tasks**:
-    - `[ ]` Run the 8.1 cold-versus-warm gate over the 60-move sequence, against this and 7.1
-      together, and attribute the drift.
-    - `[ ]` Price the repair.
+    - `[x]` Run the 8.1 cold-versus-warm gate over the 60-move sequence, against this and 7.1
+      together, and attribute the drift. Done 2026-09-01: there was nothing to attribute (10.11).
+    - `[ ]` Price the repair **if a reason to make it returns**. It remains a one-branch
+      correctness repair, and it still moves the tree.
 
 
 ### 10.9 The version scoreboard is run below the depth its own rules need — measured 2026-08-31
@@ -1565,3 +1578,74 @@ at 6000. The razoring run read +7.4 at 4170 and +4.2 at 6000. The v0.37.2 run re
 and +2.4 at 6000. An interim reading is not a smaller version of the final one; it is an
 excursion, and a sequential test that stops on such an excursion keeps it as the answer. Every
 figure in this file names its game count for that reason.
+
+
+### 10.11 The 8.1 cold-versus-warm gate, run against 7.1 and 10.8 — measured 2026-09-01
+
+7.1 and 10.8 both describe a value that outlives the move it was computed for, which is 8.1's
+mechanism, so both carried the same first task: run 8.1's cold-versus-warm drift measurement
+before spending a game on either. It is run. **Neither defect is a measurable source of
+cold-versus-warm drift**, and neither gates the next release.
+
+**The method.** One build searches the same fixed 60-position game twice at a fixed depth: once
+clearing both hash tables before every position, once letting them fill the way they do in a
+played game. `ucinewgame` is the only token that clears them, and it clears the Transposition
+Table and the pawn hash table together, which is why the gate on its own cannot say which of the
+two open items produced what it sees. Two levers separate them, and only one costs a build:
+`EnableLazyEval false` closes 10.8's channel by option, and a build with `bound_for` made
+colour-blind — keeping the White half, the one 7.1 records as correct — closes 7.1's.
+
+| Run | Lazy Evaluation | `bound_for` | Isolates |
+| :--- | :--- | :--- | :--- |
+| A | on, as shipped | colour-dependent, as shipped | the total |
+| B | off | colour-dependent | 10.8's channel closed |
+| C | on | colour-blind | 7.1's channel closed |
+| D | off | colour-blind | the floor that belongs to neither |
+
+Metrics are 8.1's, so they land on the scale of the table in that section: positions drifting more
+than 50cp, mean drift, max drift. Run on host C, 59 of 60 positions comparable — at ply 49 the
+side to move is in check with a single legal move, so the engine answers without searching and
+returns no score.
+
+| Run | depth 9: > 50cp | mean | max | depth 11: > 50cp | mean | max |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **A as shipped** | **0** | 11.5 | 49 | **0** | 12.4 | 49 |
+| B lazy evaluation off | 1 | 11.9 | 51 | 1 | 10.9 | 56 |
+| C colour-blind bound | 1 | 13.1 | 60 | 1 | 12.7 | 86 |
+| D both | 1 | 12.6 | 51 | 3 | 15.6 | 106 |
+
+8.1's fail-hard reference is 0 of 60 above 50cp, mean 5.5, max 31; its fail-soft build read 2 of
+60 with a maximum of 522.
+
+**The answer is in rows B and C, not in row A.** Closing either channel does not reduce the drift.
+Every variant sits at or above the shipped build at both depths, and at depth 11 the build with
+*both* corrections is the least self-consistent of the four. If either defect were feeding the
+warm-table drift, removing it would take drift away; it does not, in either direction, at either
+depth.
+
+**What the residual drift is.** All four builds drift by about 11 to 16cp on average, and the
+uniformity is the point: it is not attributable to anything in this document. A warm Transposition
+Table lets the same fixed depth resolve more of the tree, so the score moves. That is the table
+working, not a defect. The distinction from 8.1 is the shape, not the presence: poison produced a
+522cp outlier, and the worst position here moves 49.
+
+**What this does not establish.** One game, 59 positions, two depths. The gate is calibrated to
+catch a table poisoning of 8.1's magnitude and it is a screen, not a proof — it cannot exclude an
+effect of a few Elo. 7.1 also remains factually correct as a defect report: the Black half of the
+tie-break still publishes a bound the search never proved, on 0.25% of stores. What changed is its
+priority, not its truth. Row D is a further argument for rule 1 rather than against it: the
+colour-blind correction moves the tree, is not free, and the one deterministic reading available
+on it is unfavourable.
+
+**Consequence.** Neither item is priced, neither is bundled, and both leave the head of the
+backlog. The next release turns to 4.4.
+
+* `scripts/measure_cold_warm_drift.py` runs the gate; `--self-check` requires two cold passes to
+  agree position for position first, and did, on all 60 at depth 9.
+* The sequence is written into the script as a UCI move list rather than read from a PGN, because
+  `<mm>` and its PGNs do not travel between hosts and a gate whose corpus changes measures nothing.
+  It is the first 60 plies of a v0.37.2-rc against v0.37.1 gauntlet game and runs from the initial
+  position with 32 pieces down to 13.
+* The colour-blind binary is a throwaway built by the recipe above and kept at
+  `<mm>/engines/ab-boundblind`. `src/search_service.rs` is unchanged on `master`, and
+  `test_transposition_bound_tie_break_stays_colour_dependent_on_an_empty_window` still passes.
