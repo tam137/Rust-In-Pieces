@@ -71,6 +71,16 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             err.seek(0)
             stderr = err.read()
 
+    reached, score, time_ms, signature = parse_info(info)
+    return SearchResult(reached, score, best_move, time_ms, stderr, signature)
+
+
+def parse_info(info):
+    """Reduces a search's `info depth` lines to `(depth, score, time_ms, signature)`.
+
+    The signature is one entry per line, so two searches can be compared for tree identity rather
+    than only for their final numbers.
+    """
     reached, score, time_ms = "", "", 0
     signature = []
     for line in info:
@@ -86,5 +96,84 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             score = " ".join(tokens[tokens.index("score") + 1:tokens.index("score") + 3])
         if "time" in tokens:
             time_ms = int(tokens[tokens.index("time") + 1])
+    return reached, score, time_ms, signature
 
-    return SearchResult(reached, score, best_move, time_ms, stderr, signature)
+
+class Session:
+    """One engine process driven across many searches, with the hash tables under caller control.
+
+    `search` above spawns a process per position, so every search it runs starts from empty hash
+    tables. A cold-versus-warm measurement needs the opposite: one process that keeps its
+    Transposition Table and pawn hash table across positions and clears them only when asked.
+
+    `ucinewgame` is the only token that clears them -- `game_handler.rs` calls
+    `service.pawn_table.clear()` and `zobrist_table.clear()` on it and nothing else does. Note
+    that `isready` is answered by the UCI thread directly, so `readyok` is not a barrier for work
+    handed to the game thread. It does not need to be: `ucinewgame`, `position` and `go` all
+    travel the same channel to that thread, so their order is preserved without one.
+    """
+
+    def __init__(self, binary, options=(), cwd=None):
+        self._err = tempfile.TemporaryFile(mode="w+")
+        self._proc = subprocess.Popen(
+            [binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._err,
+            text=True, bufsize=1, cwd=cwd,
+        )
+        self._send("uci")
+        self._read_until("uciok")
+        self._send("setoption name OwnBook value false")
+        for name, value in options:
+            self._send(f"setoption name {name} value {value}")
+
+    def _send(self, command):
+        self._proc.stdin.write(command + "\n")
+        self._proc.stdin.flush()
+
+    def _read_until(self, terminator):
+        """Reads stdout until the terminating token, collecting the `info depth` lines on the way."""
+        info = []
+        last = ""
+        for line in self._proc.stdout:
+            line = line.strip()
+            if line.startswith("info depth"):
+                info.append(line)
+            elif line.startswith(terminator):
+                last = line
+                break
+        return info, last
+
+    def new_game(self):
+        """Clears both hash tables. This is the only thing that separates a cold pass from a warm one."""
+        self._send("ucinewgame")
+
+    def search(self, moves, depth):
+        """Searches the position reached from the start position by `moves`, to a fixed depth."""
+        position = "position startpos"
+        if moves:
+            position += " moves " + " ".join(moves)
+        self._send(position)
+        self._send(f"go depth {depth}")
+        info, bestmove = self._read_until("bestmove")
+        parts = bestmove.split()
+        best_move = parts[1] if len(parts) > 1 else ""
+        reached, score, time_ms, signature = parse_info(info)
+        return SearchResult(reached, score, best_move, time_ms, "", signature)
+
+    def close(self):
+        if self._proc.poll() is None:
+            try:
+                self._send("quit")
+                self._proc.wait(timeout=10)
+            except (BrokenPipeError, subprocess.TimeoutExpired):
+                self._proc.kill()
+                self._proc.wait()
+        self._err.seek(0)
+        self.stderr = self._err.read()
+        self._err.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
