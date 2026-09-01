@@ -12,6 +12,33 @@ pub const MAX_PLY: usize = 128;
 
 pub struct SearchService;
 
+/// What the singular verification search came back with.
+///
+/// The search is a null-window probe of this same node with the Transposition Table move
+/// excluded, placed at `threshold = tt_eval - singular_margin * depth`. Its two outcomes are two
+/// different pieces of information and the search costs the same either way:
+///
+/// * `eval < threshold` — nothing else comes close, the table move is **singular** and is
+///   extended by a ply.
+/// * `eval >= threshold` — something else reaches the threshold too. Useless on its own, but when
+///   `threshold >= beta` it means this node beats `beta` without the table move, and the
+///   **multicut** can end the node there.
+///
+/// Only the first was read before v0.38.0, which is why the rule extended and never collected.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SingularVerdict {
+    /// What the reduced search returned with the table move excluded.
+    eval: i16,
+    /// The null window it was searched around.
+    threshold: i16,
+}
+
+impl SingularVerdict {
+    fn is_singular(&self) -> bool {
+        self.eval < self.threshold
+    }
+}
+
 impl SearchService {
 
     pub fn new() -> Self {
@@ -1238,7 +1265,7 @@ impl SearchService {
             // `turns.len > 1` is not an optimisation. With a single legal move the exclusion
             // search has nothing left to search, returns its fail-low bound, and would report
             // every such node as singular; the One-Reply Extension already owns that case.
-            let singular_extension = !check_extension
+            let singular_verdict = if !check_extension
                 && config.enable_singular_extensions
                 && may_extend
                 && excluded_move.is_none()
@@ -1246,10 +1273,39 @@ impl SearchService {
                 && turns.len > 1
                 && depth >= config.singular_min_depth
                 && Some(*current_turn) == tt_move
-                && self.is_singular(
+            {
+                self.singular_verdict(
                     board, turn, depth, ply, tt_entry, *current_turn,
                     stats, config, service, context, killer_moves, history_table, counter_moves,
-                );
+                )
+            } else {
+                None
+            };
+
+            let singular_extension = matches!(singular_verdict, Some(v) if v.is_singular());
+
+            // Singular-beta multicut: the verification search's *other* answer.
+            //
+            // A fail high says some move other than the table move also reaches the threshold.
+            // When the threshold is itself at or above `beta`, that is a demonstration — at the
+            // verification search's reduced depth — that this node beats `beta` without the table
+            // move having been searched at all, so there is nothing left to establish here.
+            //
+            // The cut returns without writing the Transposition Table, and that is not an
+            // optimisation. The value is a reduced-depth inference about a position searched with
+            // a legal move removed; publishing it under this position's hash is the defect
+            // `task.md` 8.1 records at roughly two hundred Elo. The guard chain above is shared
+            // with the extension unchanged, so a build with this flag off searches the same tree
+            // as v0.37.2 — including `may_extend`, which is an extension budget and does not
+            // describe the cut, but widening it would run more verification searches and is a
+            // second change with its own price.
+            if config.enable_singular_multicut {
+                if let Some(verdict) = singular_verdict {
+                    if !verdict.is_singular() && verdict.threshold >= beta {
+                        return (None, verdict.threshold);
+                    }
+                }
+            }
 
             let extension = if check_extension || singular_extension { 1 } else { 0 };
             let child_depth = depth - 1 + extension;
@@ -1496,8 +1552,8 @@ impl SearchService {
     ///   errs towards "not singular", never towards a groundless extension.
     ///
     /// Returns `None` when the table entry cannot support the question at all, so the diagnostic
-    /// in [`Self::is_singular`] can separate a candidate that was refused from one that was
-    /// verified and found wanting. The caller of the search reads both as "no extension".
+    /// in [`Self::singular_verdict`] can separate a candidate that was refused from one that was
+    /// verified and found wanting. The caller reads a refusal as "no extension and no cut".
     #[allow(clippy::too_many_arguments)]
     fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32,
         ply: i32,
@@ -1505,7 +1561,7 @@ impl SearchService {
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
-        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<bool> {
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<SingularVerdict> {
 
         let (tt_eval, tt_depth, tt_type) = tt_entry?;
 
@@ -1546,7 +1602,7 @@ impl SearchService {
             false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
             counter_moves,
         ).1;
-        Some(eval < threshold)
+        Some(SingularVerdict { eval, threshold })
     }
 
     /// [`Self::singular_verification`], plus the `task.md` section 4 diagnostic: how many nodes
@@ -1555,12 +1611,12 @@ impl SearchService {
     /// on, and the node delta is taken around the call rather than inside it so the measurement
     /// cannot reach into the search it measures.
     #[allow(clippy::too_many_arguments)]
-    fn is_singular(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32,
+    fn singular_verdict(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32,
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
-        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> bool {
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<SingularVerdict> {
 
         #[cfg(feature = "search-diag")]
         let nodes_before = stats.calculated_nodes as u64;
@@ -1574,11 +1630,11 @@ impl SearchService {
         crate::search_diag::record_singular(
             depth,
             verdict.is_some(),
-            verdict == Some(true),
+            verdict.is_some_and(|v| v.is_singular()),
             stats.calculated_nodes as u64 - nodes_before,
         );
 
-        verdict.unwrap_or(false)
+        verdict
     }
 
     /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
@@ -2154,6 +2210,112 @@ mod tests {
         assert_eq!(baseline, unreachable,
             "an unreachable trigger depth must leave the tree untouched ({} vs {})",
             baseline, unreachable);
+    }
+
+    #[test]
+    fn test_the_multicut_is_off_until_it_has_been_measured() {
+        // The rule it completes ships enabled and measures -1.4 Elo (task.md 10.10), which is
+        // exactly the situation a default-on new rule creates. It stays off until 6000 fixed-N
+        // games say otherwise, and this test is what makes flipping it a deliberate act.
+        let config = Config::new();
+        assert!(!config.enable_singular_multicut,
+            "the multicut ships off until a fixed-N run prices it");
+
+        let shipped = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        let explicitly_off = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_multicut = false;
+        });
+        assert_eq!(shipped, explicitly_off,
+            "the default must be the off configuration ({} vs {})", shipped, explicitly_off);
+    }
+
+    #[test]
+    fn test_the_multicut_changes_the_tree_when_enabled() {
+        // Asserted as a change rather than a shrink, for the reason the extension test gives:
+        // cutting a node moves the windows above it, so the node count is not monotone in how
+        // much is pruned. What must be true is that the rule reaches the tree at all.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = true;
+        });
+
+        assert_ne!(with, without,
+            "the multicut must change the searched tree ({} with vs {} without)", with, without);
+    }
+
+    #[test]
+    fn test_the_multicut_is_inert_without_the_transposition_table() {
+        // It is a second reading of a verification search that only exists when there is a table
+        // entry to verify. Without a table there is no candidate, no verification and no cut.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = false;
+        });
+        let enabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = true;
+        });
+
+        assert_eq!(baseline, enabled,
+            "without a transposition table the multicut must be inert ({} vs {})",
+            baseline, enabled);
+    }
+
+    #[test]
+    fn test_the_multicut_does_not_resurrect_a_disabled_rule() {
+        // The multicut reads the singular verification search; it must never run one. With
+        // singular extensions off there is no verification search to read, and the tree must
+        // stay bit-identical however the multicut flag is set.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+            c.enable_singular_multicut = false;
+        });
+        let with_multicut = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+            c.enable_singular_multicut = true;
+        });
+
+        assert_eq!(baseline, with_multicut,
+            "the multicut must not run a verification search of its own ({} vs {})",
+            baseline, with_multicut);
+    }
+
+    #[test]
+    fn test_the_multicut_still_produces_a_root_move() {
+        // The cut is an early return carrying a reduced-depth score. `ply > 0` guards it, and
+        // `get_moves` is the root, so the value can never become the root's answer. A regression
+        // that let it escape upwards would surface here as a search that returns no move at all.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(CHECK_RICH_FEN);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_singular_extensions = true;
+        config.singular_min_depth = 4;
+        config.enable_singular_multicut = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 7, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(!result.variants.is_empty(),
+            "the search must still return a root move with the multicut enabled");
     }
 
     #[test]
