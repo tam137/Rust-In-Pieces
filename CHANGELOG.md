@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.37.2] - 2026-09-01
+
+Full catch-up to master v0.37.2. The branch stood at v0.36.0-NNUE, so all three master releases
+arrive together: v0.37.2 alone could not be applied, because its UCI and configuration repairs act
+on options that v0.37.0 introduced and on the search that v0.37.1 rewrote.
+
+- **Singular Extensions enabled by default** (v0.37.0), trigger depth 6, TT depth margin 3,
+  margin 2, no depth reduction. The decision is carried from master and was not re-measured here.
+  Master has since re-priced it with a fixed-N run at **-1.4 Elo [-8, +5]** over 6000 games, so
+  the rule ships for parity with master, not as a strength claim. See `task.md` 4 and 10.10 on
+  `master`.
+- **Canonical negamax search** (v0.37.1), proven node-identical to v0.37.0 on master.
+- **Five defect repairs** (v0.37.2): the colour-asymmetric candidate passed pawn mask, thirteen
+  inert UCI options, twelve advertised defaults that had drifted from the values the engine uses,
+  the dead `Config::search_threads` field and the dead `lmp_max_depth` tuning range.
+- Every advertised UCI default is now read from `Config::new()` instead of a literal. This branch
+  therefore needs no UCI facade delta of its own any more - `UseNNUE`, the LMR table and the
+  aspiration window advertise this branch's own values automatically.
+- `src/search_service.rs`, `src/search_diag.rs` and `src/game_handler.rs` are byte-identical to
+  master v0.37.2.
+- **Branch-specific fix:** `setoption name UseNNUE value <x>` is forwarded to the game thread
+  again. Master's v0.37.2 refactor moved option handling into `Config::apply_uci_option` but kept
+  intercepting this one token in `src/threads.rs`, which left the engine renaming itself without
+  switching evaluation. Verified: with `UseNNUE false` the build now scores the start position at
+  cp 19 and plays b1c3, matching the HCE build, against cp 54 and e2e4 with the network on.
+- `build_and_release.sh` adopts master's `MM_DIR` override for the Matt-Magie directory and keeps
+  this branch's `-nnue` binary suffix.
+- Protected SPSA-tuned values unchanged: `use_nnue = true`, `lmr_divisor = 140`,
+  `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`,
+  `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
+  `your_turn_bonus = 18`.
+
+> [!NOTE]
+> **No gauntlet was run and this release is not priced.** It is a port, and the branch has not
+> played a rated game since v0.30.0-NNUE. Nothing here is a measured strength claim for the NNUE
+> evaluation.
+
+
+
 ## [V0.36.0] - 2026-08-28
 
 - Ported razoring from master v0.36.0, enabled by default (`enable_razoring = true`); UCI literal

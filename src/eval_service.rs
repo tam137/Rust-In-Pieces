@@ -668,7 +668,14 @@ impl EvalService {
             if (black_pawns & front_file_mask) == 0 && (3..=5).contains(&rank) {
                 let adjacent_files = ADJACENT_FILES_MASK[file as usize];
                 let friendly_adj_pawns = (white_pawns & adjacent_files).count_ones();
-                let enemy_adj_pawns = (black_pawns & adjacent_files & !((1u64 << (sq + 1)) - 1)).count_ones();
+                // Ranks strictly ahead of this pawn. The threshold is a *rank* predicate, not
+                // an index one: `adjacent_files` already spans both neighbouring files, so an
+                // index threshold would additionally admit `sq + 1` - the neighbour on this
+                // pawn's own rank. A colour mirror flips the rank and leaves the file alone, so
+                // that leak made the White and Black masks non-mirrored and the evaluation
+                // colour-asymmetric. See `task.md` 7.2.
+                let ahead_of_rank = !((1u64 << ((rank + 1) * 8)) - 1);
+                let enemy_adj_pawns = (black_pawns & adjacent_files & ahead_of_rank).count_ones();
                 if friendly_adj_pawns >= enemy_adj_pawns {
                     let advancement = (rank - 2) as i16;
                     o_eval += (config.candidate_passed_pawn_bonus * advancement) / 2;
@@ -786,7 +793,10 @@ impl EvalService {
             if (white_pawns & front_file_mask) == 0 && (2..=4).contains(&rank) {
                 let adjacent_files = ADJACENT_FILES_MASK[file as usize];
                 let friendly_adj_pawns = (black_pawns & adjacent_files).count_ones();
-                let enemy_adj_pawns = (white_pawns & adjacent_files & ((1u64 << sq) - 1)).count_ones();
+                // Ranks strictly ahead of this pawn; see the White counterpart for why this
+                // is a rank predicate and not an index one.
+                let ahead_of_rank = (1u64 << (rank * 8)) - 1;
+                let enemy_adj_pawns = (white_pawns & adjacent_files & ahead_of_rank).count_ones();
                 if friendly_adj_pawns >= enemy_adj_pawns {
                     let advancement = (5 - rank) as i16;
                     o_eval -= (config.candidate_passed_pawn_bonus * advancement) / 2;
@@ -3121,5 +3131,128 @@ mod tests {
             "White and Black evaluation must be numerically symmetric: eval_w={}, eval_b={}",
             eval_w, eval_b
         );
+    }
+
+    /// The same position with the colours exchanged and the board flipped top to bottom, which is
+    /// strategically identical for the other side. Mirrors `swap_colours` in
+    /// `scripts/verify_negamax_identity.py`.
+    fn mirror_fen(fen: &str) -> String {
+        let parts: Vec<&str> = fen.split_whitespace().collect();
+        let board: String = parts[0]
+            .split('/')
+            .rev()
+            .map(|rank| {
+                rank.chars()
+                    .map(|c| {
+                        if c.is_ascii_uppercase() {
+                            c.to_ascii_lowercase()
+                        } else if c.is_ascii_lowercase() {
+                            c.to_ascii_uppercase()
+                        } else {
+                            c
+                        }
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        let side = if parts[1] == "w" { "b" } else { "w" };
+        let castling = if parts[2] == "-" {
+            "-".to_string()
+        } else {
+            let mut rights: Vec<char> = parts[2]
+                .chars()
+                .map(|c| if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() })
+                .collect();
+            rights.sort_unstable();
+            rights.into_iter().collect()
+        };
+        let en_passant = if parts[3] == "-" {
+            "-".to_string()
+        } else {
+            let rank: u32 = parts[3][1..2].parse().expect("en passant rank");
+            format!("{}{}", &parts[3][0..1], 9 - rank)
+        };
+        format!("{} {} {} {} {} {}", board, side, castling, en_passant, parts[4], parts[5])
+    }
+
+    fn eval_of(fen: &str, config: &Config, alpha: i16, beta: i16) -> i16 {
+        let service = Service::new();
+        let board = service.fen.set_fen(fen);
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
+        service.eval.calc_eval(&board, config, &service.move_gen, &pawn_table, alpha, beta,
+                               config.lazy_eval_margin_search)
+    }
+
+    /// A position and its colour mirror must evaluate to exact negatives of each other.
+    ///
+    /// The candidate-passed-pawn rule used to break this: it counted enemy pawns on the adjacent
+    /// files with an *index* threshold, which on an adjacent-files mask also admits the pawn's
+    /// own rank - `sq + 1` for White and `sq - 1` for Black. A colour mirror flips the rank and
+    /// leaves the file alone, so the two masks were not mirror images and the same structure
+    /// scored 8 cp (middlegame) / 16 cp (endgame) differently depending on which colour held it.
+    /// The four positions below are drawn from the book sweep that found it; each one moved
+    /// before the mask became rank-based. See `task.md` 7.2.
+    #[test]
+    fn test_candidate_passed_pawn_mask_is_colour_symmetric() {
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // The infinite window plus windows that put Lazy Evaluation in play, because the search
+        // never calls `calc_eval` with an infinite window.
+        let windows: [(i16, i16); 4] = [(i16::MIN, i16::MAX), (-50, 50), (0, 1), (-1000, 1000)];
+
+        let positions = [
+            "r1bqkb1r/1ppp1ppp/p1n2n2/1B6/3pP3/5N2/PPP2PPP/RNBQ1RK1 w kq - 0 6",
+            "r1bqkb1r/pp1npppp/3p1n2/1B6/3pP3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 6",
+            "r1bqkb1r/pppp1ppp/2n2n2/1B6/3pP3/5N2/PPP2PPP/RNBQ1RK1 b kq - 0 5",
+            "r1bqkbnr/pp1p1ppp/2n5/2p1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+        ];
+
+        for fen in positions.iter() {
+            let mirrored = mirror_fen(fen);
+            for (alpha, beta) in windows.iter() {
+                let direct = eval_of(fen, &config, *alpha, *beta);
+                // A Black node hands `calc_eval` the window restated on the absolute scale, which
+                // swaps the bounds and changes their sign.
+                let mirror = eval_of(&mirrored, &config, beta.saturating_neg(), alpha.saturating_neg());
+                assert_eq!(
+                    direct, -mirror,
+                    "mirrored positions must evaluate to exact negatives at window ({}, {}):\n  \
+                     {} -> {}\n  {} -> {}",
+                    alpha, beta, fen, direct, mirrored, mirror);
+            }
+        }
+    }
+
+    /// The mask itself, on a position built to isolate it.
+    ///
+    /// White has a candidate pawn on d5 supported on the e-file, with black pawns on c7 (which
+    /// denies it passed status) and on e5 - the neighbour on the candidate's *own* rank. e5 is
+    /// beside the candidate, not in front of it, and must not count as an enemy in its path. The
+    /// index threshold used to count it for White and not for the mirrored Black pawn, which is
+    /// exactly the leak this test pins.
+    #[test]
+    fn test_candidate_passed_pawn_ignores_same_rank_enemy_pawns() {
+        let fen = "4k3/2p5/8/3Pp3/4P3/8/8/4K3 w - - 0 1";
+        let mirrored = mirror_fen(fen);
+        assert_eq!(mirrored, "4k3/8/8/4p3/3pP3/8/2P5/4K3 b - - 0 1");
+
+        let mut config = Config::new();
+        config.use_nnue = false;
+
+        // The rule must actually be engaged on this position, or the symmetry assertion below
+        // would hold trivially on a position the candidate branch never reaches.
+        let mut without = config.clone();
+        without.candidate_passed_pawn_bonus = 0;
+        assert_ne!(
+            eval_of(fen, &config, i16::MIN, i16::MAX),
+            eval_of(fen, &without, i16::MIN, i16::MAX),
+            "the candidate passed pawn rule must fire on this position");
+
+        assert_eq!(
+            eval_of(fen, &config, i16::MIN, i16::MAX),
+            -eval_of(&mirrored, &config, i16::MIN, i16::MAX),
+            "an enemy pawn on the candidate's own rank must not count as being in front of it");
     }
 }

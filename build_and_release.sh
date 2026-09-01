@@ -120,7 +120,9 @@ echo -e "${GREEN}Success: Release binary compiled successfully!${NC}"
 
 # Step 5: Copy to Matt-Magie engines folder
 echo -e "\n${YELLOW}[5/6] Deploying release to Matt-Magie engines directory...${NC}"
-TARGET_DIR="../matt-magie/engines"
+# The Matt-Magie directory is a sibling of the repository on some hosts and elsewhere on others.
+# Override with MM_DIR when it is not. See the path policy in AGENTS.md.
+TARGET_DIR="${MM_DIR:-../matt-magie}/engines"
 mkdir -p "$TARGET_DIR"
 
 # Determine engine binary filename suffix based on branch

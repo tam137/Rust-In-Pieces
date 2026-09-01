@@ -7,7 +7,7 @@ pub enum Aggressiveness {
     HighAggressive,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Config {
     pub version: &'static str,
     pub use_zobrist: bool,
@@ -38,7 +38,6 @@ pub struct Config {
     pub quiescence_search_mode: QuiescenceSearchMode,
     pub print_info_string_during_search: bool,
     #[allow(dead_code)]
-    pub search_threads: i32,
     pub use_pv_nodes: bool,
     pub min_thinking_time: u64,
     #[allow(dead_code)]
@@ -250,6 +249,35 @@ pub struct Config {
     /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
     /// keeps forced sequences — including sacrificial checks — inside the horizon.
     pub enable_one_reply_extension: bool,
+
+    /// Enables Singular Extensions: when the Transposition Table move is provably better than
+    /// every alternative at this node, it is searched one ply deeper.
+    ///
+    /// Ships **enabled** since v0.37.0 on roughly **+5 to +10 Elo over 2591 games** against
+    /// v0.36.0 — small and positive, not the +30.6 the first stopped SPRT reported. Two
+    /// independent round robins both accepted the *does it hurt* hypothesis. `task.md` 4.2, and
+    /// 4.3 for why a stopped SPRT's point estimate is not the effect size. The Check Extension of 8.2 is the cautionary case that made
+    /// the games mandatory: it looked right on every static metric and measured -23.7 Elo.
+    pub enable_singular_extensions: bool,
+    /// Lowest remaining depth at which singularity is verified.
+    ///
+    /// The published rule triggers at depth 8. This engine reaches a root depth of 9 to 10 at the
+    /// match time control, where a trigger of 8 fires at plies 0 to 1 and nowhere else, which is
+    /// too rare to price. The threshold is therefore a parameter rather than a constant, and its
+    /// default is chosen against this harness: a fixed-depth census settled on **6**, where the
+    /// rule grants three times the extensions of 7 for the same tree cost. `task.md` 4.1.
+    pub singular_min_depth: i32,
+    /// How much shallower than the current node the Transposition Table entry may be and still
+    /// be trusted as the singularity candidate: the entry qualifies at
+    /// `entry.depth >= depth - singular_tt_depth_margin`.
+    pub singular_tt_depth_margin: i32,
+    /// Centipawns per ply by which every alternative must fall short of the Transposition Table
+    /// score before the move counts as singular. The threshold is `singular_margin * depth`, so
+    /// the demand grows with the depth the score was established at.
+    pub singular_margin: i16,
+    /// Subtracted from the `(depth - 1) / 2` verification depth. `0` is the published reduction;
+    /// larger values buy a cheaper, blunter verification.
+    pub singular_depth_reduction: i32,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -277,7 +305,6 @@ impl Config {
             quiescence_search_mode: QuiescenceSearchMode::Alpha2,
             print_info_string_during_search: false,
 
-            search_threads: 2,
             use_pv_nodes: true,
             min_thinking_time: 2,
             game_loop: 3,
@@ -465,6 +492,15 @@ impl Config {
             check_extension_min_depth: 0,
             check_extension_max_depth: 0,
             enable_one_reply_extension: false,
+            // On by default since v0.37.0: about +5 to +10 Elo over 2591 games against v0.36.0.
+            // The trigger
+            // depth is deliberately below the published 8 because the match search reaches depth
+            // 9 to 10 — see `task.md` 4.1 for the census that chose it.
+            enable_singular_extensions: true,
+            singular_min_depth: 6,
+            singular_tt_depth_margin: 3,
+            singular_margin: 2,
+            singular_depth_reduction: 0,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -606,7 +642,6 @@ impl Config {
         config.log_to_console = true;
         config.print_info_string_during_search = false;
         config.use_book = false;
-        config.search_threads = 4;
         config.max_zobrist_hash_entries = 10_000_000;
         config.max_pawn_hash_entries = 1_000_000;
         config.use_underpromotions = true;
@@ -618,7 +653,6 @@ impl Config {
     pub fn _for_integration_tests_with_pv_nodes(&self) -> Self {
         let mut config = Config::_for_integration_tests(self);
         config.use_pv_nodes = true;
-        config.search_threads = 1;
         config
     }
 
@@ -626,7 +660,6 @@ impl Config {
     pub fn _for_integration_tests_wo_pv_nodes(&self) -> Self {
         let mut config = Config::_for_integration_tests(self);
         config.use_pv_nodes = false;
-        config.search_threads = 1;
         config
     }
 }
@@ -634,6 +667,130 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every option the engine advertises must actually reach a field.
+    ///
+    /// `setoption` matches the option name with separators removed, and before v0.37.2 the arms
+    /// were written in snake_case while the name arrived as one CamelCase token. Thirteen of the
+    /// advertised options had no lowercase alias and were accepted and silently ignored - the
+    /// engine told a GUI it supported them and then did nothing. Three options are legitimately
+    /// not config-backed and are listed here by name rather than skipped by a pattern, so adding
+    /// a fourth has to be a deliberate edit.
+    #[test]
+    fn test_every_advertised_uci_option_is_accepted() {
+        // `Hash` resizes the transposition table and `Threads` is answered with a log line: both
+        // are handled in the UCI thread before the configuration is consulted. `Aggressiveness`
+        // takes a word rather than a number and is exercised separately below.
+        const HANDLED_ELSEWHERE: [&str; 3] = ["Hash", "Threads", "Aggressiveness"];
+
+        let defaults = Config::new();
+        let mut checked = 0;
+        for line in crate::threads::uci_options(&defaults) {
+            let name = line
+                .strip_prefix("option name ")
+                .and_then(|rest| rest.split(" type ").next())
+                .expect("every advertised option names itself");
+            if HANDLED_ELSEWHERE.contains(&name) {
+                continue;
+            }
+            let mut config = Config::new();
+            assert_ne!(
+                config.apply_uci_option(name, "1"),
+                UciOptionEffect::Unknown,
+                "advertised option '{}' is not accepted by setoption", name);
+            checked += 1;
+        }
+        assert!(checked > 50, "expected the advertised option list to be non-trivial, got {}", checked);
+    }
+
+    /// Accepting the name is not enough: the value has to land in the configuration.
+    ///
+    /// Every advertised `spin` option is set to a value different from its own advertised default
+    /// and the resulting configuration must differ from an untouched one. A silently ignored
+    /// option passes the acceptance test above only if its arm exists at all, but this one fails
+    /// for any arm that parses the value and then drops it.
+    #[test]
+    fn test_every_advertised_spin_option_changes_the_configuration() {
+        const HANDLED_ELSEWHERE: [&str; 2] = ["Hash", "Threads"];
+
+        let defaults = Config::new();
+        let untouched = Config::new();
+        for line in crate::threads::uci_options(&defaults) {
+            let Some(rest) = line.strip_prefix("option name ") else { continue };
+            let Some((name, spec)) = rest.split_once(" type ") else { continue };
+            if !spec.starts_with("spin ") || HANDLED_ELSEWHERE.contains(&name) {
+                continue;
+            }
+            let advertised: i64 = spec
+                .split_whitespace()
+                .nth(2)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| panic!("spin option '{}' has no numeric default: {}", name, line));
+            let max: i64 = spec
+                .split_whitespace()
+                .last()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(advertised + 1);
+            // Stay inside the advertised range, so the test never asks for a value a GUI could not.
+            let probe = if advertised < max { advertised + 1 } else { advertised - 1 };
+
+            let mut config = Config::new();
+            config.apply_uci_option(name, &probe.to_string());
+            assert!(
+                config != untouched,
+                "advertised option '{}' accepted value {} without changing anything", name, probe);
+        }
+    }
+
+    /// The name is matched case-insensitively and without separators, so the spelling the engine
+    /// advertises, the snake_case spelling the SPSA tuner sends, and a spaced spelling are one
+    /// option.
+    #[test]
+    fn test_uci_option_names_ignore_case_and_separators() {
+        for spelling in ["ConnectedPassedPawnMg", "connected_passed_pawn_mg", "Connected Passed Pawn Mg"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "77"), UciOptionEffect::Stored,
+                       "'{}' must be accepted", spelling);
+            assert_eq!(config.connected_passed_pawn_mg, 77, "'{}' must reach the field", spelling);
+        }
+        let mut config = Config::new();
+        assert_eq!(config.apply_uci_option("NoSuchOption", "1"), UciOptionEffect::Unknown);
+        assert!(config == Config::new(), "an unknown option must change nothing");
+    }
+
+    /// The three options that invalidate a loaded opening book report that to the caller instead
+    /// of reaching for a book `Config` does not own.
+    #[test]
+    fn test_book_options_report_their_effect() {
+        let mut config = Config::new();
+        assert_eq!(config.apply_uci_option("BookFile", "book.bin"), UciOptionEffect::BookFileChanged);
+        assert_eq!(config.book_file, "book.bin");
+        assert_eq!(config.apply_uci_option("OwnBook", "true"), UciOptionEffect::BookEnabledChanged);
+        assert!(config.use_book);
+        assert_eq!(config.apply_uci_option("CacheBookInRam", "false"), UciOptionEffect::BookCacheChanged);
+        assert!(!config.cache_book_in_ram);
+    }
+
+    /// `lmp_max_depth` is inert above 4 (`task.md` 10.6), so neither the UCI facade nor the SPSA
+    /// parameter file may offer a wider range for a tuner to wander over.
+    #[test]
+    fn test_lmp_max_depth_advertises_only_its_live_range() {
+        let defaults = Config::new();
+        let line = crate::threads::uci_options(&defaults)
+            .into_iter()
+            .find(|l| l.starts_with("option name LmpMaxDepth "))
+            .expect("LmpMaxDepth must be advertised");
+        assert!(line.ends_with(" max 4"), "LmpMaxDepth must advertise max 4, got: {}", line);
+
+        let registered = std::fs::read_to_string("tuning/parameters.json").expect("parameters.json");
+        let entry = registered
+            .split("\"lmp_max_depth\"")
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .expect("lmp_max_depth must be registered for tuning");
+        assert!(entry.contains("\"max\": 4"),
+                "tuning/parameters.json must not offer lmp_max_depth above 4, got: {}", entry);
+    }
 
     #[test]
     fn test_config_aggressiveness_scaling() {
@@ -684,5 +841,227 @@ mod tests {
         assert_eq!(config.check_extension_min_depth, 0);
         assert_eq!(config.check_extension_max_depth, 0);
         assert!(!config.enable_one_reply_extension);
+    }
+}
+/// What the caller must do after a `setoption` beyond storing the value.
+///
+/// `Config` owns the option table but not the opening book, so the three options that invalidate
+/// a loaded book report that back instead of reaching for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UciOptionEffect {
+    /// The name was not recognised and nothing was changed.
+    Unknown,
+    /// The value was stored and nothing else is required.
+    Stored,
+    /// `BookFile` changed: drop the cached book and load the new one eagerly.
+    BookFileChanged,
+    /// `OwnBook` changed: the book may have been named before it was switched on.
+    BookEnabledChanged,
+    /// `CacheBookInRam` changed: drop the cache when it is now off.
+    BookCacheChanged,
+}
+
+impl Config {
+    /// Applies one UCI `setoption` to this configuration and reports what it did.
+    ///
+    /// The name is matched case-insensitively and with separators removed, so
+    /// `ConnectedPassedPawnMg`, `connected_passed_pawn_mg` and `Connected Passed Pawn Mg` are one
+    /// option. Matching the raw lowercased name used to require every arm to carry a hand-written
+    /// alias for the CamelCase spelling, and thirteen of the sixty-one advertised options had
+    /// none: the engine advertised them, accepted them, and silently ignored the value.
+    pub fn apply_uci_option(&mut self, name: &str, value: &str) -> UciOptionEffect {
+        let key: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        let value = value.trim().to_string();
+        match key.as_str() {
+            "aggressiveness" => {
+                if value.to_lowercase().contains("high") {
+                    self.set_aggressiveness(crate::config::Aggressiveness::HighAggressive);
+                } else if value.to_lowercase().contains("aggressive") {
+                    self.set_aggressiveness(crate::config::Aggressiveness::Aggressive);
+                } else {
+                    self.set_aggressiveness(crate::config::Aggressiveness::Normal);
+                }
+            }
+            "enablelazyeval" => {
+                self.enable_lazy_eval = value.to_lowercase() == "true";
+            }
+            "usennue" => {
+                self.use_nnue = value.to_lowercase() == "true";
+            }
+            "nnuemodelpath" => {
+                self.nnue_model_path = value.clone();
+            }
+            "enablepositionalcap" => {
+                self.enable_positional_cap = value.to_lowercase() == "true";
+            }
+            "moveoverhead" => {
+                if let Ok(overhead) = value.parse::<u64>() { self.move_overhead = overhead; }
+            }
+            "nmpdepththreshold" => if let Ok(v) = value.parse::<i32>() { self.nmp_depth_threshold = v; },
+            "nmpreduction" => if let Ok(v) = value.parse::<i32>() { self.nmp_reduction = v; },
+            "nmpverificationthreshold" => if let Ok(v) = value.parse::<i32>() { self.nmp_verification_threshold = v; },
+            "nmpdynamicdivisor" => if let Ok(v) = value.parse::<i32>() { self.nmp_dynamic_divisor = v; },
+            "lmrmovethreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_move_threshold = v; },
+            "lmrdivisor" | "lmrdivisorscaled" => if let Ok(v) = value.parse::<i32>() { self.lmr_divisor = v; self.recalculate_lmr_table(); },
+            "killermove1rankbonus" => if let Ok(v) = value.parse::<i32>() { self.killer_move_1_rank_bonus = v; },
+            "killermove2rankbonus" => if let Ok(v) = value.parse::<i32>() { self.killer_move_2_rank_bonus = v; },
+            "countermoverankbonus" => if let Ok(v) = value.parse::<i32>() { self.counter_move_rank_bonus = v; },
+            "ishashedrankbonus" => if let Ok(v) = value.parse::<i32>() { self.is_hashed_rank_bonus = v; },
+            "givecheckrankbonus" => if let Ok(v) = value.parse::<i32>() { self.give_check_rank_bonus = v; },
+            "ispvnoderankbonus" => if let Ok(v) = value.parse::<i32>() { self.is_pv_node_rank_bonus = v; },
+            "givepromotionrankbonusqueen" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_queen = v; },
+            "givepromotionrankbonusknight" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_knight = v; },
+            "historymaxthreshold" => if let Ok(v) = value.parse::<u32>() { self.history_max_threshold = v; },
+            "aspirationwindowinitialdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_initial_delta = v; },
+            "aspirationwindowmultiplier" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_multiplier = v; },
+            "aspirationwindowmaxdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_max_delta = v; },
+            "lmrhistorygoodthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_good_threshold = v; },
+            "lmrhistorybadthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_bad_threshold = v; },
+            "rfpmarginperdepth" => if let Ok(v) = value.parse::<i16>() { self.rfp_margin_per_depth = v; },
+            "rfpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.rfp_max_depth = v; },
+            "enablecheckextension" => self.enable_check_extension = value.eq_ignore_ascii_case("true"),
+            "checkextensionmaxply" => if let Ok(v) = value.parse::<i32>() { self.check_extension_max_ply = v; },
+            "checkextensionrequiresafe" => self.check_extension_require_safe = value.eq_ignore_ascii_case("true"),
+            "checkextensionbudgetdivisor" => if let Ok(v) = value.parse::<i32>() { self.check_extension_budget_divisor = v; },
+            "checkextensionmindepth" => if let Ok(v) = value.parse::<i32>() { self.check_extension_min_depth = v; },
+            "checkextensionmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.check_extension_max_depth = v; },
+            "enableonereplyextension" => self.enable_one_reply_extension = value.eq_ignore_ascii_case("true"),
+            "enablesingularextensions" => self.enable_singular_extensions = value.eq_ignore_ascii_case("true"),
+            "singularmindepth" => if let Ok(v) = value.parse::<i32>() { self.singular_min_depth = v; },
+            "singularttdepthmargin" => if let Ok(v) = value.parse::<i32>() { self.singular_tt_depth_margin = v; },
+            "singularmargin" => if let Ok(v) = value.parse::<i16>() { self.singular_margin = v; },
+            "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
+            "enablelmp" => self.enable_lmp = value.eq_ignore_ascii_case("true"),
+            "lmpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.lmp_max_depth = v; },
+            "lmpbasemoves" => if let Ok(v) = value.parse::<i32>() { self.lmp_base_moves = v; },
+            "enablebadcapturepruning" => self.enable_bad_capture_pruning = value.eq_ignore_ascii_case("true"),
+            "badcaptureseethreshold" => if let Ok(v) = value.parse::<i16>() { self.bad_capture_see_threshold = v; },
+            "yourturnbonus" => if let Ok(v) = value.parse::<i16>() { self.your_turn_bonus = v; },
+            "positionalcapdamping" => {
+                if let Ok(v) = value.parse::<i16>() { self.positional_cap_damping = v; }
+            },
+            "kingopenfilemalus" => if let Ok(v) = value.parse::<i16>() { self.king_open_file_malus = v; },
+            "kinghalfopenfilemalus" => if let Ok(v) = value.parse::<i16>() { self.king_half_open_file_malus = v; },
+            "kingringdefendervalue" => if let Ok(v) = value.parse::<i16>() { self.king_ring_defender_value = v; },
+            "threatminorattacksrook" => if let Ok(v) = value.parse::<i16>() { self.threat_minor_attacks_rook = v; },
+            "threatminorattacksqueen" => if let Ok(v) = value.parse::<i16>() { self.threat_minor_attacks_queen = v; },
+            "threatrookattacksqueen" => if let Ok(v) = value.parse::<i16>() { self.threat_rook_attacks_queen = v; },
+            "logpath" => { self.log_path = std::sync::Arc::from(value.as_str()); },
+            "bookfile" => {
+                self.book_file = value.to_string();
+                return UciOptionEffect::BookFileChanged;
+            },
+            "bookmaxply" => if let Ok(v) = value.parse::<i32>() { self.book_max_ply = v; },
+            "cachebookinram" => {
+                self.cache_book_in_ram = value.to_lowercase() == "true";
+                return UciOptionEffect::BookCacheChanged;
+            },
+            "ownbook" | "usebook" => {
+                self.use_book = value.to_lowercase() == "true";
+                return UciOptionEffect::BookEnabledChanged;
+            },
+            "pawnstructure" => if let Ok(v) = value.parse::<i16>() { self.pawn_structure = v; },
+            "pawnsupportsknightoutpost" => if let Ok(v) = value.parse::<i16>() { self.pawn_supports_knight_outpost = v; },
+            "pawncentered" => if let Ok(v) = value.parse::<i16>() { self.pawn_centered = v; },
+            "pawnundevelopedmalus" => if let Ok(v) = value.parse::<i16>() { self.pawn_undeveloped_malus = v; },
+            "pawnonlastrankbonus" => if let Ok(v) = value.parse::<i16>() { self.pawn_on_last_rank_bonus = v; },
+            "pawnonbeforelastrankbonus" => if let Ok(v) = value.parse::<i16>() { self.pawn_on_before_last_rank_bonus = v; },
+            "pawnonbeforebeforelastrankbonus" => if let Ok(v) = value.parse::<i16>() { self.pawn_on_before_before_last_rank_bonus = v; },
+            "pawndefendsbishop" => if let Ok(v) = value.parse::<i16>() { self.pawn_defends_bishop = v; },
+            "pawndoublemalus" => if let Ok(v) = value.parse::<i16>() { self.pawn_double_malus = v; },
+            "pawnisolatedmalus" => if let Ok(v) = value.parse::<i16>() { self.pawn_isolated_malus = v; },
+            "pawnbackwardmalus" => if let Ok(v) = value.parse::<i16>() { self.pawn_backward_malus = v; },
+            "protectedpassedpawnmiddlegame" => if let Ok(v) = value.parse::<i16>() { self.protected_passed_pawn_middlegame = v; },
+            "protectedpassedpawnendgame" => if let Ok(v) = value.parse::<i16>() { self.protected_passed_pawn_endgame = v; },
+            "undevelopedknightmalus" => if let Ok(v) = value.parse::<i16>() { self.undeveloped_knight_malus = v; },
+            "knightonrimmalus" => if let Ok(v) = value.parse::<i16>() { self.knight_on_rim_malus = v; },
+            "knightcentered" => if let Ok(v) = value.parse::<i16>() { self.knight_centered = v; },
+            "knightblockespawn" => if let Ok(v) = value.parse::<i16>() { self.knight_blockes_pawn = v; },
+            "knightmobilityfactor" => if let Ok(v) = value.parse::<i16>() { self.knight_mobility_factor = v; },
+            "undevelopedbishopmalus" => if let Ok(v) = value.parse::<i16>() { self.undeveloped_bishop_malus = v; },
+            "bishoppairbonus" => if let Ok(v) = value.parse::<i16>() { self.bishop_pair_bonus = v; },
+            "bishoptrappedatrimmalus" => if let Ok(v) = value.parse::<i16>() { self.bishop_trapped_at_rim_malus = v; },
+            "bishopmobilityfactor" => if let Ok(v) = value.parse::<i16>() { self.bishop_mobility_factor = v; },
+            "rookopenfile" => if let Ok(v) = value.parse::<i16>() { self.rook_open_file = v; },
+            "rookhalfopenfile" => if let Ok(v) = value.parse::<i16>() { self.rook_half_open_file = v; },
+            "rookdoubledbonus" => if let Ok(v) = value.parse::<i16>() { self.rook_doubled_bonus = v; },
+            "rookbehindpassedpawnmiddlegame" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_passed_pawn_middlegame = v; },
+            "rookbehindpassedpawnendgame" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_passed_pawn_endgame = v; },
+            "rookonseventh" => if let Ok(v) = value.parse::<i16>() { self.rook_on_seventh = v; },
+            "rookmobilityfactor" => if let Ok(v) = value.parse::<i16>() { self.rook_mobility_factor = v; },
+            "queenmobilityfactor" => if let Ok(v) = value.parse::<i16>() { self.queen_mobility_factor = v; },
+            "kingpasserdistweight" => if let Ok(v) = value.parse::<i16>() { self.king_passer_dist_weight = v; },
+            "undevelopedkingmalus" => if let Ok(v) = value.parse::<i16>() { self.undeveloped_king_malus = v; },
+            "kingringattackknight" => if let Ok(v) = value.parse::<i16>() { self.king_ring_attack_knight = v; },
+            "kingringattackbishop" => if let Ok(v) = value.parse::<i16>() { self.king_ring_attack_bishop = v; },
+            "kingringattackrook" => if let Ok(v) = value.parse::<i16>() { self.king_ring_attack_rook = v; },
+            "kingringattackqueen" => if let Ok(v) = value.parse::<i16>() { self.king_ring_attack_queen = v; },
+            "kingoppositionbonus" => if let Ok(v) = value.parse::<i16>() { self.king_opposition_bonus = v; },
+            "kingpawnshield" => if let Ok(v) = value.parse::<i16>() { self.king_pawn_shield = v; },
+            "kingpieceshield" => if let Ok(v) = value.parse::<i16>() { self.king_piece_shield = v; },
+            "kingpawnshieldkingside" => if let Ok(v) = value.parse::<i16>() { self.king_pawn_shield_kingside = v; },
+            "kingpawnshieldqueenside" => if let Ok(v) = value.parse::<i16>() { self.king_pawn_shield_queenside = v; },
+            "kingpieceshieldkingside" => if let Ok(v) = value.parse::<i16>() { self.king_piece_shield_kingside = v; },
+            "kingpieceshieldqueenside" => if let Ok(v) = value.parse::<i16>() { self.king_piece_shield_queenside = v; },
+            "connectedpassedpawnmg" => if let Ok(v) = value.parse::<i16>() { self.connected_passed_pawn_mg = v; },
+            "connectedpassedpawneg" => if let Ok(v) = value.parse::<i16>() { self.connected_passed_pawn_eg = v; },
+            "knightoutposttruemg" => if let Ok(v) = value.parse::<i16>() { self.knight_outpost_true_mg = v; },
+            "knightoutposttrueeg" => if let Ok(v) = value.parse::<i16>() { self.knight_outpost_true_eg = v; },
+            "bishopoutposttruemg" => if let Ok(v) = value.parse::<i16>() { self.bishop_outpost_true_mg = v; },
+            "bishopoutposttrueeg" => if let Ok(v) = value.parse::<i16>() { self.bishop_outpost_true_eg = v; },
+            "oppositebishopsdrawscale" => if let Ok(v) = value.parse::<i16>() { self.opposite_bishops_draw_scale = v; },
+            "enableendgamemopup" => { self.enable_endgame_mopup = value.to_lowercase() == "true"; },
+            "mopupcenterweight" => if let Ok(v) = value.parse::<i16>() { self.mopup_center_weight = v; },
+            "mopupproximityweight" => if let Ok(v) = value.parse::<i16>() { self.mopup_proximity_weight = v; },
+            "mopupevalthreshold" => if let Ok(v) = value.parse::<i16>() { self.mopup_eval_threshold = v; },
+            "mopupmaxgamephase" => if let Ok(v) = value.parse::<i16>() { self.mopup_max_game_phase = v; },
+            "rookbehindenemypassedpawnmg" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_enemy_passed_pawn_mg = v; },
+            "rookbehindenemypassedpawneg" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_enemy_passed_pawn_eg = v; },
+            "kingtrappatbaselinemalus" => if let Ok(v) = value.parse::<i16>() { self.king_trapp_at_baseline_malus = v; },
+            "kingincheckmalus" => if let Ok(v) = value.parse::<i16>() { self.king_in_check_malus = v; },
+            "kingindoublecheckmalus" => if let Ok(v) = value.parse::<i16>() { self.king_in_double_check_malus = v; },
+            "pawnattacksopponentfig" => if let Ok(v) = value.parse::<i16>() { self.pawn_attacks_opponent_fig = v; },
+            "pawnattacksopponentfigwithtempo" => if let Ok(v) = value.parse::<i16>() { self.pawn_attacks_opponent_fig_with_tempo = v; },
+            "queeninattack" => if let Ok(v) = value.parse::<i16>() { self.queen_in_attack = v; },
+            "queeninattackwithtempo" => if let Ok(v) = value.parse::<i16>() { self.queen_in_attack_with_tempo = v; },
+            "knightattacksbishop" => if let Ok(v) = value.parse::<i16>() { self.knight_attacks_bishop = v; },
+            "knightattacksrook" => if let Ok(v) = value.parse::<i16>() { self.knight_attacks_rook = v; },
+            "knightattacksbishoptempo" => if let Ok(v) = value.parse::<i16>() { self.knight_attacks_bishop_tempo = v; },
+            "knightattacksrooktempo" => if let Ok(v) = value.parse::<i16>() { self.knight_attacks_rook_tempo = v; },
+            "deltapruningmargin" => if let Ok(v) = value.parse::<i16>() { self.delta_pruning_margin = v; },
+            "lazyevalmarginsearch" => if let Ok(v) = value.parse::<i16>() { self.lazy_eval_margin_search = v; },
+            "lazyevalmarginqs" => if let Ok(v) = value.parse::<i16>() { self.lazy_eval_margin_qs = v; },
+            "lazyevalmingamephase" => if let Ok(v) = value.parse::<u32>() { self.lazy_eval_min_game_phase = v; },
+            "kingdangerweight1" => if let Ok(v) = value.parse::<i16>() { self.king_danger_weight_1 = v; },
+            "kingdangerweight2" => if let Ok(v) = value.parse::<i16>() { self.king_danger_weight_2 = v; },
+            "kingdangerweight3" => if let Ok(v) = value.parse::<i16>() { self.king_danger_weight_3 = v; },
+            "kingdangerweight4" => if let Ok(v) = value.parse::<i16>() { self.king_danger_weight_4 = v; },
+            "kingdangerweight5" => if let Ok(v) = value.parse::<i16>() { self.king_danger_weight_5 = v; },
+            "enablefutilitypruning" => { self.enable_futility_pruning = value.to_lowercase() == "true"; },
+            "enableqstt" => { self.enable_qs_tt = value.to_lowercase() == "true"; },
+            "futilitymaxdepth" => if let Ok(v) = value.parse::<i32>() { self.futility_max_depth = v; },
+            "futilitymarginbase" => if let Ok(v) = value.parse::<i16>() { self.futility_margin_base = v; },
+            "kingopenfileheavythreatmalus" => if let Ok(v) = value.parse::<i16>() { self.king_open_file_heavy_threat_malus = v; },
+            "rookopenfileattacksking" => if let Ok(v) = value.parse::<i16>() { self.rook_open_file_attacks_king = v; },
+            "rookopenfileattacksqueen" => if let Ok(v) = value.parse::<i16>() { self.rook_open_file_attacks_queen = v; },
+            "pawnphalanxmg" => if let Ok(v) = value.parse::<i16>() { self.pawn_phalanx_mg = v; },
+            "pawnphalanxeg" => if let Ok(v) = value.parse::<i16>() { self.pawn_phalanx_eg = v; },
+            "bishopdiagonalattacksking" => if let Ok(v) = value.parse::<i16>() { self.bishop_diagonal_attacks_king = v; },
+            "bishopdiagonalattacksqueen" => if let Ok(v) = value.parse::<i16>() { self.bishop_diagonal_attacks_queen = v; },
+            "rookonseventhkingcutoff" => if let Ok(v) = value.parse::<i16>() { self.rook_on_seventh_king_cutoff = v; },
+            "rooksdoubledonseventh" => if let Ok(v) = value.parse::<i16>() { self.rooks_doubled_on_seventh = v; },
+            "passedpawnblockadedmalus" => if let Ok(v) = value.parse::<i16>() { self.passed_pawn_blockaded_malus = v; },
+            "candidatepassedpawnbonus" => if let Ok(v) = value.parse::<i16>() { self.candidate_passed_pawn_bonus = v; },
+            "pawnstormbonus" => if let Ok(v) = value.parse::<i16>() { self.pawn_storm_bonus = v; },
+            "futilitymarginslope" => if let Ok(v) = value.parse::<i16>() { self.futility_margin_slope = v; },
+            "enablerazoring" => { self.enable_razoring = value.to_lowercase() == "true"; },
+            "razoringmargin" => if let Ok(v) = value.parse::<i16>() { self.razoring_margin = v; },
+            _ => return UciOptionEffect::Unknown,
+        }
+        UciOptionEffect::Stored
     }
 }

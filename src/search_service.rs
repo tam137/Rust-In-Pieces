@@ -174,8 +174,24 @@ impl SearchService {
                     root_depth: depth,
                 };
 
-                let min_max_result = self.minimax(board, turn, depth - 1, !white,
-                    current_alpha, current_beta, stats, config, service, &child_context, true, false, &mut child_pv,
+                // `minimax` is negamax: its window and its score belong to the side to move at
+                // the node it is entered on, which here is the *opponent* of the side to move at
+                // the root. The root keeps the absolute, White-positive scale that
+                // `SearchResult`, the aspiration window and the UCI layer are written in, so the
+                // conversion happens here and nowhere else.
+                //
+                // `saturating_neg` matters: a full window starts at `i16::MIN`, and negating that
+                // overflows. The `i16::MIN + 1` it yields instead is erased by the child's own
+                // Mate Distance Pruning, which clamps the window to `+/-(MATE_SCORE - ply)`
+                // before anything reads it, so the search tree does not move.
+                let (child_alpha, child_beta) = if white {
+                    (current_beta.saturating_neg(), current_alpha.saturating_neg())
+                } else {
+                    (current_alpha, current_beta)
+                };
+
+                let min_max_result = self.minimax(board, turn, depth - 1,
+                    child_alpha, child_beta, stats, config, service, &child_context, true, false, None, &mut child_pv,
                     1, &mut killer_moves, &mut history_table, &mut counter_moves);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -187,7 +203,13 @@ impl SearchService {
                     break;
                 }
 
-                let min_max_eval = min_max_result.1;
+                // Back onto the absolute scale. The child is the opposite colour to the root,
+                // so a White root negates and a Black root does not.
+                let min_max_eval = if white {
+                    min_max_result.1.saturating_neg()
+                } else {
+                    min_max_result.1
+                };
 
                 if white {
                     if min_max_eval > search_result.best_score {
@@ -407,24 +429,46 @@ impl SearchService {
         self.see(board, mv, config, movegen) >= threshold
     }
 
-    fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32, white: bool,
+    /// One negamax node. `alpha`, `beta` and the returned score are **relative to the side to
+    /// move**: a higher score is better for whoever is on move, whichever colour that is. The
+    /// absolute, White-positive scale that `SearchResult` and the UCI layer are written in is
+    /// entered and left exactly once, in [`Self::get_moves`].
+    ///
+    /// Three of the recursive calls below — the Null Move verification search, the razoring
+    /// Quiescence Search and [`Self::singular_verification`] — re-enter *this same node* with a
+    /// different move list or depth. They keep the window and the score as they are. Every other
+    /// recursion follows a `do_move` or a null move, and negates both.
+    fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, is_pv: bool,
         skip_null_move: bool,
+        excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
         counter_moves: &mut [[Option<Turn>; 64]; 64])
         -> (Option<Turn>, i16) {
 
+        // The two properties the whole negamax conversion rests on. `white` used to be threaded
+        // through as a parameter and was always the board's own side to move; and `get_moves`
+        // enters at ply 1, while the three same-node re-entries pass `ply` unchanged. The second
+        // one is what guarantees Mate Distance Pruning always runs, and therefore that `alpha`
+        // and `beta` are inside `[-(MATE_SCORE - ply), MATE_SCORE - ply]` before any other code
+        // reads them — which is what makes every negation below exact.
+        debug_assert!(ply > 0, "minimax entered at ply 0: Mate Distance Pruning would not run");
 
+        let white = board.white_to_move;
 
         for slot in pv.iter_mut() {
             *slot = None;
         }
 
         if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            return (None, if white { i16::MIN } else { i16::MAX });
+            // An abandoned search returns its worst possible score. `-i16::MAX` rather than
+            // `i16::MIN` so that a parent may negate it; the value is discarded by every caller
+            // once the stop flag is set, and the Transposition Table write below is skipped, so
+            // the one-unit difference from the pre-refactor sentinel reaches nothing.
+            return (None, -i16::MAX);
         }
 
         // Hard ply ceiling. Check Extensions can keep the remaining depth constant along a
@@ -432,9 +476,11 @@ impl SearchService {
         // static evaluation here guarantees that every ply-indexed table access below stays
         // within bounds and that the search tree remains finite.
         if ply >= MAX_PLY as i32 - 1 {
-            return (None, service.eval.calc_eval(
+            let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+            let absolute = service.eval.calc_eval(
                 board, config, &service.move_gen, &service.pawn_table,
-                alpha, beta, config.lazy_eval_margin_search));
+                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+            return (None, Self::relative_score(white, absolute));
         }
 
         // Saturating index for all ply-indexed tables (killer moves).
@@ -474,6 +520,13 @@ impl SearchService {
         }
 
         let mut tt_move = None;
+        // The singularity candidate for this node: the de-normalised Transposition Table score,
+        // the depth it was established at, and the bound it carries. Captured separately from the
+        // cutoff below because Singular Extensions accept an entry up to
+        // `singular_tt_depth_margin` plies shallower than this node, which is less than the
+        // cutoff demands. Guarded by the feature flag so the shipped search pays one bool test
+        // and not the de-normalisation.
+        let mut tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)> = None;
 
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
@@ -482,7 +535,19 @@ impl SearchService {
             }
             if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
                 tt_move = entry.decompress_move(board);
-                if entry.depth as i32 >= depth {
+                if config.enable_singular_extensions {
+                    let mut candidate_eval = entry.eval;
+                    if candidate_eval > 30000 {
+                        candidate_eval -= ply as i16;
+                    } else if candidate_eval < -30000 {
+                        candidate_eval += ply as i16;
+                    }
+                    tt_entry = Some((candidate_eval, entry.depth as i32, entry.entry_type));
+                }
+                // A verification search for Singular Extensions must not be answered out of the
+                // table: the entry describes this position *with* the excluded move in it, and
+                // returning it would hand back the very score the verification is trying to beat.
+                if excluded_move.is_none() && entry.depth as i32 >= depth {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
                     if entry_eval > 30000 {
@@ -530,9 +595,16 @@ impl SearchService {
         let orig_alpha = alpha;
         let orig_beta = beta;
 
-        // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check
+        // Precalculate static_eval for RFP and Futility Pruning when depth > 0 and not in check.
+        // Evaluation is absolute and this search is negamax, so the window is converted on the
+        // way in and the score on the way out. That single negation is what lets Reverse
+        // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
-            service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_search)
+            let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+            let absolute = service.eval.calc_eval(
+                board, config, &service.move_gen, &service.pawn_table,
+                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+            Self::relative_score(white, absolute)
         } else {
             0
         };
@@ -565,28 +637,21 @@ impl SearchService {
             }
             let mut null_pv = [None; 128];
 
-            let null_eval = if white {
-                self.minimax(
-                    board, turn, reduced_depth, false,
-                    beta - 1, beta, stats, config, service, context,
-                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
-                ).1
-            } else {
-                self.minimax(
-                    board, turn, reduced_depth, true,
-                    alpha, alpha + 1, stats, config, service, context,
-                    is_pv, true, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
-                ).1
-            };
+            // The side to move has changed even though no move was played, so this is one of
+            // the recursions that negates: the child searches the null window at `-beta`, and
+            // its score comes back on the opponent's scale.
+            let null_eval = -self.minimax(
+                board, turn, reduced_depth,
+                -beta, -beta + 1, stats, config, service, context,
+                is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+            ).1;
 
             // Undo Null Move
             board.white_to_move = old_white_to_move;
             board.field_for_en_passante = old_field_for_en_passante;
             board.cached_hash = old_hash;
 
-            let is_cutoff = if white { null_eval >= beta } else { null_eval <= alpha };
-
-            if is_cutoff {
+            if null_eval >= beta {
                 // Verification Search for high depths. The null move has already been undone,
                 // so this re-searches *this* node at a reduced depth and therefore runs at
                 // `ply`, not `ply + 1`: the position's distance from the root has not changed.
@@ -596,18 +661,19 @@ impl SearchService {
                 // this position.
                 if depth >= config.nmp_verification_threshold {
                     let mut verify_pv = [None; 128];
+                    // Same node, same side to move, same ply: the window and the score pass
+                    // through unchanged.
                     let verify_eval = self.minimax(
-                        board, turn, reduced_depth, white,
+                        board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, &mut verify_pv, ply, killer_moves, history_table, counter_moves
+                        is_pv, true, None, &mut verify_pv, ply, killer_moves, history_table, counter_moves
                     ).1;
 
-                    let verify_cutoff = if white { verify_eval >= beta } else { verify_eval <= alpha };
-                    if verify_cutoff {
-                        return (None, if white { beta } else { alpha });
+                    if verify_eval >= beta {
+                        return (None, beta);
                     }
                 } else {
-                    return (None, if white { beta } else { alpha });
+                    return (None, beta);
                 }
             }
         }
@@ -620,13 +686,9 @@ impl SearchService {
             && self.has_non_pawn_material(board, board.white_to_move) 
         {
             let margin = config.rfp_margin_per_depth * depth as i16;
-            
-            if white {
-                if static_eval - margin >= beta {
-                    return (None, static_eval - margin); // Beta cutoff
-                }
-            } else if static_eval + margin <= alpha {
-                return (None, static_eval + margin); // Alpha cutoff
+
+            if static_eval - margin >= beta {
+                return (None, static_eval - margin); // Beta cutoff
             }
         }
 
@@ -654,31 +716,19 @@ impl SearchService {
             && !turn.gives_check
             && alpha.abs() < 20000
             && beta.abs() < 20000
+            && static_eval + config.razoring_margin <= alpha
         {
-            if white {
-                if static_eval + config.razoring_margin <= alpha {
-                    let mut razor_pv = [None; 128];
-                    let razor_eval = self.minimax(
-                        board, turn, 0, white,
-                        alpha, alpha + 1, stats, config, service, context,
-                        false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
-                        counter_moves
-                    ).1;
-                    if razor_eval <= alpha {
-                        return (None, razor_eval);
-                    }
-                }
-            } else if static_eval - config.razoring_margin >= beta {
-                let mut razor_pv = [None; 128];
-                let razor_eval = self.minimax(
-                    board, turn, 0, white,
-                    beta - 1, beta, stats, config, service, context,
-                    false, skip_null_move, &mut razor_pv, ply, killer_moves, history_table,
-                    counter_moves
-                ).1;
-                if razor_eval >= beta {
-                    return (None, razor_eval);
-                }
+            let mut razor_pv = [None; 128];
+            // Same node at depth 0, i.e. a Quiescence Search of this position: the window and
+            // the score pass through unchanged.
+            let razor_eval = self.minimax(
+                board, turn, 0,
+                alpha, alpha + 1, stats, config, service, context,
+                false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
+                counter_moves
+            ).1;
+            if razor_eval <= alpha {
+                return (None, razor_eval);
             }
         }
 
@@ -762,63 +812,44 @@ impl SearchService {
 
             let in_check = turn.gives_check;
             let mut stand_pat = 0;
-            let mut eval = if white { i16::MIN } else { i16::MAX };
+            // Dead store: in check the move loop always assigns before this is read, because a
+            // check with no legal reply returns as checkmate above; out of check `stand_pat`
+            // takes its place immediately below.
+            let mut eval = -i16::MAX;
             let mut best_move: Option<Turn> = None;
 
             if !in_check {
-                stand_pat = service.eval.calc_eval(board, config, &service.move_gen, &service.pawn_table, alpha, beta, config.lazy_eval_margin_qs);
+                let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+                stand_pat = Self::relative_score(white, service.eval.calc_eval(
+                    board, config, &service.move_gen, &service.pawn_table,
+                    abs_alpha, abs_beta, config.lazy_eval_margin_qs));
                 eval = stand_pat;
 
-                // Stand-pat cutoffs
-                if white {
-                    if stand_pat >= beta {
-                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                            let mut stored_eval = stand_pat;
-                            if stand_pat > 30000 {
-                                stored_eval = stand_pat.saturating_add(ply as i16);
-                            } else if stand_pat < -30000 {
-                                stored_eval = stand_pat.saturating_sub(ply as i16);
-                            }
-                            context.zobrist_table.insert_entry(
-                                board.cached_hash,
-                                crate::zobrist::TranspositionEntry {
-                                    key: board.cached_hash,
-                                    eval: stored_eval,
-                                    depth: 0,
-                                    entry_type: crate::zobrist::TranspositionType::LowerBound,
-                                    best_move: 0,
-                                    padding: [0; 2],
-                                },
-                            );
+                // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can
+                // reach, so a score at or above beta ends the node and is stored as such.
+                if stand_pat >= beta {
+                    if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        let mut stored_eval = stand_pat;
+                        if stand_pat > 30000 {
+                            stored_eval = stand_pat.saturating_add(ply as i16);
+                        } else if stand_pat < -30000 {
+                            stored_eval = stand_pat.saturating_sub(ply as i16);
                         }
-                        return (None, stand_pat);
+                        context.zobrist_table.insert_entry(
+                            board.cached_hash,
+                            crate::zobrist::TranspositionEntry {
+                                key: board.cached_hash,
+                                eval: stored_eval,
+                                depth: 0,
+                                entry_type: crate::zobrist::TranspositionType::LowerBound,
+                                best_move: 0,
+                                padding: [0; 2],
+                            },
+                        );
                     }
-                    alpha = alpha.max(stand_pat);
-                } else {
-                    if stand_pat <= alpha {
-                        if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                            let mut stored_eval = stand_pat;
-                            if stand_pat > 30000 {
-                                stored_eval = stand_pat.saturating_add(ply as i16);
-                            } else if stand_pat < -30000 {
-                                stored_eval = stand_pat.saturating_sub(ply as i16);
-                            }
-                            context.zobrist_table.insert_entry(
-                                board.cached_hash,
-                                crate::zobrist::TranspositionEntry {
-                                    key: board.cached_hash,
-                                    eval: stored_eval,
-                                    depth: 0,
-                                    entry_type: crate::zobrist::TranspositionType::UpperBound,
-                                    best_move: 0,
-                                    padding: [0; 2],
-                                },
-                            );
-                        }
-                        return (None, stand_pat);
-                    }
-                    beta = beta.min(stand_pat);
+                    return (None, stand_pat);
                 }
+                alpha = alpha.max(stand_pat);
             }
 
             let mut turns = crate::model::MoveList::new();
@@ -830,12 +861,7 @@ impl SearchService {
 
             if turns.is_empty() {
                 if in_check {
-                    return match board.game_status {
-                        GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
-                        GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
-                        GameStatus::Draw => (None, 0),
-                        _ => panic!("RIP no defined game end"),
-                    };
+                    return (None, Self::terminal_score(board, ply));
                 }
                 return (None, stand_pat);
             }
@@ -873,11 +899,7 @@ impl SearchService {
                         _ => 0,
                     };
                     let delta_margin = config.delta_pruning_margin;
-                    if white {
-                        if stand_pat + gain + delta_margin < alpha {
-                            continue;
-                        }
-                    } else if stand_pat - gain - delta_margin > beta {
+                    if stand_pat + gain + delta_margin < alpha {
                         continue;
                     }
                 }
@@ -907,23 +929,14 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
-                let min_max_result = self.minimax(board, capture_turn, depth - 1, !white,
-                    alpha, beta, stats, config, service, &current_context, true, false, &mut child_pv,
-                    ply + 1, killer_moves, history_table, counter_moves);
-                let min_max_eval = min_max_result.1;
+                let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
+                    -beta, -alpha, stats, config, service, &current_context, true, false, None, &mut child_pv,
+                    ply + 1, killer_moves, history_table, counter_moves).1;
                 board.undo_move(capture_turn, mi);
 
-                if white {
-                    if eval < min_max_eval {
-                        eval = min_max_eval;
-                        alpha = alpha.max(min_max_eval);
-                        best_move = Some(*capture_turn);
-                        pv[0] = Some(*capture_turn);
-                        pv[1..].copy_from_slice(&child_pv[..127]);
-                    }
-                } else if eval > min_max_eval {
+                if eval < min_max_eval {
                     eval = min_max_eval;
-                    beta = beta.min(min_max_eval);
+                    alpha = alpha.max(min_max_eval);
                     best_move = Some(*capture_turn);
                     pv[0] = Some(*capture_turn);
                     pv[1..].copy_from_slice(&child_pv[..127]);
@@ -936,13 +949,7 @@ impl SearchService {
 
             // Transposition Table Write for Quiescence Search
             if config.use_zobrist && config.enable_qs_tt && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                let entry_type = if eval <= orig_alpha {
-                    crate::zobrist::TranspositionType::UpperBound
-                } else if eval >= orig_beta {
-                    crate::zobrist::TranspositionType::LowerBound
-                } else {
-                    crate::zobrist::TranspositionType::Exact
-                };
+                let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
 
                 let mut stored_eval = eval;
                 // Normalize mate score
@@ -976,16 +983,11 @@ impl SearchService {
         // starting the score outside the window instead of at its bound measured **-168 Elo**
         // over 60 games against an otherwise identical build. Do not reintroduce it without a
         // cross-version gauntlet, and see specification 2.3 in `task.md`.
-        let mut eval = if white { alpha } else { beta };
+        let mut eval = alpha;
         let mut best_move: Option<Turn> = None;
 
         if turns.is_empty() || board.game_status != GameStatus::Normal {
-            return match board.game_status {
-                GameStatus::WhiteWin => (None, crate::model::MATE_SCORE - ply as i16),
-                GameStatus::BlackWin => (None, -(crate::model::MATE_SCORE - ply as i16)),
-                GameStatus::Draw => (None, 0),
-                _ => panic!("RIP no defined game end"),
-            };
+            return (None, Self::terminal_score(board, ply));
         }
 
         // Stage-0 opportunity measurement (`task.md` 1.2.2). The scan is `cfg`-gated rather
@@ -1037,6 +1039,16 @@ impl SearchService {
                 }
             }
             turns.moves.swap(i, best_idx);
+
+            // The one move a Singular Extension verification search must not see. The exclusion
+            // is a property of this node alone and is never inherited: `minimax` is re-entered
+            // with `excluded_move` set and passes `None` to every child.
+            if let Some(excluded) = excluded_move {
+                if turns.moves[i] == excluded {
+                    i += 1;
+                    continue;
+                }
+            }
 
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
             // still in [0, 100000), and demoting it below zero keeps this branch from firing a
@@ -1095,6 +1107,21 @@ impl SearchService {
                 continue;
             }
 
+            // `task.md` section 11 measurement: would Late Move Pruning have deleted this move if
+            // the `gives_check` guard were not there? Evaluated here, where `quiet_count` still
+            // holds the value the rule itself saw, and consumed once the move has been searched.
+            #[cfg(feature = "search-diag")]
+            let diag_lmp_blocked = config.enable_lmp
+                && depth <= config.lmp_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && alpha.abs() < 20000
+                && beta.abs() < 20000
+                && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth;
+
             // 0.8. Futility Pruning (FP) at low search depths
             if config.enable_futility_pruning
                 && depth <= config.futility_max_depth
@@ -1112,17 +1139,33 @@ impl SearchService {
 
                 if !is_important {
                     let futility_margin = config.futility_margin_base + config.futility_margin_slope * depth as i16;
-                    if white {
-                        if static_eval + futility_margin <= alpha {
-                            i += 1;
-                            continue;
-                        }
-                    } else if static_eval - futility_margin >= beta {
+                    if static_eval + futility_margin <= alpha {
                         i += 1;
                         continue;
                     }
                 }
             }
+
+            // The same question for Futility Pruning. `is_important` is restated rather than
+            // hoisted so that the shipped rule above keeps its early exit and its codegen.
+            #[cfg(feature = "search-diag")]
+            let diag_fp_blocked = config.enable_futility_pruning
+                && depth <= config.futility_max_depth
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && alpha.abs() < 20000
+                && !(Some(*current_turn) == tt_move
+                    || Some(*current_turn) == killer_moves[ply_idx][0]
+                    || Some(*current_turn) == killer_moves[ply_idx][1]
+                    || Some(*current_turn) == current_context.counter_move)
+                && {
+                    let futility_margin =
+                        config.futility_margin_base + config.futility_margin_slope * depth as i16;
+                    static_eval + futility_margin <= alpha
+                };
 
             if stats.calculated_nodes & 1023 == 0 {
                 let elapsed = context.start_time.elapsed().as_millis() as i32;
@@ -1177,7 +1220,7 @@ impl SearchService {
             // The Static Exchange Evaluation is computed before the move is played, and
             // only when the gate is actually enabled, so an unfiltered extension keeps
             // costing nothing extra.
-            let extension = if config.enable_check_extension
+            let check_extension = config.enable_check_extension
                 && current_turn.gives_check
                 && ply < config.check_extension_max_ply
                 && depth >= config.check_extension_min_depth
@@ -1185,17 +1228,78 @@ impl SearchService {
                     || depth <= config.check_extension_max_depth)
                 && may_extend
                 && (!config.check_extension_require_safe
-                    || self.see_ge(board, current_turn, 0, config, &service.move_gen))
-            {
-                1
-            } else {
-                0
-            };
+                    || self.see_ge(board, current_turn, 0, config, &service.move_gen));
+
+            // Singular Extension: the Transposition Table move is searched one ply deeper when no
+            // alternative comes within `singular_margin * depth` of it. The guards before the
+            // verification search are ordered by cost, cheapest first — the search itself is a
+            // reduced search of this whole node and is the only expensive term.
+            //
+            // `turns.len > 1` is not an optimisation. With a single legal move the exclusion
+            // search has nothing left to search, returns its fail-low bound, and would report
+            // every such node as singular; the One-Reply Extension already owns that case.
+            let singular_extension = !check_extension
+                && config.enable_singular_extensions
+                && may_extend
+                && excluded_move.is_none()
+                && ply > 0
+                && turns.len > 1
+                && depth >= config.singular_min_depth
+                && Some(*current_turn) == tt_move
+                && self.is_singular(
+                    board, turn, depth, ply, tt_entry, *current_turn,
+                    stats, config, service, context, killer_moves, history_table, counter_moves,
+                );
+
+            let extension = if check_extension || singular_extension { 1 } else { 0 };
             let child_depth = depth - 1 + extension;
+
+            // And for Late Move Reductions, through the same helper the rule itself uses.
+            #[cfg(feature = "search-diag")]
+            let diag_lmr_blocked = config.enable_lmr
+                && depth >= 3
+                && turn_counter > config.lmr_move_threshold
+                && current_turn.capture == 0
+                && current_turn.promotion == 0
+                && current_turn.gives_check
+                && Self::lmr_reduction(
+                    config,
+                    depth,
+                    turn_counter,
+                    is_pv,
+                    Some(*current_turn) == killer_moves[ply_idx][0]
+                        || Some(*current_turn) == killer_moves[ply_idx][1],
+                    Some(*current_turn) == current_context.counter_move,
+                    history_table[current_turn.from as usize][current_turn.to as usize],
+                ) > 0;
+
+            // The fourth guard: the SEE pruning of bad captures also exempts a checking move.
+            // `see` is recomputed here rather than remembered from the lazy-SEE block above,
+            // because a demoted capture is re-selected at a different index and no per-move slot
+            // exists to carry the flag across. The extra call costs the diag build time and
+            // nothing else — it cannot move the tree.
+            #[cfg(feature = "search-diag")]
+            let diag_see_blocked = config.enable_bad_capture_pruning
+                && !is_pv
+                && !turn.gives_check
+                && current_turn.capture != 0
+                && current_turn.gives_check
+                && current_turn.promotion == 0
+                && alpha.abs() < 20000
+                && beta.abs() < 20000
+                && self.see(board, current_turn, config, &service.move_gen)
+                    < config.bad_capture_see_threshold.saturating_mul(depth as i16);
+
+            // `add_calculated_nodes` for this move has already run, so the delta taken after
+            // `undo_move` is the subtree below it and excludes the move itself.
+            #[cfg(feature = "search-diag")]
+            let diag_nodes_before = stats.calculated_nodes;
 
             let mi = board.do_move(current_turn);
 
-            let mut min_max_eval = if white { i16::MIN } else { i16::MAX };
+            // Dead store: either the reduced search below assigns it, or the Principal
+            // Variation Search does.
+            let mut min_max_eval = -i16::MAX;
             let mut searched = false;
 
             // 1. Late Move Reductions (LMR)
@@ -1206,129 +1310,75 @@ impl SearchService {
                 && current_turn.promotion == 0 
                 && !current_turn.gives_check 
             {
-                let d_idx = (depth as usize).min(63);
-                let m_idx = (turn_counter as usize).min(63);
-                let mut reduction = config.lmr_table[d_idx][m_idx] as i32;
-
-                // PV-Knoten vorsichtiger reduzieren (Dämpfung um 1)
-                if is_pv {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
                 let is_killer = Some(*current_turn) == killer_moves[ply_idx][0]
                     || Some(*current_turn) == killer_moves[ply_idx][1];
-                if is_killer {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // Counter-Moves weniger stark reduzieren (Dämpfung um 1)
                 let is_counter = Some(*current_turn) == current_context.counter_move;
-                if is_counter {
-                    reduction = reduction.saturating_sub(1);
-                }
-
-                // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
                 let hist_val = history_table[current_turn.from as usize][current_turn.to as usize];
-                if hist_val > config.lmr_history_good_threshold {
-                    reduction = reduction.saturating_sub(1);
-                } else if hist_val < config.lmr_history_bad_threshold {
-                    reduction = reduction.saturating_add(1);
-                }
+                let reduction = Self::lmr_reduction(
+                    config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
+                );
 
                 if reduction > 0 {
                     let clamped_reduction = reduction.clamp(1, depth - 2);
                     let reduced_depth = depth - 1 - clamped_reduction;
-                    
-                    if white {
-                        min_max_eval = self.minimax(
-                            board, current_turn, reduced_depth, !white,
-                            alpha, alpha + 1, stats, config, service, &current_context,
-                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                        ).1;
-                        if min_max_eval <= alpha {
-                            searched = true;
-                        }
-                    } else {
-                        min_max_eval = self.minimax(
-                            board, current_turn, reduced_depth, !white,
-                            beta - 1, beta, stats, config, service, &current_context,
-                            false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                        ).1;
-                        if min_max_eval >= beta {
-                            searched = true;
-                        }
+
+                    min_max_eval = -self.minimax(
+                        board, current_turn, reduced_depth,
+                        -alpha - 1, -alpha, stats, config, service, &current_context,
+                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    ).1;
+                    // The reduced search failed low, so the move is confirmed uninteresting and
+                    // no full-depth re-search is needed.
+                    if min_max_eval <= alpha {
+                        searched = true;
                     }
                 }
             }
 
             // 2. Principal Variation Search (PVS)
             if !searched {
-                if config.enable_pvs {
-                    if turn_counter > 1 {
-                        if white {
-                            min_max_eval = self.minimax(
-                                board, current_turn, child_depth, !white,
-                                alpha, alpha + 1, stats, config, service, &current_context,
-                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                            ).1;
+                if config.enable_pvs && turn_counter > 1 {
+                    min_max_eval = -self.minimax(
+                        board, current_turn, child_depth,
+                        -alpha - 1, -alpha, stats, config, service, &current_context,
+                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    ).1;
 
-                            if min_max_eval > alpha && min_max_eval < beta {
-                                min_max_eval = self.minimax(
-                                    board, current_turn, child_depth, !white,
-                                    alpha, beta, stats, config, service, &current_context,
-                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                                ).1;
-                            }
-                        } else {
-                            min_max_eval = self.minimax(
-                                board, current_turn, child_depth, !white,
-                                beta - 1, beta, stats, config, service, &current_context,
-                                false, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                            ).1;
-
-                            if min_max_eval < beta && min_max_eval > alpha {
-                                min_max_eval = self.minimax(
-                                    board, current_turn, child_depth, !white,
-                                    alpha, beta, stats, config, service, &current_context,
-                                    true, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
-                                ).1;
-                            }
-                        }
-                    } else {
-                        min_max_eval = self.minimax(
-                            board, current_turn, child_depth, !white,
-                            alpha, beta, stats, config, service, &current_context,
-                            is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    // The null window only proved the move is not worse than the best so far.
+                    // A score strictly inside the real window has to be established properly.
+                    if min_max_eval > alpha && min_max_eval < beta {
+                        min_max_eval = -self.minimax(
+                            board, current_turn, child_depth,
+                            -beta, -alpha, stats, config, service, &current_context,
+                            true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                         ).1;
                     }
                 } else {
-                    min_max_eval = self.minimax(
-                        board, current_turn, child_depth, !white,
-                        alpha, beta, stats, config, service, &current_context,
-                        is_pv, false, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                    min_max_eval = -self.minimax(
+                        board, current_turn, child_depth,
+                        -beta, -alpha, stats, config, service, &current_context,
+                        is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
                     ).1;
                 }
             }
 
             board.undo_move(current_turn, mi);
 
-            if white {
-                if eval < min_max_eval {
-                    eval = min_max_eval;
-                    alpha = alpha.max(min_max_eval);
-                    best_move = Some(*current_turn);
-                    pv[0] = Some(*current_turn);
-                    pv[1..].copy_from_slice(&child_pv[..127]);
-                    if config.in_debug && turn_counter > 30 {
-                        stats.add_turn_nr_gt_threshold(1);
-                        stats.add_log(format!("{}, move {} was the {} lvl:{}",
-                        service.fen.get_fen(board), &current_turn.to_algebraic(), turn_counter, config.search_depth - depth));
-                    };
-                }
-            } else if eval > min_max_eval {
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_searched_move(
+                current_turn.gives_check,
+                current_turn.capture != 0,
+                turn.gives_check,
+                diag_lmr_blocked,
+                diag_lmp_blocked,
+                diag_fp_blocked,
+                diag_see_blocked,
+                (stats.calculated_nodes - diag_nodes_before) as u64,
+            );
+
+            if eval < min_max_eval {
                 eval = min_max_eval;
-                beta = beta.min(min_max_eval);
+                alpha = alpha.max(min_max_eval);
                 best_move = Some(*current_turn);
                 pv[0] = Some(*current_turn);
                 pv[1..].copy_from_slice(&child_pv[..127]);
@@ -1386,15 +1436,13 @@ impl SearchService {
             i += 1;
         }
 
-        // Transposition Table Write
-        if config.use_zobrist && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            let entry_type = if eval <= orig_alpha {
-                crate::zobrist::TranspositionType::UpperBound
-            } else if eval >= orig_beta {
-                crate::zobrist::TranspositionType::LowerBound
-            } else {
-                crate::zobrist::TranspositionType::Exact
-            };
+        // Transposition Table Write. An exclusion search is never stored: its score describes a
+        // position with a legal move removed, and publishing that under this position's hash is
+        // the defect `task.md` 8.1 records as roughly two hundred Elo.
+        if config.use_zobrist
+            && excluded_move.is_none()
+            && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
 
             let mut stored_eval = eval;
             // Normalize mate score
@@ -1421,6 +1469,237 @@ impl SearchService {
     }
 
     
+
+    /// Whether the Transposition Table move at this node is *singular*: whether every other
+    /// move falls short of the table's score by more than `singular_margin * depth`.
+    ///
+    /// The question is settled by a reduced search of this same position with that one move
+    /// excluded, over a null window placed exactly at the threshold, so that the search's own
+    /// fail-low or fail-high *is* the answer. Three properties of that search are established by
+    /// its arguments rather than by any code here:
+    ///
+    /// * it runs at `ply`, not `ply + 1`. The position has not changed, only the move list has,
+    ///   which is the same argument the Null Move verification search makes for itself. Passing
+    ///   `ply + 1` would tighten Mate Distance Pruning by a ply the search has not actually
+    ///   travelled.
+    /// * it passes `skip_null_move`. A Null Move verification inside it would re-enter this node
+    ///   a third time and would have to carry the exclusion with it; forbidding the rule is
+    ///   cheaper than threading it, and the verification is a null-window search that Reverse
+    ///   Futility Pruning already serves.
+    /// * `excluded_move` suppresses the Transposition Table cutoff and the Transposition Table
+    ///   store at the re-entered node, and nothing else. Every early return it can still take —
+    ///   Mate Distance Pruning, Null Move Pruning, Reverse Futility Pruning, razoring — either
+    ///   never consults the move list at all or, in razoring's case, verifies through a
+    ///   Quiescence Search that includes the excluded move. Including a move can only raise a
+    ///   maximising node's score and lower a minimising one's, so a razoring fail-low proven
+    ///   *with* the move implies the same fail-low without it. Each of those returns therefore
+    ///   errs towards "not singular", never towards a groundless extension.
+    ///
+    /// Returns `None` when the table entry cannot support the question at all, so the diagnostic
+    /// in [`Self::is_singular`] can separate a candidate that was refused from one that was
+    /// verified and found wanting. The caller of the search reads both as "no extension".
+    #[allow(clippy::too_many_arguments)]
+    fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32,
+        ply: i32,
+        tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
+        stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
+        killer_moves: &mut [[Option<Turn>; 2]; 128],
+        history_table: &mut [[u32; 64]; 64],
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<bool> {
+
+        let (tt_eval, tt_depth, tt_type) = tt_entry?;
+
+        // The entry has to be deep enough to be worth a verification search at all.
+        if tt_depth < depth - config.singular_tt_depth_margin {
+            return None;
+        }
+
+        // ...and it has to bound the score in the direction that makes "the table move really
+        // does achieve this" a true statement. Scores are relative to the side to move, so the
+        // published `BOUND_LOWER` condition holds at either colour: an upper bound cannot
+        // support a claim that a move reaches a score.
+        let bound_supports_the_move = matches!(
+            tt_type,
+            crate::zobrist::TranspositionType::Exact
+                | crate::zobrist::TranspositionType::LowerBound
+        );
+        if !bound_supports_the_move || tt_eval.abs() >= 20000 {
+            return None;
+        }
+
+        // A verification at depth 0 is a Quiescence Search, and the Quiescence Search generates
+        // its own moves without the exclusion. It would answer a different question.
+        let verification_depth = ((depth - 1) / 2 - config.singular_depth_reduction).max(0);
+        if verification_depth < 1 {
+            return None;
+        }
+
+        let margin = config.singular_margin.saturating_mul(depth as i16);
+        let mut singular_pv = [None; 128];
+
+        // Same node, same side to move, same ply — only the move list differs — so the window
+        // and the score pass through unchanged.
+        let threshold = tt_eval.saturating_sub(margin);
+        let eval = self.minimax(
+            board, turn, verification_depth,
+            threshold - 1, threshold, stats, config, service, context,
+            false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
+            counter_moves,
+        ).1;
+        Some(eval < threshold)
+    }
+
+    /// [`Self::singular_verification`], plus the `task.md` section 4 diagnostic: how many nodes
+    /// asked the question, how many could be answered, how many said yes, and what the answers
+    /// cost in interior nodes. The counters are compiled out unless the `search-diag` feature is
+    /// on, and the node delta is taken around the call rather than inside it so the measurement
+    /// cannot reach into the search it measures.
+    #[allow(clippy::too_many_arguments)]
+    fn is_singular(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32,
+        tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
+        stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
+        killer_moves: &mut [[Option<Turn>; 2]; 128],
+        history_table: &mut [[u32; 64]; 64],
+        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> bool {
+
+        #[cfg(feature = "search-diag")]
+        let nodes_before = stats.calculated_nodes as u64;
+
+        let verdict = self.singular_verification(
+            board, turn, depth, ply, tt_entry, tt_move,
+            stats, config, service, context, killer_moves, history_table, counter_moves,
+        );
+
+        #[cfg(feature = "search-diag")]
+        crate::search_diag::record_singular(
+            depth,
+            verdict.is_some(),
+            verdict == Some(true),
+            stats.calculated_nodes as u64 - nodes_before,
+        );
+
+        verdict.unwrap_or(false)
+    }
+
+    /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
+    /// depth. A positive value means the move is reduced.
+    ///
+    /// Extracted from the move loop so that the `search-diag` measurement for `task.md` section
+    /// 11 can ask what the reduction *would* have been for a move that gives check, without
+    /// restating the damping terms and letting the two copies drift apart. The arithmetic and
+    /// its order are unchanged, so the shipped search tree is bit-identical to v0.35.2.
+    #[allow(clippy::too_many_arguments)]
+    fn lmr_reduction(
+        config: &Config,
+        depth: i32,
+        turn_counter: i32,
+        is_pv: bool,
+        is_killer: bool,
+        is_counter: bool,
+        hist_val: u32,
+    ) -> i32 {
+        let d_idx = (depth as usize).min(63);
+        let m_idx = (turn_counter as usize).min(63);
+        let mut reduction = config.lmr_table[d_idx][m_idx] as i32;
+
+        // PV-Knoten vorsichtiger reduzieren (Dämpfung um 1)
+        if is_pv {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // Killer-Moves weniger stark reduzieren (Dämpfung um 1)
+        if is_killer {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // Counter-Moves weniger stark reduzieren (Dämpfung um 1)
+        if is_counter {
+            reduction = reduction.saturating_sub(1);
+        }
+
+        // History-Koppelung: Verringere Reduktion für gute Züge, erhöhe für historisch extrem schwache
+        if hist_val > config.lmr_history_good_threshold {
+            reduction = reduction.saturating_sub(1);
+        } else if hist_val < config.lmr_history_bad_threshold {
+            reduction = reduction.saturating_add(1);
+        }
+
+        reduction
+    }
+
+    /// Classify a fail-hard score against the window this node actually searched.
+    ///
+    /// `alpha == beta` is reachable — the root's own window bookkeeping can narrow
+    /// `current_alpha`/`current_beta` onto each other and hand the next root move an empty
+    /// window — and there *both* comparisons are true at once, so their order decides the label.
+    /// The pre-negamax search made that decision on the absolute, White-positive scale, which
+    /// broke the tie towards `UpperBound` at a White node and towards what is `LowerBound` on
+    /// this relative scale at a Black node. Reproducing that split is the one place where the
+    /// conversion cannot be colour-blind, and it is what keeps the refactor node-identical.
+    ///
+    /// The Black half of that split stores a bound the search never proved. It is a pre-existing
+    /// defect, not one introduced here, and correcting it moves the search tree — so it is
+    /// recorded and priced separately; see `task/negamax_refactor_plan.md`.
+    #[inline(always)]
+    fn bound_for(white: bool, eval: i16, orig_alpha: i16, orig_beta: i16)
+        -> crate::zobrist::TranspositionType {
+        use crate::zobrist::TranspositionType;
+        if white {
+            if eval <= orig_alpha {
+                TranspositionType::UpperBound
+            } else if eval >= orig_beta {
+                TranspositionType::LowerBound
+            } else {
+                TranspositionType::Exact
+            }
+        } else if eval >= orig_beta {
+            TranspositionType::LowerBound
+        } else if eval <= orig_alpha {
+            TranspositionType::UpperBound
+        } else {
+            TranspositionType::Exact
+        }
+    }
+
+    /// The window this node is searching, restated on the absolute, White-positive scale that
+    /// [`crate::eval_service::EvalService::calc_eval`] compares its Lazy Evaluation cutoffs
+    /// against. The search itself is negamax and carries a side-to-move-relative window, so at a
+    /// Black node the two bounds swap and change sign.
+    #[inline(always)]
+    fn absolute_window(white: bool, alpha: i16, beta: i16) -> (i16, i16) {
+        if white {
+            (alpha, beta)
+        } else {
+            (beta.saturating_neg(), alpha.saturating_neg())
+        }
+    }
+
+    /// An absolute, White-positive evaluation restated on this node's side-to-move-relative
+    /// scale. The inverse of [`Self::absolute_window`] for a single score.
+    #[inline(always)]
+    fn relative_score(white: bool, absolute: i16) -> i16 {
+        if white { absolute } else { absolute.saturating_neg() }
+    }
+
+    /// The score of a position with no legal move, relative to the side to move.
+    ///
+    /// Negamax collapses what used to be two mate constants into one: the side to move is the
+    /// side with no reply, so if the position is not a draw it is checkmate *against* the side
+    /// to move, and `board.game_status` can only name the opponent as the winner.
+    fn terminal_score(board: &Board, ply: i32) -> i16 {
+        match board.game_status {
+            GameStatus::WhiteWin | GameStatus::BlackWin => {
+                debug_assert_ne!(
+                    board.game_status == GameStatus::WhiteWin,
+                    board.white_to_move,
+                    "the side to move cannot be the winner at a node with no legal move"
+                );
+                -(crate::model::MATE_SCORE - ply as i16)
+            }
+            GameStatus::Draw => 0,
+            _ => panic!("RIP no defined game end"),
+        }
+    }
 
     fn has_non_pawn_material(&self, board: &Board, white: bool) -> bool {
         if white {
@@ -1667,6 +1946,48 @@ mod tests {
     }
 
     #[test]
+    fn test_lmp_max_depth_is_inert_above_four() {
+        // `task.md` 10.6 asked for a test that LMP still moves the tree at `lmp_max_depth = 8`.
+        // It does not, and the reason is not the one that section originally gave.
+        //
+        // The array cap it blamed is gone - `quiet_count` has run unbounded since v0.35.x - but
+        // the threshold `lmp_base_moves + 2 * depth^2` outruns the position instead. At depth 5
+        // it demands 53 quiet moves searched at a single node, at depth 6 it demands 75, and no
+        // node produces that many: a full move list is rarely over 50 moves and beta cutoffs end
+        // most nodes long before it is exhausted. Every value from 4 upwards therefore searches
+        // exactly the same tree.
+        //
+        // The consequence is the one 10.6 cared about and it is unchanged: `tuning/parameters.json`
+        // registers `lmp_max_depth` with `max: 8` and the UCI facade advertises `max 10`, so SPSA
+        // and any GUI can wander over a flat region from 4 upwards and tune nothing. The fix is
+        // the growth term, not the counter and not the advertised bound.
+        //
+        // This test pins the flat region so that a future change to the threshold formula fails
+        // here loudly rather than silently widening what the tuner explores.
+        for (name, fen) in [
+            ("Kiwipete", CHECK_RICH_FEN),
+            ("Middlegame", "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6"),
+            ("ClosedCentre", "r1bq1rk1/pp2ppbp/2np1np1/8/2PNP3/2N1B3/PP2BPPP/R2Q1RK1 w - - 0 1"),
+        ] {
+            let shape = |max_depth: i32| {
+                search_nodes(fen, 8, move |c: &mut Config| {
+                    c.enable_lmp = true;
+                    c.lmp_base_moves = 0;
+                    c.lmp_max_depth = max_depth;
+                    c.use_zobrist = true;
+                })
+            };
+            let at_four = shape(4);
+            for max_depth in [5, 6, 8] {
+                assert_eq!(at_four, shape(max_depth),
+                    "{}: lmp_max_depth {} must still be inert; if it is not, the threshold \
+                     formula changed and `task.md` 10.6 needs rewriting rather than this test \
+                     adjusting", name, max_depth);
+            }
+        }
+    }
+
+    #[test]
     fn test_bad_capture_pruning_restricts_the_tree() {
         // Captures with SEE < 0 are searched at the tail of the move list today. Pruning the
         // worst of them removes nodes, and unlike LMP it does so at every depth measured
@@ -1768,6 +2089,97 @@ mod tests {
         assert_eq!(baseline, unreachable,
             "an unreachable margin must leave the tree untouched ({} vs {})",
             baseline, unreachable);
+    }
+
+    #[test]
+    fn test_singular_extensions_change_the_tree() {
+        // Asserted as a change rather than a shrink or a growth, for the same reason as LMP and
+        // razoring: an extension deepens one line and the deeper score moves the windows above
+        // it, so the node count is not monotone in how many plies are granted. What must be true
+        // is that the rule reaches the tree at all.
+        //
+        // Both searches run with the transposition table **on**. Singularity is a claim about a
+        // table entry, so with `use_zobrist` false the rule has nothing to ask and the test would
+        // pass against a completely dead feature - which is exactly what the next test pins.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+        });
+
+        assert_ne!(with, without,
+            "singular extensions must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_singular_extensions_are_inert_without_the_transposition_table() {
+        // The candidate is the table's best move, so without a table there is no candidate and
+        // the tree must stay bit-identical. This pins the guard order: the rule may never fall
+        // back to "extend the first move searched" when the entry it depends on is absent.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = false;
+        });
+        let enabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+        });
+
+        assert_eq!(baseline, enabled,
+            "without a transposition table the rule must be inert ({} vs {})",
+            baseline, enabled);
+    }
+
+    #[test]
+    fn test_an_unreachable_singular_min_depth_neutralises_the_rule() {
+        // The counterpart of `lmp_max_depth = 0` and of the unreachable razoring margin: a way to
+        // switch the rule off from the tuner without touching the flag, and a guard against a
+        // trigger depth that silently disables what it is supposed to shape.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = false;
+        });
+        let unreachable = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 64;
+        });
+
+        assert_eq!(baseline, unreachable,
+            "an unreachable trigger depth must leave the tree untouched ({} vs {})",
+            baseline, unreachable);
+    }
+
+    #[test]
+    fn test_the_shipped_singular_configuration_is_the_one_that_was_measured() {
+        // v0.37.0 ships the rule on at a trigger depth of 6, and that exact pair is what played
+        // the 546-game round robin. This pins both halves: a later edit that flips the flag back,
+        // or that moves the trigger depth to the published 8 on the strength of the literature,
+        // would ship a search that was never measured. It is the singular-extension counterpart
+        // of the test directly above, and of the node-identity check v0.34.0 ran on its candidate.
+        //
+        // Run with the transposition table **on**: singularity is a claim about a table entry, so
+        // with `use_zobrist` false both trees would be the same tree for the wrong reason.
+        let shipped = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 6;
+        });
+
+        assert!(Config::new().enable_singular_extensions,
+            "singular extensions ship enabled since v0.37.0 (task.md 4.2)");
+        assert_eq!(Config::new().singular_min_depth, 6,
+            "the measured trigger depth is 6, not the published 8 (task.md 4.1)");
+        assert_eq!(shipped, measured_variant,
+            "the shipped default must be the measured configuration ({} vs {})",
+            shipped, measured_variant);
     }
 
     #[test]
@@ -2466,7 +2878,6 @@ mod tests {
             &mut board,
             &dummy_turn,
             0, // Quiescence search depth
-            true, // white
             -30000,
             30000,
             &mut stats,
@@ -2475,6 +2886,7 @@ mod tests {
             &context,
             false,
             false,
+            None,
             &mut pv,
             1,
             &mut killer_moves,
@@ -2704,6 +3116,53 @@ mod tests {
         let parser = crate::uci_parser_service::UciParserService {};
         assert_eq!("mate 3", parser.format_score(-black_mates));
         assert_eq!("mate 3", parser.format_score(white_mates));
+    }
+
+    #[test]
+    fn test_terminal_score_is_always_a_loss_for_the_side_to_move() {
+        // Negamax collapses the two mate constants into one, and that collapse is only sound
+        // because the side to move at a node with no legal reply is never the winner. Both
+        // mirrors of the same mate must therefore produce the identical relative score.
+        use crate::model::GameStatus;
+
+        let mut white_mated = Service::new().fen.set_fen("7k/8/8/8/8/8/5q2/7K w - - 0 1");
+        white_mated.game_status = GameStatus::BlackWin;
+        let mut black_mated = Service::new().fen.set_fen("7K/8/8/8/8/8/5Q2/7k b - - 0 1");
+        black_mated.game_status = GameStatus::WhiteWin;
+
+        let expected = -(crate::model::MATE_SCORE - 7);
+        assert_eq!(crate::search_service::SearchService::terminal_score(&white_mated, 7), expected);
+        assert_eq!(crate::search_service::SearchService::terminal_score(&black_mated, 7), expected);
+
+        let mut drawn = Service::new().fen.set_fen("7k/8/8/8/8/8/8/7K w - - 0 1");
+        drawn.game_status = GameStatus::Draw;
+        assert_eq!(crate::search_service::SearchService::terminal_score(&drawn, 7), 0);
+    }
+
+    #[test]
+    fn test_transposition_bound_tie_break_stays_colour_dependent_on_an_empty_window() {
+        // `alpha == beta` is reachable: the root narrows `current_alpha`/`current_beta` towards
+        // each other as it searches, and the next root move can be handed an empty window. There
+        // both bound tests are true at once and their order picks the label.
+        //
+        // The pre-negamax search decided that on the absolute, White-positive scale. Reproducing
+        // the split is what keeps the negamax conversion node-identical, so it is pinned here
+        // rather than left to the order two comparisons happen to be written in.
+        //
+        // The Black half is a defect — it publishes a bound the search never proved — and it is
+        // deliberately not corrected here. See `task/negamax_refactor_plan.md`.
+        use crate::search_service::SearchService;
+        use crate::zobrist::TranspositionType;
+
+        assert_eq!(SearchService::bound_for(true, -34, -34, -34), TranspositionType::UpperBound);
+        assert_eq!(SearchService::bound_for(false, -34, -34, -34), TranspositionType::LowerBound);
+
+        // On any window the search can actually resolve, the label does not depend on colour.
+        for white in [true, false] {
+            assert_eq!(SearchService::bound_for(white, 10, 20, 40), TranspositionType::UpperBound);
+            assert_eq!(SearchService::bound_for(white, 50, 20, 40), TranspositionType::LowerBound);
+            assert_eq!(SearchService::bound_for(white, 30, 20, 40), TranspositionType::Exact);
+        }
     }
 
     #[test]
