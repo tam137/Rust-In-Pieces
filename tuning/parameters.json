@@ -422,7 +422,7 @@
     "lmp_max_depth": {
         "value": 4,
         "min": 1,
-        "max": 8
+        "max": 4
     },
     "lmp_base_moves": {
         "value": 3,
