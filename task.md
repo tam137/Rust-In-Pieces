@@ -1426,6 +1426,35 @@ One thing was confirmed by it before it went: `engine_options = ... Threads=1` i
 file does nothing, and the 25% core-headroom calculation in "How to run a measurement" is right to
 assume one thread per engine.
 
+### 10.7a A wider opening pool, built 2026-09-02
+
+10.12 measured what the old pool costs: a **design effect of 1.74** at 6000 games, so 1274 of 3000
+pairs bought nothing, and White scored 64.03%. Both trace to the same cause. `openings_mixed.txt`
+was drawn from `Performance.bin` — the book compiled into the engine — by the engine's own
+sampler, which picks **weighted by popularity**, and popularity is concentrated: 598 lines that
+contain only **17 distinct four-ply starts**, three of which are the only first moves in the pool.
+
+`scripts/book_lines.py --survey` prices every book in `books/` for breadth. `DCbook_large.bin` is
+the widest by a distance, and drawing from it **uniformly** rather than by weight gives:
+
+| | lines | distinct @4 | first moves | pairs per family at 3000 pairs |
+| :--- | ---: | ---: | ---: | ---: |
+| `openings_mixed.txt` | 598 | 17 | 3 (43/29/27%) | 176.5 |
+| `openings_wide.txt` | **1200** | **613** | 6 (21/19/15/14/14%) | **4.9** |
+
+Built with `--book books/DCbook_large.bin --plies 10 --count 1200 --temperature 0 --seed
+20260902`, committed as `openings/book_dclarge_10ply.txt` so it travels, and installed as
+`<mm>/openings_wide.txt`.
+
+**What this does not yet establish.** Breadth is not balance. The 64.03% White score is an
+empirical property of the lines and cannot be read off the pool; it is measured by playing on it.
+The first run to use this pool must be checked with `match_health.py` before its Elo is believed,
+and the design effect it reports is the number that says whether the change worked.
+
+`<mm>/tournament.trn` and the new `<mm>/mc_ab_wide.trn` name the wide pool. The `.trn` files of
+completed runs still name `openings_mixed.txt` and are deliberately left alone: they are the only
+record of how those runs were configured that travels between hosts, and 10.10 and 10.12 cite them.
+
 ### 10.7 Not done, and why
 
 * **Adopting the wider pool.** `openings/book_codekiddy_10ply.txt` is built and 49 times broader
