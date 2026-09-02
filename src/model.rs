@@ -38,6 +38,7 @@ pub struct EngineState {
     pub log_sender: std::sync::mpsc::Sender<String>,
 }
 
+#[derive(Clone, Copy)]
 pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
 
@@ -353,6 +354,14 @@ pub struct NodeBuffers {
     pub moves: MoveList,
     /// Sized like every `pv` parameter in the search.
     pub pv: [Option<Turn>; 128],
+    /// The History Heuristic as it stood when this node was entered.
+    ///
+    /// A staged picker searches a move before generating the rest, and that move's own subtree
+    /// mutates the history the rest would be ranked against. Only the rows of the squares the
+    /// side to move occupies are ever read -- a quiet move departs from one of them -- so a node
+    /// refreshes at most sixteen of the sixty-four rows and leaves the others stale. They are
+    /// never read before being written again.
+    pub history: [[u32; 64]; 64],
 }
 
 impl NodeBuffers {
@@ -360,6 +369,7 @@ impl NodeBuffers {
         Self {
             moves: MoveList::new(),
             pv: [None; 128],
+            history: [[0u32; 64]; 64],
         }
     }
 }
