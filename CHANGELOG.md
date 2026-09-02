@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.38.0] - 2026-09-02
+
+The singular-beta multicut: the rebate Singular Extensions have never had.
+
+- **Singular Extensions now collect as well as extend.** The verification search already answered
+  two questions and only one was read. A fail low means the Transposition Table move is singular
+  and is extended, which is what v0.37.0 shipped. A fail *high* means some other move also reaches
+  the threshold; when that threshold is at or above `beta`, the node is shown to beat `beta`
+  without the table move being searched, and the node is cut. New default:
+  `enable_singular_multicut = true`, UCI `EnableSingularMulticut`.
+- **Measured +4.6 Elo** over 6000 fixed-N games at 1s + 100ms against the otherwise identical
+  build. **The 95% interval is [-4, +13] once the opening pool's design effect is accounted for,
+  so it includes zero** - this is a favourable point estimate, not an established gain. The
+  pre-registered bar for the release was +5.0 and the release was made below it as an explicit
+  decision. Full write-up in `task.md` 10.12.
+- **Deterministically it is the stronger half of the case:** -11.7% search tree at depth 11, where
+  the extension it pays for costs +51.2%. At depth 9 the effect is +0.2%, so the rebate is a
+  deep-search property.
+- With the flag off the build is node-identical to v0.37.2 on 28 of 28 corpus positions at depth 8
+  and at depth 10, so the measurement isolates the multicut and nothing else.
+- **The cut never writes the Transposition Table.** Its value is a reduced-depth inference about a
+  position searched with a legal move removed; publishing that under the position's hash is the
+  defect `task.md` 8.1 records at roughly two hundred Elo.
+- **Fixed: `setoption name UseNNUE` was inert on this branch.** `threads.rs` intercepted the token
+  to update the advertised id name and never forwarded it to the game thread, which owns the only
+  `Config` the search reads - the class of defect v0.37.2 set out to eliminate, re-introduced by
+  its own repair. No search tree moves on this branch, where `use_nnue` ships `false`.
+
+Known limitation: the opening pool used for the measurement has 17 distinct four-ply starts and a
+design effect of 1.74 at 6000 games, so 1274 of 3000 pairs bought no resolution. A wider pool
+(`openings/book_dclarge_10ply.txt`, 613 distinct starts) is committed but was not used for this
+release's number.
+
+
 ## [V0.37.2] - 2026-08-29
 
 Five defect repairs. No new feature, no changed search default.
