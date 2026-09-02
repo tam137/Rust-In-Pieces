@@ -278,6 +278,18 @@ pub struct Config {
     /// Subtracted from the `(depth - 1) / 2` verification depth. `0` is the published reduction;
     /// larger values buy a cheaper, blunter verification.
     pub singular_depth_reduction: i32,
+    /// The singular-beta multicut: the second reading of the verification search.
+    ///
+    /// The search asks whether any move other than the Transposition Table move reaches
+    /// `tt_eval - singular_margin * depth`. A fail low means singular and extends. A fail *high*
+    /// says some other move reaches the threshold too, and when the threshold is itself at or
+    /// above `beta` that is a reduced-depth demonstration that this node beats `beta` without the
+    /// table move being searched at all — so the node can be cut.
+    ///
+    /// Ported from master v0.38.0, where it measures +4.6 Elo over 6000 games on an interval that
+    /// includes zero. **That number does not transfer to this branch**: the rule keys on
+    /// Transposition Table scores and those come from the network here, not the HCE.
+    pub enable_singular_multicut: bool,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -501,6 +513,7 @@ impl Config {
             singular_tt_depth_margin: 3,
             singular_margin: 2,
             singular_depth_reduction: 0,
+            enable_singular_multicut: true,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -935,6 +948,7 @@ impl Config {
             "singularttdepthmargin" => if let Ok(v) = value.parse::<i32>() { self.singular_tt_depth_margin = v; },
             "singularmargin" => if let Ok(v) = value.parse::<i16>() { self.singular_margin = v; },
             "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
+            "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
             "enablelmp" => self.enable_lmp = value.eq_ignore_ascii_case("true"),
             "lmpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.lmp_max_depth = v; },
             "lmpbasemoves" => if let Ok(v) = value.parse::<i32>() { self.lmp_base_moves = v; },
