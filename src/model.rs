@@ -316,6 +316,22 @@ impl MoveList {
 /// rank against is shifted by the same amount; the raw rank is `rank >> RANK_TIEBREAK_BITS`.
 pub const RANK_TIEBREAK_BITS: u32 = 8;
 
+/// The bands of the move order, before the tie-break shift.
+///
+/// Each class of move owns a range, and the ranges nest, which is what lets the order be produced
+/// one class at a time. The scheme they replace did not nest, in three separate places: a
+/// promoting capture that gave check reached 310,000 and outranked the Transposition Table move
+/// at 180,000; a killer carrying a full history entry reached 29,900 and crossed into the
+/// minor-piece captures at 30,000; and a capture whose attacker penalty exceeded its victim's
+/// value was clamped to zero, into the middle of the quiet moves it should have been ordered
+/// against. Each band is a million wide and the widest score inside one is a queen promotion
+/// capturing a queen, at 260,000.
+pub const BAND_TT: i32 = 5_000_000;
+pub const BAND_PROMOTION: i32 = 4_000_000;
+pub const BAND_CAPTURE: i32 = 3_000_000;
+pub const BAND_KILLER: i32 = 2_000_000;
+pub const BAND_QUIET: i32 = 0;
+
 /// Levels in the per-search buffer arena.
 ///
 /// `search_service::MAX_PLY` is 128 and bounds the plies a search can reach. The levels beyond

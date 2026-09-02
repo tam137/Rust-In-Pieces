@@ -10,13 +10,20 @@ use crate::move_gen_service::MoveGenService;
 /// are sized accordingly, so no ply may ever exceed this limit.
 pub const MAX_PLY: usize = 128;
 
-/// A capture that has not been through Static Exchange Evaluation yet ranks below this, and one
-/// that failed it is demoted by that much so it can never be picked up again. Both are the
-/// pre-v0.38.2 literal of 100,000 shifted into the rank's tie-break lane.
-const SEE_PENDING_CEILING: i32 = 100_000 << crate::model::RANK_TIEBREAK_BITS;
+/// A capture is waiting for its Static Exchange Evaluation exactly while it still stands in the
+/// capture band. The Transposition Table move and the promotions rank above the band and are
+/// never lazily evaluated, which is what the pre-band literal of 100,000 also achieved for them.
+const SEE_PENDING_FLOOR: i32 = crate::model::BAND_CAPTURE << crate::model::RANK_TIEBREAK_BITS;
+const SEE_PENDING_CEILING: i32 = crate::model::BAND_PROMOTION << crate::model::RANK_TIEBREAK_BITS;
+
+/// A capture that failed the evaluation drops below every quiet move and out of the window above,
+/// so it is evaluated once and searched last.
+const SEE_DEMOTION: i32 =
+    (crate::model::BAND_CAPTURE + 1_000_000) << crate::model::RANK_TIEBREAK_BITS;
 
 /// The rank the Quiescence Search gives the Transposition Table move, above every generated rank.
-const QSEARCH_TT_RANK: i32 = 1_000_000 << crate::model::RANK_TIEBREAK_BITS;
+const QSEARCH_TT_RANK: i32 =
+    (crate::model::BAND_TT + 1_000_000) << crate::model::RANK_TIEBREAK_BITS;
 
 pub struct SearchService;
 
@@ -166,8 +173,8 @@ impl SearchService {
                 }
                 turns.moves.swap(i, best_idx);
 
-                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < SEE_PENDING_CEILING && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                    turns.moves[i].rank -= SEE_PENDING_CEILING;
+                if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                    turns.moves[i].rank -= SEE_DEMOTION;
                     continue; // rank decreased, re-evaluate this index to find the next best move
                 }
 
@@ -1102,9 +1109,9 @@ impl SearchService {
             }
 
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
-            // still in [0, SEE_PENDING_CEILING), and demoting it below zero keeps this branch from
+            // still inside the capture band, and demoting it out of that band keeps this branch from
             // firing a second time when it is selected again from the tail of the list.
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < SEE_PENDING_CEILING {
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING {
                 let see_value = self.see(board, &turns.moves[i], config, &service.move_gen);
                 if see_value < 0 {
                     // 0.7. SEE pruning of bad captures. A capture that loses more than
@@ -1128,7 +1135,7 @@ impl SearchService {
                         i += 1;
                         continue;
                     }
-                    turns.moves[i].rank -= SEE_PENDING_CEILING;
+                    turns.moves[i].rank -= SEE_DEMOTION;
                     continue; // rank decreased, re-evaluate this index
                 }
             }
@@ -2576,29 +2583,53 @@ mod tests {
     #[test]
     fn test_aspiration_window_is_seeded_from_previous_score() {
         let service = Service::new();
-        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        // The property is a statement about the window, not about one position: a narrower window
+        // prunes more on average, and on a single position it can legitimately lose to a
+        // re-search. Summing over a handful of positions asserts what is actually claimed. The
+        // first entry is the position this test carried while it was single-position.
+        const FENS: [&str; 4] = [
+            "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+            "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "r1bq1rk1/pp1nbppp/2p1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 8",
+        ];
         let mut config = Config::for_tests();
         config.enable_aspiration = true;
 
-        // Baseline: no previous score, so the search must run with a full window.
-        let mut board_wide = service.fen.set_fen(fen);
-        let mut stats_wide = Stats::new();
-        let wide = service.search.get_moves(
-            &mut board_wide, 5, true, &mut stats_wide, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None, None,
-        );
+        let mut wide_nodes = 0usize;
+        let mut narrow_nodes = 0usize;
+        let mut wide = None;
+        let mut narrow = None;
+        for fen in FENS {
+            // Baseline: no previous score, so the search must run with a full window.
+            let mut board_wide = service.fen.set_fen(fen);
+            let mut stats_wide = Stats::new();
+            let wide_result = service.search.get_moves(
+                &mut board_wide, 5, true, &mut stats_wide, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, None,
+            );
 
-        // Seeded with the true score, the narrowed window must prune the root tree.
-        let mut board_narrow = service.fen.set_fen(fen);
-        let mut stats_narrow = Stats::new();
-        let narrow = service.search.get_moves(
-            &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None, Some(wide.get_eval()),
-        );
+            // Seeded with the true score, the narrowed window must prune the root tree.
+            let mut board_narrow = service.fen.set_fen(fen);
+            let mut stats_narrow = Stats::new();
+            let narrow_result = service.search.get_moves(
+                &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, Some(wide_result.get_eval()),
+            );
 
-        assert!(stats_narrow.calculated_nodes < stats_wide.calculated_nodes,
+            wide_nodes += stats_wide.calculated_nodes;
+            narrow_nodes += stats_narrow.calculated_nodes;
+            if wide.is_none() {
+                wide = Some(wide_result);
+                narrow = Some(narrow_result);
+            }
+        }
+        let wide = wide.expect("the corpus is not empty");
+        let narrow = narrow.expect("the corpus is not empty");
+
+        assert!(narrow_nodes < wide_nodes,
             "A seeded aspiration window must reduce the node count ({} seeded vs {} full window)",
-            stats_narrow.calculated_nodes, stats_wide.calculated_nodes);
+            narrow_nodes, wide_nodes);
 
         // Scores are compared with a tolerance rather than for equality: NMP, RFP, futility
         // pruning and LMR are all unsound heuristics whose decisions depend on the current
