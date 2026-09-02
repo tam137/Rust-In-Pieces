@@ -26,7 +26,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    time_control = 1000          # ALWAYS 1s + 100ms. Never longer.
    increment = 100
    rounds = 50                  # 100 games per pairing. Never more.
-   concurrency = 9
+   concurrency = <floor(nproc * 0.75) - 1>   # per host. 5 on 8 cores, 14 on 20.
    openings = openings_mixed.txt
    ```
 
@@ -41,6 +41,14 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    > Pricing a change is a separate, deliberate run against the specific configuration in
    > question, at 500 to 1000 games per pairing. Do that *before* deciding to release, not as
    > part of releasing.
+
+   > [!IMPORTANT]
+   > **`concurrency` is computed, never copied.** `task.md` states the rule: at least 25% of the
+   > cores must stay free, so the cap is `floor(nproc * 0.75) - 1` on whatever host the run is on.
+   > This document carried a literal `9` until 2026-09-02, which was the setting on a 20-core
+   > host and would put 18 engine processes plus the manager on an 8-core one. A run with any
+   > losses on time is discarded rather than corrected, because forfeits do not fall evenly on the
+   > two engines — so an over-subscribed gauntlet costs the whole run, not just its accuracy.
 
    Evaluate **per pairing**, never by the scoreboard rating: the Matt-Magie scoreboard is an
    iterative Bradley-Terry model normalised to a pool average of 2000, so a rating depends on
