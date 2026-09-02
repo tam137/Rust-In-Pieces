@@ -12,12 +12,12 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.37.2** on `master` (HCE), five defect repairs, and **v0.37.2-NNUE** on `feature/nnue-evaluation` since 2026-09-01 — the branch is level with master again, and the port is unpriced (9) |
+| Released | **v0.38.0** on `master` (HCE) since 2026-09-02 — the singular-beta multicut, enabled. **v0.37.2-NNUE** on `feature/nnue-evaluation`; that branch is now one release behind master again |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
-| Uncommitted | this file's record of the multicut run (10.12). The multicut itself is committed, behind a default-off flag |
-| Unreleased | nothing. v0.37.2 shipped on 2026-08-29 |
-| Blocked on | nothing, but the next strength item is now genuinely open. The multicut is built and measured +4.6 Elo against a +5.0 bar, so it is not shipped (10.12); the opening pool it was measured on costs 32% of the sample to clustering, and widening it is the cheapest way to make the next run mean more |
+| Uncommitted | the v0.38.0 release commit itself — `Cargo.toml`, `CHANGELOG.md`, the flipped default and this file. Awaiting the user's explicit instruction, per the release procedure |
+| Unreleased | nothing on `master`. The multicut's re-pricing on the wide pool is outstanding, not the code |
+| Blocked on | nothing. v0.38.0 shipped the multicut on a **+4.6 Elo** estimate whose interval includes zero (10.12), by an explicit decision to release below the pre-registered +5.0 bar. The number it was shipped on is the weakest part of it, and re-pricing it on the wide pool (10.7a) is the first thing owed |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
@@ -56,6 +56,7 @@ Section 10 is the measurement infrastructure.
 | v0.36.0 | Razoring enabled by default | Gated by an SPRT that read +14.1. Re-priced 2026-09-01 with a fixed-N run on host C: **+4.2 Elo, paired 95% CI [-2, +11]**, 6000 games (10.10) |
 | v0.37.0 | Singular Extensions enabled by default, trigger depth 6 | Gated by two SPRTs that pooled to +10.2. Re-priced 2026-09-01 with a fixed-N run on host C: **-1.4 Elo, paired 95% CI [-8, +5]**, 6000 games — the rule pays nothing as shipped (10.10) |
 | v0.37.1 | The negamax refactor. No behaviour change | Node-identical to v0.37.0 on 28 positions at depth 8 and 10. Smoke gauntlet on host C: 52.0% vs v0.37.0, 50.5% vs v0.36.0, 100 games each — neither is a measurement |
+| v0.38.0 | The singular-beta multicut enabled, and the inert `UseNNUE` option repaired | **+4.6 Elo**, 6000 fixed-N games; 95% CI **[-4, +13]** after the design effect, so it includes zero. Shipped below its own pre-registered +5.0 bar as an explicit decision. Deterministically **-11.7% tree at depth 11** (10.12) |
 | v0.37.2 | Five defect repairs: a colour-asymmetric pawn mask, thirteen inert UCI options, twelve drifting advertised defaults, a dead config field, a dead tuning range | The pawn fix is deterministic — 0 of 21,300 mirror pairs asymmetric, from 65 of 1,905 before. Priced 2026-09-01 against v0.37.0: **+2.4 Elo, paired 95% CI [-4, +9]**, 6000 games (10.10). Smoke gauntlet on host C: 48.5% vs v0.37.1, 52.5% vs v0.37.0, 100 games each, no losses on time |
 
 Sections 1, 2 and 3 carry the numbers and the reasoning. Lessons from those rounds are general
@@ -79,11 +80,11 @@ is still incomplete — but neither moves a played search measurably, so neither
 neither leads the backlog. That is two 6000-game runs not spent, decided deterministically and
 without playing a game.
 
-The multicut is built, committed behind a default-off flag, and priced: **+4.6 Elo** against a
-**+5.0** bar fixed before the run started, so it is not shipped (10.12). Deterministically it does
-exactly what it was built for — **-11.7% tree at depth 11**, against the +51.2% the extension
-costs there — and in games that is worth about four and a half Elo, which is not nothing and is
-not enough.
+The multicut is built, priced at **+4.6 Elo** against a **+5.0** bar fixed before the run, and
+**released as v0.38.0 anyway** on an explicit decision to lower the bar (10.12). Deterministically
+it does exactly what it was built for — **-11.7% tree at depth 11**, against the +51.2% the
+extension costs there. In games it is a favourable point estimate whose interval includes zero,
+and that is what now ships.
 
 The run also produced the reason the next one should not simply be longer. `match_health.py`
 reports a **design effect of 1.74** over 6000 games: the pool's 17 opening families give 176.5
@@ -102,7 +103,7 @@ off, so a re-run costs games and nothing else.
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
 | 1 | Widen the opening pool | 10.7 | 32% of the last run's sample went to clustering. It makes every later measurement cheaper, and costs no engine change |
-| 2 | Re-price the singular-beta multicut | 10.12 | Built, tested, node-identical with the flag off. Measured +4.6 against a +5.0 bar; a pool that resolves better is what it needs |
+| 2 | Re-price the singular-beta multicut | 10.12 | **Shipped in v0.38.0** on an interval that includes zero. The binaries `ab-mc-mcon` / `ab-mc-mcoff` and `<mm>/mc_ab_wide.trn` are ready; this is a debt, not an option |
 | 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
 | 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
 | — | The empty-window Transposition Table bound, and the unfilled pawn hash table | 7.1, 10.8 | Measured 2026-09-01 not to drift a warm table (10.11). Correctness reports, no longer strength work |
@@ -146,8 +147,7 @@ A new session can start from this table; each row says where the detail is.
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
 | Singular Extensions have the extension without the singular-beta multicut that pays for it, and measure -1.4 Elo without it | 4.4, 10.10 | proposal, well motivated |
-| `setoption name UseNNUE` is swallowed in the UCI thread and never reaches the configuration | 1.1 | **fixed on `master` 2026-09-02, unreleased** — ships with the next release |
-| The singular-beta multicut is written and default-off: +4.6 Elo against a +5.0 bar | 10.12 | measured, not shipped, awaiting a better pool |
+| The singular-beta multicut ships enabled on a +4.6 Elo estimate whose interval includes zero | 10.12 | **released in v0.38.0**, owes a re-pricing on the wide pool |
 | The opening pool costs 32% of the sample to clustering and scores 64.03% for White | 10.7, 10.12 | measured, and now the top of the backlog |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
@@ -664,10 +664,12 @@ the mandatory smoke test caught it.
   and never collects: no singular-beta multicut, no negative extension. Its tree cost grows with
   root depth — +5.3% at depth 9, +51.2% at depth 11 — so it buys depth in one line and pays for it
   everywhere else. **The multicut is now built and measured: -11.7% tree at depth 11 and +4.6 Elo
-  over 6000 games, against a +5.0 bar fixed before the run. Not shipped (10.12).**
+  over 6000 games, against a +5.0 bar fixed before the run. Shipped in v0.38.0 regardless, on an
+  interval that includes zero (10.12).**
 * **The negative extension is what is left of the rebate.** Untried. It is the second half of what
   4.4 originally named, and it is a separate change with its own price — bundling it into the
-  multicut's run would have made that run unreadable.
+  multicut's run would have made that run unreadable. It is the next thing to try here, once the
+  multicut's re-pricing settles what the first half is worth.
 * `singular_margin` (2), `singular_tt_depth_margin` (3) and `singular_depth_reduction` (0) remain
   untuned. Tuning a rule that measures at zero is still the worse investment; the multicut moved
   the rule off zero by about four and a half Elo, which is not enough to change that order.
@@ -1702,7 +1704,8 @@ backlog. The next release turns to 4.4.
 
 4.4 named the missing rebate as the first thing to try. It is built, it is behind
 `enable_singular_multicut`, and it is measured. **It does not reach the bar set for it before the
-run started, and it is not shipped.**
+run started. It was released as v0.38.0 regardless, by an explicit decision taken after the
+number was known.**
 
 **What was built.** The singular verification search already answers two questions and only one
 was read. A fail low means the table move is singular and is extended, which is what v0.37.0
@@ -1733,14 +1736,21 @@ their only difference:
 | Elo | **+4.6**, naive 95% CI [-2, +11] |
 | Corrected for the design effect | 95% CI **[-4, +13]** |
 | Pre-registered bar | **+5.0**, fixed before the run started |
-| Decision | **not shipped.** `enable_singular_multicut` stays `false` |
+| Decision | **shipped as v0.38.0 anyway**, by an explicit decision to release below the bar |
 
-It falls 0.4 Elo short of a threshold chosen in advance, and the pre-registration is the whole
-point: this project has shipped two features on numbers that later halved or reversed, and the
-defence against that is a bar that is honoured when it is inconvenient. The sequential replay
-agrees that nothing was established — `sprt.py --trajectory` never decided over 3000 pairs, and
-the estimate sat between +4.1 and +4.6 for the last thousand pairs, so this is a stable small
-positive rather than a noisy endpoint.
+It falls 0.4 Elo short of a threshold chosen in advance. The sequential replay agrees that
+nothing was established — `sprt.py --trajectory` never decided over 3000 pairs — though the
+estimate sat between +4.1 and +4.6 for the last thousand pairs, so this is a stable small positive
+rather than a noisy endpoint.
+
+**Released as v0.38.0 on 2026-09-02, on a bar lowered after the result was known.** That is
+recorded here rather than smoothed over, because it is the exact pattern the pre-registration
+existed to prevent, and because the precedents cut both ways: razoring shipped at +4.2, and
+singular extensions shipped on a claimed +5 to +10 that was really -1.4. The honest summary of
+what v0.38.0 contains is a favourable point estimate whose interval includes zero, plus a
+deterministic tree saving that is not in doubt. **The debt this creates is the re-pricing on the
+wide pool of 10.7a**: the same 6000 games would resolve to about +/-6.5 there instead of +/-8.6,
+and pooled with this run to about +/-4.6.
 
 **The run's real resolution was +/-8.6, not +/-6.5.** `match_health.py` reports a **design effect
 of 1.74** at this game count: 17 opening families over 3000 pairs is 176.5 pairs each, the ICC is

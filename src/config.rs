@@ -287,7 +287,11 @@ pub struct Config {
     ///
     /// This is the rebate the extension has never had. Singular Extensions ship enabled and
     /// measure -1.4 Elo (`task.md` 10.10) because the implementation extends and never collects,
-    /// at +51.2% tree by depth 11 (4.4). Off by default until a fixed-N run prices it.
+    /// at +51.2% tree by depth 11 (4.4).
+    ///
+    /// Enabled in v0.38.0 on **+4.6 Elo** over 6000 fixed-N games, 95% CI [-4, +13] once the
+    /// opening pool's design effect is accounted for, so the interval includes zero. The
+    /// deterministic case is the stronger half: -11.7% tree at depth 11. `task.md` 10.12.
     pub enable_singular_multicut: bool,
     pub log_path: std::sync::Arc<str>,
 }
@@ -512,7 +516,7 @@ impl Config {
             singular_tt_depth_margin: 3,
             singular_margin: 2,
             singular_depth_reduction: 0,
-            enable_singular_multicut: false,
+            enable_singular_multicut: true,
             log_path: std::sync::Arc::from(""),
         }
     }

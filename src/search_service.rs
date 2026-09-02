@@ -2213,21 +2213,24 @@ mod tests {
     }
 
     #[test]
-    fn test_the_multicut_is_off_until_it_has_been_measured() {
-        // The rule it completes ships enabled and measures -1.4 Elo (task.md 10.10), which is
-        // exactly the situation a default-on new rule creates. It stays off until 6000 fixed-N
-        // games say otherwise, and this test is what makes flipping it a deliberate act.
+    fn test_the_shipped_multicut_configuration_is_the_one_that_was_measured() {
+        // v0.38.0 ships the multicut on, priced at +4.6 Elo over 6000 fixed-N games against the
+        // otherwise identical build (task.md 10.12). The interval includes zero, so the shipped
+        // configuration is exactly the one that played those games and nothing adjacent to it.
+        // The counterpart of the singular-extension test below, and of v0.35.1's.
         let config = Config::new();
-        assert!(!config.enable_singular_multicut,
-            "the multicut ships off until a fixed-N run prices it");
+        assert!(config.enable_singular_multicut,
+            "v0.38.0 ships the multicut enabled; that is the configuration that was measured");
 
         let shipped = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
-        let explicitly_off = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
-            c.enable_singular_multicut = false;
+            c.enable_singular_extensions = true;
+            c.enable_singular_multicut = true;
         });
-        assert_eq!(shipped, explicitly_off,
-            "the default must be the off configuration ({} vs {})", shipped, explicitly_off);
+        assert_eq!(shipped, measured_variant,
+            "the default must be the measured configuration ({} vs {})",
+            shipped, measured_variant);
     }
 
     #[test]
