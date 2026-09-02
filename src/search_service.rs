@@ -112,7 +112,7 @@ impl SearchService {
         let (root_level, deeper) = buffers
             .split_first_mut()
             .expect("the arena is allocated with SEARCH_LEVELS entries");
-        let crate::model::NodeBuffers { moves: turns, pv: child_pv } = root_level;
+        let crate::model::NodeBuffers { moves: turns, pv: child_pv, history: _ } = root_level;
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, turns);
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
@@ -525,7 +525,7 @@ impl SearchService {
                 (&mut fallback_buffers, &mut no_deeper[..])
             }
         };
-        let crate::model::NodeBuffers { moves: turns, pv: child_pv } = level;
+        let crate::model::NodeBuffers { moves: turns, pv: child_pv, history: entry_history } = level;
 
         if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             // An abandoned search returns its worst possible score. `-i16::MAX` rather than
@@ -1035,8 +1035,78 @@ impl SearchService {
         }
 
         // Standard Search (depth > 0)
+        //
+        // Stage 0 of the `MovePicker` (`task.md` 5): the table move is searched before anything is
+        // generated, so a cutoff on it costs no generation and no ranking. Since v0.39.0 this is
+        // order-preserving by construction -- the table move ranks at `BAND_TT` and every other
+        // move is a whole band below it -- which is what the previous attempt had to establish
+        // with an arithmetic argument and a promotion guard.
+        //
+        // The loop below is not special-cased for it. `turns` simply starts out holding this one
+        // move and is refilled with the full list if the loop runs dry without a cutoff, so every
+        // pruning gate, the time check, `turn_counter`, LMR, PVS and the killer, history and
+        // counter updates run exactly as they did before.
+        // Which stage of the picker the list currently holds. Stage 3 is the whole move list,
+        // i.e. the eager path, and a node that may not stage starts there.
+        //
+        // Two rules read the move count before the loop and would read it as one. The One-Reply
+        // Extension asks whether this node has exactly one legal move. Singular Extensions ask
+        // whether the table move has alternatives, through their `turns.len > 1` guard -- and the
+        // table move is precisely what stage 0 searches, so staging a node where that rule can
+        // fire would switch off the extension and the multicut with it.
+        let mut stage: u8 = 3;
         turns.clear();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, turns);
+        if config.enable_tt_move_first
+            && !config.enable_one_reply_extension
+            && !(config.enable_singular_extensions && depth >= config.singular_min_depth)
+            && board.game_status == GameStatus::Normal
+        {
+            if board.cached_hash == 0 {
+                board.cached_hash = crate::zobrist::gen_hash(board);
+            }
+            // Generation prefers the principal variation over the table, so the candidate has to
+            // be chosen the same way or the two orders part company on the very first move.
+            let mut candidate = None;
+            if config.use_pv_nodes {
+                let guard = current_context.pv_nodes.lock().expect(crate::model::RIP_COULDN_LOCK_MUTEX);
+                candidate = guard.get(&board.cached_hash).copied();
+            }
+            if candidate.is_none() {
+                candidate = tt_move;
+            }
+            match candidate {
+                None => stage = 0,
+                Some(candidate) => {
+                    let masks = service.move_gen.compute_node_masks(board);
+                    if let Some(validated) =
+                        service.move_gen.build_stage0_move(board, &masks, &candidate, config)
+                    {
+                        turns.push(validated);
+                        stage = 0;
+                    }
+                    // A candidate the validation rejects leaves the node unstaged: the ranking
+                    // loop might still have matched it and handed it the table band, and guessing
+                    // which of the two is right is exactly what a node-identical picker may not do.
+                }
+            }
+            if stage == 0 {
+                // The History Heuristic is the one ranking input that a searched move's own
+                // subtree mutates, so the later stages have to rank against the values that were
+                // live at node entry (`task.md` 5.2). Only the rows of the squares the side to
+                // move occupies are ever read -- a quiet move departs from one of them -- so at
+                // most sixteen of the sixty-four rows are copied.
+                let mut occupied = if white { board.white_pieces } else { board.black_pieces };
+                while occupied != 0 {
+                    let square = occupied.trailing_zeros() as usize;
+                    occupied &= occupied - 1;
+                    entry_history[square] = unsafe { (*current_context.history_table)[square] };
+                }
+            }
+        }
+
+        if stage == 3 {
+            service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, turns);
+        }
 
         // Fail-hard running score. Fail-soft was tried in v0.30.0 and reverted in v0.30.3:
         // starting the score outside the window instead of at its bound measured **-168 Elo**
@@ -1045,7 +1115,7 @@ impl SearchService {
         let mut eval = alpha;
         let mut best_move: Option<Turn> = None;
 
-        if turns.is_empty() || board.game_status != GameStatus::Normal {
+        if (stage == 3 && turns.is_empty()) || board.game_status != GameStatus::Normal {
             return (None, Self::terminal_score(board, ply));
         }
 
@@ -1089,7 +1159,71 @@ impl SearchService {
         let mut quiet_count = 0;
 
         let mut i = 0;
-        while i < turns.len {
+        while i < turns.len || stage < 3 {
+            // The current stage is exhausted without a cutoff, so the next one is appended behind
+            // the moves already searched. The list keeps its `[0, i)` convention, and the bands
+            // are what make appending sound: nothing a later stage generates can outrank what an
+            // earlier one held.
+            if i >= turns.len {
+                stage += 1;
+                let searched = i;
+                if stage == 1 {
+                    service.move_gen.append_capture_stage(
+                        board, stats, config, &current_context, true, turns);
+                } else if stage == 2 {
+                    let masks = service.move_gen.compute_node_masks(board);
+                    for candidate in [
+                        current_context.killer_moves[0],
+                        current_context.counter_move,
+                        current_context.killer_moves[1],
+                    ] {
+                        let Some(candidate) = candidate else { continue };
+                        // The rank the ranking loop gives a remembered quiet move, arrived at the
+                        // same way: the killer slot first, then the counter move raising it.
+                        let mut remembered = if Some(candidate) == current_context.killer_moves[0] {
+                            config.killer_move_1_rank_bonus
+                        } else if Some(candidate) == current_context.killer_moves[1] {
+                            config.killer_move_2_rank_bonus
+                        } else {
+                            0
+                        };
+                        if Some(candidate) == current_context.counter_move {
+                            remembered = remembered.max(config.counter_move_rank_bonus);
+                        }
+                        if let Some(validated) = service.move_gen.build_remembered_move(
+                            board, &masks, &candidate, config,
+                            crate::model::BAND_KILLER + remembered,
+                        ) {
+                            // A remembered move whose target is occupied now is a capture, and
+                            // stage 1 has already had it.
+                            if validated.capture == 0 {
+                                turns.push(validated);
+                            }
+                        }
+                    }
+                } else {
+                    let entry_context = SearchContext {
+                        history_table: &*entry_history,
+                        ..current_context
+                    };
+                    service.move_gen.generate_valid_moves_list_without_table_move(
+                        board, stats, config, &entry_context, true, turns);
+                }
+
+                // Drop whatever this stage produced that the node has already seen -- moves
+                // searched in an earlier stage, and duplicates inside this one: a killer slot and
+                // the counter move can hold the same move, and stage 3 regenerates everything.
+                let mut kept = searched;
+                for slot in searched..turns.len {
+                    let move_turn = turns.moves[slot];
+                    if !turns.moves[..kept].contains(&move_turn) {
+                        turns.moves[kept] = move_turn;
+                        kept += 1;
+                    }
+                }
+                turns.len = kept;
+                continue;
+            }
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
                 if turns.moves[j].precedes(&turns.moves[best_idx]) {
@@ -1133,6 +1267,15 @@ impl SearchService {
                         && see_value < config.bad_capture_see_threshold.saturating_mul(depth as i16)
                     {
                         i += 1;
+                        continue;
+                    }
+                    if stage < 3 {
+                        // A capture that fails the evaluation ranks below every quiet move, and
+                        // this stage has not generated one yet. Dropping it here and letting the
+                        // last stage bring it back is what puts it where the eager path puts it:
+                        // behind the quiet moves, evaluated once more on the way.
+                        turns.moves[i] = turns.moves[turns.len - 1];
+                        turns.len -= 1;
                         continue;
                     }
                     turns.moves[i].rank -= SEE_DEMOTION;
