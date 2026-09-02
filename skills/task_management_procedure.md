@@ -9,9 +9,9 @@ This document outlines the mandatory procedure for managing, prioritizing, and e
 
 ## 1. Task File Organization
 All development tasks are organized under the `task/` directory in the root of the workspace. Tasks are separated into three files based on their functional domain:
-*   **[task/search_task.md](task/search_task.md)**: Search heuristics, alpha-beta pruning, LMR logic, and minimax improvements.
-*   **[task/eval_task.md](task/eval_task.md)**: Hand-crafted evaluation (HCE) heuristics, material/positional weights, and endgame scaling.
-*   **[task/misc_task.md](task/misc_task.md)**: Book expansions, UCI settings, convenience features, and helper utilities.
+*   **[task/search_task.md](../task/search_task.md)**: Search heuristics, alpha-beta pruning, LMR logic, and minimax improvements.
+*   **[task/eval_task.md](../task/eval_task.md)**: Hand-crafted evaluation (HCE) heuristics, material/positional weights, and endgame scaling.
+*   **[task/misc_task.md](../task/misc_task.md)**: Book expansions, UCI settings, convenience features, and helper utilities.
 
 ---
 

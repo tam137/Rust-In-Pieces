@@ -8,7 +8,7 @@ description: "Workflow for querying SPSA tuning status, checking tmux sessions, 
 This skill defines the standard operating procedure for monitoring an active SPSA tuning session on the remote server, displaying iteration statistics, and verifying technical and mathematical correctness.
 
 ## Prerequisites
-- An active SPSA tuning run on the remote server (`<SERVER_IP>` or `$EODSERVERIP`).
+- An active SPSA tuning run on the remote server (`$EODSERVERIP` or `<SERVER_IP>`).
 - The tuner has parameter logging enabled (setting the `logpath` UCI option).
 
 ## Verification Workflow

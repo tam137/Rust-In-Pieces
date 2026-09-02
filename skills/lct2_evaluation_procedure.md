@@ -26,7 +26,7 @@ This script will search 35 positions (positional, tactical, and endgame studies)
 - Solved/unsolved counts per category
 
 ## 3. Documentation in LCT.md
-You MUST document all LCT II test results in the file [LCT.md](LCT.md) using the following guidelines:
+You MUST document all LCT II test results in the file [LCT.md](../LCT.md) using the following guidelines:
 
 - **Historical Comparison Table**: Update or prepend the row for the evaluated version under the `## Historical Comparison` table. The row must contain:
   `| Version | ELO | Total Points | Solved | Positional | Tactical | Endgame |`

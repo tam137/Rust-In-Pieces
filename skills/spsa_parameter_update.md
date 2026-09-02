@@ -75,10 +75,10 @@ Once the code and tuning files are updated:
 
 6. **Restart SPSA on the Server:**
    SSH into the server, stop the active SPSA process (Ctrl+C in tmux).
-   - **If Hot-Patching (Adjustments):** Upload the modified `spsa_state.json` and `spsa_history.csv`. Only delete temporary match PGNs (`rm -f ~/mattmagie/tuning/tmp_*.pgn`).
+   - **If Hot-Patching (Adjustments):** Upload the modified `spsa_state.json` and `spsa_history.csv`. Only delete temporary match PGNs (`rm -f <REMOTE_MM_DIR>/tuning/tmp_*.pgn`).
    - **If Full Reset (New Engine Variant):** Clean up the remote state/history files along with temporary match PGNs:
      ```bash
-     rm -f ~/mattmagie/tuning/spsa_history.csv ~/mattmagie/tuning/spsa_state.json ~/mattmagie/tuning/tmp_*.pgn
+     rm -f <REMOTE_MM_DIR>/tuning/spsa_history.csv <REMOTE_MM_DIR>/tuning/spsa_state.json <REMOTE_MM_DIR>/tuning/tmp_*.pgn
      ```
    Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to resume or start the SPSA tuning run.
 
