@@ -17,7 +17,7 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
 | Uncommitted | the v0.38.0 release commit itself — `Cargo.toml`, `CHANGELOG.md`, the flipped default and this file. Awaiting the user's explicit instruction, per the release procedure |
 | Unreleased | nothing on `master`. The multicut's re-pricing on the wide pool is outstanding, not the code |
-| Blocked on | nothing. v0.38.0 shipped the multicut on a **+4.6 Elo** estimate whose interval includes zero (10.12), by an explicit decision to release below the pre-registered +5.0 bar. The number it was shipped on is the weakest part of it, and re-pricing it on the wide pool (10.7a) is the first thing owed |
+| Blocked on | nothing. v0.38.0 shipped the multicut on a **+4.6 Elo** estimate whose interval includes zero (10.12), by an explicit decision to release below the pre-registered +5.0 bar. Re-pricing it was considered and dropped on 2026-09-02. The next item is the `MovePicker` (5) |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
@@ -71,7 +71,7 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — widen the opening pool (10.7), then re-price the multicut (10.12)
+### The next action — the staged `MovePicker` (5)
 
 The 8.1 cold-versus-warm gate is run, against 7.1 and 10.8 in the same pass, and it clears both:
 closing either channel does not reduce the drift, at depth 9 or at depth 11 (10.11). Both stay in
@@ -86,26 +86,26 @@ it does exactly what it was built for — **-11.7% tree at depth 11**, against t
 extension costs there. In games it is a favourable point estimate whose interval includes zero,
 and that is what now ships.
 
-The run also produced the reason the next one should not simply be longer. `match_health.py`
-reports a **design effect of 1.74** over 6000 games: the pool's 17 opening families give 176.5
-pairs each, and **1274 of 3000 pairs buy nothing**. The same pool measured 1.00 at 1113 games, so
-the clustering is invisible at the scale earlier runs checked it and expensive at the scale
-decisions are made on. White also scores 64.03%, above the action threshold in the measurement
-procedure.
+That run also produced something every measurement after it inherits. `match_health.py` reported a
+**design effect of 1.74** over 6000 games: the old pool's 17 opening families gave 176.5 pairs
+each, and **1274 of 3000 pairs bought nothing**. The same pool measured 1.00 at 1113 games, so the
+clustering is invisible at the scale earlier runs checked it and expensive at the scale decisions
+are made on. **`openings_wide.txt` replaces it** — 1200 lines and 613 distinct four-ply starts,
+built 2026-09-02 (10.7a). Its balance is not yet measured; the first run on it must be read with
+`match_health.py` before its Elo is believed.
 
-So the next action is **10.7**: widen the pool, then re-price the multicut on it. That is the
-cheapest available increase in resolution for every measurement after it, and the multicut is the
-first thing it should be spent on — the change is written, tested and node-identical with its flag
-off, so a re-run costs games and nothing else.
+The next action is therefore section **5, the staged `MovePicker`** — the throughput prize, and
+the most dangerous item in this document. **Read 5.2 and 8.3 before writing any code.** It is a
+throughput change rather than a tree change, so it is priced differently from sections 1 to 4: the
+question is nodes per second at equal tree, and only then games.
 
 ### The backlog, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | Widen the opening pool | 10.7 | 32% of the last run's sample went to clustering. It makes every later measurement cheaper, and costs no engine change |
-| 2 | Re-price the singular-beta multicut | 10.12 | **Shipped in v0.38.0** on an interval that includes zero. The binaries `ab-mc-mcon` / `ab-mc-mcoff` and `<mm>/mc_ab_wide.trn` are ready; this is a debt, not an option |
-| 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| 1 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 2 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| — | Widen the opening pool | 10.7a | Done 2026-09-02: `openings_wide.txt`, 613 distinct four-ply starts against the old pool's 17. Its balance is still unmeasured |
 | — | The empty-window Transposition Table bound, and the unfilled pawn hash table | 7.1, 10.8 | Measured 2026-09-01 not to drift a warm table (10.11). Correctness reports, no longer strength work |
 
 > [!IMPORTANT]
@@ -142,13 +142,10 @@ A new session can start from this table; each row says where the detail is.
 | `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
-| The NNUE branch has never had a pricing run — only 100-game smoke gauntlets, so three defaults measured on HCE are still assumed rather than confirmed there | 9 | unverified defaults |
-| Whether the wider opening pool costs or saves games per decision, and whether its lines are balanced | 10.7 | open measurement |
+| Whether `openings_wide.txt` is balanced — the pool it replaces scored 64.03% for White and cost 32% of the sample to clustering | 10.7, 10.7a | open measurement, first run on it decides |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
-| Singular Extensions have the extension without the singular-beta multicut that pays for it, and measure -1.4 Elo without it | 4.4, 10.10 | proposal, well motivated |
-| The singular-beta multicut ships enabled on a +4.6 Elo estimate whose interval includes zero | 10.12 | **released in v0.38.0**, owes a re-pricing on the wide pool |
-| The opening pool costs 32% of the sample to clustering and scores 64.03% for White | 10.7, 10.12 | measured, and now the top of the backlog |
+| The negative extension, the other half of the singular rebate, is untried | 4.4 | proposal, unmeasured |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
 (1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
@@ -1748,9 +1745,12 @@ recorded here rather than smoothed over, because it is the exact pattern the pre
 existed to prevent, and because the precedents cut both ways: razoring shipped at +4.2, and
 singular extensions shipped on a claimed +5 to +10 that was really -1.4. The honest summary of
 what v0.38.0 contains is a favourable point estimate whose interval includes zero, plus a
-deterministic tree saving that is not in doubt. **The debt this creates is the re-pricing on the
-wide pool of 10.7a**: the same 6000 games would resolve to about +/-6.5 there instead of +/-8.6,
-and pooled with this run to about +/-4.6.
+deterministic tree saving that is not in doubt.
+
+**A re-pricing on the wide pool of 10.7a was considered and dropped on 2026-09-02.** It would have
+resolved to about +/-6.5 instead of +/-8.6, and pooled with this run to about +/-4.6. The figures
+above are therefore the last word on what the multicut is worth, and the interval that includes
+zero stands as published.
 
 **The run's real resolution was +/-8.6, not +/-6.5.** `match_health.py` reports a **design effect
 of 1.74** at this game count: 17 opening families over 3000 pairs is 176.5 pairs each, the ICC is
