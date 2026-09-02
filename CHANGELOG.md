@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.39.0] - 2026-09-02
+
+The move order becomes a total order with nesting bands: +25.6 Elo, the largest measured gain
+since v0.35.0, and none of it from a new heuristic.
+
+- **Every class of move owns a range of the rank, and the ranges nest.** The table move, then
+  promotions, then captures by MVV-LVA, then killers and the counter move, then quiet moves by
+  history. The scheme it replaces nested nowhere: a promoting capture that gave check reached
+  310,000 and outranked the Transposition Table move at 180,000; a killer carrying a full history
+  entry reached 29,900 and crossed into the minor-piece captures at 30,000; and a capture whose
+  attacker penalty exceeded its victim's value was clamped to zero, into the middle of the quiet
+  moves it should have been ordered against.
+- **A quiet move giving check is ordered as a quiet move.** It carried
+  `give_check_rank_bonus * 10000` and outranked every capture but a queen capture. Late Move
+  Reduction, Late Move Pruning and the SEE pruning of bad captures each guard on `gives_check`
+  explicitly, so the demotion costs none of those exemptions.
+- **The order is total.** `MoveList::push` folds the generation index into the low
+  `RANK_TIEBREAK_BITS` of the rank, so a single rank comparison decides the whole order and the
+  selection scans are unchanged. Rank alone was not total — every quiet without a history entry
+  ranks equal — and the scans broke ties by array position, which their own `swap` then permuted:
+  the searched order was a function of the swap history rather than of the position.
+- **Measured +25.6 Elo** over 6000 fixed-N games at 1s + 100ms against v0.38.1, 95% interval
+  [+19, +32], design effect 1.01, no losses on time. The acceptance bound was fixed before the
+  run at a lower interval bound of -5. Full write-up in `task.md`.
+- Deterministically, **21.4% less work to fixed depth 10** over 300 positions drawn from the
+  opening pool, median position 1.21x faster, 191 of 300 faster.
+- **Lazy SEE now applies to every capture in the capture band.** The window it replaces,
+  `rank < 100000`, excluded rook and queen captures that gave check and included pawn and minor
+  ones, which was an artifact of the arithmetic rather than a rule.
+- New: `scripts/measure_tree_size.py`, an aggregate tree-size comparison over a few hundred pool
+  positions. The 14-position corpus is sized for node-identity checks and cannot rank an ordering
+  change: re-permuting a tie class moves single positions by factors in both directions.
+
+
+
 ## [V0.38.1] - 2026-09-02
 
 Per-node buffer initialisation removed from the search: a node-identical throughput change.

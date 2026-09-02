@@ -12,10 +12,11 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.38.1** on `master` (HCE) since 2026-09-02 — the per-node buffer arena, node-identical, +3.5% throughput. **v0.38.0** on `feature/nnue-evaluation`;
+| Released | **v0.39.0** on `master` (HCE) since 2026-09-02 — the move order as a total order with nesting bands, **+25.6 Elo**. `feature/nnue-evaluation` is not maintained: work is on `master` in HCE mode only, decided 2026-09-02 |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
-| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
-| Blocked on | nothing. v0.38.0 shipped the multicut on a **+4.6 Elo** estimate whose interval includes zero (10.12), by an explicit decision to release below the pre-registered +5.0 bar. Re-pricing it was considered and dropped on 2026-09-02. The next item is the `MovePicker` (5) |
+| Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
+| Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
+| Blocked on | nothing. The next item is the staged `MovePicker` (5), and v0.39.0 has just removed the obstacle that made it unverifiable |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 
@@ -26,30 +27,45 @@ See the Engines Changelog if needed.
 
 ### The next action — the staged `MovePicker` (5)
 
-The 8.1 cold-versus-warm gate is run, against 7.1 and 10.8 in the same pass, and it clears both:
-closing either channel does not reduce the drift, at depth 9 or at depth 11 (10.11). Both stay in
-this document as defect reports — the unproven bound is still unproven, the incomplete cheap score
-is still incomplete — but neither moves a played search measurably, so neither is priced and
-neither leads the backlog. That is two 6000-game runs not spent, decided deterministically and
-without playing a game.
+**v0.39.0 turned the move order into a total order, and that is what unblocks this item.** Rank
+alone was never total: every quiet without a history entry ranks equal, a capture whose attacker
+penalty exceeded its victim's value was clamped into the same class, and the selection scans broke
+those ties by array position and then `swap`ped the winner into place, permuting the part of the
+list they had not examined. The searched order was therefore a function of the swap history rather
+than of the position, and **no picker that generates its moves in a different sequence could have
+reproduced it.** The generation index now lives in the low `RANK_TIEBREAK_BITS` of the rank, so
+the order is a property of the move set alone and a staged picker can be held to it by node
+identity — the gate 5.2 demands.
 
-The multicut is built, priced at **+4.6 Elo** against a **+5.0** bar fixed before the run, and
-**released as v0.38.0 anyway** on an explicit decision to lower the bar (10.12). Deterministically
-it does exactly what it was built for — **-11.7% tree at depth 11**, against the +51.2% the
-extension costs there. In games it is a favourable point estimate whose interval includes zero,
-and that is what now ships.
+The bands are what paid. Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
+against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
+over 300 pool positions. The three inversions it repaired are listed in the changelog; none of
+them was a missing heuristic, all three were the rank scale contradicting itself.
 
-That run also produced something every measurement after it inherits. `match_health.py` reported a
-**design effect of 1.74** over 6000 games: the old pool's 17 opening families gave 176.5 pairs
-each, and **1274 of 3000 pairs bought nothing**. The same pool measured 1.00 at 1113 games, so the
-clustering is invisible at the scale earlier runs checked it and expensive at the scale decisions
-are made on. **`openings_wide.txt` replaces it** — 1200 lines and 613 distinct four-ply starts,
-built 2026-09-02 (10.7a). Its balance is not yet measured; the first run on it must be read with
-`match_health.py` before its Elo is believed.
+Two lessons from the measurement, both of which change how the next one is run:
 
-The next action is therefore section **5, the staged `MovePicker`** — the throughput prize,
-throughput change rather than a tree change, so it is priced differently from sections 1 to 4: the
-question is nodes per second at equal tree, and only then games.
+* **The 14-position corpus cannot rank an ordering change.** Re-permuting a tie class moves single
+  positions by factors in *both* directions — one variant read -1.5% on the corpus and +2.7% over
+  300 pool positions, and Kiwipete alone swung from 1.40M to 3.83M nodes between two orderings
+  worth the same in aggregate. The corpus is sized for node identity, which is binary. Use
+  `scripts/measure_tree_size.py` for anything that re-shapes the tree.
+* **Measure the instrument before believing it.** The first reading of the total order looked like
+  a 5% penalty on the median position. It was the comparison: `precedes` cost a second branch in a
+  scan that is quadratic in the move count and runs at every node. The same ordering measured
+  -0.5%, +1.4% and +2.7% depending only on whether the comparison was two branches, a packed i64
+  or a single i32 — identical trees, on the digit, all three times.
+
+**`openings_wide.txt` is qualified.** v0.39.0's run is the first to see all 613 opening families:
+design effect **1.01**, effective sample 2978 of 3000 pairs, no losses on time, one identical game
+in 6000. Against the old pool's **1.74** over the same game count, that is a third of the sample
+recovered. White scores **64.24%** against the old pool's 64.03%, so the colour bias is a property
+of this engine at 1s + 100ms and not of either pool — the 69% and 72% seen in two gauntlets were
+the first 50 lines of the file, because **`mm.sh` takes its opening as `opening_lines[r % n]`** and
+a run at `rounds = 50` never reaches line 51.
+
+The next action is section **5, the staged `MovePicker`** — a throughput change rather than a tree
+change, so it is priced differently: bit-identity against v0.39.0 on 14 of 14 corpus positions
+first, then nodes per second at equal tree, and games only if the identity gate cannot be met.
 
 ### The backlog, in order
 
@@ -80,11 +96,11 @@ A new session can start from this table; each row says where the detail is.
 | `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
 | `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
 | NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
-| Whether `openings_wide.txt` is balanced — the pool it replaces scored 64.03% for White and cost 32% of the sample to clustering | 10.7, 10.7a | open measurement, first run on it decides |
+| Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run | 10.7a | open question, cheap to test against another engine pairing |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | 10.7a | measurement mechanic, established 2026-09-02 |
-| White scored **72.25%** over the wide pool's first 50 lines in the v0.38.1 gauntlet, against 66.00% for the old pool in v0.38.0's — both above the ~60% the health audit allows | 10.7a | open measurement, 200 games decides nothing, but the pool is not yet shown to be balanced |
+| `scripts/measure_stage0.py`, `measure_stage0_throughput.py` and `verify_stage0_identity.py` still drive the engine with a fixed `sleep` | 10.1 | unsafe measurement, and they are the instruments section 5 needs |
 | The negative extension, the other half of the singular rebate, is untried | 4.4 | proposal, unmeasured |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
@@ -188,6 +204,12 @@ positions at fixed depth 10 and 764,055 interior nodes, on a node-identical tree
   exists, and 24.2% is simply the TT hit rate on interior nodes.
 
 ### 5.2 The constraint that governs the whole item
+
+**Since v0.39.0 the move order is total** — the generation index sits in the low
+`RANK_TIEBREAK_BITS` of the rank and the bands nest — so a staged picker can be held to the order
+by node identity at all. Before that it could not: ties were broken by array position and then
+permuted by the scan's own `swap`, so the order depended on the swap history rather than on the
+position. The constraint below is what remains.
 
 **No lazy or staged move picker in this engine can be verified by node identity unless it ranks
 against an entry-time history snapshot.** Deferring generation ranks the remaining moves against a
