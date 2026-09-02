@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.38.1] - 2026-09-02
+
+Per-node buffer initialisation removed from the search: a node-identical throughput change.
+
+- **The move list and the principal-variation buffers now come from an arena allocated once per
+  search**, one level per recursion depth, instead of being constructed at every node. That was
+  about 6 KB of stores per node into storage nothing reads back: `MoveList::len` bounds every read
+  of the list, and `minimax` clears the principal variation on entry.
+- **Six buffers per node, not two.** The move list and the child principal variation in both the
+  interior and the Quiescence branch, plus the null-move, verification, razoring and singular
+  buffers, each the out parameter of a single call and therefore able to share the node's level.
+- **Measured +3.5% throughput** at fixed depth 11 over the 14-position corpus, by median and
+  cost-weighted alike, 11 of 14 positions faster; +2.5% at depth 10. Reproduce with
+  `scripts/measure_throughput.py`.
+- **The search tree is bit-identical to v0.38.0** on 14 of 14 corpus positions at depth 10 and at
+  depth 11, so no Elo measurement was needed and none is quoted. The smoke gauntlet's 55.0%
+  against v0.38.0 over 100 games is noise on an interval that includes zero.
+- New: `MoveList::clear()`, `model::NodeBuffers` and `SEARCH_LEVELS`. The generators append, so a
+  reused list has to be cleared by its caller. A search deeper than the arena falls back to
+  buffers on the stack, which is the old behaviour, so the arena's size bounds throughput and
+  never correctness.
+- New: `scripts/measure_throughput.py`, paired wall time and tree identity for two binaries over
+  the corpus, driven through `scripts/uci_driver.py` instead of a fixed `sleep`.
+
+
+
 ## [V0.38.0] - 2026-09-02
 
 The singular-beta multicut: the rebate Singular Extensions have never had.
