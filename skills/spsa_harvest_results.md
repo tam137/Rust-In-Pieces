@@ -8,7 +8,7 @@ description: "Workflow for downloading SPSA tuned parameters from the server and
 This skill defines the standard operating procedure for extracting the latest optimized parameters from a running or completed SPSA tuning session on the remote server and hardcoding them into the SupraH default configuration.
 
 ## Prerequisites
-- An active or completed SPSA tuning run on the remote server (`/root/mattmagie/tuning/spsa_state.json`).
+- An active or completed SPSA tuning run on the remote server (`<REMOTE_MM_DIR>/tuning/spsa_state.json` or local `<mm>/tuning/spsa_state.json`).
 
 ## Workflow Steps
 
@@ -17,7 +17,7 @@ Connect to the remote server via SCP or SSH to retrieve the current mathematical
 
 ```bash
 # Example command to fetch the state file
-scp root@<SERVER_IP>:/root/mattmagie/tuning/spsa_state.json tuning/spsa_state_remote.json
+scp root@<SERVER_IP>:<REMOTE_MM_DIR>/tuning/spsa_state.json tuning/spsa_state_remote.json
 ```
 
 ### 2. Parse and Process the Tuned Parameters

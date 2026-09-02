@@ -8,7 +8,7 @@ description: "Workflow for querying SPSA tuning status, checking tmux sessions, 
 This skill defines the standard operating procedure for monitoring an active SPSA tuning session on the remote server, displaying iteration statistics, and verifying technical and mathematical correctness.
 
 ## Prerequisites
-- An active SPSA tuning run on the remote server (`135.181.27.105` or `$EODSERVERIP`).
+- An active SPSA tuning run on the remote server (`$EODSERVERIP` or `<SERVER_IP>`).
 - The tuner has parameter logging enabled (setting the `logpath` UCI option).
 
 ## Verification Workflow
@@ -37,7 +37,7 @@ ssh root@$EODSERVERIP "tmux capture-pane -t spsa_tuning -p"
 #### B. Fetch SPSA State
 Check the current state parameters being adjusted:
 ```bash
-ssh root@$EODSERVERIP "cat /root/mattmagie/tuning/spsa_state.json"
+ssh root@$EODSERVERIP "cat <REMOTE_MM_DIR>/tuning/spsa_state.json"
 ```
 This contains:
 - `k`: Current iteration number.
@@ -47,14 +47,14 @@ This contains:
 Inspect the latest engine log files inside the remote logs directory:
 ```bash
 # List latest logs
-ssh root@$EODSERVERIP "ls -t /root/mattmagie/tuning/enginelogs/*.log | head -n 3"
+ssh root@$EODSERVERIP "ls -t <REMOTE_MM_DIR>/tuning/enginelogs/*.log | head -n 3"
 
 # Cat the content of the latest log file
-ssh root@$EODSERVERIP "cat /root/mattmagie/tuning/enginelogs/engine_<pid>.log"
+ssh root@$EODSERVERIP "cat <REMOTE_MM_DIR>/tuning/enginelogs/engine_<pid>.log"
 ```
 
 Verify the following:
-1. **logpath Option**: Look for the string `Received option: logpath = /root/mattmagie/tuning/enginelogs`. This confirms that the engine received the custom option and successfully initialized its custom file writer log callback.
+1. **logpath Option**: Look for the string `Received option: logpath = <REMOTE_MM_DIR>/tuning/enginelogs`. This confirms that the engine received the custom option and successfully initialized its custom file writer log callback.
 2. **Current Parameter Dump**: Look for `Current Engine Parameters:` followed by the list of parameters.
 3. **Parameter Plausibility Check**:
    - Compare the parameter values in the log file with the `theta` values in the remote `spsa_state.json`.
