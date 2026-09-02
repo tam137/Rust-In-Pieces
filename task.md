@@ -16,7 +16,7 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
-| Blocked on | nothing. The next item is the staged `MovePicker` (5), and v0.39.0 has just removed the obstacle that made it unverifiable |
+| Blocked on | nothing. The staged `MovePicker` (5) is half built in the working tree, uncommitted, with `enable_tt_move_first` shipping `false`: stage 0 is node-identical, the capture stage is not. **Read 5.3 first** |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 
@@ -63,9 +63,9 @@ of this engine at 1s + 100ms and not of either pool — the 69% and 72% seen in 
 the first 50 lines of the file, because **`mm.sh` takes its opening as `opening_lines[r % n]`** and
 a run at `rounds = 50` never reaches line 51.
 
-The next action is section **5, the staged `MovePicker`** — a throughput change rather than a tree
-change, so it is priced differently: bit-identity against v0.39.0 on 14 of 14 corpus positions
-first, then nodes per second at equal tree, and games only if the identity gate cannot be met.
+The next action is section **5, the staged `MovePicker`**, and it is **half built and unfinished
+in the working tree** — read **5.3** before writing a line of it. Stage 0 is done and identical;
+the capture stage is not, and there is a 6.5% regression on the unstaged path to undo first.
 
 ### The backlog, in order
 
@@ -82,42 +82,46 @@ differently from sections 1 to 4: the question is nodes per second at equal tree
 games.
 
 The proposal that used to be section 11 — damping the check exemption — was measured on
-2026-08-28 and is dead. It is written up as a negative result in 8.5.
+2026-08-28 and is dead: damping the exemption is worth 4.5% of the tree and nothing in games.
 
 ### Everything still open, in one place
 
-A new session can start from this table; each row says where the detail is.
+A new session can start from this table. The sections these rows once pointed at were deleted when
+the document was trimmed on 2026-09-02; the write-ups are still in git, at revision `2a280c0`.
 
-| Open | Where | Kind |
-| :--- | :--- | :--- |
-| The Transposition Table stores an unproven bound at Black nodes on an empty window | 7.1, 10.11 | defect, measured not to drift a warm table, unpriced |
-| The root can hand a node an empty `alpha == beta` window | 7.1 | open question |
-| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | 10.8, 10.11 | defect, measured not to drift a warm table, unpriced |
-| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | 4.4 | open tuning |
-| `MovePicker` stages 1-3: needs an entry-time history snapshot, and five `#[allow(dead_code)]` attributes to resolve | 5, 5.2 | large item, constraints known |
-| NNUE incremental accumulator, and making `use_nnue` the default | 6 | large item |
-| Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run | 10.7a | open question, cheap to test against another engine pairing |
-| `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
-| Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
-| `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | 10.7a | measurement mechanic, established 2026-09-02 |
-| `scripts/measure_stage0.py`, `measure_stage0_throughput.py` and `verify_stage0_identity.py` still drive the engine with a fixed `sleep` | 10.1 | unsafe measurement, and they are the instruments section 5 needs |
-| The negative extension, the other half of the singular rebate, is untried | 4.4 | proposal, unmeasured |
+| Open | Kind |
+| :--- | :--- |
+| The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
+| The root can hand a node an empty `alpha == beta` window | open question |
+| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
+| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | open tuning |
+| `MovePicker` stages 1 and 2 are built and not yet node-identical — section 5, and 5.3 before anything else | large item, half done |
+| The unstaged path is 6.5% slower than v0.39.0 because the history snapshot sits in `NodeBuffers` — 5.3.3 | regression, cause known, blocks any release |
+| NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
+| Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run | open question, cheap to test against another engine pairing |
+| `scripts/measure_stage0.py`, `measure_stage0_throughput.py` and `verify_stage0_identity.py` still drive the engine with a fixed `sleep` instead of `scripts/uci_driver.py` | unsafe measurement; the last two also set `EnableTtMoveFirst` as the abandoned branch defined it, so they run against nothing on `master` |
+| `MoveRawList.moves` holds 128 from/to pairs against a legal maximum of 218, and `push` drops the rest silently | latent defect, needs a position with more than 128 moves to fire |
+| `truncate_bad_moves = 99` truncates an unsorted list during search, so it drops moves in generation order rather than the worst ones | latent defect, same class |
+| Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
+| `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
+| The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 
-Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
-(1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
-(10.6), and the evaluation half of the colour asymmetry (7.2). The facade is not sound yet — the
-same repair left `UseNNUE` inert, which is the row above.
+Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names,
+the dead `Config::search_threads` field, the dead `lmp_max_depth` tuning range, and the evaluation
+half of the colour asymmetry. The facade is not sound yet — the same repair left `UseNNUE` inert,
+and that branch is no longer maintained.
 
-Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth
-(10.10), and the scoreboard configuration that could not price them (10.9).
+Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth,
+and the scoreboard configuration that could not price them.
 
 ### Rules that are not optional
 
 1. **Every search change is priced by matchplay, not by depth or test-suite accuracy.** The
-   clearest evidence is the Check Extension frontier restriction in 8.2: it was the best of four
+   clearest evidence is the Check Extension frontier restriction: it was the best of four
    axes on fixed-time depth and on LCT II, and measured **-26.8 Elo** in games.
 2. **A self-A/B cannot see a defect both sides share.** v0.30.0 shipped a regression of roughly
-   two hundred Elo (8.1) that four separate 1000-game self-A/B runs could not detect, because
+   two hundred Elo -- the fail-soft running score, reverted in v0.30.3 -- that four separate
+   1000-game self-A/B runs could not detect, because
    every one of them pitted a v0.30.x build against another v0.30.x build.
    `skills/engine_release_procedure.md` mandates a cross-version gauntlet for any change to
    `search_service.rs`, `eval_service.rs`, `move_gen_service.rs` or a search parameter default.
@@ -136,17 +140,19 @@ Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 
    Milestone 1 were verified as bit-identical search trees before a single game was played, which
    is why they needed no Elo measurement at all.
 6. **Before pricing a depth-gated rule, measure the root depth the time control produces, and
-   check the rule fires there.** The scoreboard run of 10.9 plays at a median root depth of 5,
+   check the rule fires there.** The scoreboard run that tried to price v0.36.0 through v0.37.2
+   plays at a median root depth of 5,
    where Singular Extensions are provably inert — node counts with the rule on and off are
    identical on 24 of 24 positions at root depth 5 and 6 — so v0.37.x plays v0.36.0's chess in
    about 88% of its moves there. The cost of such a rule also grows with root depth: the census
-   of 4.1 read +18.0% tree at depth 9 and the same corpus reads +51.2% at depth 11. A number
+   of the Singular Extension read +18.0% tree at depth 9 and the same corpus reads +51.2% at
+   depth 11. A number
    taken below the depth of play transfers in neither direction.
 7. **Gate with a sequential test if you like, but never quote its score as the effect size.** The
    stopping rule and the number have to come from different runs. Every feature since v0.35.0 was
    gated with `--elo0 -10 --elo1 0`, which cannot establish a gain at all, and its stopping score
    went into the release notes: +14.1 for razoring, +5 to +10 for singular extensions. Re-priced
-   with fixed-N runs of 6000 games the same two changes measure **+4.2** and **-1.4** (10.10).
+   with fixed-N runs of 6000 games the same two changes measure **+4.2** and **-1.4**.
    Decide the game count before the run, publish the interval, and treat any reading taken before
    that count as an excursion rather than a preview.
 
@@ -196,8 +202,9 @@ positions at fixed depth 10 and 764,055 interior nodes, on a node-identical tree
   one.
 * **The per-node buffers are already gone.** v0.38.1 hoisted the move list and the
   principal-variation arrays into an arena allocated once per search, worth **+3.5%** on a
-  bit-identical tree. A staged picker can no longer claim the buffer initialisation of 8.4's 3.1%
-  as part of its prize; what is left to win is generation and ranking.
+  bit-identical tree. A staged picker can no longer claim the buffer initialisation, 3.1% of
+  runtime in the v0.31.0 profile, as part of its prize; what is left to win is generation and
+  ranking, the ~54% that profile put beside it.
 * **Killers and counters need no generation at all** — two or three remembered moves validated
   against `NodeMasks`, for 10.4%.
 * Stage 0's ceiling is presence, not quality: the PV/TT move cuts at 77.5% of nodes where it
@@ -222,18 +229,76 @@ A second trap, found by a duplication check rather than by reasoning: `add_promo
 310,000 and **outranks the PV/TT move**. The rank ranges overlap instead of nesting.
 
 * **Tasks**:
-    - `[ ]` Implement stages 1-3 in `src/move_gen_service.rs` and `src/search_service.rs`, ranking
-      against an entry-time history snapshot.
-    - `[ ]` Remove the five `#[allow(dead_code)]` attributes in `src/move_gen_service.rs`
-      (`is_pseudo_legal`, `is_castling_shape`, `build_stage0_move`, `stage0_rank`,
-      `white_to_move_pawns_on_seventh`) by putting them to use. The release procedure forbids the
-      attribute, so the next release that touches this file has to resolve it.
-      **`build_stage0_move` and `stage0_rank` mirror the ranking loop in
-      `get_valid_moves_from_move_list` and nothing enforces that they stay in step** — retune the
-      move ordering and this copy rots silently.
+    - `[x]` The five `#[allow(dead_code)]` attributes in `src/move_gen_service.rs` are resolved.
+      `is_pseudo_legal`, `is_castling_shape` and `build_stage0_move` are in use; `stage0_rank` and
+      `white_to_move_pawns_on_seventh` are deleted, because the bands made both obsolete — the
+      table move ranks at a constant, and a promotion can no longer outrank it.
+    - `[x]` Stage 0, node-identical, **+1.0%** at fixed depth 11.
+    - `[ ]` Stages 1 and 2: built, **not node-identical yet**. See 5.3.
     - `[ ]` `MoveRawList.moves` is `[u8; 256]`, i.e. 128 from/to pairs, and `push` silently drops
       anything beyond that while the legal maximum is 218. Generating per stage removes the
       problem; widening the buffer instead would cost initialisation time on every node.
+
+### 5.3 Where the build stands — 2026-09-02, unfinished, read this before touching the picker
+
+**The work is in the working tree, uncommitted, and `enable_tt_move_first` ships `false`, so the
+released search is untouched.** With the flag off the build is 14 of 14 identical to v0.39.0.
+Nothing here has been released and nothing may be until 5.3.2 is closed.
+
+#### 5.3.1 What is proven
+
+* **Stage 0 is node-identical and worth +1.0%** at fixed depth 11 (median +0.7%). The scheme that
+  measured **-9.1%** when it was built on v0.32.0 and reverted -- it survives on
+  `experiment/stage0-short-circuit` -- is dead: it needed a 16 KB history snapshot because the table
+  move's rank carried history terms, and under the bands that rank is the constant `BAND_TT`.
+* **Two rules read the move count before the loop and a staged node must stand down for both.**
+  The One-Reply Extension asks whether the node has exactly one legal move. Singular Extensions
+  ask whether the table move has alternatives, through `turns.len > 1` — and the table move is
+  exactly what stage 0 searches, so a staged node switched the extension *and* the multicut off
+  entirely: tree three times smaller, score shifted, everything faster and everything wrong. The
+  guard is `!(config.enable_singular_extensions && depth >= config.singular_min_depth)`.
+* **The identity criterion cannot include `nodes`.** It reports generated moves, which a staged
+  picker legitimately reduces by about 15%. Depth, score and the principal variation of every
+  completed iteration are what identity is read from. `scripts/measure_throughput.py` excludes it
+  and says so in its output; it also takes `--cand-options EnableTtMoveFirst=true`, so one binary
+  can be A/B'd against itself.
+
+#### 5.3.2 The open defect: stages 0+1 are not identical
+
+Bisected. Stage 0 alone is identical; adding the capture stage breaks it, with or without the
+killer stage. Four bugs were found and fixed on the way there and are **not** the remaining one:
+
+1. Quiet promotions were missing from the capture stage. They rank a band above the captures.
+2. The same bug again, one level down: the raw pass ran with `only_captures`, so the promotion
+   moves were never generated for the filter to keep. The capture stage now takes the full raw
+   pass and saves the per-move work behind it instead.
+3. Bad captures (SEE < 0) were searched inside the capture stage. They rank below every quiet
+   move, so they are dropped there and regenerated by the last stage.
+4. A killer slot and the counter move can hold the same move, which was then searched twice. The
+   compaction now dedupes within a stage as well as against the searched prefix.
+
+**Do not continue by guessing.** The instrument for this is the duplication check the old
+`experiment/stage0-short-circuit` branch carried: under `search-diag`, generate the eager list at
+every staged node and assert that the move the picker hands over next is the move the ranking loop
+would have selected next. That reports the divergence at the first node where it happens instead
+of as a score eleven plies later, and it is the same "do the work twice and compare" method the
+move-generation cost breakdown was taken with, `perf` being unavailable on these hosts.
+
+#### 5.3.3 A regression to undo first
+
+With the flag off the build is identical to v0.39.0 and **6.5% slower**, 0 of 14 positions faster.
+The cause is known: the history snapshot was put into `model::NodeBuffers`, which grows an arena
+level from 6 KB to 22 KB and the arena from 1.5 MB to 5.6 MB. That is exactly the locality v0.38.1
+was measured +3.5% for. **Move the snapshot into a second, parallel arena** that is split
+alongside the buffers and touched only when a node actually stages.
+
+#### 5.3.4 The gates that still stand
+
+Unchanged, and fixed before the work resumed: **14 of 14 node-identical**, then **median
+throughput >= +5.0% at equal tree with >= 11 of 14 positions faster**. Below that the item dies
+with a negative result and no game run spent. A run costs under 4 hours, so if the identity gate
+proves unreachable, pricing the staged picker in games is affordable — but only after 5.3.2 is
+understood, because an unexplained divergence is a defect, not a design choice.
 
 ## 6. NNUE: incremental accumulator and SIMD
 

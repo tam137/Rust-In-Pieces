@@ -31,11 +31,20 @@ import uci_driver  # noqa: E402
 OPTIONS = (("Hash", "64"), ("Threads", "1"))
 
 
-def best_of(binary, fen, depth, repeats):
+def parse_options(pairs):
+    """Turns `Name=value` arguments into the option pairs `uci_driver` expects."""
+    parsed = []
+    for pair in pairs or ():
+        name, _, value = pair.partition("=")
+        parsed.append((name, value))
+    return tuple(parsed)
+
+
+def best_of(binary, fen, depth, repeats, extra=()):
     """Runs one position `repeats` times and returns the fastest result."""
     best = None
     for _ in range(repeats):
-        result = uci_driver.search(binary, fen, depth, options=OPTIONS)
+        result = uci_driver.search(binary, fen, depth, options=OPTIONS + tuple(extra))
         if best is None or result.time_ms < best.time_ms:
             best = result
     return best
@@ -48,12 +57,19 @@ def main():
     parser.add_argument("candidate")
     parser.add_argument("--depth", type=int, default=10)
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--base-options", nargs="*", default=(),
+                        help="extra setoption pairs for the baseline, as Name=value")
+    parser.add_argument("--cand-options", nargs="*", default=(),
+                        help="extra setoption pairs for the candidate, as Name=value")
     args = parser.parse_args()
 
     for binary in (args.baseline, args.candidate):
         if not os.path.isfile(binary):
             print(f"not a file: {binary}")
             return 2
+
+    base_options = parse_options(args.base_options)
+    cand_options = parse_options(args.cand_options)
 
     print(f"\nFixed depth {args.depth}, {len(POSITIONS)} positions, best of {args.repeats}, "
           f"Hash=64 Threads=1\n")
@@ -68,10 +84,10 @@ def main():
     base_total = 0
     cand_total = 0
     for name, fen in POSITIONS:
-        base = best_of(args.baseline, fen, args.depth, args.repeats)
-        cand = best_of(args.candidate, fen, args.depth, args.repeats)
+        base = best_of(args.baseline, fen, args.depth, args.repeats, base_options)
+        cand = best_of(args.candidate, fen, args.depth, args.repeats, cand_options)
 
-        same = base.info_signature == cand.info_signature
+        same = strip_nodes(base.info_signature) == strip_nodes(cand.info_signature)
         identical &= same
         # A positive delta is the candidate being faster, which is what the sign convention of
         # every throughput number in `task.md` means.
@@ -96,10 +112,21 @@ def main():
     print(f"Corpus total   {base_total} ms -> {cand_total} ms   {total_delta:+.1f}%   "
           f"(cost-weighted, so the sub-10 ms positions cannot dominate it)")
     print(f"Faster         {faster} of {len(POSITIONS)} positions")
-    print(f"Tree identity  {'14/14 identical' if identical else 'NOT IDENTICAL'}"
+    print(f"Tree identity  {'14/14 identical' if identical else 'NOT IDENTICAL'} "
+          f"(depth, score and pv per iteration; `nodes` is excluded, it counts generated moves)"
           .replace("14/14", f"{len(POSITIONS)}/{len(POSITIONS)}"))
     print()
     return 0 if identical else 1
+
+
+def strip_nodes(signature):
+    """Drops the `nodes` field from a signature before comparing two searches.
+
+    `nodes` reports *generated* moves, so a change that defers generation lowers it while
+    searching the same tree -- which is the whole point of a staged picker. Depth, score and the
+    principal variation of every completed iteration are what identity is read from here.
+    """
+    return [tuple((key, value) for key, value in entry if key != "nodes") for entry in signature]
 
 
 def node_count(signature_entry):

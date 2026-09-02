@@ -248,6 +248,7 @@ pub struct Config {
     /// ply deeper. Such a node has no branching, so the extra ply is nearly free, and it
     /// keeps forced sequences — including sacrificial checks — inside the horizon.
     pub enable_one_reply_extension: bool,
+    pub enable_tt_move_first: bool,
 
     /// Enables Singular Extensions: when the Transposition Table move is provably better than
     /// every alternative at this node, it is searched one ply deeper.
@@ -507,6 +508,7 @@ impl Config {
             check_extension_min_depth: 0,
             check_extension_max_depth: 0,
             enable_one_reply_extension: false,
+            enable_tt_move_first: false,
             // On by default since v0.37.0: about +5 to +10 Elo over 2591 games against v0.36.0.
             // The trigger
             // depth is deliberately below the published 8 because the match search reaches depth
@@ -952,6 +954,7 @@ impl Config {
             "singularmargin" => if let Ok(v) = value.parse::<i16>() { self.singular_margin = v; },
             "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
+            "enablettmovefirst" => if let Ok(v) = value.parse::<bool>() { self.enable_tt_move_first = v; },
             "enablelmp" => self.enable_lmp = value.eq_ignore_ascii_case("true"),
             "lmpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.lmp_max_depth = v; },
             "lmpbasemoves" => if let Ok(v) = value.parse::<i32>() { self.lmp_base_moves = v; },
