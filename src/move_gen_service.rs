@@ -1095,6 +1095,7 @@ impl MoveGenService {
                 to: idx1 as u8,
                 capture: 0,
                 promotion: 14,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -1106,6 +1107,7 @@ impl MoveGenService {
                 to: idx1 as u8,
                 capture: 0,
                 promotion: 24,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -1906,13 +1908,13 @@ mod tests {
         let mut board = fen_service.set_fen("r1bqk2r/pppp1ppp/2n2n2/2b5/2BpP3/2P2N2/PP3PPP/RNBQK2R w KQkq - 0 6");
         let move_list = generate_valid_moves_list(&mut board);
         assert!(move_list.get(0).unwrap().from == m2l(63) as u8 && move_list.get(0).unwrap().to == m2l(36) as u8);
-        assert!(move_list.last().unwrap().rank == 0);
+        assert!(move_list.last().unwrap().rank >> crate::model::RANK_TIEBREAK_BITS == 0, "the worst move ranks zero above the tie-break lane");
 
         let mut board = fen_service.set_fen("r1bqr1k1/ppp2pp1/2n2n1p/2bp4/2B1PB2/1NP4P/PP3PP1/RN1Q1RK1 b - - 1 10");
         let move_list = generate_valid_moves_list(&mut board);
         assert!(move_list.get(0).unwrap().from == m2l(53) as u8 && move_list.get(0).unwrap().to == m2l(86) as u8);
         assert!(move_list.get(1).unwrap().from == m2l(54) as u8 && move_list.get(1).unwrap().to == m2l(63) as u8);
-        assert!(move_list.last().unwrap().rank == 0);
+        assert!(move_list.last().unwrap().rank >> crate::model::RANK_TIEBREAK_BITS == 0, "the worst move ranks zero above the tie-break lane");
     }
 
     #[test]

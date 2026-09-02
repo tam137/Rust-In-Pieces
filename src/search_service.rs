@@ -10,6 +10,14 @@ use crate::move_gen_service::MoveGenService;
 /// are sized accordingly, so no ply may ever exceed this limit.
 pub const MAX_PLY: usize = 128;
 
+/// A capture that has not been through Static Exchange Evaluation yet ranks below this, and one
+/// that failed it is demoted by that much so it can never be picked up again. Both are the
+/// pre-v0.38.2 literal of 100,000 shifted into the rank's tie-break lane.
+const SEE_PENDING_CEILING: i32 = 100_000 << crate::model::RANK_TIEBREAK_BITS;
+
+/// The rank the Quiescence Search gives the Transposition Table move, above every generated rank.
+const QSEARCH_TT_RANK: i32 = 1_000_000 << crate::model::RANK_TIEBREAK_BITS;
+
 pub struct SearchService;
 
 /// What the singular verification search came back with.
@@ -152,14 +160,14 @@ impl SearchService {
             while i < turns.len {
                 let mut best_idx = i;
                 for j in (i + 1)..turns.len {
-                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    if turns.moves[j].precedes(&turns.moves[best_idx]) {
                         best_idx = j;
                     }
                 }
                 turns.moves.swap(i, best_idx);
 
-                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                    turns.moves[i].rank -= 100000;
+                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < SEE_PENDING_CEILING && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                    turns.moves[i].rank -= SEE_PENDING_CEILING;
                     continue; // rank decreased, re-evaluate this index to find the next best move
                 }
 
@@ -916,7 +924,7 @@ impl SearchService {
             if let Some(tt_m) = tt_move {
                 for t in turns.moves.iter_mut().take(turns.len) {
                     if *t == tt_m {
-                        t.rank = 1_000_000;
+                        t.rank = QSEARCH_TT_RANK;
                         break;
                     }
                 }
@@ -925,7 +933,7 @@ impl SearchService {
             for i in 0..turns.len {
                 let mut best_idx = i;
                 for j in (i + 1)..turns.len {
-                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    if turns.moves[j].precedes(&turns.moves[best_idx]) {
                         best_idx = j;
                     }
                 }
@@ -1077,7 +1085,7 @@ impl SearchService {
         while i < turns.len {
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
-                if turns.moves[j].rank > turns.moves[best_idx].rank {
+                if turns.moves[j].precedes(&turns.moves[best_idx]) {
                     best_idx = j;
                 }
             }
@@ -1094,9 +1102,9 @@ impl SearchService {
             }
 
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
-            // still in [0, 100000), and demoting it below zero keeps this branch from firing a
-            // second time when it is selected again from the tail of the list.
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
+            // still in [0, SEE_PENDING_CEILING), and demoting it below zero keeps this branch from
+            // firing a second time when it is selected again from the tail of the list.
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < SEE_PENDING_CEILING {
                 let see_value = self.see(board, &turns.moves[i], config, &service.move_gen);
                 if see_value < 0 {
                     // 0.7. SEE pruning of bad captures. A capture that loses more than
@@ -1120,7 +1128,7 @@ impl SearchService {
                         i += 1;
                         continue;
                     }
-                    turns.moves[i].rank -= 100000;
+                    turns.moves[i].rank -= SEE_PENDING_CEILING;
                     continue; // rank decreased, re-evaluate this index
                 }
             }
@@ -2755,6 +2763,7 @@ mod tests {
             to: 35,   // d5
             capture: 20, // Black Pawn
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,
@@ -2771,6 +2780,7 @@ mod tests {
             to: 19,   // d3
             capture: 20,
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,
@@ -2787,6 +2797,7 @@ mod tests {
             to: 35,  // d5
             capture: 20,
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,

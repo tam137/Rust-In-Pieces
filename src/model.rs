@@ -143,10 +143,34 @@ pub struct Turn {
     pub to: u8,
     pub capture: u8,
     pub promotion: u8,
+    /// Index this move was generated at, stamped by `MoveList::push`. It is the tie-break of the
+    /// search's move order; see `Turn::precedes`. It fits in the padding the struct already had,
+    /// so `Turn` is still 16 bytes.
+    pub order: u8,
     pub gives_check: bool,
     pub eval: i16,
     pub has_hashed_eval: bool,
     pub rank: i32,
+}
+
+impl Turn {
+    /// The total order the search selects moves in: rank first, then the move's own identity.
+    ///
+    /// Rank alone is not a total order. Every quiet without a history entry ranks 0, and so does
+    /// a capture whose attacker penalty exceeds its victim's value, because the ranking clamps at
+    /// zero -- so the tie classes are large. The selection scans resolve a tie by array position
+    /// and then `swap` the winner into place, which permutes the part of the list they have not
+    /// examined yet, so the searched order is a function of the swap history rather than of the
+    /// position. No picker that generates its moves in a different order can reproduce that.
+    ///
+    /// Breaking the tie on the generation index makes the order a property of the move set
+    /// alone, and it is the tie-break the scans already intend: the first move they select at a
+    /// node is the earliest-generated of the leaders, and only the swaps afterwards depart from
+    /// that. A picker that generates the same moves in the same sequence reproduces this order
+    /// exactly, whatever it defers.
+    pub fn precedes(&self, other: &Turn) -> bool {
+        self.rank > other.rank
+    }
 }
 
 impl PartialEq for Turn {
@@ -172,6 +196,7 @@ impl Turn {
             to,
             capture,
             promotion,
+            order: 0,
             gives_check,
             eval,
             has_hashed_eval: false,
@@ -185,6 +210,7 @@ impl Turn {
             to,
             capture: 0,
             promotion: 0,
+            order: 0,
             gives_check: false,
             eval: 0,
             has_hashed_eval: false,
@@ -242,6 +268,7 @@ impl MoveList {
                 to: 0,
                 capture: 0,
                 promotion: 0,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -251,8 +278,14 @@ impl MoveList {
         }
     }
 
-    pub fn push(&mut self, turn: Turn) {
+    pub fn push(&mut self, mut turn: Turn) {
         if self.len < 256 {
+            // The generation index is the tie-break of the search's move order, so it is stamped
+            // where a move enters the list and nowhere else, and folded into the low bits of the
+            // rank so that comparing two ranks is comparing the whole order. The generator clamps
+            // its ranks at zero, so the shift cannot lose a sign.
+            turn.order = self.len as u8;
+            turn.rank = (turn.rank << RANK_TIEBREAK_BITS) | (u8::MAX - turn.order) as i32;
             self.moves[self.len] = turn;
             self.len += 1;
         }
@@ -274,6 +307,14 @@ impl MoveList {
         self.len == 0
     }
 }
+
+/// Bits of `Turn::rank` reserved for the move order's tie-break.
+///
+/// `MoveList::push` shifts the rank the generator computed up by this much and writes the
+/// generation index into the space that opens up, so a single `rank` comparison is a total order
+/// and the selection scans stay exactly the code they were. Every threshold the search compares a
+/// rank against is shifted by the same amount; the raw rank is `rank >> RANK_TIEBREAK_BITS`.
+pub const RANK_TIEBREAK_BITS: u32 = 8;
 
 /// Levels in the per-search buffer arena.
 ///
@@ -1590,6 +1631,41 @@ mod tests {
         // Pushing to full list should not panic
         list.push(99);
         assert_eq!(list.len, 256);
+    }
+
+    #[test]
+    fn push_stamps_the_generation_index_and_turn_stays_sixteen_bytes_test() {
+        use super::{MoveList, Turn, RANK_TIEBREAK_BITS};
+
+        assert_eq!(
+            std::mem::size_of::<Turn>(),
+            16,
+            "the generation index has to fit the padding the struct already had"
+        );
+
+        let mut list = MoveList::new();
+        for from in 0..4u8 {
+            list.push(Turn::new(from, 20, 0, 0, false, 0));
+        }
+        assert_eq!(list.as_slice().iter().map(|t| t.order).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
+
+        // The rank the generator computed survives above the tie-break lane, and the lane below
+        // it carries the generation index inverted, so that a lower index is the larger value.
+        for turn in list.as_slice() {
+            assert_eq!(turn.rank >> RANK_TIEBREAK_BITS, 0);
+            assert_eq!(turn.rank & 0xFF, (u8::MAX - turn.order) as i32);
+        }
+
+        // Equal ranks resolve to the earlier-generated move, whatever order they are compared in.
+        let first = list.as_slice()[1];
+        let second = list.as_slice()[2];
+        assert!(first.precedes(&second));
+        assert!(!second.precedes(&first));
+
+        // A better rank still wins, however late the move was generated.
+        let mut better = second;
+        better.rank += 1 << RANK_TIEBREAK_BITS;
+        assert!(better.precedes(&first));
     }
 
     #[test]
