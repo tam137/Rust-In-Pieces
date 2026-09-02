@@ -27,7 +27,7 @@
 /// 140,000. The gap between 140,000 and 170,000 makes this floor an exact discriminator rather
 /// than a heuristic one.
 #[allow(dead_code)]
-pub const RANK_STAGE0_FLOOR: i32 = 150_000 << crate::model::RANK_TIEBREAK_BITS;
+pub const RANK_STAGE0_FLOOR: i32 = crate::model::BAND_TT << crate::model::RANK_TIEBREAK_BITS;
 
 /// What kind of move produced a cutoff, in the order a staged `MovePicker` would yield them.
 #[derive(Clone, Copy)]

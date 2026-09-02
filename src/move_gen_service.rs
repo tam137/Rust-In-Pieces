@@ -686,32 +686,13 @@ impl MoveGenService {
 
             let mut move_turn = Turn::new(idx0, idx1, capture, 0, false, 0);
 
-            if let Some(pv) = &pv_node {
-                if *pv == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
-                }
+            let is_table_move = if let Some(pv) = &pv_node {
+                *pv == move_turn
             } else if let Some(tt_move) = &tt_best_move {
-                if *tt_move == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
-                }
-            }
-
-            if move_turn.capture == 0 {
-                if Some(move_turn) == context.killer_moves[0] {
-                    move_turn.rank = move_turn.rank.max(config.killer_move_1_rank_bonus);
-                } else if Some(move_turn) == context.killer_moves[1] {
-                    move_turn.rank = move_turn.rank.max(config.killer_move_2_rank_bonus);
-                }
-
-                if Some(move_turn) == context.counter_move {
-                    move_turn.rank = move_turn.rank.max(config.counter_move_rank_bonus);
-                }
-
-                let from = move_turn.from as usize;
-                let to = move_turn.to as usize;
-                let history_bonus = unsafe { (*context.history_table)[from][to] } as i32;
-                move_turn.rank += history_bonus;
-            }
+                *tt_move == move_turn
+            } else {
+                false
+            };
 
             // Check for castling
             let moved_piece = board.get_piece_at(idx0);
@@ -719,26 +700,54 @@ impl MoveGenService {
                 continue;
             }
 
-            move_turn.rank += match move_turn.capture {
-                10 | 20 => 20000,
-                11 | 21 => 50000,
-                12 | 22 => 30000,
-                13 | 23 => 30000,
-                14 | 24 => 90000,
-                _ => 0,
-            };
-
-            if move_turn.capture != 0 {
-                move_turn.rank += match board.get_piece_at(move_turn.from) {
+            // Most Valuable Victim less Least Valuable Attacker, the score a capture carries
+            // inside its band. A promotion carries it too, one band higher.
+            let capture_score = if move_turn.capture == 0 {
+                0
+            } else {
+                let victim = match move_turn.capture {
+                    10 | 20 => 20000,
+                    11 | 21 => 50000,
+                    12 | 22 => 30000,
+                    13 | 23 => 30000,
+                    14 | 24 => 90000,
+                    _ => 0,
+                };
+                let attacker = match board.get_piece_at(move_turn.from) {
                     11 | 21 => -10000,
                     14 | 24 => -30000,
                     _ => 0,
                 };
-            }
+                victim + attacker
+            };
 
-            if move_turn.rank < 0 {
-                move_turn.rank = 0;
-            }
+            // The band decides the order before any score inside it does. A killer or counter
+            // move is a quiet the search remembers, so it is ranked as one, above the rest of its
+            // band and below every capture -- which is what lets those two classes be resolved
+            // without generating a quiet move at all.
+            move_turn.rank = if is_table_move {
+                crate::model::BAND_TT
+            } else if move_turn.capture != 0 {
+                crate::model::BAND_CAPTURE + capture_score
+            } else {
+                let mut remembered = 0;
+                if Some(move_turn) == context.killer_moves[0] {
+                    remembered = config.killer_move_1_rank_bonus;
+                } else if Some(move_turn) == context.killer_moves[1] {
+                    remembered = config.killer_move_2_rank_bonus;
+                }
+                if Some(move_turn) == context.counter_move {
+                    remembered = remembered.max(config.counter_move_rank_bonus);
+                }
+
+                if remembered > 0 {
+                    crate::model::BAND_KILLER + remembered
+                } else {
+                    let from = move_turn.from as usize;
+                    let to = move_turn.to as usize;
+                    crate::model::BAND_QUIET + unsafe { (*context.history_table)[from][to] } as i32
+                }
+            };
 
             // Check for promotion
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0 as i32, idx1 as i32) {
@@ -750,6 +759,7 @@ impl MoveGenService {
                     valid_moves,
                     white_turn,
                     masks,
+                    capture_score,
                 );
             } else {
                 self.add_move(board, &mut move_turn, config, valid_moves, masks);
@@ -1021,7 +1031,11 @@ impl MoveGenService {
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
         masks: &NodeMasks,
+        capture_score: i32,
     ) {
+        // A queen or knight promotion is its own class and ranks above every capture. A rook or
+        // bishop promotion carries no bonus and is left in the band the move already had, which
+        // is where the previous scheme also left it.
         let base_rank = turn.rank;
         if config.use_underpromotions {
             let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
@@ -1030,10 +1044,12 @@ impl MoveGenService {
                 turn.gives_check = false;
                 turn.rank = base_rank;
                 match promotion {
-                    11 | 21 => turn.rank += 0, // Rook promotion
-                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
-                    13 | 23 => turn.rank += 0, // Bishop promotion
-                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    11 | 21 => {} // Rook promotion
+                    12 | 22 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_knight * 10000 + capture_score,
+                    13 | 23 => {} // Bishop promotion
+                    14 | 24 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_queen * 10000 + capture_score,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
                 self.add_move(board, turn, config, valid_moves, masks);
@@ -1045,8 +1061,10 @@ impl MoveGenService {
                 turn.gives_check = false;
                 turn.rank = base_rank;
                 match promotion {
-                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
-                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    12 | 22 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_knight * 10000 + capture_score,
+                    14 | 24 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_queen * 10000 + capture_score,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
                 self.add_move(board, turn, config, valid_moves, masks);
