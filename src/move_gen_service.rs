@@ -1916,6 +1916,47 @@ mod tests {
     }
 
     #[test]
+    fn a_reused_move_list_generates_exactly_what_a_new_one_does_test() {
+        // The generators append rather than overwrite, and the search now hands one list to
+        // every node at a recursion level. The `clear()` at the call site is the only thing that
+        // keeps a node from inheriting the moves of the node before it.
+        let service = Service::new();
+        let config = Config::for_tests();
+        let zobrist_table = ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = Mutex::new(HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 0,
+        };
+
+        let mut first = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut second = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+
+        let mut reused = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(
+            &mut first, &mut Stats::new(), &config, &context, true, &mut reused);
+        assert!(reused.len > 0, "the first position has moves to inherit");
+
+        reused.clear();
+        service.move_gen.generate_valid_moves_list(
+            &mut second, &mut Stats::new(), &config, &context, true, &mut reused);
+
+        let fresh = generate_valid_moves_list(&mut second);
+        assert_eq!(reused.as_slice().to_vec(), fresh);
+    }
+
+    #[test]
     fn game_status_check_mate_test() {
         let board = test_fen("rnbqkbnr/ppppp2p/8/7B/8/8/PPPPPPPP/RNBQK1NR b KQkq - 0 1", 0);
         assert!(board.game_status == GameStatus::WhiteWin);
