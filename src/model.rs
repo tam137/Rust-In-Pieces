@@ -258,6 +258,14 @@ impl MoveList {
         }
     }
 
+    /// Empties the list without touching its storage.
+    ///
+    /// The generators append, and the buffers are reused across nodes, so a caller that
+    /// generates into a list it did not just construct has to clear it first.
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
     pub fn as_slice(&self) -> &[Turn] {
         &self.moves[0..self.len]
     }
@@ -265,6 +273,44 @@ impl MoveList {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+}
+
+/// Levels in the per-search buffer arena.
+///
+/// `search_service::MAX_PLY` is 128 and bounds the plies a search can reach. The levels beyond
+/// it cover the re-entries that search the same node again at the same ply -- the null-move
+/// verification, razoring and the singular verification -- each of which takes a level without
+/// advancing `ply`. A search that runs past the end falls back to buffers on the stack, so this
+/// number bounds throughput and never correctness.
+pub const SEARCH_LEVELS: usize = 2 * 128;
+
+/// The two buffers one search node fills: the move list it generates into, and the
+/// principal-variation array it hands to its children.
+///
+/// Both used to be constructed at every node. `MoveList::new()` writes 256 `Turn` values of 16
+/// bytes and the principal variation another 128 `Option<Turn>`, about 6 KB of stores per node
+/// for storage that is never read back: `MoveList::len` bounds every read of the first, and
+/// `minimax` clears the second on entry. Reusing one set per recursion level therefore cannot
+/// move the search tree.
+pub struct NodeBuffers {
+    pub moves: MoveList,
+    /// Sized like every `pv` parameter in the search.
+    pub pv: [Option<Turn>; 128],
+}
+
+impl NodeBuffers {
+    pub fn new() -> Self {
+        Self {
+            moves: MoveList::new(),
+            pv: [None; 128],
+        }
+    }
+}
+
+/// Allocates the arena once per search. This is the only allocation the search makes, and it is
+/// made before the first node rather than inside one.
+pub fn new_search_buffers() -> Vec<NodeBuffers> {
+    (0..SEARCH_LEVELS).map(|_| NodeBuffers::new()).collect()
 }
 
 #[derive(Clone, Copy)]
@@ -1544,6 +1590,41 @@ mod tests {
         // Pushing to full list should not panic
         list.push(99);
         assert_eq!(list.len, 256);
+    }
+
+    #[test]
+    fn move_list_clear_empties_the_list_and_leaves_it_reusable_test() {
+        use super::{MoveList, Turn};
+
+        let mut list = MoveList::new();
+        for i in 0..10 {
+            list.push(Turn::new(i, 20, 0, 0, false, 0));
+        }
+        assert_eq!(list.len, 10);
+
+        list.clear();
+        assert!(list.is_empty());
+        assert_eq!(list.as_slice().len(), 0, "a cleared list exposes nothing to a reader");
+
+        list.push(Turn::new(63, 1, 0, 0, false, 0));
+        assert_eq!(list.len, 1, "a cleared list starts a new node at index zero");
+        assert_eq!(list.as_slice()[0].from, 63);
+    }
+
+    #[test]
+    fn search_buffer_arena_has_a_level_for_every_ply_test() {
+        use super::{new_search_buffers, SEARCH_LEVELS};
+
+        let buffers = new_search_buffers();
+        assert_eq!(buffers.len(), SEARCH_LEVELS);
+        assert!(
+            buffers.len() >= crate::search_service::MAX_PLY,
+            "the stack fallback in minimax is the exception, not the normal path"
+        );
+        assert!(
+            buffers.iter().all(|level| level.moves.is_empty()),
+            "every level starts empty, so the first node at it generates from index zero"
+        );
     }
 
     #[test]

@@ -12,8 +12,8 @@ measured and reversed, and two of them looked excellent on every metric except g
 
 | | |
 | :--- | :--- |
-| Released | **v0.38.0** on `master` (HCE) since 2026-09-02 — the singular-beta multicut, enabled. **v0.38.0** on `feature/nnue-evaluation`;
-| Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
+| Released | **v0.38.1** on `master` (HCE) since 2026-09-02 — the per-node buffer arena, node-identical, +3.5% throughput. **v0.38.0** on `feature/nnue-evaluation`;
+| Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
 | Blocked on | nothing. v0.38.0 shipped the multicut on a **+4.6 Elo** estimate whose interval includes zero (10.12), by an explicit decision to release below the pre-registered +5.0 bar. Re-pricing it was considered and dropped on 2026-09-02. The next item is the `MovePicker` (5) |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
@@ -83,6 +83,8 @@ A new session can start from this table; each row says where the detail is.
 | Whether `openings_wide.txt` is balanced — the pool it replaces scored 64.03% for White and cost 32% of the sample to clustering | 10.7, 10.7a | open measurement, first run on it decides |
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
+| `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | 10.7a | measurement mechanic, established 2026-09-02 |
+| White scored **72.25%** over the wide pool's first 50 lines in the v0.38.1 gauntlet, against 66.00% for the old pool in v0.38.0's — both above the ~60% the health audit allows | 10.7a | open measurement, 200 games decides nothing, but the pool is not yet shown to be balanced |
 | The negative extension, the other half of the singular rebate, is untried | 4.4 | proposal, unmeasured |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
@@ -159,15 +161,27 @@ positions at fixed depth 10 and 764,055 interior nodes, on a node-identical tree
 | **2** killer / counter move | 10.4% | **57.2%** |
 | **3** ordinary quiet move | 0.9% | 58.1% |
 
-* **Build stages 1-3 together, never Stage 0 alone.** Stage 0 is worth 19.1% and was measured at
+* **Build stages 1-3 together, never Stage 0 alone.** Stage 0 is worth 19.1% of interior nodes
+  and was measured at **-9.1% throughput** (median, paired, 13 of 14 positions slower; -3.0% even
+  in the configuration whose tree was bit-identical). It was built, verified and reverted; it
+  survives on `experiment/stage0-short-circuit`. The 16 KB history snapshot cost about as much as
+  the generation it saved. The prize here is the **57.2%** of interior nodes that cut before a
+  quiet move is generated — roughly three times Stage 0, against the same snapshot.
 * **Stage 1b is the structural obstacle and it is small.** A quiet move giving check carries
   `give_check_rank_bonus * 10000` = 50,000, which is what lets quiets outrank captures today and
   is why the current order cannot be produced lazily at all. It is 2.6% of interior nodes. Moving
   that bonus out of the rank function into stage assignment unlocks every stage below it.
-  A later measurement (8.5) sizes the same class from the other side: **5.9% of all searched
-  moves give check, 3.4% of them quiet.** That bonus is also why LMR and LMP practically never
-  fire on a checking move, so moving it is not the free reordering it looks like — it would hand
-  those two rules a class of moves they have never actually pruned.
+  A later measurement sizes the same class from the other side: **5.9% of all searched moves
+  give check, 3.4% of them quiet.** The bonus is *not* what keeps those moves out of LMR and LMP,
+  a claim this document made until 2026-09-02 and which reading the code refutes: both rules carry
+  an explicit `!current_turn.gives_check` guard, and so does the SEE pruning of bad captures.
+  Moving the bonus therefore cannot cost an exemption. What it changes is where checking moves are
+  searched and what `turn_counter` every later move sees — an ordering change, to be priced as
+  one.
+* **The per-node buffers are already gone.** v0.38.1 hoisted the move list and the
+  principal-variation arrays into an arena allocated once per search, worth **+3.5%** on a
+  bit-identical tree. A staged picker can no longer claim the buffer initialisation of 8.4's 3.1%
+  as part of its prize; what is left to win is generation and ranking.
 * **Killers and counters need no generation at all** — two or three remembered moves validated
   against `NodeMasks`, for 10.4%.
 * Stage 0's ceiling is presence, not quality: the PV/TT move cuts at 77.5% of nodes where it
