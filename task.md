@@ -15,9 +15,9 @@ measured and reversed, and two of them looked excellent on every metric except g
 | Released | **v0.37.2** on `master` (HCE), five defect repairs, and **v0.37.2-NNUE** on `feature/nnue-evaluation` since 2026-09-01 — the branch is level with master again, and the port is unpriced (9) |
 | Throughput | **1.80x** over v0.30.3, from two measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000** |
-| Uncommitted | the 8.1 gate harness — `scripts/measure_cold_warm_drift.py`, its tests, the `Session` class in `scripts/uci_driver.py` — and this file's record of what it measured (10.11). No source change |
+| Uncommitted | this file's record of the multicut run (10.12). The multicut itself is committed, behind a default-off flag |
 | Unreleased | nothing. v0.37.2 shipped on 2026-08-29 |
-| Blocked on | nothing. The next action is 4.4's singular-beta multicut. 7.1 and 10.8 were the cheaper candidates and the deterministic gate that qualified them has now cleared both (10.11) |
+| Blocked on | nothing, but the next strength item is now genuinely open. The multicut is built and measured +4.6 Elo against a +5.0 bar, so it is not shipped (10.12); the opening pool it was measured on costs 32% of the sample to clustering, and widening it is the cheapest way to make the next run mean more |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 The engine searches at roughly 6.5 M nodes/s **on host A**, and reaches **depth 9 to 10** at the
@@ -70,7 +70,7 @@ how much**: the singular-extension pricing run read +30.6 Elo and a 1945-game co
 the same binary read +6.6. Section 4.3 states the rule; it applies retroactively to the +14.1
 above.
 
-### The next action — the singular-beta multicut (4.4)
+### The next action — widen the opening pool (10.7), then re-price the multicut (10.12)
 
 The 8.1 cold-versus-warm gate is run, against 7.1 and 10.8 in the same pass, and it clears both:
 closing either channel does not reduce the drift, at depth 9 or at depth 11 (10.11). Both stay in
@@ -79,21 +79,32 @@ is still incomplete — but neither moves a played search measurably, so neither
 neither leads the backlog. That is two 6000-game runs not spent, decided deterministically and
 without playing a game.
 
-The next action is **4.4**, the singular-beta multicut. Singular Extensions ship enabled and
-measure **-1.4 Elo** [-8, +5] over 6000 games (10.10): the implementation extends and never
-collects, so it buys depth in one line and pays for it everywhere else, at +51.2% tree by depth
-11. The rebate is the missing half of a rule the engine already runs, which makes it the
-best-motivated change available and the only backlog item whose failure mode has already been
-measured. Tuning `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` is
-the worse investment of the two while the rule measures at zero.
+The multicut is built, committed behind a default-off flag, and priced: **+4.6 Elo** against a
+**+5.0** bar fixed before the run started, so it is not shipped (10.12). Deterministically it does
+exactly what it was built for — **-11.7% tree at depth 11**, against the +51.2% the extension
+costs there — and in games that is worth about four and a half Elo, which is not nothing and is
+not enough.
+
+The run also produced the reason the next one should not simply be longer. `match_health.py`
+reports a **design effect of 1.74** over 6000 games: the pool's 17 opening families give 176.5
+pairs each, and **1274 of 3000 pairs buy nothing**. The same pool measured 1.00 at 1113 games, so
+the clustering is invisible at the scale earlier runs checked it and expensive at the scale
+decisions are made on. White also scores 64.03%, above the action threshold in the measurement
+procedure.
+
+So the next action is **10.7**: widen the pool, then re-price the multicut on it. That is the
+cheapest available increase in resolution for every measurement after it, and the multicut is the
+first thing it should be spent on — the change is written, tested and node-identical with its flag
+off, so a re-run costs games and nothing else.
 
 ### The backlog, in order
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | The singular-beta multicut | 4.4 | The rule it completes ships enabled and measures -1.4 Elo without it. The only item whose failure mode is already measured |
-| 2 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
-| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
+| 1 | Widen the opening pool | 10.7 | 32% of the last run's sample went to clustering. It makes every later measurement cheaper, and costs no engine change |
+| 2 | Re-price the singular-beta multicut | 10.12 | Built, tested, node-identical with the flag off. Measured +4.6 against a +5.0 bar; a pool that resolves better is what it needs |
+| 3 | `MovePicker` stages 1-3 | 5 | The throughput prize, but read 5.2 and 8.3 before starting |
+| 4 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path |
 | — | The empty-window Transposition Table bound, and the unfilled pawn hash table | 7.1, 10.8 | Measured 2026-09-01 not to drift a warm table (10.11). Correctness reports, no longer strength work |
 
 > [!IMPORTANT]
@@ -135,7 +146,9 @@ A new session can start from this table; each row says where the detail is.
 | `scripts/measure_stage0.py` still uses a fixed `sleep` instead of `uci_driver.py` | 10.1 | unsafe measurement |
 | Whether mirror-invariant move generation is worth measuring at all | 7.2 | open question, no prior reason to gain |
 | Singular Extensions have the extension without the singular-beta multicut that pays for it, and measure -1.4 Elo without it | 4.4, 10.10 | proposal, well motivated |
-| `setoption name UseNNUE` is swallowed in the UCI thread and never reaches the configuration | 1.1 | defect, one line, no pricing — bundle into the next release |
+| `setoption name UseNNUE` is swallowed in the UCI thread and never reaches the configuration | 1.1 | **fixed on `master` 2026-09-02, unreleased** — ships with the next release |
+| The singular-beta multicut is written and default-off: +4.6 Elo against a +5.0 bar | 10.12 | measured, not shipped, awaiting a better pool |
+| The opening pool costs 32% of the sample to clustering and scores 64.03% for White | 10.7, 10.12 | measured, and now the top of the backlog |
 
 Closed in v0.37.2: the twelve stale advertised UCI defaults and the thirteen inert option names
 (1.1), the dead `Config::search_threads` field (10.6a), the dead `lmp_max_depth` tuning range
@@ -647,12 +660,17 @@ the mandatory smoke test caught it.
   fires in 93.3% of moves, measures **-1.4 Elo [-8, +5]** against v0.36.0 (10.10). The +5 to +10
   recorded at release came from two stopped SPRTs and sits at or above the upper edge of that
   interval.
-* **The missing rebate is the first thing to try, not the tuning.** The implementation extends and
-  never collects: no singular-beta multicut, no negative extension. Its tree cost grows with root
-  depth — +5.3% at depth 9, +51.2% at depth 11 — so it buys depth in one line and pays for it
-  everywhere else. `singular_margin` (2), `singular_tt_depth_margin` (3) and
-  `singular_depth_reduction` (0) remain untuned, but tuning a rule that measures at zero is the
-  worse investment of the two.
+* **The missing rebate was the first thing to try, and it is tried.** The implementation extends
+  and never collects: no singular-beta multicut, no negative extension. Its tree cost grows with
+  root depth — +5.3% at depth 9, +51.2% at depth 11 — so it buys depth in one line and pays for it
+  everywhere else. **The multicut is now built and measured: -11.7% tree at depth 11 and +4.6 Elo
+  over 6000 games, against a +5.0 bar fixed before the run. Not shipped (10.12).**
+* **The negative extension is what is left of the rebate.** Untried. It is the second half of what
+  4.4 originally named, and it is a separate change with its own price — bundling it into the
+  multicut's run would have made that run unreadable.
+* `singular_margin` (2), `singular_tt_depth_margin` (3) and `singular_depth_reduction` (0) remain
+  untuned. Tuning a rule that measures at zero is still the worse investment; the multicut moved
+  the rule off zero by about four and a half Elo, which is not enough to change that order.
 
 ## 5. Staged `MovePicker`
 
@@ -1649,3 +1667,64 @@ backlog. The next release turns to 4.4.
 * The colour-blind binary is a throwaway built by the recipe above and kept at
   `<mm>/engines/ab-boundblind`. `src/search_service.rs` is unchanged on `master`, and
   `test_transposition_bound_tie_break_stays_colour_dependent_on_an_empty_window` still passes.
+
+
+### 10.12 The singular-beta multicut, priced with a fixed-N run — measured 2026-09-02
+
+4.4 named the missing rebate as the first thing to try. It is built, it is behind
+`enable_singular_multicut`, and it is measured. **It does not reach the bar set for it before the
+run started, and it is not shipped.**
+
+**What was built.** The singular verification search already answers two questions and only one
+was read. A fail low means the table move is singular and is extended, which is what v0.37.0
+ships. A fail *high* means some other move also reaches the threshold; when the threshold is
+itself at or above `beta`, that is a reduced-depth demonstration that the node beats `beta`
+without the table move being searched, and the node can be cut. The cut returns without writing
+the Transposition Table — the value is an inference about a position searched with a legal move
+removed, and publishing it under this position's hash is 8.1's defect exactly.
+
+**Deterministically it does what it was built to do.** The rule exists to give back the +51.2%
+tree the extension costs by depth 11 (4.4), and it does:
+
+| | depth 9 | depth 11 |
+| :--- | ---: | ---: |
+| Tree change | +0.2% | **-11.7%** |
+| Best move differs | 2 of 14 | 5 of 14 |
+
+With the flag off the build is **node-identical to the released v0.37.2**, 28 of 28 positions at
+depth 8 and again at depth 10, so the run measures the multicut and nothing else.
+
+**In games it measures +4.6 Elo and that is not enough.** 6000 games, host C, 1s + 100ms,
+`Hash=64`, `openings_mixed.txt`, concurrency 5, both binaries built from one tree with the flag as
+their only difference:
+
+| | |
+| :--- | :--- |
+| Score | 50.66% for the multicut over 3000 pairs |
+| Elo | **+4.6**, naive 95% CI [-2, +11] |
+| Corrected for the design effect | 95% CI **[-4, +13]** |
+| Pre-registered bar | **+5.0**, fixed before the run started |
+| Decision | **not shipped.** `enable_singular_multicut` stays `false` |
+
+It falls 0.4 Elo short of a threshold chosen in advance, and the pre-registration is the whole
+point: this project has shipped two features on numbers that later halved or reversed, and the
+defence against that is a bar that is honoured when it is inconvenient. The sequential replay
+agrees that nothing was established — `sprt.py --trajectory` never decided over 3000 pairs, and
+the estimate sat between +4.1 and +4.6 for the last thousand pairs, so this is a stable small
+positive rather than a noisy endpoint.
+
+**The run's real resolution was +/-8.6, not +/-6.5.** `match_health.py` reports a **design effect
+of 1.74** at this game count: 17 opening families over 3000 pairs is 176.5 pairs each, the ICC is
+0.004, and the effective sample is **1726 of 3000 pairs** — intervals widen by 32%. The same pool
+measured a design effect of **1.00** at 1113 games. The clustering is invisible at a thousand
+games and expensive at six thousand, which is a property of the pool, not of this change.
+
+* Health otherwise clean: **no losses on time**, 3 identical games in 6000, 449 games sharing
+  colours and their first 30 plies in 337 groups.
+* White scored **64.03%**, above the 60% the measurement procedure names as its action threshold.
+  The pairing cancels it, but it inflates pair variance and therefore the cost of every
+  comparison. Together with the design effect this is the first hard evidence for 10.7's second
+  half: **the pool's lines are not balanced, and its 17-family bottleneck costs real resolution.**
+* What would settle the multicut: a broader opening pool first, then a re-run. Adding games to
+  this pool buys less than the game count suggests — 32% of the sample is already being spent on
+  clustering.
