@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.38.0-NNUE] - 2026-09-02
+
+Ports the singular-beta multicut from master v0.38.0. No other change.
+
+- **Singular Extensions now collect as well as extend.** The verification search already answered
+  two questions and only one was read. A fail low means the Transposition Table move is singular
+  and is extended. A fail *high* means some other move also reaches the threshold; when that
+  threshold is at or above `beta`, the node is shown to beat `beta` without the table move being
+  searched, and the node is cut. New default: `enable_singular_multicut = true`, UCI
+  `EnableSingularMulticut`.
+- **The cut never writes the Transposition Table.** Its value is a reduced-depth inference about a
+  position searched with a legal move removed; publishing that under the position's hash is the
+  defect `task.md` 8.1 records at roughly two hundred Elo.
+- **No Elo number is claimed for this branch.** Master measured +4.6 Elo over 6000 games on an
+  interval that includes zero, but that figure does not transfer here: the rule keys on
+  Transposition Table scores, and those come from the network on this branch rather than the
+  classical evaluation. What was run here is the mandatory cross-version gauntlet, which is a
+  smoke test and not a measurement: **52.0% against v0.37.2-NNUE and 52.0% against v0.36.0-NNUE**
+  over 100 games per pairing, no losses on time. At that game count a pairing resolves to roughly
+  +/-50 Elo.
+- This branch has still never had a pricing run of any kind (`task.md` 9). The multicut joins the
+  defaults that are assumed here rather than confirmed.
+
+
 ## [V0.37.2] - 2026-09-01
 
 Full catch-up to master v0.37.2. The branch stood at v0.36.0-NNUE, so all three master releases
