@@ -482,11 +482,14 @@ impl MoveGenService {
         // Add en passant moves. They are the one move type that cannot be settled by the pin and
         // check masks, because two squares vacate at once, so each candidate gets an exact test
         // against the occupancy it would produce.
-        if !only_captures {
+        if board.field_for_en_passante != -1 {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for opt_turn in &en_passante_turns {
                 if let Some(mut turn) = *opt_turn {
                     if self.is_en_passant_legal(board, &turn, white_turn, masks) {
+                        if only_captures {
+                            turn.rank = crate::model::BAND_CAPTURE + 20000;
+                        }
                         self.add_move(board, &mut turn, config, valid_moves, masks);
                     }
                 }
@@ -2394,5 +2397,24 @@ mod tests {
         assert!(rook_promo.unwrap().gives_check, "Rook promotion on a8 must give check to e8");
         assert!(!knight_promo.unwrap().gives_check, "Knight promotion on a8 must NOT give check to e8");
         assert!(!bishop_promo.unwrap().gives_check, "Bishop promotion on a8 must NOT give check to e8");
+    }
+
+    #[test]
+    fn test_generate_valid_moves_list_capture_includes_en_passant() {
+        let service = Service::new();
+        // White to move, Black just played d7-d5, en passant square is d6.
+        let mut board = service.fen.set_fen("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        let capture_moves = generate_valid_moves_list_capture(&mut board);
+
+        let ep_move = capture_moves.iter().find(|m| m.from == 36 && m.to == 43); // e5 is 36, d6 is 43
+        assert!(ep_move.is_some(), "Capture generator must generate e5xd6 en passant");
+        let ep = ep_move.unwrap();
+        assert_ne!(ep.capture, 0, "En passant must be flagged as capture");
+        assert_eq!(ep.rank >> crate::model::RANK_TIEBREAK_BITS, crate::model::BAND_CAPTURE + 20000, "In capture generator, en passant must be ranked in BAND_CAPTURE + 20000");
+
+        // Verify that in full move generator, en passant is NOT given BAND_CAPTURE (protecting regular minimax search)
+        let all_moves = generate_valid_moves_list(&mut board);
+        let ep_all = all_moves.iter().find(|m| m.from == 36 && m.to == 43).unwrap();
+        assert!(ep_all.rank >> crate::model::RANK_TIEBREAK_BITS < crate::model::BAND_KILLER, "In full generator, en passant must remain in the quiet band");
     }
 }
