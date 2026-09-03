@@ -147,26 +147,6 @@ fn pawn_check_squares(target: u8, white: bool) -> u64 {
     squares
 }
 
-/// Whether the side to move has a pawn one step away from promoting.
-///
-/// Retained from the Stage-0 short-circuit (`task.md` 1.2.2.2), which measured as a regression
-/// and was not shipped. Kept for a future `MovePicker`; the branch
-/// `experiment/stage0-short-circuit` holds the call sites.
-///
-/// Stage 0 stands down when this holds: a promotion carries `give_promotion_rank_bonus_queen`
-/// (+170,000) and therefore outranks the PV/TT move, which breaks the ordering bound the
-/// short-circuit relies on. See `build_stage0_move`.
-#[allow(dead_code)]
-fn white_to_move_pawns_on_seventh(board: &Board) -> bool {
-    const RANK_7: u64 = 0x00FF_0000_0000_0000;
-    const RANK_2: u64 = 0x0000_0000_0000_FF00;
-    if board.white_to_move {
-        (board.bitboards[WHITE_PAWN] & RANK_7) != 0
-    } else {
-        (board.bitboards[BLACK_PAWN] & RANK_2) != 0
-    }
-}
-
 /// Everything a node needs in order to decide legality and `gives_check` for each of its moves
 /// without ever calling `do_move`. Computed exactly once per generated node.
 pub struct NodeMasks {
@@ -330,273 +310,6 @@ impl MoveGenService {
         }
     }
 
-    /// Whether `from` -> `to` is geometrically playable by the piece standing on `from`, ignoring
-    /// king safety entirely. This is the predicate a remembered move needs before it may be
-    /// played, because a Transposition Table entry survives hash collisions and can decode to a
-    /// move that has nothing to do with this position.
-    ///
-    /// **En passant and promotions are deliberately rejected.** Neither can carry the PV/TT rank
-    /// bonus in `get_valid_moves_from_move_list` — en passant moves are appended after the
-    /// ranking loop and never see it, and the ranking comparison is made against a `Turn` whose
-    /// `promotion` field is hard-coded to `0`, which no promotion move can equal. Accepting them
-    /// here would invite a caller to short-circuit a move that the ranking loop does not sort
-    /// first, which would change the move order and therefore the search tree.
-    #[allow(dead_code)]
-    pub fn is_pseudo_legal(&self, board: &Board, from: u8, to: u8) -> bool {
-        if from >= 64 || to >= 64 || from == to {
-            return false;
-        }
-
-        let white = board.white_to_move;
-        let piece = board.get_piece_at(from);
-        let owned_by_mover = if white { (10..=15).contains(&piece) } else { (20..=25).contains(&piece) };
-        if !owned_by_mover {
-            return false;
-        }
-
-        let own_pieces = if white { board.white_pieces } else { board.black_pieces };
-        let to_bb = 1u64 << to;
-        if (own_pieces & to_bb) != 0 {
-            return false;
-        }
-
-        let occupied = board.occupied;
-
-        match piece {
-            10 | 20 => {
-                let from_rank = (from / 8) as i32;
-                let to_rank = (to / 8) as i32;
-                let from_file = (from % 8) as i32;
-                let to_file = (to % 8) as i32;
-                let forward = if white { 1 } else { -1 };
-                let start_rank = if white { 1 } else { 6 };
-                let promotion_rank = if white { 7 } else { 0 };
-
-                // Promotions are out of scope, see the note above.
-                if to_rank == promotion_rank {
-                    return false;
-                }
-
-                if to_file == from_file {
-                    if (occupied & to_bb) != 0 {
-                        return false;
-                    }
-                    if to_rank == from_rank + forward {
-                        return true;
-                    }
-                    if from_rank == start_rank && to_rank == from_rank + 2 * forward {
-                        let step = (from as i32 + 8 * forward) as u8;
-                        return (occupied & (1u64 << step)) == 0;
-                    }
-                    return false;
-                }
-
-                // A capture must be one file across, one rank forward, and must actually take a
-                // piece: the empty destination of an en passant capture is rejected here.
-                (to_file - from_file).abs() == 1
-                    && to_rank == from_rank + forward
-                    && (occupied & to_bb) != 0
-            }
-            11 | 21 => (self.get_rook_attacks(from as usize, occupied) & to_bb) != 0,
-            12 | 22 => (KNIGHT_ATTACKS[from as usize] & to_bb) != 0,
-            13 | 23 => (self.get_bishop_attacks(from as usize, occupied) & to_bb) != 0,
-            14 | 24 => {
-                ((self.get_rook_attacks(from as usize, occupied)
-                    | self.get_bishop_attacks(from as usize, occupied))
-                    & to_bb)
-                    != 0
-            }
-            15 | 25 => {
-                if (KING_ATTACKS[from as usize] & to_bb) != 0 {
-                    return true;
-                }
-                self.is_castling_shape(board, white, from, to)
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether `from` -> `to` is the king's castling move, with the rights, the empty squares and
-    /// the rook all present. Mirrors the castling clause of `generate_moves_list_for_piece`; the
-    /// attacked-square test is `is_valid_castling` and is applied separately.
-    #[allow(dead_code)]
-    fn is_castling_shape(&self, board: &Board, white: bool, from: u8, to: u8) -> bool {
-        let occupied = board.occupied;
-        if white && from == 4 {
-            if to == 6 {
-                return board.white_possible_to_castle_short
-                    && (occupied & ((1u64 << 5) | (1u64 << 6))) == 0
-                    && (board.bitboards[WHITE_ROOK] & (1u64 << 7)) != 0;
-            }
-            if to == 2 {
-                return board.white_possible_to_castle_long
-                    && (occupied & ((1u64 << 1) | (1u64 << 2) | (1u64 << 3))) == 0
-                    && (board.bitboards[WHITE_ROOK] & 1u64) != 0;
-            }
-        } else if !white && from == 60 {
-            if to == 62 {
-                return board.black_possible_to_castle_short
-                    && (occupied & ((1u64 << 61) | (1u64 << 62))) == 0
-                    && (board.bitboards[BLACK_ROOK] & (1u64 << 63)) != 0;
-            }
-            if to == 58 {
-                return board.black_possible_to_castle_long
-                    && (occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59))) == 0
-                    && (board.bitboards[BLACK_ROOK] & (1u64 << 56)) != 0;
-            }
-        }
-        false
-    }
-
-    /// Validates a remembered PV or Transposition Table move and returns it fully formed — with
-    /// `capture`, `gives_check` and the exact rank the ranking loop would have given it — or
-    /// `None` if it may not be searched ahead of generation.
-    ///
-    /// This is Stage 0 of the `MovePicker` in `task.md` 1.2.2. It is the only stage that is
-    /// order-preserving: the PV/TT move is ranked at 170,000 or above while every other move is
-    /// bounded above by 140,000 (a queen capture at 90,000 plus a check at 50,000), so it always
-    /// sorted first anyway and searching it before generating anything leaves the tree identical.
-    #[allow(dead_code)]
-    pub fn build_stage0_move(
-        &self,
-        board: &Board,
-        masks: &NodeMasks,
-        candidate: &Turn,
-        config: &Config,
-        context: &SearchContext,
-    ) -> Option<Turn> {
-        // A promotion never matches the ranking comparison, which is made against a `Turn` with
-        // `promotion == 0`, so it is never the bonused move. `is_pseudo_legal` rejects the
-        // geometry as well; this rejects an entry that carries a promotion piece outright.
-        if candidate.promotion != 0 {
-            return None;
-        }
-
-        // The whole justification for searching this move ahead of generation is that it always
-        // sorts first, and that rests on an arithmetic bound: the PV/TT move starts at
-        // `is_pv_node_rank_bonus * 10000` = 180,000 and is worth at least 170,000 after the worst
-        // attacker penalty, while every other move is capped at a queen capture (90,000) plus a
-        // check (50,000) = 140,000.
-        //
-        // **A promotion breaks that bound.** `add_promotion_moves` adds
-        // `give_promotion_rank_bonus_queen * 10000` = 170,000 on top of everything else, so a
-        // promoting capture that gives check reaches 310,000 and outranks the PV/TT move by a
-        // wide margin. Promotions also never receive the PV/TT bonus themselves, so the two
-        // ranges overlap instead of nesting.
-        //
-        // Rather than guess, the short-circuit stands down whenever a promotion is possible at
-        // all: one bitboard test against the pre-promotion rank. It is deliberately conservative
-        // — a blocked pawn on the seventh disables Stage 0 for that node — because the cost is a
-        // missed optimisation and the alternative is a silently different search tree.
-        let promotion_candidates = if white_to_move_pawns_on_seventh(board) {
-            true
-        } else {
-            false
-        };
-        if promotion_candidates {
-            return None;
-        }
-
-        let white = board.white_to_move;
-        let from = candidate.from;
-        let to = candidate.to;
-
-        if !self.is_pseudo_legal(board, from, to) {
-            return None;
-        }
-
-        let king_sq = masks.king_sq;
-        let is_king_move = from == king_sq;
-
-        // Under double check nothing but a king move can be legal.
-        if masks.checkers.count_ones() > 1 && !is_king_move {
-            return None;
-        }
-
-        let to_bb = 1u64 << to;
-        if is_king_move {
-            let castling = (to as i32 - from as i32).abs() == 2;
-            if castling {
-                if !self.is_valid_castling(board, white, to as i32, masks) {
-                    return None;
-                }
-            } else {
-                // Kings may not stand next to each other, and the king is lifted out of the
-                // occupancy for the attack test so it cannot shield its own destination square
-                // from the slider that is checking it.
-                if masks.opp_king_sq < 64 && (KING_ATTACKS[masks.opp_king_sq as usize] & to_bb) != 0 {
-                    return None;
-                }
-                let occupied_without_king = board.occupied ^ (1u64 << from);
-                if self.get_attackers_mask(board, white, to, occupied_without_king) != 0 {
-                    return None;
-                }
-            }
-        } else {
-            // Same legality mask the generator applies: answer the check, and stay on the pin
-            // line if pinned.
-            let mut legal_mask = masks.check_mask;
-            if (masks.pinned & (1u64 << from)) != 0 {
-                legal_mask &= line_bb(king_sq, from);
-            }
-            if (legal_mask & to_bb) == 0 {
-                return None;
-            }
-        }
-
-        let capture = board.get_piece_at(to);
-        let mut turn = Turn::new(from, to, capture, 0, false, 0);
-        turn.rank = self.stage0_rank(board, &turn, config, context);
-        turn.gives_check = self.gives_check(board, &turn, masks);
-        if turn.gives_check {
-            turn.rank += config.give_check_rank_bonus * 10000;
-        }
-        Some(turn)
-    }
-
-    /// The rank `get_valid_moves_from_move_list` assigns to a move it has identified as the PV or
-    /// Transposition Table move, excluding the check bonus that `add_move` adds afterwards.
-    ///
-    /// The killer and counter terms cannot raise a rank that already starts at
-    /// `is_pv_node_rank_bonus * 10000`, and the history term cannot lower it, so none of them can
-    /// change the outcome. They are mirrored anyway: the value is asserted equal to the
-    /// generator's in `stage0_rank_matches_generator_test`, and an exact copy is what keeps that
-    /// assertion meaningful if the ranking is ever retuned.
-    #[allow(dead_code)]
-    fn stage0_rank(&self, board: &Board, turn: &Turn, config: &Config, context: &SearchContext) -> i32 {
-        let mut rank = config.is_pv_node_rank_bonus * 10000;
-
-        if turn.capture == 0 {
-            if Some(*turn) == context.killer_moves[0] {
-                rank = rank.max(config.killer_move_1_rank_bonus);
-            } else if Some(*turn) == context.killer_moves[1] {
-                rank = rank.max(config.killer_move_2_rank_bonus);
-            }
-            if Some(*turn) == context.counter_move {
-                rank = rank.max(config.counter_move_rank_bonus);
-            }
-            rank += unsafe { (*context.history_table)[turn.from as usize][turn.to as usize] } as i32;
-        }
-
-        rank += match turn.capture {
-            10 | 20 => 20000,
-            11 | 21 => 50000,
-            12 | 22 => 30000,
-            13 | 23 => 30000,
-            14 | 24 => 90000,
-            _ => 0,
-        };
-
-        if turn.capture != 0 {
-            rank += match board.get_piece_at(turn.from) {
-                11 | 21 => -10000,
-                14 | 24 => -30000,
-                _ => 0,
-            };
-        }
-
-        rank.max(0)
-    }
     /// Generates a list of valid capture moves for a given board state.
     pub fn generate_valid_moves_list_capture(
         &self,
@@ -686,32 +399,13 @@ impl MoveGenService {
 
             let mut move_turn = Turn::new(idx0, idx1, capture, 0, false, 0);
 
-            if let Some(pv) = &pv_node {
-                if *pv == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
-                }
+            let is_table_move = if let Some(pv) = &pv_node {
+                *pv == move_turn
             } else if let Some(tt_move) = &tt_best_move {
-                if *tt_move == move_turn {
-                    move_turn.rank = config.is_pv_node_rank_bonus * 10000;
-                }
-            }
-
-            if move_turn.capture == 0 {
-                if Some(move_turn) == context.killer_moves[0] {
-                    move_turn.rank = move_turn.rank.max(config.killer_move_1_rank_bonus);
-                } else if Some(move_turn) == context.killer_moves[1] {
-                    move_turn.rank = move_turn.rank.max(config.killer_move_2_rank_bonus);
-                }
-
-                if Some(move_turn) == context.counter_move {
-                    move_turn.rank = move_turn.rank.max(config.counter_move_rank_bonus);
-                }
-
-                let from = move_turn.from as usize;
-                let to = move_turn.to as usize;
-                let history_bonus = unsafe { (*context.history_table)[from][to] } as i32;
-                move_turn.rank += history_bonus;
-            }
+                *tt_move == move_turn
+            } else {
+                false
+            };
 
             // Check for castling
             let moved_piece = board.get_piece_at(idx0);
@@ -719,26 +413,54 @@ impl MoveGenService {
                 continue;
             }
 
-            move_turn.rank += match move_turn.capture {
-                10 | 20 => 20000,
-                11 | 21 => 50000,
-                12 | 22 => 30000,
-                13 | 23 => 30000,
-                14 | 24 => 90000,
-                _ => 0,
-            };
-
-            if move_turn.capture != 0 {
-                move_turn.rank += match board.get_piece_at(move_turn.from) {
+            // Most Valuable Victim less Least Valuable Attacker, the score a capture carries
+            // inside its band. A promotion carries it too, one band higher.
+            let capture_score = if move_turn.capture == 0 {
+                0
+            } else {
+                let victim = match move_turn.capture {
+                    10 | 20 => 20000,
+                    11 | 21 => 50000,
+                    12 | 22 => 30000,
+                    13 | 23 => 30000,
+                    14 | 24 => 90000,
+                    _ => 0,
+                };
+                let attacker = match board.get_piece_at(move_turn.from) {
                     11 | 21 => -10000,
                     14 | 24 => -30000,
                     _ => 0,
                 };
-            }
+                victim + attacker
+            };
 
-            if move_turn.rank < 0 {
-                move_turn.rank = 0;
-            }
+            // The band decides the order before any score inside it does. A killer or counter
+            // move is a quiet the search remembers, so it is ranked as one, above the rest of its
+            // band and below every capture -- which is what lets those two classes be resolved
+            // without generating a quiet move at all.
+            move_turn.rank = if is_table_move {
+                crate::model::BAND_TT
+            } else if move_turn.capture != 0 {
+                crate::model::BAND_CAPTURE + capture_score
+            } else {
+                let mut remembered = 0;
+                if Some(move_turn) == context.killer_moves[0] {
+                    remembered = config.killer_move_1_rank_bonus;
+                } else if Some(move_turn) == context.killer_moves[1] {
+                    remembered = config.killer_move_2_rank_bonus;
+                }
+                if Some(move_turn) == context.counter_move {
+                    remembered = remembered.max(config.counter_move_rank_bonus);
+                }
+
+                if remembered > 0 {
+                    crate::model::BAND_KILLER + remembered
+                } else {
+                    let from = move_turn.from as usize;
+                    let to = move_turn.to as usize;
+                    crate::model::BAND_QUIET + unsafe { (*context.history_table)[from][to] } as i32
+                }
+            };
 
             // Check for promotion
             if let Some(promotion_move) = self.get_promotion_move(board, white_turn, idx0 as i32, idx1 as i32) {
@@ -750,6 +472,7 @@ impl MoveGenService {
                     valid_moves,
                     white_turn,
                     masks,
+                    capture_score,
                 );
             } else {
                 self.add_move(board, &mut move_turn, config, valid_moves, masks);
@@ -759,11 +482,14 @@ impl MoveGenService {
         // Add en passant moves. They are the one move type that cannot be settled by the pin and
         // check masks, because two squares vacate at once, so each candidate gets an exact test
         // against the occupancy it would produce.
-        if !only_captures {
+        if board.field_for_en_passante != -1 {
             let en_passante_turns = self.get_en_passante_turns(board, white_turn);
             for opt_turn in &en_passante_turns {
                 if let Some(mut turn) = *opt_turn {
                     if self.is_en_passant_legal(board, &turn, white_turn, masks) {
+                        if only_captures {
+                            turn.rank = crate::model::BAND_CAPTURE + 20000;
+                        }
                         self.add_move(board, &mut turn, config, valid_moves, masks);
                     }
                 }
@@ -1021,7 +747,11 @@ impl MoveGenService {
         valid_moves: &mut crate::model::MoveList,
         white_turn: bool,
         masks: &NodeMasks,
+        capture_score: i32,
     ) {
+        // A queen or knight promotion is its own class and ranks above every capture. A rook or
+        // bishop promotion carries no bonus and is left in the band the move already had, which
+        // is where the previous scheme also left it.
         let base_rank = turn.rank;
         if config.use_underpromotions {
             let promotion_types = if white_turn { [11, 12, 13, 14] } else { [21, 22, 23, 24] };
@@ -1030,10 +760,12 @@ impl MoveGenService {
                 turn.gives_check = false;
                 turn.rank = base_rank;
                 match promotion {
-                    11 | 21 => turn.rank += 0, // Rook promotion
-                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
-                    13 | 23 => turn.rank += 0, // Bishop promotion
-                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    11 | 21 => {} // Rook promotion
+                    12 | 22 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_knight * 10000 + capture_score,
+                    13 | 23 => {} // Bishop promotion
+                    14 | 24 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_queen * 10000 + capture_score,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
                 self.add_move(board, turn, config, valid_moves, masks);
@@ -1045,8 +777,10 @@ impl MoveGenService {
                 turn.gives_check = false;
                 turn.rank = base_rank;
                 match promotion {
-                    12 | 22 => turn.rank += config.give_promotion_rank_bonus_knight * 10000,
-                    14 | 24 => turn.rank += config.give_promotion_rank_bonus_queen * 10000,
+                    12 | 22 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_knight * 10000 + capture_score,
+                    14 | 24 => turn.rank = crate::model::BAND_PROMOTION
+                        + config.give_promotion_rank_bonus_queen * 10000 + capture_score,
                     _ => panic!("Promotion value not expected: {}", promotion),
                 }
                 self.add_move(board, turn, config, valid_moves, masks);
@@ -1095,6 +829,7 @@ impl MoveGenService {
                 to: idx1 as u8,
                 capture: 0,
                 promotion: 14,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -1106,6 +841,7 @@ impl MoveGenService {
                 to: idx1 as u8,
                 capture: 0,
                 promotion: 24,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -1906,13 +1642,54 @@ mod tests {
         let mut board = fen_service.set_fen("r1bqk2r/pppp1ppp/2n2n2/2b5/2BpP3/2P2N2/PP3PPP/RNBQK2R w KQkq - 0 6");
         let move_list = generate_valid_moves_list(&mut board);
         assert!(move_list.get(0).unwrap().from == m2l(63) as u8 && move_list.get(0).unwrap().to == m2l(36) as u8);
-        assert!(move_list.last().unwrap().rank == 0);
+        assert!(move_list.last().unwrap().rank >> crate::model::RANK_TIEBREAK_BITS == 0, "the worst move ranks zero above the tie-break lane");
 
         let mut board = fen_service.set_fen("r1bqr1k1/ppp2pp1/2n2n1p/2bp4/2B1PB2/1NP4P/PP3PP1/RN1Q1RK1 b - - 1 10");
         let move_list = generate_valid_moves_list(&mut board);
         assert!(move_list.get(0).unwrap().from == m2l(53) as u8 && move_list.get(0).unwrap().to == m2l(86) as u8);
         assert!(move_list.get(1).unwrap().from == m2l(54) as u8 && move_list.get(1).unwrap().to == m2l(63) as u8);
-        assert!(move_list.last().unwrap().rank == 0);
+        assert!(move_list.last().unwrap().rank >> crate::model::RANK_TIEBREAK_BITS == 0, "the worst move ranks zero above the tie-break lane");
+    }
+
+    #[test]
+    fn a_reused_move_list_generates_exactly_what_a_new_one_does_test() {
+        // The generators append rather than overwrite, and the search now hands one list to
+        // every node at a recursion level. The `clear()` at the call site is the only thing that
+        // keeps a node from inheriting the moves of the node before it.
+        let service = Service::new();
+        let config = Config::for_tests();
+        let zobrist_table = ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = Mutex::new(HashMap::new());
+        let history_table = [[0u32; 64]; 64];
+        let context = SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 0,
+        };
+
+        let mut first = service.fen.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut second = service.fen.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+
+        let mut reused = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(
+            &mut first, &mut Stats::new(), &config, &context, true, &mut reused);
+        assert!(reused.len > 0, "the first position has moves to inherit");
+
+        reused.clear();
+        service.move_gen.generate_valid_moves_list(
+            &mut second, &mut Stats::new(), &config, &context, true, &mut reused);
+
+        let fresh = generate_valid_moves_list(&mut second);
+        assert_eq!(reused.as_slice().to_vec(), fresh);
     }
 
     #[test]
@@ -2620,5 +2397,24 @@ mod tests {
         assert!(rook_promo.unwrap().gives_check, "Rook promotion on a8 must give check to e8");
         assert!(!knight_promo.unwrap().gives_check, "Knight promotion on a8 must NOT give check to e8");
         assert!(!bishop_promo.unwrap().gives_check, "Bishop promotion on a8 must NOT give check to e8");
+    }
+
+    #[test]
+    fn test_generate_valid_moves_list_capture_includes_en_passant() {
+        let service = Service::new();
+        // White to move, Black just played d7-d5, en passant square is d6.
+        let mut board = service.fen.set_fen("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        let capture_moves = generate_valid_moves_list_capture(&mut board);
+
+        let ep_move = capture_moves.iter().find(|m| m.from == 36 && m.to == 43); // e5 is 36, d6 is 43
+        assert!(ep_move.is_some(), "Capture generator must generate e5xd6 en passant");
+        let ep = ep_move.unwrap();
+        assert_ne!(ep.capture, 0, "En passant must be flagged as capture");
+        assert_eq!(ep.rank >> crate::model::RANK_TIEBREAK_BITS, crate::model::BAND_CAPTURE + 20000, "In capture generator, en passant must be ranked in BAND_CAPTURE + 20000");
+
+        // Verify that in full move generator, en passant is NOT given BAND_CAPTURE (protecting regular minimax search)
+        let all_moves = generate_valid_moves_list(&mut board);
+        let ep_all = all_moves.iter().find(|m| m.from == 36 && m.to == 43).unwrap();
+        assert!(ep_all.rank >> crate::model::RANK_TIEBREAK_BITS < crate::model::BAND_KILLER, "In full generator, en passant must remain in the quiet band");
     }
 }
