@@ -448,5 +448,21 @@
         "value": -50,
         "min": -200,
         "max": -10
+    },
+    "singular_margin": {
+        "value": 2,
+        "min": 0,
+        "max": 64
+    },
+    "singular_tt_depth_margin": {
+        "value": 3,
+        "min": 0,
+        "max": 8
+    },
+    "singular_depth_reduction": {
+        "value": 0,
+        "min": 0,
+        "max": 8
     }
 }
+

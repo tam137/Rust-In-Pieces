@@ -809,6 +809,27 @@ mod tests {
     }
 
     #[test]
+    fn test_singular_tuning_options_reach_fields_in_all_spellings() {
+        for spelling in ["SingularMargin", "singular_margin", "singularmargin"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "5"), UciOptionEffect::Stored);
+            assert_eq!(config.singular_margin, 5);
+        }
+
+        for spelling in ["SingularTtDepthMargin", "singular_tt_depth_margin", "singularttdepthmargin"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "4"), UciOptionEffect::Stored);
+            assert_eq!(config.singular_tt_depth_margin, 4);
+        }
+
+        for spelling in ["SingularDepthReduction", "singular_depth_reduction", "singulardepthreduction"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "2"), UciOptionEffect::Stored);
+            assert_eq!(config.singular_depth_reduction, 2);
+        }
+    }
+
+    #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
         

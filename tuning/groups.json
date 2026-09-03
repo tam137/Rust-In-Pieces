@@ -81,6 +81,11 @@
         "bishop_mobility_factor",
         "rook_mobility_factor"
     ],
+    "singular": [
+        "singular_margin",
+        "singular_tt_depth_margin",
+        "singular_depth_reduction"
+    ],
     "search_and_ordering": [
         "is_hashed_rank_bonus",
         "give_check_rank_bonus",
@@ -98,7 +103,10 @@
         "rfp_max_depth",
         "lmp_max_depth",
         "lmp_base_moves",
-        "bad_capture_see_threshold"
+        "bad_capture_see_threshold",
+        "singular_margin",
+        "singular_tt_depth_margin",
+        "singular_depth_reduction"
     ],
     "all": [
         "is_hashed_rank_bonus",
@@ -189,6 +197,10 @@
         "rfp_max_depth",
         "lmp_max_depth",
         "lmp_base_moves",
-        "bad_capture_see_threshold"
+        "bad_capture_see_threshold",
+        "singular_margin",
+        "singular_tt_depth_margin",
+        "singular_depth_reduction"
     ]
 }
+

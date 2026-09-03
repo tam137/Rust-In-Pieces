@@ -28,10 +28,12 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**Item 1 (QS En Passant) is shipped in v0.39.1.** The next actions on the backlog are:
+**Item 1 (QS En Passant) is shipped in v0.39.1.** The SPSA pipeline for `singular_*` parameters
+is integrated and verified (`tuning/tune_singular.sh`). The next actions on the backlog are:
 
-1. **`singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped
-   untuned.** The SPSA infrastructure exists and these three have never been through it.
+1. **Execute SPSA tuning for `singular` parameters** (`singular_margin`, `singular_tt_depth_margin`,
+   `singular_depth_reduction`) using `tuning/tune_singular.sh`, then harvest results via
+   `skills/spsa_harvest_results.md`.
 2. **The negative extension**, the other half of the singular rebate, is still unmeasured.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
@@ -71,8 +73,8 @@ a run at `rounds = 50` never reaches line 51.
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | En passant is invisible to the Quiescence Search | 7 | A missing move, and deterministic to read |
-| 2 | `singular_*` shipped untuned | open table | The SPSA infrastructure already exists |
+| 1 | En passant is invisible to the Quiescence Search | 7 | Shipped in v0.39.1 |
+| 2 | `singular_*` SPSA tuning | 8 | Infrastructure configured (`tuning/tune_singular.sh`), ready to tune |
 | 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
@@ -89,8 +91,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
 | The root can hand a node an empty `alpha == beta` window | open question |
 | Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
-| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | open tuning |
-| The Quiescence Search never generates en passant: the generator's en passant block is behind `!only_captures` and the Quiescence Search is the one caller that passes `true` — section 7 | defect, unpriced, deterministic to read |
+| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` SPSA tuning | configured in `tuning/`, ready for tuning runs — section 8 |
+| The Quiescence Search never generates en passant — shipped in v0.39.1 | resolved in v0.39.1, see section 7.3 |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 5.2 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 5.2 |
 | NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
@@ -364,4 +366,26 @@ therefore neither play an en passant capture nor see one in its stand-pat, at an
   - vs `Rust-In-Pieces V0.39.0`: 40 wins, 43 draws, 17 losses (**61.5%**)
   - Total: 74 wins, 77 draws, 49 losses (**56.25%**, 112.5 / 200)
   - Both matchups exceed the $\ge 45\%$ smoke acceptance threshold.
+
+
+## 8. Singular Extension parameter tuning (SPSA)
+
+`[Impact: Medium]` `[Complexity: Low]` — The singular extension parameters shipped with untuned defaults.
+The SPSA infrastructure is configured and verified to tune all three parameters.
+
+### 8.1 Parameters and Search Role
+
+| Parameter | Default | Range | Role in Search |
+| :--- | ---: | :--- | :--- |
+| `singular_margin` | 2 | [0, 64] | Verification search threshold: `tt_eval - singular_margin * depth`. |
+| `singular_tt_depth_margin` | 3 | [0, 8] | TT depth requirement: entry qualifies at `tt_depth >= depth - singular_tt_depth_margin`. |
+| `singular_depth_reduction` | 0 | [0, 8] | Verification search depth reduction: `((depth - 1) / 2 - singular_depth_reduction).max(0)`. |
+
+### 8.2 SPSA Infrastructure Configuration
+
+- **Tuning Definitions (`tuning/parameters.json`):** Registered with baseline values and legal ranges matching the UCI options.
+- **Tuning Group (`tuning/groups.json`):** Dedicated group `"singular"` added, and included in `"search_and_ordering"` and `"all"`.
+- **Runner (`tuning/tune_singular.sh`):** Configurable runner script invoking `tuning/spsa_tuner.py --group singular` via `<mm>`.
+- **UCI Facade & Tests (`src/config.rs`):** Verified that `SingularMargin`, `SingularTtDepthMargin`, and `SingularDepthReduction` are parsed, clamped, and stored correctly across casing and separator styles.
+- **Workflow:** Run tuning via `tuning/tune_singular.sh`, monitor progress via `skills/spsa_tuning_status.md`, and integrate converged parameters using `skills/spsa_harvest_results.md`.
 

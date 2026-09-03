@@ -48,8 +48,11 @@ class SPSATuner:
         if os.path.exists(self.state_file):
             with open(self.state_file, "r") as f:
                 state = json.load(f)
-                self.k = state["k"]
-                self.theta = state["theta"]
+                self.k = state.get("k", 1)
+                loaded_theta = state.get("theta", {})
+                for k in self.param_names:
+                    if k in loaded_theta:
+                        self.theta[k] = float(loaded_theta[k])
                 print(f"Loaded state from iteration {self.k}")
         else:
             # Initialize history file
@@ -249,7 +252,7 @@ if __name__ == "__main__":
     parser.add_argument("--inc", type=int, default=10, help="Increment per move in milliseconds")
     parser.add_argument("--mutate", type=float, default=10.0, help="Perturbation percentage per parameter (e.g., 10 for 10%%)")
     parser.add_argument("--lr", type=float, default=5.0, help="Learning rate as a percentage of mutation step size (e.g. 5 for 5%%)")
-    parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
+    parser.add_argument("--logpath", default="enginelogs")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
     parser.add_argument("--params", default="", help="Optional explicit comma-separated list of parameters to tune (overrides group)")
     parser.add_argument("--iters", type=int, default=100, help="Number of SPSA iterations to run")
