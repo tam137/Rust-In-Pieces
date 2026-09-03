@@ -177,10 +177,27 @@ impl EvalService {
     }
 
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16) -> i16 {
+        self.calc_eval_with_acc(board, config, movegen, pawn_table, alpha, beta, margin, None)
+    }
+
+    pub fn calc_eval_with_acc(
+        &self,
+        board: &Board,
+        config: &Config,
+        movegen: &MoveGenService,
+        pawn_table: &crate::pawn_hash::PawnHashTable,
+        alpha: i16,
+        beta: i16,
+        margin: i16,
+        acc: Option<&crate::nnue_service::NNUEAccumulator>,
+    ) -> i16 {
         if Self::is_insufficient_material(board) {
             return 0;
         }
         if config.use_nnue && self.nnue_net.loaded {
+            if let Some(a) = acc {
+                return crate::nnue_service::NNUEService::evaluate_with_accumulator(board, &self.nnue_net, a);
+            }
             return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
         }
         let cheap = self.cheap_eval(board, config, pawn_table);
