@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.39.1] - 2026-09-03
+
+Quiescence Search (QS) generates en passant captures: fixes a blindspot where QS was unable to play or foresee en passant captures at any depth.
+
+- **En passant generated in capture move generator:** Lifted the en passant generation block in `get_valid_moves_from_move_list` out of `if !only_captures`. Previously, `generate_valid_moves_list_capture` passed `only_captures = true`, completely excluding legal en passant captures from QS.
+- **MVV-LVA capture ranking in QS:** When generated under `only_captures == true`, legal en passant captures are assigned `turn.rank = BAND_CAPTURE + 20000` (standard pawn-takes-pawn capture rank in MVV-LVA), properly ordering them among pawn captures.
+- **Search tree preservation:** For regular minimax search (`only_captures == false`), baseline quiet rank initialization (`turn.rank = 0` + check bonus) is strictly maintained, preserving existing move ordering and avoiding search tree inflation.
+- **Unit & regression testing:** Added dedicated test coverage in `src/move_gen_service.rs` verifying en passant presence and rank under capture-only generation, and in `src/search_service.rs` verifying tactical en passant resolution in quiescence search.
+- **Performance & Smoke Gauntlet:**
+  - Tree size on 300 opening positions at depth 10: median time ratio 1.000 (neutral).
+  - Cross-version smoke gauntlet over 200 games at 1s + 100ms:
+    - vs `v0.38.1`: 34 wins, 34 draws, 32 losses (51.0%)
+    - vs `v0.39.0`: 40 wins, 43 draws, 17 losses (61.5%)
+    - Total: 74 wins, 77 draws, 49 losses (56.25%), well exceeding the 45% acceptance threshold.
+
+
+
 ## [V0.39.0] - 2026-09-02
 
 The move order becomes a total order with nesting bands: +25.6 Elo, the largest measured gain

@@ -13,7 +13,7 @@ the staged `MovePicker` -- was correct, cut the generated moves in half, and was
 
 | | |
 | :--- | :--- |
-| Released | **v0.39.0** on `master` (HCE) since 2026-09-02 — the move order as a total order with nesting bands, **+25.6 Elo**. `feature/nnue-evaluation` is not maintained: work is on `master` in HCE mode only, decided 2026-09-02 |
+| Released | **v0.39.1** on `master` (HCE) since 2026-09-03 — Quiescence Search en passant generation & ranking, smoke gauntlet 56.25% (+61.5% vs v0.39.0). `feature/nnue-evaluation` is not maintained: work is on `master` in HCE mode only, decided 2026-09-02 |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -28,19 +28,11 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**The staged `MovePicker` is finished and dead.** It was made node-identical on 2026-09-03 -- 14
-of 14 against `suprah-0.39.0` at fixed depth 11, generating about 55% fewer moves -- and it
-measures **-4.1% median throughput**, 0 of 14 positions faster, against a gate of +5.0% and 11 of
-14. The accounting is section 5, and `master`'s search is v0.39.0's again.
+**Item 1 (QS En Passant) is shipped in v0.39.1.** The next actions on the backlog are:
 
-That closes the only large item on the backlog that was not already parked, so the next action is
-a choice rather than a queue. The three cheapest, in the order they look worth doing:
-
-1. **The Quiescence Search never generates en passant** -- section 7. It is a missing move rather
-   than a re-ordered one, which is why it ranks above the two below.
-2. **`singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped
+1. **`singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped
    untuned.** The SPSA infrastructure exists and these three have never been through it.
-3. **The negative extension**, the other half of the singular rebate, is still unmeasured.
+2. **The negative extension**, the other half of the singular rebate, is still unmeasured.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
@@ -349,14 +341,27 @@ Not shipped, and no game run spent on it. The plausible mechanism is that `BAND_
 a pawn capture is rarely the move that cuts. Whether the same is true of *ordinary* pawn captures
 is a much larger question about the band layout and is not this item.
 
-### 7.3 The Quiescence Search never generates it — open
+### 7.3 The Quiescence Search never generates it — shipped in v0.39.1, 2026-09-03
 
-The en passant block is behind `!only_captures`, and `generate_valid_moves_list_capture` — the
-Quiescence Search's generator — is the one caller that passes `true`. The Quiescence Search can
+The en passant block was behind `!only_captures`, and `generate_valid_moves_list_capture` — the
+Quiescence Search's generator — is the one caller that passes `true`. The Quiescence Search could
 therefore neither play an en passant capture nor see one in its stand-pat, at any depth.
 
-This is a missing move rather than a re-ordered one, which makes it a different kind of change
-from 7.2 and the reason it sits at the top of the backlog. It is deterministic to read the same
-way: generate it, then `scripts/measure_tree_size.py` over 300 pool positions before anything
-else. Note that fixing it also drags the moves into the lazy Static Exchange Evaluation's reach
-inside the Quiescence Search, so 7.1's second bullet applies there too.
+**Shipped in v0.39.1:**
+1. Lifted en passant generation out of `!only_captures` in `src/move_gen_service.rs`.
+2. When `only_captures == true`, assigned `turn.rank = BAND_CAPTURE + 20000` (MVV-LVA pawn-takes-pawn), ensuring proper ordering in QS.
+3. Kept baseline rank (`0` + check bonus) for regular minimax search (`only_captures == false`), strictly preventing the tree inflation measured in Section 7.2.
+4. Added dedicated TDD unit tests in `src/move_gen_service.rs` and `src/search_service.rs`.
+
+**Measurements:**
+- **Tree size & node identity** (`scripts/measure_tree_size.py` against `v0.39.0`, 300 positions from `book_width.txt`, depth 10, Hash=64, Threads=1):
+  - Time: 27842 ms -> 28193 ms (-1.3%)
+  - Nodes: 177,824,464 -> 188,298,154 (-5.9% generated moves)
+  - Median per-position time ratio: **1.000** (neutral)
+  - Faster: 134 of 300 positions
+- **Mandatory cross-version smoke gauntlet** (200 games at 1s + 100ms, paired openings):
+  - vs `Rust-In-Pieces V0.38.1`: 34 wins, 34 draws, 32 losses (**51.0%**)
+  - vs `Rust-In-Pieces V0.39.0`: 40 wins, 43 draws, 17 losses (**61.5%**)
+  - Total: 74 wins, 77 draws, 49 losses (**56.25%**, 112.5 / 200)
+  - Both matchups exceed the $\ge 45\%$ smoke acceptance threshold.
+
