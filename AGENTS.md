@@ -12,6 +12,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 *   **Strict Adherence to AGENTS.md:** You MUST read and unconditionally obey every rule, guideline, and policy documented within this `AGENTS.md` file. Ignorance of these rules is unacceptable.
 *   **Skill Directory (`skills/`):** There is a dedicated `skills/` directory in the root of the project containing standardized operating procedures (SOPs) for various tasks. You MUST check for and utilize these skills when performing related tasks.
 *   **Release Procedure:** If the user requests a new release (patch or minor), you MUST execute the entire process exclusively according to the instructions in the `skills/engine_release_procedure.md` skill document.
+*   **NNUE Porting & Release Procedure:** Whenever synchronizing or porting changes from `master` to the `feature/nnue-evaluation` branch, or performing an NNUE release, you MUST strictly adhere to the procedure and protected parameter rules in the `skills/nnue_porting_and_release_procedure.md` skill document.
 *   **Measurement & Matchplay Procedure:** Whenever evaluating search or evaluation changes, conducting test matches, running SPRTs, benchmarking throughput, or verifying Elo gains, you MUST strictly adhere to the procedure and rules defined in the `skills/matchplay_measurement_procedure.md` skill document.
 
 ## Superpowers & Implementation Workflow
