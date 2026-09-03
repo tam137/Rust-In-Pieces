@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.39.1-NNUE] - 2026-09-03
+
+Ports search buffer arena, total move ordering with nesting bands, and Quiescence Search en passant from master v0.38.1, v0.39.0, and v0.39.1.
+
+- **Per-search buffer arena** (ported from master v0.38.1): moves and PV arrays are allocated once per search in `NodeBuffers`, removing ~6 KB heap allocations and stores per search node without altering search trees.
+- **Total move ordering with tie-break** (ported from master v0.39.0): stamps generation index into low bits of `Turn::rank` (`RANK_TIEBREAK_BITS = 8`), guaranteeing a deterministic, total order across all move comparisons.
+- **Nesting move order priority bands** (ported from master v0.39.0): separates move classes into non-overlapping bands (`BAND_TT`, `BAND_PROMOTION`, `BAND_CAPTURE`, `BAND_KILLER`, `BAND_QUIET`), preventing score collision between promotions, captures, and table moves (+25.6 Elo measured on master).
+- **Quiescence Search legal en passant generation & ranking** (ported from master v0.39.1): en passant is now generated in capture search (`generate_valid_moves_list_capture`) and ranked at `BAND_CAPTURE + 20000` (MVV-LVA pawn-takes-pawn), while quiet search ordering preserves regular minimax trees.
+- **Branch parameters preserved**: SPSA search parameters (`lmr_divisor = 140`, `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`, `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`, `your_turn_bonus = 18`), 16 MB pawn hash, and default NNUE evaluation (`use_nnue = true`) remain untouched. Full write-up in `task.md` on `master`.
+
+
+
 ## [V0.38.0-NNUE] - 2026-09-02
 
 Ports the singular-beta multicut from master v0.38.0. No other change.

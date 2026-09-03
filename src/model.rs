@@ -143,10 +143,34 @@ pub struct Turn {
     pub to: u8,
     pub capture: u8,
     pub promotion: u8,
+    /// Index this move was generated at, stamped by `MoveList::push`. It is the tie-break of the
+    /// search's move order; see `Turn::precedes`. It fits in the padding the struct already had,
+    /// so `Turn` is still 16 bytes.
+    pub order: u8,
     pub gives_check: bool,
     pub eval: i16,
     pub has_hashed_eval: bool,
     pub rank: i32,
+}
+
+impl Turn {
+    /// The total order the search selects moves in: rank first, then the move's own identity.
+    ///
+    /// Rank alone is not a total order. Every quiet without a history entry ranks 0, and so does
+    /// a capture whose attacker penalty exceeds its victim's value, because the ranking clamps at
+    /// zero -- so the tie classes are large. The selection scans resolve a tie by array position
+    /// and then `swap` the winner into place, which permutes the part of the list they have not
+    /// examined yet, so the searched order is a function of the swap history rather than of the
+    /// position. No picker that generates its moves in a different order can reproduce that.
+    ///
+    /// Breaking the tie on the generation index makes the order a property of the move set
+    /// alone, and it is the tie-break the scans already intend: the first move they select at a
+    /// node is the earliest-generated of the leaders, and only the swaps afterwards depart from
+    /// that. A picker that generates the same moves in the same sequence reproduces this order
+    /// exactly, whatever it defers.
+    pub fn precedes(&self, other: &Turn) -> bool {
+        self.rank > other.rank
+    }
 }
 
 impl PartialEq for Turn {
@@ -172,6 +196,7 @@ impl Turn {
             to,
             capture,
             promotion,
+            order: 0,
             gives_check,
             eval,
             has_hashed_eval: false,
@@ -185,6 +210,7 @@ impl Turn {
             to,
             capture: 0,
             promotion: 0,
+            order: 0,
             gives_check: false,
             eval: 0,
             has_hashed_eval: false,
@@ -242,6 +268,7 @@ impl MoveList {
                 to: 0,
                 capture: 0,
                 promotion: 0,
+                order: 0,
                 gives_check: false,
                 eval: 0,
                 has_hashed_eval: false,
@@ -251,11 +278,25 @@ impl MoveList {
         }
     }
 
-    pub fn push(&mut self, turn: Turn) {
+    pub fn push(&mut self, mut turn: Turn) {
         if self.len < 256 {
+            // The generation index is the tie-break of the search's move order, so it is stamped
+            // where a move enters the list and nowhere else, and folded into the low bits of the
+            // rank so that comparing two ranks is comparing the whole order. The generator clamps
+            // its ranks at zero, so the shift cannot lose a sign.
+            turn.order = self.len as u8;
+            turn.rank = (turn.rank << RANK_TIEBREAK_BITS) | (u8::MAX - turn.order) as i32;
             self.moves[self.len] = turn;
             self.len += 1;
         }
+    }
+
+    /// Empties the list without touching its storage.
+    ///
+    /// The generators append, and the buffers are reused across nodes, so a caller that
+    /// generates into a list it did not just construct has to clear it first.
+    pub fn clear(&mut self) {
+        self.len = 0;
     }
 
     pub fn as_slice(&self) -> &[Turn] {
@@ -265,6 +306,68 @@ impl MoveList {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+}
+
+/// Bits of `Turn::rank` reserved for the move order's tie-break.
+///
+/// `MoveList::push` shifts the rank the generator computed up by this much and writes the
+/// generation index into the space that opens up, so a single `rank` comparison is a total order
+/// and the selection scans stay exactly the code they were. Every threshold the search compares a
+/// rank against is shifted by the same amount; the raw rank is `rank >> RANK_TIEBREAK_BITS`.
+pub const RANK_TIEBREAK_BITS: u32 = 8;
+
+/// The bands of the move order, before the tie-break shift.
+///
+/// Each class of move owns a range, and the ranges nest, which is what lets the order be produced
+/// one class at a time. The scheme they replace did not nest, in three separate places: a
+/// promoting capture that gave check reached 310,000 and outranked the Transposition Table move
+/// at 180,000; a killer carrying a full history entry reached 29,900 and crossed into the
+/// minor-piece captures at 30,000; and a capture whose attacker penalty exceeded its victim's
+/// value was clamped to zero, into the middle of the quiet moves it should have been ordered
+/// against. Each band is a million wide and the widest score inside one is a queen promotion
+/// capturing a queen, at 260,000.
+pub const BAND_TT: i32 = 5_000_000;
+pub const BAND_PROMOTION: i32 = 4_000_000;
+pub const BAND_CAPTURE: i32 = 3_000_000;
+pub const BAND_KILLER: i32 = 2_000_000;
+pub const BAND_QUIET: i32 = 0;
+
+/// Levels in the per-search buffer arena.
+///
+/// `search_service::MAX_PLY` is 128 and bounds the plies a search can reach. The levels beyond
+/// it cover the re-entries that search the same node again at the same ply -- the null-move
+/// verification, razoring and the singular verification -- each of which takes a level without
+/// advancing `ply`. A search that runs past the end falls back to buffers on the stack, so this
+/// number bounds throughput and never correctness.
+pub const SEARCH_LEVELS: usize = 2 * 128;
+
+/// The two buffers one search node fills: the move list it generates into, and the
+/// principal-variation array it hands to its children.
+///
+/// Both used to be constructed at every node. `MoveList::new()` writes 256 `Turn` values of 16
+/// bytes and the principal variation another 128 `Option<Turn>`, about 6 KB of stores per node
+/// for storage that is never read back: `MoveList::len` bounds every read of the first, and
+/// `minimax` clears the second on entry. Reusing one set per recursion level therefore cannot
+/// move the search tree.
+pub struct NodeBuffers {
+    pub moves: MoveList,
+    /// Sized like every `pv` parameter in the search.
+    pub pv: [Option<Turn>; 128],
+}
+
+impl NodeBuffers {
+    pub fn new() -> Self {
+        Self {
+            moves: MoveList::new(),
+            pv: [None; 128],
+        }
+    }
+}
+
+/// Allocates the arena once per search. This is the only allocation the search makes, and it is
+/// made before the first node rather than inside one.
+pub fn new_search_buffers() -> Vec<NodeBuffers> {
+    (0..SEARCH_LEVELS).map(|_| NodeBuffers::new()).collect()
 }
 
 #[derive(Clone, Copy)]
@@ -1544,6 +1647,76 @@ mod tests {
         // Pushing to full list should not panic
         list.push(99);
         assert_eq!(list.len, 256);
+    }
+
+    #[test]
+    fn push_stamps_the_generation_index_and_turn_stays_sixteen_bytes_test() {
+        use super::{MoveList, Turn, RANK_TIEBREAK_BITS};
+
+        assert_eq!(
+            std::mem::size_of::<Turn>(),
+            16,
+            "the generation index has to fit the padding the struct already had"
+        );
+
+        let mut list = MoveList::new();
+        for from in 0..4u8 {
+            list.push(Turn::new(from, 20, 0, 0, false, 0));
+        }
+        assert_eq!(list.as_slice().iter().map(|t| t.order).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
+
+        // The rank the generator computed survives above the tie-break lane, and the lane below
+        // it carries the generation index inverted, so that a lower index is the larger value.
+        for turn in list.as_slice() {
+            assert_eq!(turn.rank >> RANK_TIEBREAK_BITS, 0);
+            assert_eq!(turn.rank & 0xFF, (u8::MAX - turn.order) as i32);
+        }
+
+        // Equal ranks resolve to the earlier-generated move, whatever order they are compared in.
+        let first = list.as_slice()[1];
+        let second = list.as_slice()[2];
+        assert!(first.precedes(&second));
+        assert!(!second.precedes(&first));
+
+        // A better rank still wins, however late the move was generated.
+        let mut better = second;
+        better.rank += 1 << RANK_TIEBREAK_BITS;
+        assert!(better.precedes(&first));
+    }
+
+    #[test]
+    fn move_list_clear_empties_the_list_and_leaves_it_reusable_test() {
+        use super::{MoveList, Turn};
+
+        let mut list = MoveList::new();
+        for i in 0..10 {
+            list.push(Turn::new(i, 20, 0, 0, false, 0));
+        }
+        assert_eq!(list.len, 10);
+
+        list.clear();
+        assert!(list.is_empty());
+        assert_eq!(list.as_slice().len(), 0, "a cleared list exposes nothing to a reader");
+
+        list.push(Turn::new(63, 1, 0, 0, false, 0));
+        assert_eq!(list.len, 1, "a cleared list starts a new node at index zero");
+        assert_eq!(list.as_slice()[0].from, 63);
+    }
+
+    #[test]
+    fn search_buffer_arena_has_a_level_for_every_ply_test() {
+        use super::{new_search_buffers, SEARCH_LEVELS};
+
+        let buffers = new_search_buffers();
+        assert_eq!(buffers.len(), SEARCH_LEVELS);
+        assert!(
+            buffers.len() >= crate::search_service::MAX_PLY,
+            "the stack fallback in minimax is the exception, not the normal path"
+        );
+        assert!(
+            buffers.iter().all(|level| level.moves.is_empty()),
+            "every level starts empty, so the first node at it generates from index zero"
+        );
     }
 
     #[test]

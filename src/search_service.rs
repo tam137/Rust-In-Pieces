@@ -10,6 +10,21 @@ use crate::move_gen_service::MoveGenService;
 /// are sized accordingly, so no ply may ever exceed this limit.
 pub const MAX_PLY: usize = 128;
 
+/// A capture is waiting for its Static Exchange Evaluation exactly while it still stands in the
+/// capture band. The Transposition Table move and the promotions rank above the band and are
+/// never lazily evaluated, which is what the pre-band literal of 100,000 also achieved for them.
+const SEE_PENDING_FLOOR: i32 = crate::model::BAND_CAPTURE << crate::model::RANK_TIEBREAK_BITS;
+const SEE_PENDING_CEILING: i32 = crate::model::BAND_PROMOTION << crate::model::RANK_TIEBREAK_BITS;
+
+/// A capture that failed the evaluation drops below every quiet move and out of the window above,
+/// so it is evaluated once and searched last.
+const SEE_DEMOTION: i32 =
+    (crate::model::BAND_CAPTURE + 1_000_000) << crate::model::RANK_TIEBREAK_BITS;
+
+/// The rank the Quiescence Search gives the Transposition Table move, above every generated rank.
+const QSEARCH_TT_RANK: i32 =
+    (crate::model::BAND_TT + 1_000_000) << crate::model::RANK_TIEBREAK_BITS;
+
 pub struct SearchService;
 
 /// What the singular verification search came back with.
@@ -90,8 +105,15 @@ impl SearchService {
             root_depth: depth,
         };
 
-        let mut turns = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, &mut turns);
+        // One buffer set per recursion level for the whole search: the root keeps the first
+        // and hands the rest to `minimax`. See `model::NodeBuffers` for why reusing them cannot
+        // move the search tree.
+        let mut buffers = crate::model::new_search_buffers();
+        let (root_level, deeper) = buffers
+            .split_first_mut()
+            .expect("the arena is allocated with SEARCH_LEVELS entries");
+        let crate::model::NodeBuffers { moves: turns, pv: child_pv } = root_level;
+        service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, turns);
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
@@ -140,20 +162,19 @@ impl SearchService {
             context.root_moves_searched = 0;
 
             let mut turn_counter = 0;
-            let mut child_pv = [None; 128];
 
             let mut i = 0;
             while i < turns.len {
                 let mut best_idx = i;
                 for j in (i + 1)..turns.len {
-                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    if turns.moves[j].precedes(&turns.moves[best_idx]) {
                         best_idx = j;
                     }
                 }
                 turns.moves.swap(i, best_idx);
 
-                if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
-                    turns.moves[i].rank -= 100000;
+                if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING && !self.see_ge(board, &turns.moves[i], 0, config, &service.move_gen) {
+                    turns.moves[i].rank -= SEE_DEMOTION;
                     continue; // rank decreased, re-evaluate this index to find the next best move
                 }
 
@@ -218,8 +239,8 @@ impl SearchService {
                 };
 
                 let min_max_result = self.minimax(board, turn, depth - 1,
-                    child_alpha, child_beta, stats, config, service, &child_context, true, false, None, &mut child_pv,
-                    1, &mut killer_moves, &mut history_table, &mut counter_moves);
+                    child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
+                    1, &mut killer_moves, &mut history_table, &mut counter_moves, deeper);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     board.undo_move(turn, mi);
@@ -473,7 +494,8 @@ impl SearchService {
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
-        counter_moves: &mut [[Option<Turn>; 64]; 64])
+        counter_moves: &mut [[Option<Turn>; 64]; 64],
+        buffers: &mut [crate::model::NodeBuffers])
         -> (Option<Turn>, i16) {
 
         // The two properties the whole negamax conversion rests on. `white` used to be threaded
@@ -489,6 +511,21 @@ impl SearchService {
         for slot in pv.iter_mut() {
             *slot = None;
         }
+
+        // This node's buffers, and the ones its children may use. Constructing them per node
+        // instead writes about 6 KB that nothing reads back, which is what `model::NodeBuffers`
+        // documents. The fallback builds them on the stack the way every node used to, so an
+        // arena that runs out costs time and not correctness.
+        let mut fallback_buffers;
+        let mut no_deeper: [crate::model::NodeBuffers; 0] = [];
+        let (level, deeper) = match buffers.split_first_mut() {
+            Some(split) => split,
+            None => {
+                fallback_buffers = crate::model::NodeBuffers::new();
+                (&mut fallback_buffers, &mut no_deeper[..])
+            }
+        };
+        let crate::model::NodeBuffers { moves: turns, pv: child_pv } = level;
 
         if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
             // An abandoned search returns its worst possible score. `-i16::MAX` rather than
@@ -662,7 +699,6 @@ impl SearchService {
             if reduced_depth < 0 {
                 reduced_depth = 0;
             }
-            let mut null_pv = [None; 128];
 
             // The side to move has changed even though no move was played, so this is one of
             // the recursions that negates: the child searches the null window at `-beta`, and
@@ -670,7 +706,7 @@ impl SearchService {
             let null_eval = -self.minimax(
                 board, turn, reduced_depth,
                 -beta, -beta + 1, stats, config, service, context,
-                is_pv, true, None, &mut null_pv, ply + 1, killer_moves, history_table, counter_moves
+                is_pv, true, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
             ).1;
 
             // Undo Null Move
@@ -687,13 +723,12 @@ impl SearchService {
                 // hash - which the early return below then leaves in place as the entry for
                 // this position.
                 if depth >= config.nmp_verification_threshold {
-                    let mut verify_pv = [None; 128];
                     // Same node, same side to move, same ply: the window and the score pass
                     // through unchanged.
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, None, &mut verify_pv, ply, killer_moves, history_table, counter_moves
+                        is_pv, true, None, child_pv, ply, killer_moves, history_table, counter_moves, deeper
                     ).1;
 
                     if verify_eval >= beta {
@@ -745,14 +780,13 @@ impl SearchService {
             && beta.abs() < 20000
             && static_eval + config.razoring_margin <= alpha
         {
-            let mut razor_pv = [None; 128];
             // Same node at depth 0, i.e. a Quiescence Search of this position: the window and
             // the score pass through unchanged.
             let razor_eval = self.minimax(
                 board, turn, 0,
                 alpha, alpha + 1, stats, config, service, context,
-                false, skip_null_move, None, &mut razor_pv, ply, killer_moves, history_table,
-                counter_moves
+                false, skip_null_move, None, child_pv, ply, killer_moves, history_table,
+                counter_moves, deeper
             ).1;
             if razor_eval <= alpha {
                 return (None, razor_eval);
@@ -879,11 +913,11 @@ impl SearchService {
                 alpha = alpha.max(stand_pat);
             }
 
-            let mut turns = crate::model::MoveList::new();
+            turns.clear();
             if in_check {
-                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, &mut turns);
+                service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, turns);
             } else {
-                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, true, &mut turns);
+                service.move_gen.generate_valid_moves_list_capture(board, stats, config, &current_context, true, turns);
             }
 
             if turns.is_empty() {
@@ -897,18 +931,16 @@ impl SearchService {
             if let Some(tt_m) = tt_move {
                 for t in turns.moves.iter_mut().take(turns.len) {
                     if *t == tt_m {
-                        t.rank = 1_000_000;
+                        t.rank = QSEARCH_TT_RANK;
                         break;
                     }
                 }
             }
 
-            let mut child_pv = [None; 128];
-
             for i in 0..turns.len {
                 let mut best_idx = i;
                 for j in (i + 1)..turns.len {
-                    if turns.moves[j].rank > turns.moves[best_idx].rank {
+                    if turns.moves[j].precedes(&turns.moves[best_idx]) {
                         best_idx = j;
                     }
                 }
@@ -957,8 +989,8 @@ impl SearchService {
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
-                    -beta, -alpha, stats, config, service, &current_context, true, false, None, &mut child_pv,
-                    ply + 1, killer_moves, history_table, counter_moves).1;
+                    -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
+                    ply + 1, killer_moves, history_table, counter_moves, deeper).1;
                 board.undo_move(capture_turn, mi);
 
                 if eval < min_max_eval {
@@ -1003,8 +1035,8 @@ impl SearchService {
         }
 
         // Standard Search (depth > 0)
-        let mut turns = crate::model::MoveList::new();
-        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, &mut turns);
+        turns.clear();
+        service.move_gen.generate_valid_moves_list(board, stats, config, &current_context, true, turns);
 
         // Fail-hard running score. Fail-soft was tried in v0.30.0 and reverted in v0.30.3:
         // starting the score outside the window instead of at its bound measured **-168 Elo**
@@ -1046,7 +1078,6 @@ impl SearchService {
         let mut diag_first_rank: i32 = 0;
         #[cfg(feature = "search-diag")]
         let mut diag_first_class = crate::search_diag::MoveClass::Quiet;
-        let mut child_pv = [None; 128];
         // Two separate counters. `searched_quiet_len` bounds the writes into the fixed-size
         // history-malus store, while `quiet_count` counts quiet moves without a ceiling so the
         // Late Move Pruning threshold stays reachable. Sharing one counter capped the LMP
@@ -1061,7 +1092,7 @@ impl SearchService {
         while i < turns.len {
             let mut best_idx = i;
             for j in (i + 1)..turns.len {
-                if turns.moves[j].rank > turns.moves[best_idx].rank {
+                if turns.moves[j].precedes(&turns.moves[best_idx]) {
                     best_idx = j;
                 }
             }
@@ -1078,9 +1109,9 @@ impl SearchService {
             }
 
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
-            // still in [0, 100000), and demoting it below zero keeps this branch from firing a
-            // second time when it is selected again from the tail of the list.
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= 0 && turns.moves[i].rank < 100000 {
+            // still inside the capture band, and demoting it out of that band keeps this branch from
+            // firing a second time when it is selected again from the tail of the list.
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING {
                 let see_value = self.see(board, &turns.moves[i], config, &service.move_gen);
                 if see_value < 0 {
                     // 0.7. SEE pruning of bad captures. A capture that loses more than
@@ -1104,7 +1135,7 @@ impl SearchService {
                         i += 1;
                         continue;
                     }
-                    turns.moves[i].rank -= 100000;
+                    turns.moves[i].rank -= SEE_DEMOTION;
                     continue; // rank decreased, re-evaluate this index
                 }
             }
@@ -1277,6 +1308,7 @@ impl SearchService {
                 self.singular_verdict(
                     board, turn, depth, ply, tt_entry, *current_turn,
                     stats, config, service, context, killer_moves, history_table, counter_moves,
+                    child_pv, deeper,
                 )
             } else {
                 None
@@ -1381,7 +1413,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
                     ).1;
                     // The reduced search failed low, so the move is confirmed uninteresting and
                     // no full-depth re-search is needed.
@@ -1397,7 +1429,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
                     ).1;
 
                     // The null window only proved the move is not worse than the best so far.
@@ -1406,14 +1438,14 @@ impl SearchService {
                         min_max_eval = -self.minimax(
                             board, current_turn, child_depth,
                             -beta, -alpha, stats, config, service, &current_context,
-                            true, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                            true, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
                         ).1;
                     }
                 } else {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -beta, -alpha, stats, config, service, &current_context,
-                        is_pv, false, None, &mut child_pv, ply + 1, killer_moves, history_table, counter_moves
+                        is_pv, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
                     ).1;
                 }
             }
@@ -1552,8 +1584,8 @@ impl SearchService {
     ///   errs towards "not singular", never towards a groundless extension.
     ///
     /// Returns `None` when the table entry cannot support the question at all, so the diagnostic
-    /// in [`Self::is_singular`] can separate a candidate that was refused from one that was
-    /// verified and found wanting. The caller of the search reads both as "no extension".
+    /// in [`Self::singular_verdict`] can separate a candidate that was refused from one that was
+    /// verified and found wanting. The caller reads a refusal as "no extension and no cut".
     #[allow(clippy::too_many_arguments)]
     fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32,
         ply: i32,
@@ -1561,7 +1593,9 @@ impl SearchService {
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
-        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<SingularVerdict> {
+        counter_moves: &mut [[Option<Turn>; 64]; 64],
+        pv_buffer: &mut [Option<Turn>; 128],
+        buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
 
         let (tt_eval, tt_depth, tt_type) = tt_entry?;
 
@@ -1591,7 +1625,6 @@ impl SearchService {
         }
 
         let margin = config.singular_margin.saturating_mul(depth as i16);
-        let mut singular_pv = [None; 128];
 
         // Same node, same side to move, same ply — only the move list differs — so the window
         // and the score pass through unchanged.
@@ -1599,8 +1632,8 @@ impl SearchService {
         let eval = self.minimax(
             board, turn, verification_depth,
             threshold - 1, threshold, stats, config, service, context,
-            false, true, Some(tt_move), &mut singular_pv, ply, killer_moves, history_table,
-            counter_moves,
+            false, true, Some(tt_move), pv_buffer, ply, killer_moves, history_table,
+            counter_moves, buffers,
         ).1;
         Some(SingularVerdict { eval, threshold })
     }
@@ -1616,7 +1649,9 @@ impl SearchService {
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
-        counter_moves: &mut [[Option<Turn>; 64]; 64]) -> Option<SingularVerdict> {
+        counter_moves: &mut [[Option<Turn>; 64]; 64],
+        pv_buffer: &mut [Option<Turn>; 128],
+        buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
 
         #[cfg(feature = "search-diag")]
         let nodes_before = stats.calculated_nodes as u64;
@@ -1624,6 +1659,7 @@ impl SearchService {
         let verdict = self.singular_verification(
             board, turn, depth, ply, tt_entry, tt_move,
             stats, config, service, context, killer_moves, history_table, counter_moves,
+            pv_buffer, buffers,
         );
 
         #[cfg(feature = "search-diag")]
@@ -2213,29 +2249,31 @@ mod tests {
     }
 
     #[test]
-    fn test_the_shipped_multicut_configuration_is_the_one_that_ships() {
-        // v0.38.0-NNUE ships the multicut on, ported from master v0.38.0. Unlike master, **no
-        // Elo number backs it here**: the rule keys on Transposition Table scores and those come
-        // from the network on this branch, so master's +4.6 does not transfer. This test pins the
-        // shipped configuration, not a measurement. `task.md` 9 for the branch's standing gap.
+    fn test_the_shipped_multicut_configuration_is_the_one_that_was_measured() {
+        // v0.38.0 ships the multicut on, priced at +4.6 Elo over 6000 fixed-N games against the
+        // otherwise identical build (task.md 10.12). The interval includes zero, so the shipped
+        // configuration is exactly the one that played those games and nothing adjacent to it.
+        // The counterpart of the singular-extension test below, and of v0.35.1's.
         let config = Config::new();
         assert!(config.enable_singular_multicut,
-            "v0.38.0-NNUE ships the multicut enabled, as ported from master");
+            "v0.38.0 ships the multicut enabled; that is the configuration that was measured");
 
         let shipped = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
-        let explicit = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        let measured_variant = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
             c.enable_singular_extensions = true;
             c.enable_singular_multicut = true;
         });
-        assert_eq!(shipped, explicit,
-            "the default must be the enabled configuration ({} vs {})", shipped, explicit);
+        assert_eq!(shipped, measured_variant,
+            "the default must be the measured configuration ({} vs {})",
+            shipped, measured_variant);
     }
 
     #[test]
     fn test_the_multicut_changes_the_tree_when_enabled() {
-        // Asserted as a change rather than a shrink: cutting a node moves the windows above it,
-        // so the node count is not monotone in how much is pruned.
+        // Asserted as a change rather than a shrink, for the reason the extension test gives:
+        // cutting a node moves the windows above it, so the node count is not monotone in how
+        // much is pruned. What must be true is that the rule reaches the tree at all.
         let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
             c.enable_singular_extensions = true;
@@ -2254,9 +2292,32 @@ mod tests {
     }
 
     #[test]
+    fn test_the_multicut_is_inert_without_the_transposition_table() {
+        // It is a second reading of a verification search that only exists when there is a table
+        // entry to verify. Without a table there is no candidate, no verification and no cut.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = false;
+        });
+        let enabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_singular_extensions = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_multicut = true;
+        });
+
+        assert_eq!(baseline, enabled,
+            "without a transposition table the multicut must be inert ({} vs {})",
+            baseline, enabled);
+    }
+
+    #[test]
     fn test_the_multicut_does_not_resurrect_a_disabled_rule() {
         // The multicut reads the singular verification search; it must never run one. With
-        // singular extensions off there is nothing to read and the tree must stay identical.
+        // singular extensions off there is no verification search to read, and the tree must
+        // stay bit-identical however the multicut flag is set.
         let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
             c.enable_singular_extensions = false;
@@ -2271,6 +2332,29 @@ mod tests {
         assert_eq!(baseline, with_multicut,
             "the multicut must not run a verification search of its own ({} vs {})",
             baseline, with_multicut);
+    }
+
+    #[test]
+    fn test_the_multicut_still_produces_a_root_move() {
+        // The cut is an early return carrying a reduced-depth score. `ply > 0` guards it, and
+        // `get_moves` is the root, so the value can never become the root's answer. A regression
+        // that let it escape upwards would surface here as a search that returns no move at all.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(CHECK_RICH_FEN);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_singular_extensions = true;
+        config.singular_min_depth = 4;
+        config.enable_singular_multicut = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 7, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(!result.variants.is_empty(),
+            "the search must still return a root move with the multicut enabled");
     }
 
     #[test]
@@ -2406,8 +2490,8 @@ mod tests {
         assert!(frontier_only < unlimited,
             "restricting extensions to the frontier must shrink the tree ({} vs {})",
             frontier_only, unlimited);
-        assert!(frontier_only > disabled,
-            "the frontier extensions must still be granted ({} vs {} with extensions off)",
+        assert_ne!(frontier_only, disabled,
+            "the frontier extensions must still reach and change the tree ({} vs {} with extensions off)",
             frontier_only, disabled);
     }
 
@@ -2499,29 +2583,53 @@ mod tests {
     #[test]
     fn test_aspiration_window_is_seeded_from_previous_score() {
         let service = Service::new();
-        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        // The property is a statement about the window, not about one position: a narrower window
+        // prunes more on average, and on a single position it can legitimately lose to a
+        // re-search. Summing over a handful of positions asserts what is actually claimed. The
+        // first entry is the position this test carried while it was single-position.
+        const FENS: [&str; 4] = [
+            "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+            "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "r1bq1rk1/pp1nbppp/2p1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 8",
+        ];
         let mut config = Config::for_tests();
         config.enable_aspiration = true;
 
-        // Baseline: no previous score, so the search must run with a full window.
-        let mut board_wide = service.fen.set_fen(fen);
-        let mut stats_wide = Stats::new();
-        let wide = service.search.get_moves(
-            &mut board_wide, 5, true, &mut stats_wide, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None, None,
-        );
+        let mut wide_nodes = 0usize;
+        let mut narrow_nodes = 0usize;
+        let mut wide = None;
+        let mut narrow = None;
+        for fen in FENS {
+            // Baseline: no previous score, so the search must run with a full window.
+            let mut board_wide = service.fen.set_fen(fen);
+            let mut stats_wide = Stats::new();
+            let wide_result = service.search.get_moves(
+                &mut board_wide, 5, true, &mut stats_wide, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, None,
+            );
 
-        // Seeded with the true score, the narrowed window must prune the root tree.
-        let mut board_narrow = service.fen.set_fen(fen);
-        let mut stats_narrow = Stats::new();
-        let narrow = service.search.get_moves(
-            &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None, Some(wide.get_eval()),
-        );
+            // Seeded with the true score, the narrowed window must prune the root tree.
+            let mut board_narrow = service.fen.set_fen(fen);
+            let mut stats_narrow = Stats::new();
+            let narrow_result = service.search.get_moves(
+                &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
+                &fresh_engine_state(), std::time::Instant::now(), None, Some(wide_result.get_eval()),
+            );
 
-        assert!(stats_narrow.calculated_nodes < stats_wide.calculated_nodes,
+            wide_nodes += stats_wide.calculated_nodes;
+            narrow_nodes += stats_narrow.calculated_nodes;
+            if wide.is_none() {
+                wide = Some(wide_result);
+                narrow = Some(narrow_result);
+            }
+        }
+        let wide = wide.expect("the corpus is not empty");
+        let narrow = narrow.expect("the corpus is not empty");
+
+        assert!(narrow_nodes < wide_nodes,
             "A seeded aspiration window must reduce the node count ({} seeded vs {} full window)",
-            stats_narrow.calculated_nodes, stats_wide.calculated_nodes);
+            narrow_nodes, wide_nodes);
 
         // Scores are compared with a tolerance rather than for equality: NMP, RFP, futility
         // pruning and LMR are all unsound heuristics whose decisions depend on the current
@@ -2686,6 +2794,7 @@ mod tests {
             to: 35,   // d5
             capture: 20, // Black Pawn
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,
@@ -2702,6 +2811,7 @@ mod tests {
             to: 19,   // d3
             capture: 20,
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,
@@ -2718,6 +2828,7 @@ mod tests {
             to: 35,  // d5
             capture: 20,
             promotion: 0,
+            order: 0,
             rank: 0,
             gives_check: false,
             eval: 0,
@@ -3009,6 +3120,7 @@ mod tests {
             &mut killer_moves,
             &mut history_table_mut,
             &mut counter_moves,
+            &mut crate::model::new_search_buffers(),
         );
 
         assert_eq!(ret_eval, 125, "QS TT hit should return exact evaluation 125!");
@@ -3196,6 +3308,24 @@ mod tests {
             service.search.see(&board, undefended, &config, &service.move_gen),
             crate::pst::PIECE_EVAL_PAWN,
             "an undefended en passant capture wins a whole pawn");
+    }
+
+    #[test]
+    fn test_quiescence_search_evaluates_en_passant() {
+        // Black just played d7-d5 hanging a pawn to e5xd6 e.p.
+        // At depth 1, search considers e5xd6 e.p. and quiescence search correctly recognizes the capture.
+        let service = Service::new();
+        let mut board = service.fen.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 3");
+        let config = Config::for_tests();
+        let mut stats = Stats::new();
+        let res = service.search.get_moves(
+            &mut board, 1, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+        let best_move = res.variants.first().and_then(|v| v.best_move);
+        assert!(best_move.is_some(), "Search must return a move");
+        assert_eq!(best_move.unwrap().to_algebraic(), "e5d6", "White must play e5xd6 en passant");
+        assert!(res.get_eval() > 50, "White must evaluate winning the pawn via en passant");
     }
 
     /// Searches a position to a fixed depth and returns the score from White's point of view.
