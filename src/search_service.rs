@@ -109,6 +109,10 @@ impl SearchService {
         // and hands the rest to `minimax`. See `model::NodeBuffers` for why reusing them cannot
         // move the search tree.
         let mut buffers = crate::model::new_search_buffers();
+        let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); MAX_PLY];
+        if config.use_nnue && service.eval.nnue_net.loaded {
+            acc_stack[0] = crate::nnue_service::NNUEService::compute_accumulator(board, &service.eval.nnue_net);
+        }
         let (root_level, deeper) = buffers
             .split_first_mut()
             .expect("the arena is allocated with SEARCH_LEVELS entries");
@@ -203,6 +207,11 @@ impl SearchService {
                 turn_counter += 1;
                 context.root_moves_searched = turn_counter - 1;
                 let mi = board.do_move(turn);
+                if config.use_nnue && service.eval.nnue_net.loaded {
+                    acc_stack[1] = crate::nnue_service::NNUEService::update_accumulator(
+                        &acc_stack[0], board, turn, &mi, &service.eval.nnue_net
+                    );
+                }
 
                 let child_context = SearchContext {
                     zobrist_table: context.zobrist_table,
@@ -240,7 +249,7 @@ impl SearchService {
 
                 let min_max_result = self.minimax(board, turn, depth - 1,
                     child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
-                    1, &mut killer_moves, &mut history_table, &mut counter_moves, deeper);
+                    1, &mut killer_moves, &mut history_table, &mut counter_moves, deeper, &mut acc_stack);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     board.undo_move(turn, mi);
@@ -495,7 +504,8 @@ impl SearchService {
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[u32; 64]; 64],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
-        buffers: &mut [crate::model::NodeBuffers])
+        buffers: &mut [crate::model::NodeBuffers],
+        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY])
         -> (Option<Turn>, i16) {
 
         // The two properties the whole negamax conversion rests on. `white` used to be threaded
@@ -511,6 +521,9 @@ impl SearchService {
         for slot in pv.iter_mut() {
             *slot = None;
         }
+
+        // Saturating index for all ply-indexed tables (killer moves and accumulator stack).
+        let ply_idx = (ply.max(0) as usize).min(MAX_PLY - 1);
 
         // This node's buffers, and the ones its children may use. Constructing them per node
         // instead writes about 6 KB that nothing reads back, which is what `model::NodeBuffers`
@@ -541,14 +554,13 @@ impl SearchService {
         // within bounds and that the search tree remains finite.
         if ply >= MAX_PLY as i32 - 1 {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval(
+            let absolute = service.eval.calc_eval_with_acc(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+                abs_alpha, abs_beta, config.lazy_eval_margin_search,
+                if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+            );
             return (None, Self::relative_score(white, absolute));
         }
-
-        // Saturating index for all ply-indexed tables (killer moves).
-        let ply_idx = (ply.max(0) as usize).min(MAX_PLY - 1);
 
         // Extension budget bookkeeping. Without extensions the search satisfies
         // `depth == root_depth - ply` exactly, so any surplus depth is precisely the
@@ -665,9 +677,11 @@ impl SearchService {
         // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval(
+            let absolute = service.eval.calc_eval_with_acc(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+                abs_alpha, abs_beta, config.lazy_eval_margin_search,
+                if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+            );
             Self::relative_score(white, absolute)
         } else {
             0
@@ -700,13 +714,18 @@ impl SearchService {
                 reduced_depth = 0;
             }
 
+            let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
+            if config.use_nnue && service.eval.nnue_net.loaded {
+                acc_stack[child_ply_idx] = acc_stack[ply_idx];
+            }
+
             // The side to move has changed even though no move was played, so this is one of
             // the recursions that negates: the child searches the null window at `-beta`, and
             // its score comes back on the opponent's scale.
             let null_eval = -self.minimax(
                 board, turn, reduced_depth,
                 -beta, -beta + 1, stats, config, service, context,
-                is_pv, true, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                is_pv, true, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack
             ).1;
 
             // Undo Null Move
@@ -728,7 +747,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, None, child_pv, ply, killer_moves, history_table, counter_moves, deeper
+                        is_pv, true, None, child_pv, ply, killer_moves, history_table, counter_moves, deeper, acc_stack
                     ).1;
 
                     if verify_eval >= beta {
@@ -786,7 +805,7 @@ impl SearchService {
                 board, turn, 0,
                 alpha, alpha + 1, stats, config, service, context,
                 false, skip_null_move, None, child_pv, ply, killer_moves, history_table,
-                counter_moves, deeper
+                counter_moves, deeper, acc_stack
             ).1;
             if razor_eval <= alpha {
                 return (None, razor_eval);
@@ -881,9 +900,11 @@ impl SearchService {
 
             if !in_check {
                 let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-                stand_pat = Self::relative_score(white, service.eval.calc_eval(
+                stand_pat = Self::relative_score(white, service.eval.calc_eval_with_acc(
                     board, config, &service.move_gen, &service.pawn_table,
-                    abs_alpha, abs_beta, config.lazy_eval_margin_qs));
+                    abs_alpha, abs_beta, config.lazy_eval_margin_qs,
+                    if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+                ));
                 eval = stand_pat;
 
                 // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can
@@ -988,9 +1009,15 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
+                let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
+                if config.use_nnue && service.eval.nnue_net.loaded {
+                    acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
+                        &acc_stack[ply_idx], board, capture_turn, &mi, &service.eval.nnue_net
+                    );
+                }
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
                     -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
-                    ply + 1, killer_moves, history_table, counter_moves, deeper).1;
+                    ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack).1;
                 board.undo_move(capture_turn, mi);
 
                 if eval < min_max_eval {
@@ -1308,7 +1335,7 @@ impl SearchService {
                 self.singular_verdict(
                     board, turn, depth, ply, tt_entry, *current_turn,
                     stats, config, service, context, killer_moves, history_table, counter_moves,
-                    child_pv, deeper,
+                    child_pv, deeper, acc_stack,
                 )
             } else {
                 None
@@ -1384,6 +1411,12 @@ impl SearchService {
             let diag_nodes_before = stats.calculated_nodes;
 
             let mi = board.do_move(current_turn);
+            let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
+            if config.use_nnue && service.eval.nnue_net.loaded {
+                acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
+                    &acc_stack[ply_idx], board, current_turn, &mi, &service.eval.nnue_net
+                );
+            }
 
             // Dead store: either the reduced search below assigns it, or the Principal
             // Variation Search does.
@@ -1413,7 +1446,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack
                     ).1;
                     // The reduced search failed low, so the move is confirmed uninteresting and
                     // no full-depth re-search is needed.
@@ -1429,7 +1462,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack
                     ).1;
 
                     // The null window only proved the move is not worse than the best so far.
@@ -1438,14 +1471,14 @@ impl SearchService {
                         min_max_eval = -self.minimax(
                             board, current_turn, child_depth,
                             -beta, -alpha, stats, config, service, &current_context,
-                            true, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                            true, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack
                         ).1;
                     }
                 } else {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -beta, -alpha, stats, config, service, &current_context,
-                        is_pv, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        is_pv, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper, acc_stack
                     ).1;
                 }
             }
@@ -1595,7 +1628,8 @@ impl SearchService {
         history_table: &mut [[u32; 64]; 64],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
-        buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
+        buffers: &mut [crate::model::NodeBuffers],
+        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY]) -> Option<SingularVerdict> {
 
         let (tt_eval, tt_depth, tt_type) = tt_entry?;
 
@@ -1633,7 +1667,7 @@ impl SearchService {
             board, turn, verification_depth,
             threshold - 1, threshold, stats, config, service, context,
             false, true, Some(tt_move), pv_buffer, ply, killer_moves, history_table,
-            counter_moves, buffers,
+            counter_moves, buffers, acc_stack,
         ).1;
         Some(SingularVerdict { eval, threshold })
     }
@@ -1651,7 +1685,8 @@ impl SearchService {
         history_table: &mut [[u32; 64]; 64],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
-        buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
+        buffers: &mut [crate::model::NodeBuffers],
+        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY]) -> Option<SingularVerdict> {
 
         #[cfg(feature = "search-diag")]
         let nodes_before = stats.calculated_nodes as u64;
@@ -1659,7 +1694,7 @@ impl SearchService {
         let verdict = self.singular_verification(
             board, turn, depth, ply, tt_entry, tt_move,
             stats, config, service, context, killer_moves, history_table, counter_moves,
-            pv_buffer, buffers,
+            pv_buffer, buffers, acc_stack,
         );
 
         #[cfg(feature = "search-diag")]
@@ -3121,6 +3156,7 @@ mod tests {
             &mut history_table_mut,
             &mut counter_moves,
             &mut crate::model::new_search_buffers(),
+            &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
         );
 
         assert_eq!(ret_eval, 125, "QS TT hit should return exact evaluation 125!");

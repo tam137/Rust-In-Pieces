@@ -288,15 +288,15 @@ at nodes that were going to cut anyway.
 
 ## 6. NNUE: incremental accumulator and SIMD
 
-`[Impact: High]` `[Complexity: High]` — only worth starting once `use_nnue` is the default path.
+`[Impact: High]` `[Complexity: High]`
 
-NNUE currently runs on **full recomputation per leaf** and is off by default on `master`.
+NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `feature/nnue-evaluation` (v0.40.0-NNUE):
 
 * **Tasks**:
-    - `[ ]` Add `AccumulatorStack` to `Board`, updated incrementally in `do_move` / `undo_move`.
+    - `[x]` Thread `[NNUEAccumulator; MAX_PLY]` down `SearchService::minimax` and update incrementally in move loops (quiet, capture, castling, en passant, promotions).
+    - `[x]` Validate incremental accumulator against full recomputation across move types, king bucket transitions, and deep search trees (100% bit-identical).
     - `[ ]` AVX2 / SSE4.1 / NEON intrinsics for accumulator updates and the SCReLU forward pass.
-    - `[ ]` Validate the incremental accumulator against full recomputation.
-    - `[ ]` Set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
+    - `[ ]` Merge to `master` and set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
 
 ## 7. En passant
 

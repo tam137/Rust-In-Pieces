@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.40.0-NNUE] - 2026-09-03
+
+First implementation of the NNUE incremental accumulator, accelerating neural network feature-transformer evaluation in tree search.
+
+- **Incremental Accumulator Architecture**: Maintained per-ply accumulator stack `[NNUEAccumulator; MAX_PLY]` threaded down `SearchService::minimax` without heap allocations and without modifying `Board`.
+- **Differential Updates**: Updates accumulator forward on `board.do_move` via vector addition/subtraction of moved, captured, or promoted pieces. In-place stack indexing guarantees zero-cost rollback on `undo_move`.
+- **Adaptive King Bucket Tracking**: Automatically tracks king bucket and mirroring transitions; seamlessly falls back to refreshing the perspective if the moving king crosses bucket or mirror boundaries.
+- **Bit-Identical Evaluation**: 100% bit-for-bit exact equivalence with full recomputation across all move classes (quiet moves, captures, castling short/long, en passant, promotions with/without capture, and deep branching tactical trees).
+- **Search Integration**: Evaluates positions with `calc_eval_with_acc` in both main search and quiescence search, eliminating the heavy $O(\text{pieces} \times 256)$ feature transformer recomputation on every eval call.
+- **Protected Parameters Preserved**: All SPSA-tuned search parameters and neural network weights remain intact.
+
+
+
 ## [V0.39.1-NNUE] - 2026-09-03
 
 Ports search buffer arena, total move ordering with nesting bands, and Quiescence Search en passant from master v0.38.1, v0.39.0, and v0.39.1.
