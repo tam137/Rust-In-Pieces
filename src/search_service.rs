@@ -3310,6 +3310,24 @@ mod tests {
             "an undefended en passant capture wins a whole pawn");
     }
 
+    #[test]
+    fn test_quiescence_search_evaluates_en_passant() {
+        // Black just played d7-d5 hanging a pawn to e5xd6 e.p.
+        // At depth 1, search considers e5xd6 e.p. and quiescence search correctly recognizes the capture.
+        let service = Service::new();
+        let mut board = service.fen.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 3");
+        let config = Config::for_tests();
+        let mut stats = Stats::new();
+        let res = service.search.get_moves(
+            &mut board, 1, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+        let best_move = res.variants.first().and_then(|v| v.best_move);
+        assert!(best_move.is_some(), "Search must return a move");
+        assert_eq!(best_move.unwrap().to_algebraic(), "e5d6", "White must play e5xd6 en passant");
+        assert!(res.get_eval() > 50, "White must evaluate winning the pawn via en passant");
+    }
+
     /// Searches a position to a fixed depth and returns the score from White's point of view.
     fn search_score(fen: &str, depth: i32) -> i16 {
         let service = Service::new();
