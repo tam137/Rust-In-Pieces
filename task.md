@@ -461,25 +461,3 @@ Measured on v0.31.0 over 14 positions at fixed depth 10, 17,662,630 nodes.
   Disabling the block entirely moves throughput from 5.26 to 5.13 M nodes/s, i.e. it is free
   within noise, and the ordering it provides is worth more than it costs.
 
----
-
-## 9. The NNUE Branch
-
-`feature/nnue-evaluation` carries its own SPSA-tuned parameters and is **never merged** — master
-changes are ported selectively. See `skills/nnue_porting_and_release_procedure.md`.
-
-* Branch-owned, never take from master: `CHANGELOG.md`, `build_and_release.sh` (only its copy
-  appends the `-nnue` binary suffix), `skills/engine_release_procedure.md`,
-  `skills/nnue_porting_and_release_procedure.md`, `src/nnue_service.rs` (it embeds the network via
-  `include_bytes!`), `src/eval_service.rs` (dead-draw guard ahead of the NNUE hook), and `tuning/`.
-* Protected `config.rs` values: `use_nnue = true`, `lmr_divisor = 140` with its `lmr_table`,
-  `lmr_move_threshold = 2`, `lmr_history_bad_threshold = 550`,
-  `aspiration_window_initial_delta = 16`, `aspiration_window_multiplier = 5`,
-  `your_turn_bonus = 18`. The `UseNNUE` UCI option is advertised as `default true`.
-* Everything else in `src/` can be taken from master wholesale.
-* **Open:** the branch is level with master at `v0.34.0-NNUE` but has not played a game since
-  `v0.30.0-nnue`. A gauntlet against `suprah-0.30.0-nnue` should show a large gain, since the
-  branch carried the fail-soft regression for its whole dormancy, and it would also confirm that
-  `enable_check_extension = false` carries over. That default was measured on the HCE evaluation:
-  the extension's cost is a search property and should transfer, but this branch has its own LMR
-  tuning, so it is confirmed rather than assumed.
