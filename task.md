@@ -35,6 +35,17 @@ is integrated and verified (`tuning/tune_singular.sh`). The next actions on the 
    `singular_depth_reduction`) using `tuning/tune_singular.sh`, then harvest results via
    `skills/spsa_harvest_results.md`.
 2. **The negative extension**, the other half of the singular rebate, is still unmeasured.
+3. **A search audit against published practice**, done 2026-09-04, produced sections 20 to 26:
+   seven rules that are either absent from this engine or present in a form that cannot fire at
+   the depths it plays. **None of it is measured** — every section is a proposal with a mechanism
+   and a measurement plan, and nothing in them may be quoted as an effect size. Sections 20, 22
+   and 23.1 to 23.3 are between five and thirty lines each; 24, 25 and 26 are reworks. The order
+   to take them in is the backlog table below.
+
+   The new sections are numbered from 20 deliberately. Numbers 1 to 12 belong to the write-ups
+   deleted on 2026-09-02, and `src/threads.rs`, `src/search_service.rs` and `src/config.rs` still
+   carry back-references to `task.md` 10.5, 10.6, 10.10, 10.12 and section 11 that resolve against
+   revision `2a280c0`. Reusing those numbers would silently redirect them.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
@@ -75,7 +86,17 @@ a run at `rounds = 50` never reaches line 51.
 | ---: | :--- | :--- | :--- |
 | 1 | En passant is invisible to the Quiescence Search | 7 | Shipped in v0.39.1 |
 | 2 | `singular_*` SPSA tuning | 8 | Infrastructure configured (`tuning/tune_singular.sh`), ready to tune |
-| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
+| 3 | Killers, history and counter moves are cleared at every iterative deepening iteration | 23.1 | A lifetime defect, not a heuristic change; nothing else on this list is cheaper |
+| 4 | The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP | 20.1, 20.2 | Five lines, against an evaluation the node already computed |
+| 5 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
+| 6 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
+| 7 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 4 |
+| 8 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
+| 9 | The history bonus and malus curves | 23.4 | Only after 23.3, and only with its own SPSA group |
+| 10 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
+| 11 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
+| 12 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
+| 13 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
 exemption, measured 2026-08-28: worth 4.5% of the tree and nothing in games. The staged
@@ -103,6 +124,21 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
+| `killer_moves`, `history_table` and `counter_moves` are allocated inside `get_moves`, which the iterative deepening loop in `game_handler.rs` calls once per depth — so all three are cleared at every iteration, not every move | defect, unmeasured, section 23.1 |
+| The history table is `[from][to]` with no side-to-move index, so White and Black share every entry | defect, unmeasured, section 23.2 |
+| History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
+| `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
+| Null Move Pruning has no `static_eval >= beta` gate, although the evaluation is already computed at every node it runs at | proposal, unmeasured, section 20.1 |
+| Null Move Pruning and Reverse Futility Pruning have no `!is_pv` guard, although razoring, Futility and LMP all do | proposal, unmeasured, section 20.2 |
+| The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
+| The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
+| The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
+| `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
+| There is no Internal Iterative Reduction and no Internal Iterative Deepening | proposal, unmeasured, section 22 |
+| There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
+| The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
+| There is no ProbCut | proposal, unmeasured, section 26 |
+| There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
 
 Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth,
 and the scoreboard configuration that could not price them.
@@ -271,6 +307,20 @@ moves already searched with an O(n²) `contains` scan. Every node that reaches i
 more work than the eager path did, on top of the stage-1 pass it already paid for. Only the 57.2%
 that cut earlier win anything.
 
+**Why the last stage had no choice, noted 2026-09-04.** It regenerates everything because there is
+nothing else to call. `generate_moves_list_for_piece` takes an `only_captures` flag and there is no
+`only_quiets` counterpart, so a quiet stage can only ask for the full list and subtract. A
+generator that emits exactly the complement of the capture list -- verifiable against the existing
+one by a consistency check over random games plus perft, which is cheap and total -- removes the
+second raw pass, the second ranking and the O(n²) scan outright, and with them this whole half of
+the deficit.
+
+This does **not** reopen the item. The other 2 points, the toll for the staged control flow being
+inside `minimax` at all, are unaffected: the `picker off` row read -2.4% while executing none of
+the picker. A quiet-only generator moves the ceiling from about -2% to somewhere near zero, not to
++5%. It is recorded because the generator is independently useful and because 5.4 should not be
+read as saying the second half of the overhead was irreducible.
+
 So the ceiling is the point: a last stage that cost *nothing at all* still lands near -2%, not
 +5%. Stage 0 alone cannot rescue it either -- it pays the same toll and can only save generation
 at nodes that were going to cut anyway.
@@ -389,3 +439,424 @@ The SPSA infrastructure is configured and verified to tune all three parameters.
 - **UCI Facade & Tests (`src/config.rs`):** Verified that `SingularMargin`, `SingularTtDepthMargin`, and `SingularDepthReduction` are parsed, clamped, and stored correctly across casing and separator styles.
 - **Workflow:** Run tuning via `tuning/tune_singular.sh`, monitor progress via `skills/spsa_tuning_status.md`, and integrate converged parameters using `skills/spsa_harvest_results.md`.
 
+## 20. Null Move Pruning: the missing static-eval gate, and the missing PV guard
+
+`[Impact: unknown]` `[Complexity: Low]` `[unmeasured]` — five lines, against a static evaluation
+this node has already paid for.
+
+`search_service.rs:676`. The rule fires at every eligible node:
+
+```rust
+if config.enable_nmp
+    && !skip_null_move
+    && depth >= config.nmp_depth_threshold
+    && !turn.gives_check
+    && self.has_non_pawn_material(board, board.white_to_move)
+```
+
+Two guards that the published formulation carries are absent, and a third rule is present that
+the published formulation drops.
+
+### 20.1 There is no `static_eval >= beta` gate
+
+The null move asks whether giving the opponent a free move still fails high. At a node whose
+*static* evaluation is already below `beta`, that question has a predictable answer and the
+reduced search that asks it is close to pure cost. The standard gate is one comparison.
+
+The reason it is free here: `static_eval` is computed unconditionally at `search_service.rs:666`
+for every node with `depth > 0 && !turn.gives_check` — which is a superset of the nodes Null Move
+Pruning runs at. The value is already in a register when the rule is reached. Adding
+`&& static_eval >= beta` cannot cost a single evaluation call.
+
+The lazy-evaluation contract holds in the direction that matters. `calc_eval` returns the `cheap`
+value early when `cheap - margin >= beta`, so a lazy return on the fail-high side is a value at or
+above `beta + margin`; the gate accepts it, exactly as Reverse Futility Pruning at
+`search_service.rs:752` already does with the same number.
+
+### 20.2 There is no `!is_pv` guard, on this rule or on Reverse Futility Pruning
+
+Razoring (`:779`), Futility Pruning (`:1186`) and Late Move Pruning (`:1153`) each carry `!is_pv`.
+Null Move Pruning and Reverse Futility Pruning do not. Both therefore speculate on the principal
+variation, where `beta - alpha > 1` and the score is the one that reaches the root.
+
+`is_pv` is already tracked correctly through the recursion — the Principal Variation Search null
+windows pass `false` at `:1431` and the full-window re-search passes `true` at `:1443` — so this
+is a guard, not a plumbing change.
+
+### 20.3 The reduction is shallower than the published one, and it is verified
+
+`nmp_reduction: 2` with `nmp_dynamic_divisor: 6` gives `2 + depth / 6`: **R = 3 at the root depth
+of 9 to 10 this engine reaches at the match time control.** The published adaptive form is
+`3 + depth / 3`, plus a term in how far the static evaluation exceeds `beta`, capped:
+
+```rust
+let eval_term = ((static_eval - beta) / 200).min(3);
+let reduction = 3 + depth / 3 + eval_term;
+```
+
+which is R = 6 to 7 at the same depths, before the margin term.
+
+The engine additionally runs a **verification search** at `depth >= nmp_verification_threshold`
+(6), re-searching this node at the reduced depth before the cut is taken. That doubles the cost of
+every deep cut. The published pairing is the other way round: the static-eval gate of 20.1 is what
+makes the verification unnecessary, because a node whose static evaluation is already at or above
+`beta` is not the zugzwang case the verification exists to catch.
+
+**Take 20.1 and 20.2 first and separately from 20.3.** The gate and the guards only remove searches;
+the reduction and the verification change what a cut is allowed to conclude, and they are two more
+parameters for a tuning group rather than a fixed choice.
+
+**How to price it**: `scripts/measure_tree_size.py` over both 300-position samples for the
+deterministic reading, then one fixed-N 6000-game run. Rule 7: decide the count before the run.
+Note that 20.1 and 20.2 change the tree, so node identity is not available for any of this.
+
+## 21. `improving`, and the two rules whose depth bounds keep them from firing
+
+`[Impact: unknown]` `[Complexity: Medium]` `[unmeasured]`
+
+### 21.1 The engine has no notion of `improving`
+
+There is no per-ply record of the static evaluation, so no rule can ask whether the side to move
+is doing better than it was two plies ago. `grep -in "improv" src/` returns nothing.
+
+The standard construction is a stack written on node entry:
+
+```rust
+// STATIC_EVAL_UNAVAILABLE at every node entry, so a check node cannot leak a stale value
+static_eval_stack[ply] = static_eval;
+let improving = ply >= 2
+    && static_eval_stack[ply - 2] != STATIC_EVAL_UNAVAILABLE
+    && static_eval > static_eval_stack[ply - 2];
+```
+
+**The arena rule of 5.5 applies and is satisfied.** One `i16` per ply is 2 bytes against the 16 KB
+history snapshot that cost the search 5.2% without staging a node. A `[i16; MAX_PLY + 1]` alongside
+`killer_moves` is the right shape; it does not belong in `NodeBuffers`.
+
+Note the reset discipline: the entry must be written at *node entry* on every node, including the
+in-check nodes that have no static evaluation, or a check node inherits the value of whatever node
+last occupied that ply.
+
+### 21.2 The Late Move Pruning threshold outruns the position
+
+Already established in `src/search_service.rs`, `test_lmp_max_depth_is_inert_above_four`, and
+pinned by that test: `lmp_base_moves + 2 * depth^2` demands 53 quiet moves at a single node at
+depth 5 and 75 at depth 6, so every `lmp_max_depth` from 4 upwards searches the same tree. The
+test's own conclusion is the one to act on: *"The fix is the growth term, not the counter and not
+the advertised bound."*
+
+What the threshold admits today against the published form, which divides by two when the node is
+not improving:
+
+| depth | `3 + 2d^2` (today, capped at d = 4) | `(base + d^2) / (2 - improving)`, not improving | improving |
+| ---: | ---: | ---: | ---: |
+| 1 | 5 | 3 | 7 |
+| 2 | 11 | 5 | 10 |
+| 3 | 21 | 7 | 15 |
+| 4 | 35 | 11 | 22 |
+| 8 | inert | 35 | 70 |
+
+At depth 4 the rule as written lets 35 quiet moves through before it prunes anything. A full move
+list is rarely over 50 and most nodes cut long before that, which is precisely why the flat region
+above 4 exists. The growth term wants to be `depth^2`, not `2 * depth^2`, and the cap wants to
+move to 8 in the same change — the two are one edit and cannot be priced apart, because with the
+old growth term the new cap is inert by construction.
+
+`tuning/parameters.json` registers `lmp_max_depth` with `max: 8` and the UCI facade advertises
+`max 10`, both over a region that is currently flat. Whatever the growth term becomes, the
+advertised bound and the tuner's range have to be re-checked against it in the same change, or
+SPSA keeps exploring nothing.
+
+### 21.3 Reverse Futility Pruning stops at depth 3
+
+`rfp_max_depth: 3` with `rfp_margin_per_depth: 80`. The published bound is 6 to 9 plies with a
+margin near 90 to 100 per ply. At `depth = 3` today the rule demands a 240-centipawn surplus; the
+same margin at depth 6 would demand 480, which is a wide enough gate that extending the depth
+bound is not obviously the aggressive change it looks like.
+
+`rfp_max_depth` and `rfp_margin_per_depth` are already SPSA-registered, so this is a range change
+plus a tuning run rather than new code — but the range is only worth widening once 20.2 has given
+the rule a `!is_pv` guard, because at depth 6 a PV-node static cut is a different proposition than
+at depth 3.
+
+### 21.4 What `improving` is worth beyond Late Move Pruning
+
+The same flag conventionally scales the Reverse Futility margin and the Late Move Reduction table.
+Those are separate changes with separate prices; 21.1 plus 21.2 is the smallest version that uses
+the stack at all, and nothing else should be bundled into the run that prices it.
+
+## 22. Internal Iterative Reduction
+
+`[Impact: unknown]` `[Complexity: Low]` `[unmeasured]` — six lines. The engine has nothing in this
+family: no Internal Iterative Deepening, no reduction on a missing table move.
+
+A node at real depth with no Transposition Table move has no ordering guidance at all — the first
+move it searches is whatever the capture band or the history table happens to rank first, and if
+that move is wrong the node pays full depth to find out. The published rule spends one ply instead
+of searching a badly ordered node at full depth:
+
+```rust
+// after the TT probe, before the depth <= 0 quiescence drop
+if ply > 0 && depth >= iir_min_depth && tt_move.is_none() {
+    depth -= 1;
+}
+```
+
+`iir_min_depth` is 4 in the published form, applied at PV and non-PV nodes alike; the root is
+exempt so that iterative deepening still completes the depth it was asked for.
+
+Two placement constraints in this engine:
+
+* It must come **after** the Transposition Table probe (`:600` onwards), which is what establishes
+  `tt_move`, and **before** the `depth <= 0` quiescence branch at `:812`, so that a node reduced to
+  zero drops into the Quiescence Search rather than searching at negative depth.
+* `orig_alpha`/`orig_beta` are captured at `:657` and the entry is stored under the *reduced*
+  depth. That is correct and intended — the node really was searched one ply shallower — but it
+  means a later visit at the original depth will not accept the entry for a cutoff, which is the
+  mechanism that makes the reduction self-repairing rather than permanent.
+
+**How to price it**: `scripts/measure_tree_size.py` on both 300-position samples; the reading to
+believe is the median per-position ratio and the count, per the lesson in *Start Here*. Then one
+fixed-N run.
+
+## 23. The History Heuristic has four defects, and the killers and counter moves share the worst one
+
+`[Impact: unknown]` `[Complexity: Low to Medium]` `[unmeasured]` — four independent problems in
+about thirty lines of code. They are listed cheapest first; each can be taken alone.
+
+### 23.1 Every learned table is thrown away at every iterative deepening iteration
+
+This is the one to fix first and it is not in `search_service.rs` at all.
+
+The iterative deepening loop lives in `src/game_handler.rs:202` (and `:94` for `infinite`), and it
+calls `SearchService::get_moves` once **per depth**. `get_moves` opens with
+
+```rust
+let mut killer_moves: [[Option<Turn>; 2]; 128] = [[None; 2]; 128];   // search_service.rs:90
+let mut history_table = [[0u32; 64]; 64];                             // :91
+let mut counter_moves: [[Option<Turn>; 64]; 64] = [[None; 64]; 64];   // :92
+```
+
+So the depth-8 search starts with empty killers, an empty history table and an empty counter-move
+table. Everything the depth-7 search learned about this exact position is discarded, and the only
+state that survives an iteration is the Transposition Table. The tables are re-learned from zero
+at every depth, which is worst precisely at the deep iterations that matter most, and it means
+the ordering quality the history heuristic is supposed to supply is never available early in an
+iteration.
+
+The published discipline is the other way round: the tables persist for the whole game, and each
+new search **halves** the butterfly history so stale entries decay rather than staying saturated
+at the cap. `ucinewgame` clears them.
+
+The fix is to hoist the three tables out of `get_moves` into state that lives across the
+iterative deepening loop and to halve the history on entry. That is a signature change to
+`get_moves` and two call sites, and it interacts with nothing else in this list.
+
+Note the interaction with 23.4: with `history_max_threshold` ageing as it is written today, a
+persistent table changes how often the global halving pass runs, so 23.1 and 23.4 are cleaner
+together than apart.
+
+### 23.2 The history table is not indexed by side to move
+
+```rust
+let mut history_table = [[0u32; 64]; 64];                            // [from][to]
+crate::model::BAND_QUIET + (*context.history_table)[from][to] as i32 // move_gen_service.rs:461
+```
+
+White and Black share every `[from][to]` entry. A quiet move that refutes for one side raises the
+rank of the geometrically identical move for the other, in a position where it usually means
+something else entirely. The published table is `[side][from][to]`, which is one extra dimension
+and 8 KB.
+
+`board.white_to_move` is available at both the write site (`:1489`) and the read site
+(`move_gen_service.rs:461`), so this is an indexing change, not a plumbing change. **The one thing
+to be careful about is which side's index is read at each site**: the write happens at the parent
+node before `do_move`, the read happens during generation for the node whose moves are being
+ranked, and the two must agree.
+
+### 23.3 History can never go negative, so the LMR "bad" threshold cannot fire as intended
+
+```rust
+history_table[from][to] += (depth * depth) as u32;                        // :1492
+history_table[b_from][b_to] = history_table[b_from][b_to].saturating_sub(penalty);  // :1502
+```
+
+The table is `u32` and the malus saturates at zero. A quiet move that has been actively refuted a
+dozen times is therefore indistinguishable from a quiet move that has never been searched: both
+read 0. `lmr_history_bad_threshold: 500` at `lmr_reduction` (`:1713`) consequently increases the
+reduction for *unseen* moves, not for *refuted* ones — the opposite of what the parameter name
+says and of what the reduction is for.
+
+The published form is a signed table with a gravity update, which converges towards the cap
+instead of clamping at it and never needs a rescaling pass:
+
+```rust
+// bonus may be negative; entry converges towards +/- MAX_HISTORY
+*e += bonus - (*e) * bonus.abs() / MAX_HISTORY;
+```
+
+This is the change that makes `lmr_history_bad_threshold` meaningful, so it and 23.4 have to be
+re-tuned together — the thresholds are calibrated to the magnitudes the update produces.
+
+### 23.4 The malus is disabled, and the bonus curve is a rescaling pass
+
+`enable_history_malus: false` at `config.rs:471`. The store loop at `:1495` exists and is off.
+
+Separately, `depth * depth` as the bonus with a global halving of all 4096 entries whenever any
+one of them passes `history_max_threshold: 9000` (`:1514`) is a different curve from the published
+`min(mult * depth - sub, max)` with separate bonus and malus slopes. The published form makes the
+malus steeper than the bonus so a refuted move is unlearned faster than a good one is learned, and
+the gravity update of 12.3 removes the halving pass entirely.
+
+Any change here moves four parameters at once (`hist_bonus_*`, `hist_malus_*`) plus the two LMR
+thresholds, so it wants its own SPSA group rather than a hand-picked default. **It should not be
+attempted before 23.3**, because a bonus curve tuned against a table that clamps at zero does not
+transfer to one that goes negative.
+
+## 24. Continuation History
+
+`[Impact: unknown]` `[Complexity: High]` `[unmeasured]` — a rework, not an addition, and the one
+item on this list that must not be measured without its tuning run.
+
+Quiet moves are ordered today by three separate mechanisms occupying two bands: killer moves and
+the counter move sit in `BAND_KILLER` with fixed bonuses (`killer_move_1_rank_bonus: 20000`,
+`killer_move_2_rank_bonus: 10000`, `counter_move_rank_bonus: 15000`), and everything else sits in
+`BAND_QUIET` ranked by the butterfly history. Late Move Reductions then consult all three
+separately at `lmr_reduction` (`:1690`): one damping for a killer, one for a counter move, one
+pair of history thresholds.
+
+The published replacement is a pair of tables indexed by `[prev_piece][prev_to][piece][to]` — one
+looking back one ply (which subsumes the counter move) and one looking back two — whose sum with
+the butterfly history is *the* quiet ordering score, and is also the single statistic the reduction
+consults. Killers and the counter-move table are then deleted rather than kept alongside.
+
+What this engine would need:
+
+* **Two `i16` tables of 12 x 64 x 12 x 64**, 2.36 MB each. Static or per-search-thread state — by
+  the rule 5.5 established, emphatically *not* in `NodeBuffers` or the per-node arena, which is
+  walked at every node.
+* **The move that led to each ply, plus the piece that made it**, recorded at make time. The piece
+  cannot be looked up from the board later, because it may have been captured in the meantime.
+* **A null move must clear the previous-move slot** for its child, or the child ranks against a
+  move that was never played.
+* The band structure survives: the combined score replaces what `BAND_QUIET` holds and
+  `BAND_KILLER` disappears. The total order of 5.2 and the `RANK_TIEBREAK_BITS` packing established
+  in v0.39.0 both still apply and are what keeps the comparison a single `i32`.
+
+**The measurement discipline this item needs is specific.** The published result for this rework
+is that the *untuned* version measured worse than what it replaced, and that the gain appeared only
+after the ordering constants and the reduction thresholds were tuned jointly. So:
+
+* Do not run a game gauntlet on the untuned rework and conclude anything from it.
+* The tuning group is the two history curves, the follow-up weight, and the four reduction
+  thresholds, together — they are one calibrated system, exactly as 23.3 and 23.4 already are.
+* This is therefore a two-run item at minimum, and it is correctly last among the search-rule
+  items.
+
+## 25. The Transposition Table: one slot, no ageing, no cached static evaluation, and a division in the probe
+
+`[Impact: unknown]` `[Complexity: Medium to High]` `[unmeasured]` — `src/zobrist.rs`. Four separate
+properties, of which two are throughput and two are search quality.
+
+### 25.1 The index is a 64-bit modulo on the hottest path
+
+```rust
+let index = (*hash as usize) % self.table.len();   // zobrist.rs:204, get_entry
+let index = (hash as usize) % self.table.len();    // zobrist.rs:224, insert_entry
+```
+
+`max_zobrist_hash_entries: 50_000_000` is not a power of two, so this is a real 64-bit integer
+division, executed on every probe and every store — which is once or twice per node.
+
+The standard alternative keeps arbitrary table sizes and costs a multiply:
+
+```rust
+let index = (((hash as u128) * (self.table.len() as u128)) >> 64) as usize;
+```
+
+This is **not** node-identical: it changes which positions collide, so the tree moves. It is
+measurable with `scripts/measure_throughput.py` (which now takes `--base-options`/`--cand-options`
+and reports identity with `nodes` excluded) and `scripts/measure_tree_size.py` together — the
+throughput reading is the point and the tree reading is the control. Read the corpus total, not
+the mean, and treat under half a point as no difference.
+
+### 25.2 There is one entry per index and no ageing
+
+`AtomicEntry` is a single `{key: u64, data: u64}` pair per slot: 16 bytes, one position, no
+neighbours. The replacement policy at `:238` is depth-preferred with one exception for Quiescence
+entries, and it has **no notion of when an entry was written**. A deep entry stored at move 12
+occupies its slot for the rest of the game.
+
+The published structure is a cluster of several entries sized to one 64-byte cache line, probed as
+a group, with a generation counter bumped at the start of each search and an eviction score of
+depth discounted by age. Entries shrink to fit — the full 64-bit key becomes a 16-bit verifier,
+since the index already accounts for the rest — which is what pays for the extra entries.
+
+Two things this engine would gain beyond hit rate: a `hashfull` figure that means something, and
+somewhere to put a PV flag, which is what a replacement policy needs to protect principal
+variation entries from ordinary ones.
+
+The concurrency contract must survive. The current lockless scheme — invalidate the key, write the
+data, restore the key — is what makes a torn read detectable, and a multi-entry cluster needs the
+same property per entry, not per cluster.
+
+### 25.3 The entry caches no static evaluation
+
+`TranspositionEntry` holds `eval` — the *search score* — and no static evaluation. So every
+revisit of a position recomputes `calc_eval` from scratch at `search_service.rs:666`, even though
+the static evaluation of a position never changes.
+
+The published entry carries the raw static evaluation next to the score, with a sentinel for "not
+stored" (check nodes have none), and the node reuses it instead of calling the evaluation at all.
+
+This is worth more here than the field size suggests, and it touches an item already on the open
+list. *"Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit"*
+is a first-visit problem by construction; a cached raw evaluation means later visits do not have a
+first visit to get wrong. The two should be looked at together.
+
+One constraint: what is cached must be the **raw** evaluation, before any correction or clamping,
+and the lazy-evaluation early return must not be cached as if it were a full evaluation — a lazy
+return is a bound in one direction, not a value. Either store only full evaluations, or store the
+lazy value with the margin that produced it. This is the detail that decides whether the item is
+correct, and it should be settled before any code is written.
+
+### 25.4 What order to take it in
+
+25.1 alone is a self-contained throughput change with a clean measurement. 25.3 is a self-contained
+search change. 25.2 is the one that rewrites the structure, and it subsumes the entry layout that
+25.3 needs, so 25.3 is either done inside 25.2 or done first in the existing layout and re-done.
+There is no version of this where all four land in one priced change.
+
+## 26. ProbCut
+
+`[Impact: unknown]` `[Complexity: Medium]` `[unmeasured]` — the most speculative item on this list,
+and deliberately last.
+
+Absent. The idea: before generating the node normally, ask whether some capture already beats a
+*raised* `beta` at reduced depth. If one does, the node beats its real `beta` too, and the raised
+bound is what makes that inference sound.
+
+The published shape, capture-only:
+
+* Gate on `!is_pv && !in_check && depth >= 5`, and on `beta` being far enough below the mate region
+  that `beta + margin` does not run into it.
+* `probcut_beta = beta + margin` with a margin near 180 centipawns.
+* Generate captures only. For each, require `see_ge(move, probcut_beta - static_eval)` — the
+  capture has to be plausibly large enough on its own before anything is searched.
+* Confirm with a Quiescence Search at the raised null window, then with a **real** reduced-depth
+  search at `depth - reduction` (reduction near 4, floored at 1). Both must clear `probcut_beta`.
+
+Two constraints specific to this engine:
+
+* **Rule 6 is satisfied**, and that is worth stating because it is the rule that killed the first
+  attempt to price the Singular Extension. A minimum depth of 5 fires at plies 0 through 4 or 5 at
+  the root depth of 9 to 10 this engine reaches at the match time control, not just at the root.
+* **The store on a successful cut needs the 8.1 treatment.** The published version writes a lower
+  bound under this position's hash at the confirmation depth. That is defensible — unlike the
+  singular multicut, the result is backed by a legal capture and a real search of *this* position,
+  with no move excluded — but this engine's history with speculative table writes is expensive
+  enough that the first version should return without storing, and the store priced separately if
+  at all.
+
+`scripts/measure_tree_size.py` first: a rule that does not shrink the tree deterministically has
+nothing to offer a game run.
