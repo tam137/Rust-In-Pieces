@@ -383,7 +383,7 @@ impl MoveGenService {
             if board.cached_hash == 0 {
                 board.cached_hash = zobrist::gen_hash(board);
             }
-            if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+            if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                 tt_best_move = entry.decompress_move(board);
             }
         }
