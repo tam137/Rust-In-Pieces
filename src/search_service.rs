@@ -203,6 +203,9 @@ impl SearchService {
                 turn_counter += 1;
                 context.root_moves_searched = turn_counter - 1;
                 let mi = board.do_move(turn);
+                // The child key is already final at this point, so the slot request can start now
+                // and overlap with move generation and evaluation below.
+                context.zobrist_table.prefetch(board.cached_hash);
 
                 let child_context = SearchContext {
                     zobrist_table: context.zobrist_table,
@@ -597,7 +600,7 @@ impl SearchService {
             if board.cached_hash == 0 {
                 board.cached_hash = crate::zobrist::gen_hash(board);
             }
-            if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+            if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                 tt_move = entry.decompress_move(board);
                 if config.enable_singular_extensions {
                     let mut candidate_eval = entry.eval;
@@ -684,13 +687,10 @@ impl SearchService {
             let old_field_for_en_passante = board.field_for_en_passante;
             let old_hash = board.cached_hash;
 
-            // Make Null Move
+            // Make Null Move. The hash is derived from the position as it still stands, so that
+            // the update can never drift apart from `gen_hash` and `calc_incremental_hash`.
+            board.cached_hash = crate::zobrist::null_move_hash(board);
             board.white_to_move = !board.white_to_move;
-            board.cached_hash ^= *crate::zobrist::WHITE_TO_MOVE;
-            if old_field_for_en_passante >= 0 {
-                let file = (old_field_for_en_passante % 8) as usize;
-                board.cached_hash ^= crate::zobrist::EN_PASSANT_FILE[file];
-            }
             board.field_for_en_passante = -1;
 
             let dynamic_divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
@@ -825,7 +825,7 @@ impl SearchService {
                 if board.cached_hash == 0 {
                     board.cached_hash = crate::zobrist::gen_hash(board);
                 }
-                if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                     tt_move = entry.decompress_move(board);
                     if entry.depth >= 0 {
                         let mut entry_eval = entry.eval;
@@ -988,6 +988,9 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
+                // The child key is already final at this point, so the slot request can start now
+                // and overlap with move generation and evaluation below.
+                context.zobrist_table.prefetch(board.cached_hash);
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
                     -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
                     ply + 1, killer_moves, history_table, counter_moves, deeper).1;
@@ -1384,6 +1387,9 @@ impl SearchService {
             let diag_nodes_before = stats.calculated_nodes;
 
             let mi = board.do_move(current_turn);
+            // The child key is already final at this point, so the slot request can start now
+            // and overlap with move generation and evaluation below.
+            context.zobrist_table.prefetch(board.cached_hash);
 
             // Dead store: either the reduced search below assigns it, or the Principal
             // Variation Search does.

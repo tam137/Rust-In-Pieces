@@ -1,40 +1,79 @@
-use rand::{RngCore, rngs::StdRng, SeedableRng};
-use once_cell::sync::Lazy;
-
 use crate::model::Board;
 
 const NUM_PIECES: usize = 12;
 const BOARD_SIZE: usize = 64;
 
-static ZOBRIST_DATA: Lazy<([[u64; NUM_PIECES]; BOARD_SIZE], u64, [u64; 16], [u64; 8])> = Lazy::new(|| {
-    let mut rng = StdRng::seed_from_u64(137);
-    let mut table = [[0u64; NUM_PIECES]; BOARD_SIZE];
+/// Compile-time key material for the Zobrist hash.
+///
+/// The keys used to be drawn from `StdRng` behind four `once_cell::sync::Lazy` statics. That put a
+/// `OnceCell` guard on *every* key access, and because the never-taken initialisation call still
+/// clobbers the caller-saved registers, `Board::do_move` carried thirteen such call sites together
+/// with the register spills around them. Generating the keys with a `const fn` moves the whole
+/// table into `.rodata`: no atomic guard, no branch, no spills, and one copy instead of two.
+struct ZobristKeys {
+    pieces: [[u64; NUM_PIECES]; BOARD_SIZE],
+    white_to_move: u64,
+    castling: [u64; 16],
+    en_passant: [u64; 8],
+}
 
-    for row in table.iter_mut() {
-        for val in row.iter_mut() {
-            *val = rng.next_u64();
+/// SplitMix64. Chosen over the previous `StdRng` because it is expressible as a `const fn` while
+/// still passing BigCrush; the exact key values are irrelevant as long as they are well spread.
+/// Returns the advanced state alongside the drawn value.
+const fn next_key(state: u64) -> (u64, u64) {
+    let state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    (state, z ^ (z >> 31))
+}
+
+const fn generate_keys() -> ZobristKeys {
+    let mut state = 137;
+
+    let mut pieces = [[0u64; NUM_PIECES]; BOARD_SIZE];
+    let mut square = 0;
+    while square < BOARD_SIZE {
+        let mut piece = 0;
+        while piece < NUM_PIECES {
+            let (next_state, key) = next_key(state);
+            state = next_state;
+            pieces[square][piece] = key;
+            piece += 1;
         }
+        square += 1;
     }
 
-    let white_to_move = rng.next_u64();
+    let (next_state, white_to_move) = next_key(state);
+    state = next_state;
 
-    let mut castling_rights = [0u64; 16];
-    for val in castling_rights.iter_mut() {
-        *val = rng.next_u64();
+    let mut castling = [0u64; 16];
+    let mut i = 0;
+    while i < 16 {
+        let (next_state, key) = next_key(state);
+        state = next_state;
+        castling[i] = key;
+        i += 1;
     }
 
-    let mut en_passant_files = [0u64; 8];
-    for val in en_passant_files.iter_mut() {
-        *val = rng.next_u64();
+    let mut en_passant = [0u64; 8];
+    let mut i = 0;
+    while i < 8 {
+        let (next_state, key) = next_key(state);
+        state = next_state;
+        en_passant[i] = key;
+        i += 1;
     }
 
-    (table, white_to_move, castling_rights, en_passant_files)
-});
+    ZobristKeys { pieces, white_to_move, castling, en_passant }
+}
 
-pub static ZOBRIST_TABLE: Lazy<[[u64; NUM_PIECES]; BOARD_SIZE]> = Lazy::new(|| ZOBRIST_DATA.0);
-pub static WHITE_TO_MOVE: Lazy<u64> = Lazy::new(|| ZOBRIST_DATA.1);
-pub static CASTLING_RIGHTS: Lazy<[u64; 16]> = Lazy::new(|| ZOBRIST_DATA.2);
-pub static EN_PASSANT_FILE: Lazy<[u64; 8]> = Lazy::new(|| ZOBRIST_DATA.3);
+const ZOBRIST_KEYS: ZobristKeys = generate_keys();
+
+pub static ZOBRIST_TABLE: [[u64; NUM_PIECES]; BOARD_SIZE] = ZOBRIST_KEYS.pieces;
+pub const WHITE_TO_MOVE: u64 = ZOBRIST_KEYS.white_to_move;
+pub static CASTLING_RIGHTS: [u64; 16] = ZOBRIST_KEYS.castling;
+pub static EN_PASSANT_FILE: [u64; 8] = ZOBRIST_KEYS.en_passant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -200,12 +239,47 @@ impl ZobristTable {
         Self { table }
     }
 
-    pub fn get_entry(&self, hash: &u64) -> Option<TranspositionEntry> {
-        let index = (*hash as usize) % self.table.len();
-        let slot = &self.table[index];
+    /// Maps a Zobrist key onto a slot without a hardware division.
+    ///
+    /// `hash % len` compiled to a real 64-bit `div`, which sits on the dependency chain *ahead* of
+    /// the slot load and therefore delays the start of what is almost always a DRAM miss. The
+    /// multiply-shift (Lemire) reduction below is a single widening multiply, keeps arbitrary
+    /// (non-power-of-two) table sizes so the UCI `Hash` option is unaffected, and consumes the high
+    /// key bits - which are as well distributed as the low ones for a Zobrist hash.
+    #[inline(always)]
+    pub fn slot_index(&self, hash: u64) -> usize {
+        ((hash as u128 * self.table.len() as u128) >> 64) as usize
+    }
+
+    /// Pulls the slot for `hash` into L1 ahead of the probe.
+    ///
+    /// A default-sized table is far larger than the last-level cache, so nearly every probe misses
+    /// to DRAM. Issuing the request as soon as the child key is known - `do_move` computes it
+    /// before it touches the board - overlaps that latency with move generation and evaluation.
+    #[inline(always)]
+    pub fn prefetch(&self, hash: u64) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let slot = unsafe { self.table.as_ptr().add(self.slot_index(hash)) };
+            unsafe { std::arch::x86_64::_mm_prefetch(slot as *const i8, std::arch::x86_64::_MM_HINT_T0) };
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            let slot = unsafe { self.table.as_ptr().add(self.slot_index(hash)) };
+            unsafe { std::arch::aarch64::_prefetch(slot as *const i8, std::arch::aarch64::_PREFETCH_READ, std::arch::aarch64::_PREFETCH_LOCALITY3) };
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            let _ = hash;
+        }
+    }
+
+    #[inline]
+    pub fn get_entry(&self, hash: u64) -> Option<TranspositionEntry> {
+        let slot = &self.table[self.slot_index(hash)];
 
         let key1 = slot.key.load(std::sync::atomic::Ordering::Acquire);
-        if key1 != *hash {
+        if key1 != hash {
             return None;
         }
         let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
@@ -221,8 +295,7 @@ impl ZobristTable {
     }
 
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
-        let index = (hash as usize) % self.table.len();
-        let slot = &self.table[index];
+        let slot = &self.table[self.slot_index(hash)];
 
         let key1 = slot.key.load(std::sync::atomic::Ordering::Relaxed);
         let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
@@ -263,11 +336,20 @@ impl ZobristTable {
             .count()
     }
 
+    /// Returns every slot to the empty state.
+    ///
+    /// Both words have to be reset. `insert_entry` recognises an empty slot by `depth == -1`, which
+    /// lives in `data`; resetting only `key` left the previous depth behind, so after `ucinewgame`
+    /// every slot that had held a `depth >= 1` entry kept rejecting quiescence writes under the
+    /// collision rule until a main-search store happened to land on it. A stale `data` also let a
+    /// probe for the (reserved) key `0` read back the evicted entry.
     pub fn clear(&self) {
         let default_entry = TranspositionEntry::default();
         let default_key = default_entry.key;
+        let default_data = default_entry.pack();
         for slot in &self.table {
             slot.key.store(default_key, std::sync::atomic::Ordering::Relaxed);
+            slot.data.store(default_data, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -275,7 +357,7 @@ impl ZobristTable {
 pub fn gen_hash(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
-        hash ^= *WHITE_TO_MOVE;
+        hash ^= WHITE_TO_MOVE;
     }
     let castle_index = (if board.white_possible_to_castle_short { 1 } else { 0 })
         | (if board.white_possible_to_castle_long { 2 } else { 0 })
@@ -293,6 +375,22 @@ pub fn gen_hash(board: &Board) -> u64 {
             hash ^= ZOBRIST_TABLE[square][piece_idx];
             bb &= bb - 1; // Clear least significant set bit
         }
+    }
+    hash
+}
+
+/// Hash of the position produced by a null move: the side to move flips and the en passant square
+/// is given up. Must be called on the position *before* the null move is applied.
+///
+/// Kept here rather than inline in the search so that it can never drift apart from [`gen_hash`]
+/// and [`calc_incremental_hash`]. A mismatch would not corrupt the board - the search restores the
+/// hash wholesale - but it would make the entire subtree below the null move probe and store under
+/// a key that belongs to no position.
+#[inline(always)]
+pub fn null_move_hash(board: &Board) -> u64 {
+    let mut hash = board.cached_hash ^ WHITE_TO_MOVE;
+    if board.field_for_en_passante >= 0 {
+        hash ^= EN_PASSANT_FILE[(board.field_for_en_passante % 8) as usize];
     }
     hash
 }
@@ -333,136 +431,87 @@ mod tests {
         assert_eq!(total_bytes, 1_600_000_000, "100M entries must equal 1.6 GB (1,600,000,000 bytes)");
     }
 
+    /// Two keys that land in the same slot of a two-entry table, and two that land in the other.
+    /// The values are asserted rather than assumed so that the collision tests below keep testing
+    /// collisions if the index function is ever changed again.
+    const SLOT_A_1: u64 = 0;
+    const SLOT_A_2: u64 = 2;
+    const SLOT_A_3: u64 = 4;
+    const SLOT_B_1: u64 = 1 << 63;
+    const SLOT_B_2: u64 = (1 << 63) | 1;
+
+    fn assert_slot_layout(table: &ZobristTable) {
+        assert_eq!(table.slot_index(SLOT_A_1), table.slot_index(SLOT_A_2));
+        assert_eq!(table.slot_index(SLOT_A_1), table.slot_index(SLOT_A_3));
+        assert_eq!(table.slot_index(SLOT_B_1), table.slot_index(SLOT_B_2));
+        assert_ne!(table.slot_index(SLOT_A_1), table.slot_index(SLOT_B_1));
+    }
+
+    fn entry(key: u64, eval: i16, depth: i8, entry_type: TranspositionType) -> TranspositionEntry {
+        TranspositionEntry { key, eval, depth, entry_type, best_move: 0, padding: [0; 2] }
+    }
+
     #[test]
     fn zobrist_replacement_policy_test() {
         let table = ZobristTable::with_capacity(2);
+        assert_slot_layout(&table);
 
-        let entry1 = TranspositionEntry {
-            key: 0,
-            eval: 100,
-            depth: 3,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(0, entry1);
-        let ret = table.get_entry(&0).unwrap();
+        table.insert_entry(SLOT_A_1, entry(SLOT_A_1, 100, 3, TranspositionType::Exact));
+        let ret = table.get_entry(SLOT_A_1).unwrap();
         assert_eq!(ret.eval, 100);
         assert_eq!(ret.depth, 3);
 
-        let entry2 = TranspositionEntry {
-            key: 2,
-            eval: 200,
-            depth: 5,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(2, entry2);
-        assert!(table.get_entry(&0).is_none());
-        let ret2 = table.get_entry(&2).unwrap();
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 200, 5, TranspositionType::Exact));
+        assert!(table.get_entry(SLOT_A_1).is_none());
+        let ret2 = table.get_entry(SLOT_A_2).unwrap();
         assert_eq!(ret2.eval, 200);
         assert_eq!(ret2.depth, 5);
 
-        let entry3 = TranspositionEntry {
-            key: 4,
-            eval: 400,
-            depth: 2,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(4, entry3);
-        let ret3 = table.get_entry(&4).unwrap();
+        table.insert_entry(SLOT_A_3, entry(SLOT_A_3, 400, 2, TranspositionType::Exact));
+        let ret3 = table.get_entry(SLOT_A_3).unwrap();
         assert_eq!(ret3.eval, 400);
         assert_eq!(ret3.depth, 2);
-        assert!(table.get_entry(&2).is_none());
+        assert!(table.get_entry(SLOT_A_2).is_none());
 
-        let entry4 = TranspositionEntry {
-            key: 4,
-            eval: 150,
-            depth: 1,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(4, entry4);
-        let ret_kept_after_low_depth = table.get_entry(&4).unwrap();
-        assert_eq!(ret_kept_after_low_depth.eval, 400);
-        assert_eq!(ret_kept_after_low_depth.depth, 2);
+        // Same position, shallower search: the deeper entry stands.
+        table.insert_entry(SLOT_A_3, entry(SLOT_A_3, 150, 1, TranspositionType::Exact));
+        let kept = table.get_entry(SLOT_A_3).unwrap();
+        assert_eq!(kept.eval, 400);
+        assert_eq!(kept.depth, 2);
     }
 
     #[test]
     fn zobrist_qs_tt_collision_protection_test() {
         let table = ZobristTable::with_capacity(2);
+        assert_slot_layout(&table);
 
-        // 1. Store a deep Main Search entry (depth = 6) at hash 0 (slot 0)
-        let main_entry = TranspositionEntry {
-            key: 0,
-            eval: 250,
-            depth: 6,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(0, main_entry);
-        assert_eq!(table.get_entry(&0).unwrap().depth, 6);
+        // 1. Store a deep main-search entry (depth = 6).
+        table.insert_entry(SLOT_A_1, entry(SLOT_A_1, 250, 6, TranspositionType::Exact));
+        assert_eq!(table.get_entry(SLOT_A_1).unwrap().depth, 6);
 
-        // 2. Attempt to insert a Quiescence Search entry (depth = 0) with colliding hash 2 (slot 0)
-        let qs_entry = TranspositionEntry {
-            key: 2,
-            eval: 50,
-            depth: 0,
-            entry_type: TranspositionType::LowerBound,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(2, qs_entry);
+        // 2. A quiescence entry (depth = 0) colliding on the same slot must be rejected.
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 50, 0, TranspositionType::LowerBound));
 
-        // Verify: Main search entry at hash 0 MUST be preserved; QS collision write was rejected
-        let preserved = table.get_entry(&0);
+        let preserved = table.get_entry(SLOT_A_1);
         assert!(preserved.is_some(), "Deep main search entry must not be evicted by QS collision");
         assert_eq!(preserved.unwrap().depth, 6);
         assert_eq!(preserved.unwrap().eval, 250);
-        assert!(table.get_entry(&2).is_none(), "Colliding QS entry must not be present");
+        assert!(table.get_entry(SLOT_A_2).is_none(), "Colliding QS entry must not be present");
 
-        // 3. A Main Search entry (depth = 8) CAN overwrite on collision
-        let deeper_main_entry = TranspositionEntry {
-            key: 2,
-            eval: 300,
-            depth: 8,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(2, deeper_main_entry);
-        assert!(table.get_entry(&0).is_none(), "Deeper main search entry replaces collision");
-        assert_eq!(table.get_entry(&2).unwrap().depth, 8);
+        // 3. A main-search entry (depth = 8) may take the slot.
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 300, 8, TranspositionType::Exact));
+        assert!(table.get_entry(SLOT_A_1).is_none(), "Deeper main search entry replaces collision");
+        assert_eq!(table.get_entry(SLOT_A_2).unwrap().depth, 8);
 
-        // 4. Storing QS entry (depth = 0) on an empty slot (slot 1, key = 1) succeeds
-        let qs_entry_empty = TranspositionEntry {
-            key: 1,
-            eval: 75,
-            depth: 0,
-            entry_type: TranspositionType::UpperBound,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(1, qs_entry_empty);
-        assert_eq!(table.get_entry(&1).unwrap().depth, 0);
+        // 4. A quiescence entry fits into an empty slot.
+        table.insert_entry(SLOT_B_1, entry(SLOT_B_1, 75, 0, TranspositionType::UpperBound));
+        assert_eq!(table.get_entry(SLOT_B_1).unwrap().depth, 0);
 
-        // 5. Another QS entry (depth = 0) colliding on slot 1 (key = 3) CAN replace the existing QS entry (depth = 0)
-        let qs_entry_col = TranspositionEntry {
-            key: 3,
-            eval: 80,
-            depth: 0,
-            entry_type: TranspositionType::Exact,
-            best_move: 0,
-            padding: [0; 2],
-        };
-        table.insert_entry(3, qs_entry_col);
-        assert!(table.get_entry(&1).is_none());
-        assert_eq!(table.get_entry(&3).unwrap().depth, 0);
+        // 5. Another quiescence entry colliding there may replace it - the rule only protects
+        //    main-search depth.
+        table.insert_entry(SLOT_B_2, entry(SLOT_B_2, 80, 0, TranspositionType::Exact));
+        assert!(table.get_entry(SLOT_B_1).is_none());
+        assert_eq!(table.get_entry(SLOT_B_2).unwrap().depth, 0);
     }
 
     #[test]
@@ -577,7 +626,9 @@ mod tests {
             let table_clone = Arc::clone(&table);
             handles.push(thread::spawn(move || {
                 for i in 0..1000 {
-                    let key = (i % 10) as u64;
+                    // Spread over the table: the reduction consumes the high bits, so small
+                    // consecutive keys would all share slot 0.
+                    let key = ((i % 10) as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
                     let depth = (i % 10) as i8;
                     let entry = TranspositionEntry {
                         key,
@@ -588,7 +639,7 @@ mod tests {
                         padding: [0; 2],
                     };
                     table_clone.insert_entry(key, entry);
-                    if let Some(ret) = table_clone.get_entry(&key) {
+                    if let Some(ret) = table_clone.get_entry(key) {
                         assert_eq!(ret.key, key);
                     }
                 }
@@ -597,6 +648,159 @@ mod tests {
 
         for handle in handles {
             handle.join().unwrap();
+        }
+    }
+
+
+    #[test]
+    fn zobrist_clear_resets_key_and_data_test() {
+        let table = ZobristTable::with_capacity(2);
+        assert_slot_layout(&table);
+
+        table.insert_entry(SLOT_A_1, entry(SLOT_A_1, 250, 6, TranspositionType::Exact));
+        table.insert_entry(SLOT_B_1, entry(SLOT_B_1, 120, 4, TranspositionType::Exact));
+        assert_eq!(table.get_entry(SLOT_A_1).unwrap().depth, 6);
+        assert_eq!(table._size(), 2);
+
+        table.clear();
+
+        // `SLOT_A_1` is the reserved empty key, so a stale `data` word would hand the evicted
+        // entry straight back to the next probe.
+        assert!(table.get_entry(SLOT_A_1).is_none(), "a cleared slot must not answer a probe");
+        assert!(table.get_entry(SLOT_B_1).is_none(), "a cleared slot must not answer a probe");
+        assert_eq!(table._size(), 0, "no slot may count as occupied after clear()");
+
+        // A cleared slot counts as empty, so a quiescence entry has to fit even though the slot
+        // previously held a deep main-search entry.
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 50, 0, TranspositionType::LowerBound));
+        assert!(
+            table.get_entry(SLOT_A_2).is_some(),
+            "a QS write into a cleared slot must not be blocked by a depth left behind by clear()"
+        );
+    }
+
+    #[test]
+    fn zobrist_slot_index_is_in_range_test() {
+        for capacity in [1usize, 2, 3, 17, 64, 1000, 4096] {
+            let table = ZobristTable::with_capacity(capacity);
+            assert_eq!(table.table.len(), capacity);
+            for hash in [0u64, 1, 2, 3, u64::MAX, u64::MAX - 1, u64::MAX / 2, 1 << 63, 0x9E37_79B9_7F4A_7C15] {
+                let index = table.slot_index(hash);
+                assert!(index < capacity, "slot_index({hash}) = {index} is out of range for {capacity}");
+            }
+        }
+    }
+
+    #[test]
+    fn zobrist_slot_index_spreads_over_the_table_test() {
+        // The reduction consumes the high key bits, so a run of well-mixed keys has to reach every
+        // slot instead of piling up in one region.
+        let table = ZobristTable::with_capacity(256);
+        let mut seen = [false; 256];
+        let mut state = 1u64;
+        for _ in 0..20_000 {
+            let (next_state, key) = next_key(state);
+            state = next_state;
+            seen[table.slot_index(key)] = true;
+        }
+        assert!(seen.iter().all(|&hit| hit), "every slot must be reachable by the reduction");
+    }
+
+    #[test]
+    fn zobrist_const_keys_are_distinct_and_non_zero_test() {
+        let mut keys = Vec::with_capacity(BOARD_SIZE * NUM_PIECES + 1 + 16 + 8);
+        for square in 0..BOARD_SIZE {
+            for piece in 0..NUM_PIECES {
+                keys.push(ZOBRIST_TABLE[square][piece]);
+            }
+        }
+        keys.push(WHITE_TO_MOVE);
+        keys.extend_from_slice(&CASTLING_RIGHTS);
+        keys.extend_from_slice(&EN_PASSANT_FILE);
+
+        assert!(keys.iter().all(|&key| key != 0), "a zero key would be invisible to the hash");
+
+        let total = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), total, "all Zobrist keys must be pairwise distinct");
+    }
+
+    #[test]
+    fn zobrist_prefetch_is_safe_test() {
+        // The prefetch computes a raw slot pointer, so the smallest table and a non-power-of-two
+        // size are the cases worth pinning down.
+        for capacity in [1usize, 2, 3, 1000] {
+            let table = ZobristTable::with_capacity(capacity);
+            for hash in [0u64, 1, u64::MAX, u64::MAX / 3, 1 << 63] {
+                table.prefetch(hash);
+            }
+        }
+    }
+
+    #[test]
+    fn zobrist_incremental_double_push_matches_full_hash_test() {
+        use crate::notation_util::NotationUtil;
+        let fen_service = crate::fen_service::FenService;
+
+        // A double push is the only move that creates an en passant square, so it is the one case
+        // where the incremental update has to add a key that no piece placement accounts for.
+        // Checked for both colours, with the undo restoring the previous hash exactly.
+        let e2e4 = NotationUtil::get_turn_from_notation("e2e4");
+        let d7d5 = NotationUtil::get_turn_from_notation("d7d5");
+
+        let cases: [(crate::model::Board, &crate::model::Turn, i8); 3] = [
+            (fen_service.set_init_board(), &e2e4, 20),
+            (fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/3p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"), &e2e4, 20),
+            (fen_service.set_fen("rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"), &d7d5, 43),
+        ];
+
+        for (mut board, turn, expected_ep) in cases {
+            let before = board.cached_hash;
+            assert_eq!(before, gen_hash(&board));
+
+            let move_information = board.do_move(turn);
+            assert_eq!(board.field_for_en_passante, expected_ep);
+            assert_eq!(
+                board.cached_hash, gen_hash(&board),
+                "incremental hash must match the full hash after a double push"
+            );
+
+            // The key really is part of the hash, so dropping the square has to change it.
+            let mut ep_stripped = board.clone();
+            ep_stripped.field_for_en_passante = -1;
+            assert_ne!(gen_hash(&board), gen_hash(&ep_stripped));
+
+            board.undo_move(turn, move_information);
+            assert_eq!(board.cached_hash, before, "undo must restore the hash bit for bit");
+            assert_eq!(board.cached_hash, gen_hash(&board));
+        }
+    }
+
+    #[test]
+    fn zobrist_null_move_hash_matches_full_hash_test() {
+        let fen_service = crate::fen_service::FenService;
+
+        for position in [
+            // Usable en passant square: the key is in the hash, so the null move has to remove it.
+            "rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
+            // Unusable one: the key was never mixed in, so the null move must leave it alone.
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            // No en passant square at all.
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        ] {
+            let mut board = fen_service.set_fen(position);
+            assert_eq!(board.cached_hash, gen_hash(&board));
+
+            // Exactly the sequence `SearchService::minimax` performs for a null move.
+            board.cached_hash = null_move_hash(&board);
+            board.white_to_move = !board.white_to_move;
+            board.field_for_en_passante = -1;
+
+            assert_eq!(
+                board.cached_hash, gen_hash(&board),
+                "the null move hash must agree with the full hash for '{position}'"
+            );
         }
     }
 
@@ -641,18 +845,20 @@ pub fn calc_incremental_hash(board: &Board, turn: &crate::model::Turn) -> u64 {
     let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
 
     // 1. Swap turn
-    hash ^= *WHITE_TO_MOVE;
+    hash ^= WHITE_TO_MOVE;
 
-    // 2. Remove old en passant file if any
+    // 2. Remove the old en passant file if any
     if board.field_for_en_passante >= 0 {
         let file = (board.field_for_en_passante % 8) as usize;
         hash ^= EN_PASSANT_FILE[file];
     }
-    // Set new en passant file if any
-    if moved_piece == 10 && from / 8 == 1 && to / 8 == 3 {
-        hash ^= EN_PASSANT_FILE[((from + 8) % 8) as usize];
-    } else if moved_piece == 20 && from / 8 == 6 && to / 8 == 4 {
-        hash ^= EN_PASSANT_FILE[((from - 8) % 8) as usize];
+    // Set the new en passant file if the move is a double push. `new_ep` is the skipped square, so
+    // its file is the file the pawn moved along.
+    let double_push = (moved_piece == 10 && from / 8 == 1 && to / 8 == 3)
+        || (moved_piece == 20 && from / 8 == 6 && to / 8 == 4);
+    if double_push {
+        let new_ep = if moved_piece == 10 { from + 8 } else { from - 8 };
+        hash ^= EN_PASSANT_FILE[new_ep % 8];
     }
 
     // 3. Remove old castling rights
