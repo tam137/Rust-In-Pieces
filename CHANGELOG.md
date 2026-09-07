@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.41.0] - 2026-09-07
+
+Transposition table access and Zobrist key material reworked for throughput, plus two defects in
+`ZobristTable::clear`. Search time to a fixed depth drops by 6-8% over six positions (5.58 s to
+5.16 s and 5.45 s to 5.11 s in two runs, depth 14, best of five, 20-core x86-64 host, 2026-09-07);
+the same work is worth 27% on the NNUE branch, because the classical evaluation costs more per node
+and the saved table and hash overhead is therefore a smaller share of it. No search rule and no
+search or evaluation parameter was touched; the only behavioural difference is that the regenerated
+key values make different positions collide in the table.
+
+### Fixed
+- **`clear` left a stale depth behind, blocking quiescence writes.** It reset only the `key` word,
+  while `insert_entry` recognises an empty slot by `depth == -1` in the `data` word. After
+  `ucinewgame`, every slot that had held a `depth >= 1` entry therefore kept rejecting quiescence
+  entries under the collision rule until a main-search store happened to land on it.
+- **`clear` could hand back an evicted entry.** With `data` untouched, a probe for the reserved key
+  `0` still matched the cleared slot and read the old entry. Reached only by a position hashing to
+  exactly `0`, but free to close alongside the above.
+
+### Changed
+- **Slot index without a hardware division.** `hash % table.len()` compiled to a real 64-bit `div`
+  in both `get_entry` and `insert_entry`, sitting on the dependency chain ahead of the slot load
+  and so delaying the start of what is almost always a DRAM miss. Replaced by the multiply-shift
+  (Lemire) reduction, which keeps arbitrary table sizes and leaves the UCI `Hash` option unchanged.
+  Measured in isolation on the release host: 2.07 ns to 0.31 ns per index.
+- **Zobrist keys generated at compile time.** The four `once_cell::sync::Lazy` statics put a
+  `OnceCell` guard on every key access; because the never-taken initialisation call still clobbers
+  the caller-saved registers, `Board::do_move` carried thirteen such call sites with the register
+  spills around them. A `const fn` SplitMix64 generator moves the keys into `.rodata`: no guard, no
+  branch, no spills, and one copy of the table instead of two. The key values change, which alters
+  nothing but which positions happen to collide.
+- **Transposition table prefetch.** The child key is final before `do_move` touches the board, so
+  the slot request now starts right after the move is made and overlaps with move generation and
+  evaluation instead of stalling the probe.
+- **`get_entry` takes the key by value and is inlinable.** It was an out-of-line call returning a
+  16-byte `Option` through an sret pointer on every probe.
+- **Null move hash extracted into `zobrist::null_move_hash`.** The update was written inline in the
+  search, where it could drift away from `gen_hash` and `calc_incremental_hash` and send the whole
+  subtree below the null move to a key belonging to no position.
+
+### Notes
+- Conditional en passant hashing - mixing the file key in only when the capture actually exists -
+  was implemented and verified but deliberately left out of this release. It changes transposition
+  keys and therefore the search tree, and cost 8% of the speed-up on the fixed-depth benchmark;
+  that benchmark cannot judge a tree-shape change. It is parked on
+  `feature/zobrist-conditional-ep` pending a gauntlet under
+  `skills/matchplay_measurement_procedure.md`.
+
+
 ## [V0.39.1] - 2026-09-03
 
 Quiescence Search (QS) generates en passant captures: fixes a blindspot where QS was unable to play or foresee en passant captures at any depth.
