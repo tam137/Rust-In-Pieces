@@ -266,7 +266,11 @@ impl ZobristTable {
         #[cfg(target_arch = "aarch64")]
         {
             let slot = unsafe { self.table.as_ptr().add(self.slot_index(hash)) };
-            unsafe { std::arch::aarch64::_prefetch(slot as *const i8, std::arch::aarch64::_PREFETCH_READ, std::arch::aarch64::_PREFETCH_LOCALITY3) };
+            // `std::arch::aarch64::_prefetch` is still unstable (rust-lang#117217), so the
+            // intrinsic would pin the whole engine to a nightly toolchain. `prfm` under
+            // `asm!` is stable, and `pldl1keep` is exactly what the intrinsic emits for
+            // `_PREFETCH_READ` with `_PREFETCH_LOCALITY3`.
+            unsafe { std::arch::asm!("prfm pldl1keep, [{0}]", in(reg) slot, options(nostack, readonly, preserves_flags)) };
         }
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {
