@@ -13,8 +13,16 @@ same depth? Positions come from an openings file, played out as `position startp
 with the hash tables cleared between them so the positions stay independent. The two engines are
 driven alternately, position by position, so a host that slows down affects both equally.
 
+`--base-options` and `--cand-options` take `Name=value` setoption pairs, so one binary can be
+run against itself with two different parameter values. A parameter that is already exposed as a
+UCI option needs no variant build to be surveyed this way, which is what makes a census over a
+dozen candidate values affordable. What comes back is tree size, not Elo: `task.md` rule 1 prices
+search changes in games, and the Check Extension was the best of four axes on every depth metric
+and -26.8 Elo in matchplay.
+
 Usage:
     scripts/measure_tree_size.py <baseline> <candidate> [--positions 300] [--depth 10]
+    scripts/measure_tree_size.py <bin> <bin> --cand-options SingularMargin=4 --depth 11
 """
 import argparse
 import os
@@ -28,6 +36,15 @@ import uci_driver  # noqa: E402
 OPTIONS = (("Hash", "64"), ("Threads", "1"))
 DEFAULT_OPENINGS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "openings", "book_width.txt")
+
+
+def parse_options(pairs):
+    """Turns `Name=value` arguments into the option pairs `uci_driver` expects."""
+    parsed = []
+    for pair in pairs or ():
+        name, _, value = pair.partition("=")
+        parsed.append((name, value))
+    return tuple(parsed)
 
 
 def load_positions(path, count):
@@ -50,6 +67,10 @@ def main():
     parser.add_argument("--openings", default=DEFAULT_OPENINGS)
     parser.add_argument("--positions", type=int, default=300)
     parser.add_argument("--depth", type=int, default=10)
+    parser.add_argument("--base-options", nargs="*", default=(),
+                        help="extra setoption pairs for the baseline, as Name=value")
+    parser.add_argument("--cand-options", nargs="*", default=(),
+                        help="extra setoption pairs for the candidate, as Name=value")
     args = parser.parse_args()
 
     positions = load_positions(args.openings, args.positions)
@@ -57,13 +78,20 @@ def main():
         print(f"no positions in {args.openings}")
         return 2
 
+    base_options = OPTIONS + parse_options(args.base_options)
+    cand_options = OPTIONS + parse_options(args.cand_options)
+
     print(f"\n{len(positions)} positions from {os.path.basename(args.openings)}, "
-          f"fixed depth {args.depth}, Hash=64 Threads=1\n")
+          f"fixed depth {args.depth}, Hash=64 Threads=1")
+    if args.base_options or args.cand_options:
+        print(f"baseline  {' '.join(args.base_options) or '(defaults)'}")
+        print(f"candidate {' '.join(args.cand_options) or '(defaults)'}")
+    print()
 
     base_times, cand_times, base_nodes, cand_nodes = [], [], [], []
     identical = 0
-    with uci_driver.Session(args.baseline, options=OPTIONS) as base, \
-            uci_driver.Session(args.candidate, options=OPTIONS) as cand:
+    with uci_driver.Session(args.baseline, options=base_options) as base, \
+            uci_driver.Session(args.candidate, options=cand_options) as cand:
         for index, moves in enumerate(positions, start=1):
             # Alternate which engine searches first. Running the baseline first every time would
             # hand the candidate a warmed cache and a settled host on every single position, and

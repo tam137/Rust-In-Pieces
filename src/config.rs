@@ -514,7 +514,7 @@ impl Config {
             enable_singular_extensions: true,
             singular_min_depth: 6,
             singular_tt_depth_margin: 3,
-            singular_margin: 2,
+            singular_margin: 0,
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
             log_path: std::sync::Arc::from(""),
