@@ -354,6 +354,37 @@ impl ZobristTable {
     }
 }
 
+/// True when the en passant target square `ep` can actually be taken by `capturing_white`.
+///
+/// The key used to be mixed in for every double push, which split otherwise identical positions
+/// into two table entries and cost transposition hits for nothing. Folding the key in only when a
+/// capture exists makes the two positions share a slot again.
+///
+/// The capturing pawn stands beside the pawn that made the double push, so the victim square is one
+/// rank behind `ep` from the capturer's point of view. Only the enemy pawn bitboard is read, which
+/// is why this is equally valid on the position *before* the double push - that move is never a
+/// capture and so cannot change it. Pins are ignored, exactly as in the pseudo-legal convention
+/// used elsewhere; the predicate only has to be consistent between full and incremental hashing.
+#[inline(always)]
+pub fn ep_capture_available(board: &Board, ep: i8, capturing_white: bool) -> bool {
+    let ep = ep as usize;
+    let (victim_square, attackers) = if capturing_white {
+        (ep - 8, board.bitboards[crate::model::WHITE_PAWN])
+    } else {
+        (ep + 8, board.bitboards[crate::model::BLACK_PAWN])
+    };
+
+    let file = ep % 8;
+    let mut neighbours = 0u64;
+    if file > 0 {
+        neighbours |= 1u64 << (victim_square - 1);
+    }
+    if file < 7 {
+        neighbours |= 1u64 << (victim_square + 1);
+    }
+    attackers & neighbours != 0
+}
+
 pub fn gen_hash(board: &Board) -> u64 {
     let mut hash = 0u64;
     if board.white_to_move {
@@ -364,7 +395,9 @@ pub fn gen_hash(board: &Board) -> u64 {
         | (if board.black_possible_to_castle_short { 4 } else { 0 })
         | (if board.black_possible_to_castle_long { 8 } else { 0 });
     hash ^= CASTLING_RIGHTS[castle_index];
-    if board.field_for_en_passante >= 0 {
+    if board.field_for_en_passante >= 0
+        && ep_capture_available(board, board.field_for_en_passante, board.white_to_move)
+    {
         let file = (board.field_for_en_passante % 8) as usize;
         hash ^= EN_PASSANT_FILE[file];
     }
@@ -382,14 +415,16 @@ pub fn gen_hash(board: &Board) -> u64 {
 /// Hash of the position produced by a null move: the side to move flips and the en passant square
 /// is given up. Must be called on the position *before* the null move is applied.
 ///
-/// Kept here rather than inline in the search so that it can never drift apart from [`gen_hash`]
-/// and [`calc_incremental_hash`]. A mismatch would not corrupt the board - the search restores the
-/// hash wholesale - but it would make the entire subtree below the null move probe and store under
-/// a key that belongs to no position.
+/// Kept here rather than inline in the search so that the en passant condition can never drift
+/// apart from the one in [`gen_hash`] and [`calc_incremental_hash`] - a mismatch would not corrupt
+/// the board (the search restores the hash wholesale) but would make the whole subtree below the
+/// null move probe and store under a key that belongs to no position.
 #[inline(always)]
 pub fn null_move_hash(board: &Board) -> u64 {
     let mut hash = board.cached_hash ^ WHITE_TO_MOVE;
-    if board.field_for_en_passante >= 0 {
+    if board.field_for_en_passante >= 0
+        && ep_capture_available(board, board.field_for_en_passante, board.white_to_move)
+    {
         hash ^= EN_PASSANT_FILE[(board.field_for_en_passante % 8) as usize];
     }
     hash
@@ -739,42 +774,79 @@ mod tests {
     }
 
     #[test]
-    fn zobrist_incremental_double_push_matches_full_hash_test() {
+    fn zobrist_en_passant_key_only_when_capturable_test() {
+        let fen_service = crate::fen_service::FenService;
+
+        // Black has just played d7d5 and White's e5 pawn can take on d6.
+        let capturable = fen_service.set_fen("rnbqkbnr/ppp1pp1p/6p1/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3");
+        assert!(ep_capture_available(&capturable, capturable.field_for_en_passante, capturable.white_to_move));
+        let mut capturable_without_ep = capturable.clone();
+        capturable_without_ep.field_for_en_passante = -1;
+        assert_ne!(
+            gen_hash(&capturable), gen_hash(&capturable_without_ep),
+            "a takeable en passant square must change the hash"
+        );
+
+        // After 1.e4 no black pawn stands beside e4, so the square is unusable and must not split
+        // this position off from the one reached without the double push.
+        let idle = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
+        assert!(!ep_capture_available(&idle, idle.field_for_en_passante, idle.white_to_move));
+        let mut idle_without_ep = idle.clone();
+        idle_without_ep.field_for_en_passante = -1;
+        assert_eq!(
+            gen_hash(&idle), gen_hash(&idle_without_ep),
+            "an en passant square nobody can use must not change the hash"
+        );
+    }
+
+    #[test]
+    fn zobrist_incremental_en_passant_matches_full_hash_test() {
         use crate::notation_util::NotationUtil;
         let fen_service = crate::fen_service::FenService;
 
-        // A double push is the only move that creates an en passant square, so it is the one case
-        // where the incremental update has to add a key that no piece placement accounts for.
-        // Checked for both colours, with the undo restoring the previous hash exactly.
+        // White double push with a black pawn waiting on d4: the key belongs in the hash.
+        let mut white_with_taker = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/3p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         let e2e4 = NotationUtil::get_turn_from_notation("e2e4");
+        let before = white_with_taker.cached_hash;
+        let move_information = white_with_taker.do_move(&e2e4);
+        assert_eq!(white_with_taker.field_for_en_passante, 20);
+        assert_eq!(
+            white_with_taker.cached_hash, gen_hash(&white_with_taker),
+            "incremental hash must match the full hash while the en passant key is present"
+        );
+        let mut ep_stripped = white_with_taker.clone();
+        ep_stripped.field_for_en_passante = -1;
+        assert_ne!(gen_hash(&white_with_taker), gen_hash(&ep_stripped));
+        white_with_taker.undo_move(&e2e4, move_information);
+        assert_eq!(white_with_taker.cached_hash, before);
+
+        // Same push without a taker: the key must stay out, incrementally and fully.
+        let mut white_without_taker = fen_service.set_init_board();
+        let before = white_without_taker.cached_hash;
+        let move_information = white_without_taker.do_move(&e2e4);
+        assert_eq!(white_without_taker.field_for_en_passante, 20);
+        assert_eq!(
+            white_without_taker.cached_hash, gen_hash(&white_without_taker),
+            "incremental hash must match the full hash while the en passant key is absent"
+        );
+        white_without_taker.undo_move(&e2e4, move_information);
+        assert_eq!(white_without_taker.cached_hash, before);
+
+        // Mirrored: Black double push with a white pawn waiting on e5.
+        let mut black_with_taker = fen_service.set_fen("rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
         let d7d5 = NotationUtil::get_turn_from_notation("d7d5");
-
-        let cases: [(crate::model::Board, &crate::model::Turn, i8); 3] = [
-            (fen_service.set_init_board(), &e2e4, 20),
-            (fen_service.set_fen("rnbqkbnr/ppp1pppp/8/8/3p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"), &e2e4, 20),
-            (fen_service.set_fen("rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"), &d7d5, 43),
-        ];
-
-        for (mut board, turn, expected_ep) in cases {
-            let before = board.cached_hash;
-            assert_eq!(before, gen_hash(&board));
-
-            let move_information = board.do_move(turn);
-            assert_eq!(board.field_for_en_passante, expected_ep);
-            assert_eq!(
-                board.cached_hash, gen_hash(&board),
-                "incremental hash must match the full hash after a double push"
-            );
-
-            // The key really is part of the hash, so dropping the square has to change it.
-            let mut ep_stripped = board.clone();
-            ep_stripped.field_for_en_passante = -1;
-            assert_ne!(gen_hash(&board), gen_hash(&ep_stripped));
-
-            board.undo_move(turn, move_information);
-            assert_eq!(board.cached_hash, before, "undo must restore the hash bit for bit");
-            assert_eq!(board.cached_hash, gen_hash(&board));
-        }
+        let before = black_with_taker.cached_hash;
+        let move_information = black_with_taker.do_move(&d7d5);
+        assert_eq!(black_with_taker.field_for_en_passante, 43);
+        assert_eq!(black_with_taker.cached_hash, gen_hash(&black_with_taker));
+        let mut ep_stripped = black_with_taker.clone();
+        ep_stripped.field_for_en_passante = -1;
+        assert_ne!(
+            gen_hash(&black_with_taker), gen_hash(&ep_stripped),
+            "the mirrored case must mix the key in as well"
+        );
+        black_with_taker.undo_move(&d7d5, move_information);
+        assert_eq!(black_with_taker.cached_hash, before);
     }
 
     #[test]
@@ -847,18 +919,25 @@ pub fn calc_incremental_hash(board: &Board, turn: &crate::model::Turn) -> u64 {
     // 1. Swap turn
     hash ^= WHITE_TO_MOVE;
 
-    // 2. Remove the old en passant file if any
-    if board.field_for_en_passante >= 0 {
+    // 2. Remove the old en passant file, on the same condition under which it was mixed in. The
+    // board still carries the position the key was created for, so the predicate sees the very
+    // state `gen_hash` would.
+    if board.field_for_en_passante >= 0
+        && ep_capture_available(board, board.field_for_en_passante, board.white_to_move)
+    {
         let file = (board.field_for_en_passante % 8) as usize;
         hash ^= EN_PASSANT_FILE[file];
     }
-    // Set the new en passant file if the move is a double push. `new_ep` is the skipped square, so
-    // its file is the file the pawn moved along.
+    // Set the new en passant file, again only when the opponent can actually take. The double push
+    // itself is never a capture, so the enemy pawn bitboard read here is already the one the next
+    // position will have.
     let double_push = (moved_piece == 10 && from / 8 == 1 && to / 8 == 3)
         || (moved_piece == 20 && from / 8 == 6 && to / 8 == 4);
     if double_push {
         let new_ep = if moved_piece == 10 { from + 8 } else { from - 8 };
-        hash ^= EN_PASSANT_FILE[new_ep % 8];
+        if ep_capture_available(board, new_ep as i8, !board.white_to_move) {
+            hash ^= EN_PASSANT_FILE[new_ep % 8];
+        }
     }
 
     // 3. Remove old castling rights
