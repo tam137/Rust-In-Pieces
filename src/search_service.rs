@@ -2419,6 +2419,11 @@ mod tests {
             "singular extensions ship enabled since v0.37.0 (task.md 4.2)");
         assert_eq!(Config::new().singular_min_depth, 6,
             "the measured trigger depth is 6, not the published 8 (task.md 4.1)");
+        // Ported from master v0.41.1, which measured the whole axis on the classical evaluation
+        // and found 0 > 1 > 2 > 3 > 6 > 4. The number was never measured against NNUE; this pins
+        // the two branches to the same value, not the claim that it is optimal here.
+        assert_eq!(Config::new().singular_margin, 0,
+            "singular_margin tracks master v0.41.1 (task.md 8 on master)");
         assert_eq!(shipped, measured_variant,
             "the shipped default must be the measured configuration ({} vs {})",
             shipped, measured_variant);
