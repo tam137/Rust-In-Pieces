@@ -28,14 +28,13 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**Item 1 (QS En Passant) is shipped in v0.39.1.** The SPSA pipeline for `singular_*` parameters
-is integrated and verified (`tuning/tune_singular.sh`). The next actions on the backlog are:
+**Item 1 (QS En Passant) is shipped in v0.39.1. Item 2 (`singular_*`) is shipped in v0.41.1** —
+measured by hand rather than by SPSA, see section 8. The next actions on the backlog are:
 
-1. **Execute SPSA tuning for `singular` parameters** (`singular_margin`, `singular_tt_depth_margin`,
-   `singular_depth_reduction`) using `tuning/tune_singular.sh`, then harvest results via
-   `skills/spsa_harvest_results.md`.
-2. **The negative extension**, the other half of the singular rebate, is still unmeasured.
-3. **A search audit against published practice**, done 2026-09-04, produced sections 20 to 26:
+1. **The negative extension**, the other half of the singular rebate, is still unmeasured. Section
+   8.5 adds a second open question on the same rule: whether `singular_margin = 0` wins through the
+   extension or through the multicut it also maximises.
+2. **A search audit against published practice**, done 2026-09-04, produced sections 20 to 26:
    seven rules that are either absent from this engine or present in a form that cannot fire at
    the depths it plays. **None of it is measured** — every section is a proposal with a mechanism
    and a measurement plan, and nothing in them may be quoted as an effect size. Sections 20, 22
@@ -85,7 +84,7 @@ a run at `rounds = 50` never reaches line 51.
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
 | 1 | En passant is invisible to the Quiescence Search | 7 | Shipped in v0.39.1 |
-| 2 | `singular_*` SPSA tuning | 8 | Infrastructure configured (`tuning/tune_singular.sh`), ready to tune |
+| 2 | `singular_*` parameter tuning | 8 | Shipped in v0.41.1: `singular_margin` 2 -> 0, +10.7 Elo [+5, +17]. The other two are documented negatives |
 | 3 | Killers, history and counter moves are cleared at every iterative deepening iteration | 23.1 | A lifetime defect, not a heuristic change; nothing else on this list is cheaper |
 | 4 | The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP | 20.1, 20.2 | Five lines, against an evaluation the node already computed |
 | 5 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
@@ -112,7 +111,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
 | The root can hand a node an empty `alpha == beta` window | open question |
 | Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
-| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` SPSA tuning | configured in `tuning/`, ready for tuning runs — section 8 |
+| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` were shipped untested | resolved in v0.41.1 by direct measurement, not SPSA — see section 8 |
 | The Quiescence Search never generates en passant — shipped in v0.39.1 | resolved in v0.39.1, see section 7.3 |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 5.2 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 5.2 |
@@ -418,26 +417,93 @@ therefore neither play an en passant capture nor see one in its stand-pat, at an
   - Both matchups exceed the $\ge 45\%$ smoke acceptance threshold.
 
 
-## 8. Singular Extension parameter tuning (SPSA)
+## 8. Singular Extension parameter tuning — resolved in v0.41.1
 
-`[Impact: Medium]` `[Complexity: Low]` — The singular extension parameters shipped with untuned defaults.
-The SPSA infrastructure is configured and verified to tune all three parameters.
+`[Impact: Medium]` `[Complexity: Low]` `[measured]` — the three singular parameters shipped with
+untested defaults. All three have now been measured across their useful range. One moved.
 
-### 8.1 Parameters and Search Role
+**SPSA was abandoned before it ran.** `tuning/spsa_tuner.py` uses only the *sign* of a 2500-game
+batch and moves a parameter by `lr%` of the step; at the configured `mutate=10`/`lr=5` the step is
+1, so each iteration moves the value by ±0.05. Reaching a decision on `singular_margin` would have
+cost roughly 250,000 games — about 58 hours — to travel from 2 to 7 in the best case. The axis was
+measured directly instead.
 
-| Parameter | Default | Range | Role in Search |
-| :--- | ---: | :--- | :--- |
-| `singular_margin` | 2 | [0, 64] | Verification search threshold: `tt_eval - singular_margin * depth`. |
-| `singular_tt_depth_margin` | 3 | [0, 8] | TT depth requirement: entry qualifies at `tt_depth >= depth - singular_tt_depth_margin`. |
-| `singular_depth_reduction` | 0 | [0, 8] | Verification search depth reduction: `((depth - 1) / 2 - singular_depth_reduction).max(0)`. |
+### 8.1 Conditions
 
-### 8.2 SPSA Infrastructure Configuration
+1s + 150ms, chosen because it produces a median root depth of 11 where the rule genuinely fires;
+the 1s + 10ms the SPSA runner used reaches median depth 7, where `singular_min_depth = 6` leaves
+the rule nearly inert. Paired openings from `openings/book_width.txt` (613 four-ply starts),
+Hash=64, Threads=1, OwnBook=false, concurrency 5, no anchor engine. Baseline `suprah-0.39.1`.
+Every run audited with `scripts/match_health.py` before `scripts/pairing_elo.py`; zero losses on
+time throughout, design effect 1.00–1.09.
 
-- **Tuning Definitions (`tuning/parameters.json`):** Registered with baseline values and legal ranges matching the UCI options.
-- **Tuning Group (`tuning/groups.json`):** Dedicated group `"singular"` added, and included in `"search_and_ordering"` and `"all"`.
-- **Runner (`tuning/tune_singular.sh`):** Configurable runner script invoking `tuning/spsa_tuner.py --group singular` via `<mm>`.
-- **UCI Facade & Tests (`src/config.rs`):** Verified that `SingularMargin`, `SingularTtDepthMargin`, and `SingularDepthReduction` are parsed, clamped, and stored correctly across casing and separator styles.
-- **Workflow:** Run tuning via `tuning/tune_singular.sh`, monitor progress via `skills/spsa_tuning_status.md`, and integrate converged parameters using `skills/spsa_harvest_results.md`.
+### 8.2 The screens
+
+Ten SPRT screens, `elo0 = 0`, `elo1 = 10`, 32,698 games. None reached H1 — no single value is worth
+ten Elo over the shipped default. Screens are stopped tests, so the numbers below carry the
+direction only, never the magnitude.
+
+| Parameter | Value | Default | Games | Verdict |
+| :--- | ---: | ---: | ---: | :--- |
+| `singular_margin` | 1 | 2 | 6000 | cap, undecided, positive |
+| `singular_margin` | 3 | 2 | 2313 | H0 |
+| `singular_margin` | 4 | 2 | 600 | H0, clearly worse |
+| `singular_margin` | 6 | 2 | 1740 | H0 |
+| `singular_tt_depth_margin` | 1 | 3 | 2429 | H0 |
+| `singular_tt_depth_margin` | 2 | 3 | 6000 | cap, undecided, positive |
+| `singular_tt_depth_margin` | 4 | 3 | 4510 | H0 |
+| `singular_tt_depth_margin` | 5 | 3 | 5672 | H0 |
+| `singular_depth_reduction` | 1 | 0 | 1824 | H0 |
+| `singular_depth_reduction` | 2 | 0 | 1610 | H0 |
+
+### 8.3 The price runs
+
+Fixed-N at 10,000 games, the count set before the start, no early stopping — these intervals are
+effect sizes.
+
+| Candidate | Elo vs baseline | 95% CI | Games |
+| :--- | ---: | :--- | ---: |
+| `singular_margin = 1` | +9.7 | [+5, +15] | 10,000 |
+| `singular_margin = 0` | **+10.7** | **[+5, +17]** | 6739 |
+| `margin = 1` + `tt_depth_margin = 2` | +6.5 | [+1, +12] | 10,000 |
+
+The `margin = 0` run was stopped by hand at 6739 of the planned 10,000; its estimate had been flat
+at +11 over the preceding 3000 games, but the interval is not from a completed fixed-N design and
+should be read with that caveat.
+
+The combination is the useful negative here. Additivity would have predicted about +16; it measured
++6.5, *below* either parameter alone. The two pull against each other on the same rule — a smaller
+`singular_margin` raises the threshold and so extends more often, while a smaller
+`singular_tt_depth_margin` disqualifies more table entries and so runs the rule less often.
+
+### 8.4 Choosing 0 over 1
+
+Two price runs against a common baseline cannot separate values 1.0 Elo apart at ±5 resolution. A
+direct paired SPRT between the two variants can, and it accepted H1 after 2339 games: `margin = 0`
+is at least ten Elo ahead of `margin = 1`. The full ranking on the axis is **0 > 1 > 2 > 3 > 6 > 4**.
+
+`margin = 0` sets the threshold at `tt_eval` itself, which is the loosest condition on the scale,
+not the absence of one. The `search-diag` counters over 40 positions at fixed depth 11 show the
+rule still discriminating: extensions fire on 31.4% of verifications at 0, against 24.8% at 1 and
+21.0% at the old default of 2. The verification search is a null window at `(depth - 1) / 2` ply,
+shallow enough that many alternatives do reach `tt_eval`, so the threshold does not collapse.
+
+It is not cheap. A fixed-depth census over 300 pool positions puts `margin = 0` at 30.5% more time
+and 30.7% more generated moves than the old default — against 12.3% for `margin = 1`. The
+extensions earn it back, which is the point of `task.md` rule 1: the census predicted the opposite
+of what the games returned.
+
+### 8.5 What ships
+
+`singular_margin: 0` in `src/config.rs` and `tuning/parameters.json`, pinned by
+`test_the_shipped_singular_configuration_is_the_one_that_was_measured`.
+`singular_tt_depth_margin` stays at 3 and `singular_depth_reduction` stays at 0 — both now
+documented negatives rather than untested defaults.
+
+`singular_margin = 0` is the range boundary, so the axis has no further room downward. The open
+question this campaign did not answer is *why* it wins: the counters measure extensions but not
+multicuts, and `margin = 0` also maximises the multicut condition `threshold >= beta`. Separating
+the two would need `margin = 0` with and without `enable_singular_multicut`.
 
 ## 20. Null Move Pruning: the missing static-eval gate, and the missing PV guard
 
