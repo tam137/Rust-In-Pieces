@@ -207,6 +207,9 @@ impl SearchService {
                 turn_counter += 1;
                 context.root_moves_searched = turn_counter - 1;
                 let mi = board.do_move(turn);
+                // The child key is already final at this point, so the slot request can start now
+                // and overlap with move generation and evaluation below.
+                context.zobrist_table.prefetch(board.cached_hash);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     acc_stack[1] = crate::nnue_service::NNUEService::update_accumulator(
                         &acc_stack[0], board, turn, &mi, &service.eval.nnue_net
@@ -609,7 +612,7 @@ impl SearchService {
             if board.cached_hash == 0 {
                 board.cached_hash = crate::zobrist::gen_hash(board);
             }
-            if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+            if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                 tt_move = entry.decompress_move(board);
                 if config.enable_singular_extensions {
                     let mut candidate_eval = entry.eval;
@@ -698,13 +701,10 @@ impl SearchService {
             let old_field_for_en_passante = board.field_for_en_passante;
             let old_hash = board.cached_hash;
 
-            // Make Null Move
+            // Make Null Move. The hash is derived from the position as it still stands, because
+            // the en passant key is only part of it when the side to move can actually capture.
+            board.cached_hash = crate::zobrist::null_move_hash(board);
             board.white_to_move = !board.white_to_move;
-            board.cached_hash ^= *crate::zobrist::WHITE_TO_MOVE;
-            if old_field_for_en_passante >= 0 {
-                let file = (old_field_for_en_passante % 8) as usize;
-                board.cached_hash ^= crate::zobrist::EN_PASSANT_FILE[file];
-            }
             board.field_for_en_passante = -1;
 
             let dynamic_divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
@@ -844,7 +844,7 @@ impl SearchService {
                 if board.cached_hash == 0 {
                     board.cached_hash = crate::zobrist::gen_hash(board);
                 }
-                if let Some(entry) = context.zobrist_table.get_entry(&board.cached_hash) {
+                if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                     tt_move = entry.decompress_move(board);
                     if entry.depth >= 0 {
                         let mut entry_eval = entry.eval;
@@ -1009,6 +1009,9 @@ impl SearchService {
                 }
                 stats.add_calculated_nodes(1);
                 let mi = board.do_move(capture_turn);
+                // The child key is already final at this point, so the slot request can start now
+                // and overlap with move generation and evaluation below.
+                context.zobrist_table.prefetch(board.cached_hash);
                 let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
@@ -1411,6 +1414,9 @@ impl SearchService {
             let diag_nodes_before = stats.calculated_nodes;
 
             let mi = board.do_move(current_turn);
+            // The child key is already final at this point, so the slot request can start now
+            // and overlap with move generation and evaluation below.
+            context.zobrist_table.prefetch(board.cached_hash);
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
                 acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
