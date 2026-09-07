@@ -2384,6 +2384,11 @@ mod tests {
             "singular extensions ship enabled since v0.37.0 (task.md 4.2)");
         assert_eq!(Config::new().singular_min_depth, 6,
             "the measured trigger depth is 6, not the published 8 (task.md 4.1)");
+        // v0.41.1 moved the margin off the untested 2 it shipped with. The whole axis was
+        // measured: 0 > 1 > 2 > 3 > 6 > 4, with 0 taken over 1 by a direct paired SPRT. A later
+        // edit back to a round number would ship a threshold nobody played.
+        assert_eq!(Config::new().singular_margin, 0,
+            "the measured margin is 0; 2 was the untested ship default (task.md 8)");
         assert_eq!(shipped, measured_variant,
             "the shipped default must be the measured configuration ({} vs {})",
             shipped, measured_variant);
