@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.41.1-NNUE] - 2026-09-07
+
+Ports the `singular_margin` default from master v0.41.1. No NNUE evaluation change, no SPSA
+parameter touched.
+
+### Changed
+- **`singular_margin` default 2 -> 0, ported from master v0.41.1.** Master measured the whole
+  axis on the classical evaluation and found 0 > 1 > 2 > 3 > 6 > 4, with 0 worth +10.7 Elo
+  [+5, +17] over the old default; see `task.md` 8 on master. **That number was measured against
+  HCE and is not a measured claim for this branch** — the port keeps the two branches on the same
+  value, and pricing it here would need its own match.
+- The eleven protected NNUE and SPSA parameters are unchanged: `use_nnue`, `nnue_model_path`,
+  `max_pawn_hash_entries`, `lmr_divisor`, `lmr_move_threshold`, `lmr_history_bad_threshold`,
+  `aspiration_window_initial_delta`, `aspiration_window_multiplier`, `rfp_margin_per_depth`,
+  `rfp_max_depth`, `your_turn_bonus`.
+
+### Fixed
+- **aarch64 could not build v0.41.0-NNUE on a stable toolchain.** The transposition table prefetch
+  used `std::arch::aarch64::_prefetch`, still unstable under rust-lang#117217, so the release
+  compiled only on x86-64. Replaced by `prfm pldl1keep` under `asm!`, stable and the same
+  instruction the intrinsic emits for a read at locality 3. Same fix as master v0.41.1; the
+  x86-64 path is untouched.
+
+
 ## [V0.41.0-NNUE] - 2026-09-07
 
 Transposition table access and Zobrist key material reworked for throughput, plus two defects in
