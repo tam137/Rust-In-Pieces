@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.41.1] - 2026-09-07
+
+`singular_margin` moves from the untested 2 it shipped with to 0, the strongest value on the axis.
+The whole axis was measured rather than tuned: ten SPRT screens over 32,698 games, then fixed-N
+price runs. See `task.md` 8 for the full write-up and the values that did not survive.
+
+### Changed
+- **`singular_margin` default 2 -> 0.** Measured +10.7 Elo with a 95% interval of [+5, +17] over
+  6739 games at 1s + 150ms against v0.39.1, paired openings, zero losses on time. The run was
+  stopped by hand at 6739 of a planned 10,000 games, so the interval is not from a completed
+  fixed-N design; the estimate had been flat at +11 for the preceding 3000 games. The value was
+  taken over 1 by a direct paired SPRT that accepted H1 after 2339 games.
+- **The other two singular parameters keep their defaults, now measured rather than assumed.**
+  `singular_tt_depth_margin` stays at 3: values 1, 2, 4 and 5 all screened out, and 2 combined
+  with the new margin measured 4 Elo *worse* than the margin alone, because the two pull against
+  each other on how often the rule fires. `singular_depth_reduction` stays at 0: 1 and 2 both
+  screened out negative.
+- SPSA is not used for these parameters. The tuner moves a parameter by +-0.05 per 2500-game
+  iteration, which is below the resolution the whole exercise needed.
+
+### Fixed
+- **aarch64 could not build v0.41.0 on a stable toolchain.** The transposition table prefetch
+  used `std::arch::aarch64::_prefetch`, still unstable under rust-lang#117217, so the release
+  compiled only on x86-64. Replaced by `prfm pldl1keep` under `asm!`, stable and the same
+  instruction the intrinsic emits for a read at locality 3. The x86-64 path is untouched.
+
+
 ## [V0.41.0] - 2026-09-07
 
 Transposition table access and Zobrist key material reworked for throughput, plus two defects in
