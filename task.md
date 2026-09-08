@@ -13,10 +13,10 @@ the staged `MovePicker` -- was correct, cut the generated moves in half, and was
 
 | | |
 | :--- | :--- |
-| Released | **v0.39.1** on `master` (HCE) since 2026-09-03 — Quiescence Search en passant generation & ranking, smoke gauntlet 56.25% (+61.5% vs v0.39.0). Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.42.0** on `master` (HCE) since 2026-09-08 — persistent killer, history and counter-move tables, worth +39.4 Elo [+29, +49]. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
-| Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
+| Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
 | Blocked on | nothing. The staged `MovePicker` was finished, priced and reversed on 2026-09-03: section 5 is a negative result, and `master`'s search is v0.39.0's again |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
@@ -28,20 +28,30 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**Item 1 (QS En Passant) is shipped in v0.39.1. Item 2 (`singular_*`) is shipped in v0.41.1** —
-measured by hand rather than by SPSA, see section 8. The next actions on the backlog are:
+**The singular axis closed with v0.41.1 and the Quiescence Search en passant with v0.39.1**;
+both write-ups are gone from this document, per `skills/task_management_procedure.md`. What is
+in flight and what comes after it:
 
-1. **The negative extension**, the other half of the singular rebate, is still unmeasured. Section
-   8.5 adds a second open question on the same rule: whether `singular_margin = 0` wins through the
-   extension or through the multicut it also maximises.
-2. **A search audit against published practice**, done 2026-09-04, produced sections 20 to 26:
-   seven rules that are either absent from this engine or present in a form that cannot fire at
-   the depths it plays. **None of it is measured** — every section is a proposal with a mechanism
-   and a measurement plan, and nothing in them may be quoted as an effect size. Sections 20, 22
-   and 23.1 to 23.3 are between five and thirty lines each; 24, 25 and 26 are reworks. The order
-   to take them in is the backlog table below.
+1. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
+   engine since the bands.** Killers, the history table and the counter moves moved from locals in
+   `get_moves` into `EngineState`; they persist across the iterative deepening loop and the moves
+   of a game, are halved on entry to each iteration and cleared on `ucinewgame`. **+39.4 Elo,
+   95% [+29, +49]** over 2598 games, and 5.4% less wall time to fixed depth 10 over 300 pool
+   positions. No heuristic changed — only how long three tables live. Section 23.1 carries the
+   run's caveat: it was stopped by hand at 2598 of a planned 6000.
 
-   The new sections are numbered from 20 deliberately. Numbers 1 to 12 belong to the write-ups
+2. **The rest of the search audit is unmeasured.** The audit of 2026-09-04 produced sections 20
+   to 26: seven rules either absent from this engine or present in a form that cannot fire at the
+   depths it plays. **None of it is measured** — every section is a proposal with a mechanism and
+   a measurement plan, and nothing in them may be quoted as an effect size. Sections 20, 22 and
+   23.2 to 23.3 are between five and thirty lines each; 24, 25 and 26 are reworks. The order to
+   take them in is the backlog table below.
+
+3. **The negative extension**, the other half of the singular rebate, is still unmeasured, and
+   section 8 leaves one open question on the same rule: whether `singular_margin = 0` wins through
+   the extension or through the multicut it also maximises.
+
+   The audit sections are numbered from 20 deliberately. Numbers 1 to 12 belong to the write-ups
    deleted on 2026-09-02, and `src/threads.rs`, `src/search_service.rs` and `src/config.rs` still
    carry back-references to `task.md` 10.5, 10.6, 10.10, 10.12 and section 11 that resolve against
    revision `2a280c0`. Reusing those numbers would silently redirect them.
@@ -83,19 +93,16 @@ a run at `rounds = 50` never reaches line 51.
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | En passant is invisible to the Quiescence Search | 7 | Shipped in v0.39.1 |
-| 2 | `singular_*` parameter tuning | 8 | Shipped in v0.41.1: `singular_margin` 2 -> 0, +10.7 Elo [+5, +17]. The other two are documented negatives |
-| 3 | Killers, history and counter moves are cleared at every iterative deepening iteration | 23.1 | A lifetime defect, not a heuristic change; nothing else on this list is cheaper |
-| 4 | The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP | 20.1, 20.2 | Five lines, against an evaluation the node already computed |
-| 5 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
-| 6 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
-| 7 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 4 |
-| 8 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
-| 9 | The history bonus and malus curves | 23.4 | Only after 23.3, and only with its own SPSA group |
-| 10 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
-| 11 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
-| 12 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
-| 13 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
+| 1 | The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP | 20.1, 20.2 | Five lines, against an evaluation the node already computed |
+| 2 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
+| 3 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
+| 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
+| 5 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
+| 6 | The history bonus and malus curves | 23.4 | Only after 23.3, and only with its own SPSA group |
+| 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
+| 8 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
+| 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
+| 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
 exemption, measured 2026-08-28: worth 4.5% of the tree and nothing in games. The staged
@@ -111,8 +118,6 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
 | The root can hand a node an empty `alpha == beta` window | open question |
 | Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
-| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` were shipped untested | resolved in v0.41.1 by direct measurement, not SPSA — see section 8 |
-| The Quiescence Search never generates en passant — shipped in v0.39.1 | resolved in v0.39.1, see section 7.3 |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 5.2 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 5.2 |
 | NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
@@ -123,7 +128,6 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
-| `killer_moves`, `history_table` and `counter_moves` are allocated inside `get_moves`, which the iterative deepening loop in `game_handler.rs` calls once per depth — so all three are cleared at every iteration, not every move | defect, unmeasured, section 23.1 |
 | The history table is `[from][to]` with no side-to-move index, so White and Black share every entry | defect, unmeasured, section 23.2 |
 | History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
 | `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
@@ -138,12 +142,24 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
+| `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
+| `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
+| The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 
 Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth,
 and the scoreboard configuration that could not price them.
 
 Closed on 2026-09-03: the staged `MovePicker` (section 5) and raising en passant into the capture
 band (section 7). Both were built and both were measured; neither cost a game run.
+
+Closed on 2026-09-08: the tables thrown away at every iterative deepening iteration, section
+23.1, shipped in v0.42.0 at +39.4 Elo [+29, +49]. The section is kept rather than deleted because
+it is the only record of the decay rate actually shipped, which is not the published one.
+
+Closed on 2026-09-07, and not to be reopened: en passant generation in the Quiescence Search
+(shipped v0.39.1) and the singular parameter axis (shipped v0.41.1). Both write-ups were deleted
+here once released and are recoverable from git at `792af14`; what survives of the singular
+campaign is the compact record in section 8.
 
 ### Rules that are not optional
 
@@ -392,118 +408,31 @@ Not shipped, and no game run spent on it. The plausible mechanism is that `BAND_
 a pawn capture is rarely the move that cuts. Whether the same is true of *ordinary* pawn captures
 is a much larger question about the band layout and is not this item.
 
-### 7.3 The Quiescence Search never generates it — shipped in v0.39.1, 2026-09-03
+## 8. Singular Extension parameter tuning — shipped in v0.41.1, closed 2026-09-07
 
-The en passant block was behind `!only_captures`, and `generate_valid_moves_list_capture` — the
-Quiescence Search's generator — is the one caller that passes `true`. The Quiescence Search could
-therefore neither play an en passant capture nor see one in its stand-pat, at any depth.
+The three singular parameters shipped with untested defaults. All three were measured across
+their useful range at 1s + 150ms, where the median root depth of 11 makes the rule actually fire.
+The full write-up — ten SPRT screens over 32,698 games, three fixed-N price runs and the direct
+`0`-against-`1` test — is in git at `792af14`.
 
-**Shipped in v0.39.1:**
-1. Lifted en passant generation out of `!only_captures` in `src/move_gen_service.rs`.
-2. When `only_captures == true`, assigned `turn.rank = BAND_CAPTURE + 20000` (MVV-LVA pawn-takes-pawn), ensuring proper ordering in QS.
-3. Kept baseline rank (`0` + check bonus) for regular minimax search (`only_captures == false`), strictly preventing the tree inflation measured in Section 7.2.
-4. Added dedicated TDD unit tests in `src/move_gen_service.rs` and `src/search_service.rs`.
+**What shipped.** `singular_margin: 0`, down from an untested 2. Measured **+10.7 Elo, 95%
+[+5, +17]** over 6739 games, pinned by
+`test_the_shipped_singular_configuration_is_the_one_that_was_measured`. The ranking on the axis
+is `0 > 1 > 2 > 3 > 6 > 4`, and 0 is the range boundary, so there is no room left downward.
 
-**Measurements:**
-- **Tree size & node identity** (`scripts/measure_tree_size.py` against `v0.39.0`, 300 positions from `book_width.txt`, depth 10, Hash=64, Threads=1):
-  - Time: 27842 ms -> 28193 ms (-1.3%)
-  - Nodes: 177,824,464 -> 188,298,154 (-5.9% generated moves)
-  - Median per-position time ratio: **1.000** (neutral)
-  - Faster: 134 of 300 positions
-- **Mandatory cross-version smoke gauntlet** (200 games at 1s + 100ms, paired openings):
-  - vs `Rust-In-Pieces V0.38.1`: 34 wins, 34 draws, 32 losses (**51.0%**)
-  - vs `Rust-In-Pieces V0.39.0`: 40 wins, 43 draws, 17 losses (**61.5%**)
-  - Total: 74 wins, 77 draws, 49 losses (**56.25%**, 112.5 / 200)
-  - Both matchups exceed the $\ge 45\%$ smoke acceptance threshold.
+**Two documented negatives, not to be retested.** `singular_tt_depth_margin` stays at 3 and
+`singular_depth_reduction` stays at 0. The combination `margin = 1` with `tt_depth_margin = 2`
+measured **+6.5**, *below* either parameter alone: the two pull against each other on the same
+rule, so additivity does not hold on this axis.
 
+**SPSA cannot decide this axis and must not be pointed at it again.** `tuning/spsa_tuner.py` uses
+only the *sign* of a 2500-game batch and moves a parameter by `lr%` of the step. At the configured
+`mutate=10`/`lr=5` the step is 1, so each iteration moves the value by ±0.05 — travelling from 2
+to 7 would cost roughly 250,000 games, about 58 hours.
 
-## 8. Singular Extension parameter tuning — resolved in v0.41.1
-
-`[Impact: Medium]` `[Complexity: Low]` `[measured]` — the three singular parameters shipped with
-untested defaults. All three have now been measured across their useful range. One moved.
-
-**SPSA was abandoned before it ran.** `tuning/spsa_tuner.py` uses only the *sign* of a 2500-game
-batch and moves a parameter by `lr%` of the step; at the configured `mutate=10`/`lr=5` the step is
-1, so each iteration moves the value by ±0.05. Reaching a decision on `singular_margin` would have
-cost roughly 250,000 games — about 58 hours — to travel from 2 to 7 in the best case. The axis was
-measured directly instead.
-
-### 8.1 Conditions
-
-1s + 150ms, chosen because it produces a median root depth of 11 where the rule genuinely fires;
-the 1s + 10ms the SPSA runner used reaches median depth 7, where `singular_min_depth = 6` leaves
-the rule nearly inert. Paired openings from `openings/book_width.txt` (613 four-ply starts),
-Hash=64, Threads=1, OwnBook=false, concurrency 5, no anchor engine. Baseline `suprah-0.39.1`.
-Every run audited with `scripts/match_health.py` before `scripts/pairing_elo.py`; zero losses on
-time throughout, design effect 1.00–1.09.
-
-### 8.2 The screens
-
-Ten SPRT screens, `elo0 = 0`, `elo1 = 10`, 32,698 games. None reached H1 — no single value is worth
-ten Elo over the shipped default. Screens are stopped tests, so the numbers below carry the
-direction only, never the magnitude.
-
-| Parameter | Value | Default | Games | Verdict |
-| :--- | ---: | ---: | ---: | :--- |
-| `singular_margin` | 1 | 2 | 6000 | cap, undecided, positive |
-| `singular_margin` | 3 | 2 | 2313 | H0 |
-| `singular_margin` | 4 | 2 | 600 | H0, clearly worse |
-| `singular_margin` | 6 | 2 | 1740 | H0 |
-| `singular_tt_depth_margin` | 1 | 3 | 2429 | H0 |
-| `singular_tt_depth_margin` | 2 | 3 | 6000 | cap, undecided, positive |
-| `singular_tt_depth_margin` | 4 | 3 | 4510 | H0 |
-| `singular_tt_depth_margin` | 5 | 3 | 5672 | H0 |
-| `singular_depth_reduction` | 1 | 0 | 1824 | H0 |
-| `singular_depth_reduction` | 2 | 0 | 1610 | H0 |
-
-### 8.3 The price runs
-
-Fixed-N at 10,000 games, the count set before the start, no early stopping — these intervals are
-effect sizes.
-
-| Candidate | Elo vs baseline | 95% CI | Games |
-| :--- | ---: | :--- | ---: |
-| `singular_margin = 1` | +9.7 | [+5, +15] | 10,000 |
-| `singular_margin = 0` | **+10.7** | **[+5, +17]** | 6739 |
-| `margin = 1` + `tt_depth_margin = 2` | +6.5 | [+1, +12] | 10,000 |
-
-The `margin = 0` run was stopped by hand at 6739 of the planned 10,000; its estimate had been flat
-at +11 over the preceding 3000 games, but the interval is not from a completed fixed-N design and
-should be read with that caveat.
-
-The combination is the useful negative here. Additivity would have predicted about +16; it measured
-+6.5, *below* either parameter alone. The two pull against each other on the same rule — a smaller
-`singular_margin` raises the threshold and so extends more often, while a smaller
-`singular_tt_depth_margin` disqualifies more table entries and so runs the rule less often.
-
-### 8.4 Choosing 0 over 1
-
-Two price runs against a common baseline cannot separate values 1.0 Elo apart at ±5 resolution. A
-direct paired SPRT between the two variants can, and it accepted H1 after 2339 games: `margin = 0`
-is at least ten Elo ahead of `margin = 1`. The full ranking on the axis is **0 > 1 > 2 > 3 > 6 > 4**.
-
-`margin = 0` sets the threshold at `tt_eval` itself, which is the loosest condition on the scale,
-not the absence of one. The `search-diag` counters over 40 positions at fixed depth 11 show the
-rule still discriminating: extensions fire on 31.4% of verifications at 0, against 24.8% at 1 and
-21.0% at the old default of 2. The verification search is a null window at `(depth - 1) / 2` ply,
-shallow enough that many alternatives do reach `tt_eval`, so the threshold does not collapse.
-
-It is not cheap. A fixed-depth census over 300 pool positions puts `margin = 0` at 30.5% more time
-and 30.7% more generated moves than the old default — against 12.3% for `margin = 1`. The
-extensions earn it back, which is the point of `task.md` rule 1: the census predicted the opposite
-of what the games returned.
-
-### 8.5 What ships
-
-`singular_margin: 0` in `src/config.rs` and `tuning/parameters.json`, pinned by
-`test_the_shipped_singular_configuration_is_the_one_that_was_measured`.
-`singular_tt_depth_margin` stays at 3 and `singular_depth_reduction` stays at 0 — both now
-documented negatives rather than untested defaults.
-
-`singular_margin = 0` is the range boundary, so the axis has no further room downward. The open
-question this campaign did not answer is *why* it wins: the counters measure extensions but not
+**Still open.** *Why* `margin = 0` wins. The `search-diag` counters measure extensions but not
 multicuts, and `margin = 0` also maximises the multicut condition `threshold >= beta`. Separating
-the two would need `margin = 0` with and without `enable_singular_multicut`.
+the two needs `margin = 0` with and without `enable_singular_multicut`.
 
 ## 20. Null Move Pruning: the missing static-eval gate, and the missing PV guard
 
@@ -714,13 +643,74 @@ The published discipline is the other way round: the tables persist for the whol
 new search **halves** the butterfly history so stale entries decay rather than staying saturated
 at the cap. `ucinewgame` clears them.
 
-The fix is to hoist the three tables out of `get_moves` into state that lives across the
-iterative deepening loop and to halve the history on entry. That is a signature change to
-`get_moves` and two call sites, and it interacts with nothing else in this list.
-
 Note the interaction with 23.4: with `history_max_threshold` ageing as it is written today, a
 persistent table changes how often the global halving pass runs, so 23.1 and 23.4 are cleaner
 together than apart.
+
+#### What was built, 2026-09-07
+
+A signature change to `get_moves` was the obvious shape and is not the one taken: `get_moves`
+has 35 call sites, about thirty of them tests. The three tables went into `EngineState` instead,
+as `Mutex<SearchTables>` (`src/model.rs`), which no call site sees. The engine searches on one
+thread — `threads.rs` rejects `setoption Threads` — so the lock is taken once per `get_moves` and
+never on a search path.
+
+* `search_service.rs:90` replaces the three local allocations with a guard, `age()` and a
+  destructure; everything below already took `&mut` to these tables, so `minimax` is untouched.
+* `game_handler.rs` calls `search_tables.reset()` in the `ucinewgame` block that already cleared
+  the pawn and Zobrist tables. Persistent over a game, cleared between games.
+* `age()` halves the history on entry to `get_moves` and deliberately leaves killers and counter
+  moves alone: both are overwritten wholesale by the next cutoff at the same ply, so a stale entry
+  there costs one ordering slot rather than a lasting bias in the statistic three other rules read.
+
+**Read the decay rate carefully, because it is not the published one.** `get_moves` is one
+iterative deepening *iteration*, not one search, so `age()` runs once per depth: a depth-10
+search halves nine times and an early iteration's contribution is worth 2^-8 of a late one by
+the end. The table still carries ordering from iteration to iteration, which is what 23.1 is
+about, but "halve once per `go`" — the discipline as it is usually written — is a **different,
+untested variant**. What the run below prices is the per-iteration version.
+
+**Two tests were paired comparisons sharing one `EngineState`** — `test_dynamic_nmp_verification_search`
+and `test_futility_pruning_node_reduction`, which compare node counts with a rule on and off.
+Persistent tables would have let the first search order the second one's moves. Both now take one
+state per search. The Transposition Table was always shared in those two, which is the same
+hazard and was already latent.
+
+**Deterministic reading.** `scripts/measure_tree_size.py`, 300 positions from `book_width.txt`,
+fixed depth 10: **61816 ms -> 58488 ms, 5.4% less wall time**, median per-position ratio 1.035,
+faster on 159 of 300, and 0 of 300 trees identical. Generated moves went the other way, +3.3%.
+The census isolates positions with `ucinewgame`, which now also resets these tables, so this is
+persistence *within* one `go depth 10` and not leakage between positions.
+
+#### What it is worth — shipped in v0.42.0, 2026-09-08
+
+**+39.4 Elo, 95% interval [+29, +49]**, against `suprah-0.41.1` at 1s + 150ms over 2598 games.
+
+```
+/root/mattmagie/hist_ab.pgn: 2598 games, 1 pairings
+
+Rust-In-Pieces V0.41.1  vs  Rust-In-Pieces V0.41.1-hist
+  2598 games   +642 =1021 -935   score 44.4%
+  unpaired    -39.4  95% CI [-50, -29]
+  paired      -39.4  95% CI [-49, -29]   (1298 pairs)
+```
+
+`pairing_elo.py` prints the baseline first, so the 44.4% and the minus sign belong to v0.41.1;
+the candidate is the one ahead. Health: no losses on time, 0 identical games, 1112 distinct
+openings over 613 families at 2.1 pairs each, ICC 0.025, **design effect 1.03**, effective sample
+1263 of 1298 pairs. White scored 60.91%.
+
+**Read the caveat with the number.** The run was planned as fixed N = 6000 and was **stopped by
+hand at 2598** because the interval had separated from zero by more than four times its own
+width. The interval is therefore not from a completed fixed-N design, exactly as the
+`singular_margin = 0` run that shipped v0.41.1 was stopped at 6739 of 10000. At this count the
+resolution is about +/-10 Elo, so the *direction and rough magnitude* are solid and the third
+digit is not. Nothing here was gated on an interim reading — the stop was a decision to spend the
+remaining four hours elsewhere, not a stopping rule.
+
+The two measurements agree, which is the reason to believe this one: 5.4% less work to a fixed
+depth deterministically, and a large matchplay gain, from a change that alters no heuristic at
+all — only how long three tables live.
 
 ### 23.2 The history table is not indexed by side to move
 

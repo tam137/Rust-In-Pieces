@@ -56,6 +56,7 @@ fn main() {
         pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
         logger: Arc::new(std::sync::RwLock::new(initial_logger)),
         log_sender: tx_log_buffer.clone(),
+        search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
     });
 
     // Set up std reader thread
@@ -124,6 +125,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(initial_logger)),
             log_sender: tx_log_buffer.clone(),
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
     
         // Set up UCI command thread
