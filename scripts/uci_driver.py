@@ -107,7 +107,10 @@ class Session:
     Transposition Table and pawn hash table across positions and clears them only when asked.
 
     `ucinewgame` is the only token that clears them -- `game_handler.rs` calls
-    `service.pawn_table.clear()` and `zobrist_table.clear()` on it and nothing else does. Note
+    `service.pawn_table.clear()`, `zobrist_table.clear()` and, since `task.md` 23.1,
+    `search_tables.reset()` on it, and nothing else does. That last one matters here: the
+    killer, history and counter-move tables now persist across searches, so a driver that
+    does not send `ucinewgame` between positions lets one position order the next one. Note
     that `isready` is answered by the UCI thread directly, so `readyok` is not a barrier for work
     handed to the game thread. It does not need to be: `ucinewgame`, `position` and `go` all
     travel the same channel to that thread, so their order is preserved without one.
