@@ -29,6 +29,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
             engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
             service.pawn_table.clear();
             engine_state.zobrist_table.read().unwrap().clear();
+            // Killers, history and counter moves persist across the iterative deepening loop
+            // and across the moves of a game (`task.md` 23.1); a new game is where they go.
+            engine_state.search_tables.lock().unwrap().reset();
             logger.send("Start new Game".to_string()).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
             continue;
         }
