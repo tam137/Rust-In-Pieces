@@ -87,16 +87,29 @@ impl SearchService {
         let stop_flag = &engine_state.stop_flag;
         let pv_nodes = &engine_state.pv_nodes;
 
-        let mut killer_moves: [[Option<Turn>; 2]; 128] = [[None; 2]; 128];
-        let mut history_table = [[0u32; 64]; 64];
-        let mut counter_moves: [[Option<Turn>; 64]; 64] = [[None; 64]; 64];
+        // Killers, history and counter moves live in `EngineState` and persist across the
+        // iterative deepening loop, so the depth-8 search inherits what depth 7 learned about
+        // this position instead of starting from an empty table. `task.md` 23.1.
+        //
+        // The history is halved on entry, so an entry that stopped earning cutoffs decays
+        // instead of holding its rank until the global overflow pass happens to fire. This is
+        // one iterative deepening iteration, not one `go`, so that halving runs once per depth
+        // -- see `SearchTables::age`. The lock is taken once per call and never on a search
+        // path: the engine is single-threaded by construction, `threads.rs` rejects
+        // `setoption Threads`.
+        let mut search_tables = engine_state.search_tables.lock().unwrap();
+        search_tables.age();
+        let tables = &mut *search_tables;
+        let killer_moves = &mut *tables.killer_moves;
+        let history_table = &mut *tables.history_table;
+        let counter_moves = &mut *tables.counter_moves;
 
         let mut context = SearchContext {
             zobrist_table,
             stop_flag,
             pv_nodes,
             killer_moves: [None; 2],
-            history_table: &history_table,
+            history_table: &*history_table,
             counter_move: None,
             start_time,
             target_time,
@@ -212,7 +225,7 @@ impl SearchService {
                     stop_flag: context.stop_flag,
                     pv_nodes: context.pv_nodes,
                     killer_moves: killer_moves[1],
-                    history_table: &history_table,
+                    history_table: &*history_table,
                     counter_move: if config.enable_counter_moves {
                         counter_moves[turn.from as usize][turn.to as usize]
                     } else {
@@ -243,7 +256,7 @@ impl SearchService {
 
                 let min_max_result = self.minimax(board, turn, depth - 1,
                     child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
-                    1, &mut killer_moves, &mut history_table, &mut counter_moves, deeper);
+                    1, &mut *killer_moves, &mut *history_table, &mut *counter_moves, deeper);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     board.undo_move(turn, mi);
@@ -1831,16 +1844,10 @@ mod tests {
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
-        let (tx_log, _rx_log) = std::sync::mpsc::channel();
-        let engine_state = Arc::new(EngineState {
-            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
-            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
-            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
-            log_sender: tx_log,
-        });
+        // One state per search. The two calls are a paired node-count comparison, and since
+        // `task.md` 23.1 the killer, history and counter-move tables live in `EngineState` and
+        // survive a search -- a shared state would let the first search order the second one's
+        // moves. The Transposition Table was always shared here, which is the same hazard.
 
         // Config with NMP Enabled
         let mut config_enabled = Config::for_tests();
@@ -1864,7 +1871,7 @@ mod tests {
             &mut stats_enabled,
             &config_enabled,
             &service,
-            &engine_state,
+            &fresh_engine_state(),
             std::time::Instant::now(),
             None,
             None,
@@ -1877,7 +1884,7 @@ mod tests {
             &mut stats_disabled,
             &config_disabled,
             &service,
-            &engine_state,
+            &fresh_engine_state(),
             std::time::Instant::now(),
             None,
             None,
@@ -1900,7 +1907,63 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         })
+    }
+
+    #[test]
+    fn test_the_search_tables_survive_a_search_instead_of_being_rebuilt_from_zero() {
+        // `task.md` 23.1. The killer, history and counter-move tables used to be allocated
+        // inside `get_moves`, which the iterative deepening loop in `game_handler.rs` calls
+        // once *per depth* -- so the depth-5 search threw away everything depth 4 had learned
+        // about this exact position, and only the Transposition Table survived an iteration.
+        //
+        // This test pins the lifetime, not the strength: what it asserts is that a second
+        // search on the same `EngineState` starts from a table the first one wrote.
+        let service = Service::new();
+        let state = fresh_engine_state();
+        let config = Config::for_tests();
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+
+        let mut board = service.fen.set_fen(fen);
+        let mut stats = Stats::new();
+        service.search.get_moves(
+            &mut board, 4, true, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None,
+        );
+
+        // Entries of 1 do not survive the halving on entry, so the survivors are read off the
+        // ones worth at least two points -- a cutoff at depth 2 or deeper.
+        let written: Vec<(usize, usize)> = {
+            let tables = state.search_tables.lock().unwrap();
+            (0..64).flat_map(|f| (0..64).map(move |t| (f, t)))
+                .filter(|(f, t)| tables.history_table[*f][*t] >= 2)
+                .collect()
+        };
+        assert!(!written.is_empty(),
+            "a depth-4 search must leave its history in the engine state, not in a local");
+
+        let mut board = service.fen.set_fen(fen);
+        let mut stats = Stats::new();
+        service.search.get_moves(
+            &mut board, 5, true, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None,
+        );
+
+        let tables = state.search_tables.lock().unwrap();
+        let survived = written.iter().filter(|(f, t)| tables.history_table[*f][*t] > 0).count();
+        assert!(survived > 0,
+            "the second search must inherit the first one's history; {} of {} entries survived",
+            survived, written.len());
+    }
+
+    #[test]
+    fn test_a_fresh_engine_state_starts_with_empty_search_tables() {
+        let state = fresh_engine_state();
+        let tables = state.search_tables.lock().unwrap();
+        assert!(tables.history_table.iter().all(|r| r.iter().all(|v| *v == 0)));
+        assert!(tables.killer_moves.iter().all(|k| k.iter().all(|m| m.is_none())));
+        assert!(tables.counter_moves.iter().all(|c| c.iter().all(|m| m.is_none())));
     }
 
     /// Philidor's Legacy: 1. Nf7+ Kg8 2. Nh6+ Kh8 3. Qg8+ Rxg8 4. Nf7#.
@@ -2864,6 +2927,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config = Config::new();
@@ -2907,16 +2971,10 @@ mod tests {
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
-        let (tx_log, _rx_log) = std::sync::mpsc::channel();
-        let engine_state = Arc::new(EngineState {
-            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
-            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
-            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
-            log_sender: tx_log,
-        });
+        // One state per search. The two calls are a paired node-count comparison, and since
+        // `task.md` 23.1 the killer, history and counter-move tables live in `EngineState` and
+        // survive a search -- a shared state would let the first search order the second one's
+        // moves. The Transposition Table was always shared here, which is the same hazard.
 
         let mut config_enabled = Config::for_tests();
         config_enabled.enable_futility_pruning = true;
@@ -2937,7 +2995,7 @@ mod tests {
             &mut stats_enabled,
             &config_enabled,
             &service,
-            &engine_state,
+            &fresh_engine_state(),
             std::time::Instant::now(),
             None,
             None,
@@ -2950,7 +3008,7 @@ mod tests {
             &mut stats_disabled,
             &config_disabled,
             &service,
-            &engine_state,
+            &fresh_engine_state(),
             std::time::Instant::now(),
             None,
             None,
@@ -2979,6 +3037,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config = Config::for_tests();
@@ -3031,6 +3090,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config = Config::for_tests();
@@ -3085,6 +3145,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config = Config::for_tests();
@@ -3155,6 +3216,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config = Config::for_tests();
@@ -3197,6 +3259,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log.clone(),
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
         let engine_state_disabled = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -3206,6 +3269,7 @@ mod tests {
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let mut config_enabled = Config::for_tests();

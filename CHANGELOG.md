@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.42.0] - 2026-09-08
+
+The killer, history and counter-move tables were allocated inside `SearchService::get_moves`,
+which the iterative deepening loop calls once per depth — so every iteration started from empty
+tables and only the Transposition Table survived one. They now live in `EngineState`. No
+heuristic changed; only how long three tables live. See `task.md` 23.1 for the write-up.
+
+### Fixed
+- **Killers, history and counter moves persist across the iterative deepening loop.** Measured
+  **+39.4 Elo, 95% interval [+29, +49]** over 2598 games at 1s + 150ms against v0.41.1, paired
+  openings, zero losses on time, design effect 1.03. The run was planned as fixed N = 6000 and
+  stopped by hand at 2598, so the interval is not from a completed fixed-N design. Independently,
+  5.4% less wall time to fixed depth 10 over 300 pool positions.
+
+### Changed
+- **The tables are cleared on `ucinewgame` and halved on entry to each search.** Note the decay
+  rate: `get_moves` is one iterative deepening iteration, not one `go`, so the halving runs once
+  per depth rather than once per search. Halving once per `go` is the usual published discipline
+  and is untested here.
+- `SearchTables` boxes its three tables individually. Held inline they are about 50 KB, which a
+  debug build materialises as a stack temporary at every `EngineState` literal and keeps in the
+  frame; that overflowed the test stack. Node-identical to the inline version over 300 positions.
+- Two tests that compared node counts with a rule on and off shared one `EngineState` across both
+  searches. With persistent tables the first search would order the second one's moves, so both
+  now take one state per search.
+
+
+
 ## [V0.41.1] - 2026-09-07
 
 `singular_margin` moves from the untested 2 it shipped with to 0, the strongest value on the axis.
