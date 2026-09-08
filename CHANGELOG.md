@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.42.0-NNUE] - 2026-09-08
+
+Ports `master` v0.42.0 to this branch. The killer, history and counter-move tables were allocated
+inside `SearchService::get_moves`, which the iterative deepening loop calls once per depth, so
+every iteration started from empty tables and only the Transposition Table survived one. They now
+live in `EngineState`. No heuristic and no NNUE code changed. Full write-up in `task.md` 23.1 on
+`master`.
+
+### Fixed
+- **Killers, history and counter moves persist across the iterative deepening loop.** They are
+  cleared on `ucinewgame` and halved on entry to each iteration. Note the decay rate: `get_moves`
+  is one iteration, not one `go`, so the halving runs once per depth; halving once per `go` is
+  the usual published discipline and is untested.
+- `SearchTables` boxes its three tables individually. Held inline they are about 50 KB, which a
+  debug build materialises as a stack temporary at every `EngineState` literal and keeps in the
+  frame, overflowing the test stack.
+- Two tests that compared node counts with a rule on and off shared one `EngineState` across both
+  searches. With persistent tables the first search would order the second one's moves, so both
+  now take one state per search.
+
+### Measurement
+- On `master` in HCE mode the same change measured **+39.4 Elo, 95% [+29, +49]** over 2598 games.
+  **That number is not this branch's.** It was measured against a hand-crafted evaluation, and
+  move ordering interacts with whatever scores the moves. This release is gated by a cross-version
+  smoke gauntlet against v0.41.1-NNUE and v0.40.0-NNUE, not by an A/B measurement of its own.
+
+### Changed
+- `task.md` on this branch was three releases stale — it named v0.39.1 as current and stated the
+  branch was unmaintained. Corrected, with a pointer making `master`'s copy the authority.
+- `task/search_task.md`: Late Move Pruning, SEE pruning, Razoring and Singular Extensions removed;
+  all four shipped long ago and are `true` in `config.rs`.
+
+
+
 ## [V0.41.1-NNUE] - 2026-09-07
 
 Ports the `singular_margin` default from master v0.41.1. No NNUE evaluation change, no SPSA
