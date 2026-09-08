@@ -27,6 +27,76 @@ pub const MATE_SCORE_THRESHOLD: i16 = 30000;
 
 pub type LoggerFn = std::sync::Arc<dyn Fn(String) + Send + Sync>;
 
+/// The three tables the search learns while it plays: the killer moves, the butterfly
+/// history and the counter moves.
+///
+/// They used to be allocated inside `SearchService::get_moves`, which the iterative deepening
+/// loop in `game_handler.rs` calls once *per depth*. Every one of them was therefore thrown
+/// away at every iteration, and the depth-8 search started with an empty history -- worst
+/// precisely at the deep iterations that matter most. `task.md` 23.1.
+///
+/// They now live for the whole game and are cleared on `ucinewgame`, which is the published
+/// discipline. `age` halves the history at the entry to each search so that entries which
+/// stopped earning cutoffs decay, rather than holding their rank until the global overflow
+/// pass in `search_service.rs` happens to fire.
+/// The three tables are boxed individually rather than held inline. Together they are about
+/// 50 KB, and an inline struct that size is built as a stack temporary at every `EngineState`
+/// literal. A debug build does not reuse those slots, so the temporary stays in the frame of
+/// whatever function constructed the state -- and `test_qs_tt_search_consistency_and_node_reduction`
+/// constructs one and then recurses, which overflowed the 2 MB test stack. Boxed, `SearchTables`
+/// is three pointers and only one table is transiently on the stack at a time. The boxes are
+/// dereferenced once per search, not per node, so the search path pays nothing for the
+/// indirection.
+pub struct SearchTables {
+    pub killer_moves: Box<[[Option<Turn>; 2]; 128]>,
+    pub history_table: Box<[[u32; 64]; 64]>,
+    pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
+}
+
+impl SearchTables {
+    pub fn new() -> Self {
+        SearchTables {
+            killer_moves: Box::new([[None; 2]; 128]),
+            history_table: Box::new([[0u32; 64]; 64]),
+            counter_moves: Box::new([[None; 64]; 64]),
+        }
+    }
+
+    /// Clears every table. Called on `ucinewgame`: nothing learned about the previous game
+    /// carries into the next one.
+    pub fn reset(&mut self) {
+        *self.killer_moves = [[None; 2]; 128];
+        *self.history_table = [[0u32; 64]; 64];
+        *self.counter_moves = [[None; 64]; 64];
+    }
+
+    /// Halves the history on entry to `get_moves`.
+    ///
+    /// Note what that means: the iterative deepening loop calls `get_moves` once per depth, so
+    /// this runs once per *iteration*, not once per `go`. A depth-10 search therefore halves
+    /// nine times, and what an early iteration learned is worth 2^-8 of a late one by the end.
+    /// The table still carries ordering from one iteration into the next, which is the point of
+    /// `task.md` 23.1; halving once per `go` instead is an untested variant.
+    ///
+    /// Killers and counter moves are deliberately not aged: both are overwritten wholesale by
+    /// the next cutoff at the same ply or from the same parent move, so a stale entry costs one
+    /// ordering slot. A stale history entry instead biases the statistic that the Late Move
+    /// Reduction, the quiet-move ranking and `lmr_history_bad_threshold` all read.
+    pub fn age(&mut self) {
+        for row in self.history_table.iter_mut() {
+            for entry in row.iter_mut() {
+                *entry /= 2;
+            }
+        }
+    }
+}
+
+impl Default for SearchTables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -36,6 +106,11 @@ pub struct EngineState {
     pub pv_nodes_len: std::sync::Arc<std::sync::atomic::AtomicI32>,
     pub logger: std::sync::Arc<std::sync::RwLock<LoggerFn>>,
     pub log_sender: std::sync::mpsc::Sender<String>,
+
+    /// Killers, history and counter moves, persistent across the iterative deepening loop.
+    /// The engine searches on one thread -- `threads.rs` rejects `setoption Threads` -- so this
+    /// lock is taken once per `get_moves` call and never on a search path.
+    pub search_tables: std::sync::Mutex<SearchTables>,
 }
 
 pub struct SearchContext<'a> {
@@ -1818,6 +1893,43 @@ mod tests {
         assert_eq!(board_ep.mailbox[43], 0);
         assert_eq!(board_ep.mailbox[35], 20);
     }
+
+    #[test]
+    fn test_search_tables_age_halves_the_history_and_leaves_the_other_two_alone() {
+        // `task.md` 23.1. A persistent history has to decay, or an entry that earned its
+        // cutoffs early in the game keeps its rank for the rest of it. Killers and counter
+        // moves are overwritten wholesale by the next cutoff, so they are not aged.
+        let mut tables = crate::model::SearchTables::new();
+        tables.history_table[12][28] = 900;
+        tables.history_table[1][18] = 1;
+        let killer = crate::model::Turn::new(12, 28, 0, 0, false, 0);
+        tables.killer_moves[3][0] = Some(killer);
+        tables.counter_moves[6][21] = Some(killer);
+
+        tables.age();
+
+        assert_eq!(tables.history_table[12][28], 450, "the history is halved on entry");
+        assert_eq!(tables.history_table[1][18], 0, "integer division retires the last point");
+        assert_eq!(tables.killer_moves[3][0], Some(killer), "killers are not aged");
+        assert_eq!(tables.counter_moves[6][21], Some(killer), "counter moves are not aged");
+    }
+
+    #[test]
+    fn test_search_tables_reset_clears_all_three() {
+        // What `ucinewgame` calls. Nothing learned about the previous game may transfer.
+        let mut tables = crate::model::SearchTables::new();
+        tables.history_table[12][28] = 900;
+        let killer = crate::model::Turn::new(12, 28, 0, 0, false, 0);
+        tables.killer_moves[3][0] = Some(killer);
+        tables.counter_moves[6][21] = Some(killer);
+
+        tables.reset();
+
+        assert_eq!(tables.history_table[12][28], 0);
+        assert_eq!(tables.killer_moves[3][0], None);
+        assert_eq!(tables.counter_moves[6][21], None);
+    }
+
 }
     #[test]
     fn incremental_hash_complex_sequence_test() {
