@@ -346,6 +346,7 @@ mod tests {
             pv_nodes_len: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(|_| {}))),
             log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         });
 
         let result = service.search.get_moves(
