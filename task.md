@@ -13,7 +13,8 @@ the staged `MovePicker` -- was correct, cut the generated moves in half, and was
 
 | | |
 | :--- | :--- |
-| Released | **v0.39.1** on `master` (HCE) since 2026-09-03 — Quiescence Search en passant generation & ranking, smoke gauntlet 56.25% (+61.5% vs v0.39.0). `feature/nnue-evaluation` is not maintained: work is on `master` in HCE mode only, decided 2026-09-02 |
+| Released | **v0.42.0-NNUE** on this branch since 2026-09-08 — persistent killer, history and counter-move tables, ported from `master` v0.42.0. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
+| Authority | **`task.md` on `master` is the roadmap.** This copy exists so the branch is readable on its own and drifts if it is not synced; when the two disagree, `master` is right. Branch-specific work lives in `task/search_task.md` and `task/eval_task.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -28,11 +29,20 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**Item 1 (QS En Passant) is shipped in v0.39.1.** The next actions on the backlog are:
+**This section was three releases stale until 2026-09-08.** It claimed v0.39.1 was current and
+that the branch was unmaintained; v0.40.0-NNUE, v0.41.0-NNUE, v0.41.1-NNUE and v0.42.0-NNUE have
+shipped since. Read `master`'s `task.md` for the live backlog. What is true here:
 
-1. **`singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped
-   untuned.** The SPSA infrastructure exists and these three have never been through it.
-2. **The negative extension**, the other half of the singular rebate, is still unmeasured.
+1. **Ported in v0.42.0-NNUE: killers, history and counter moves persist across the iterative
+   deepening loop** (`master` `task.md` 23.1). They were allocated inside `get_moves`, which the
+   iterative deepening loop calls once per depth, so every iteration started from empty tables.
+   On `master` in HCE mode this measured **+39.4 Elo, 95% [+29, +49]** over 2598 games. **That
+   number does not transfer to this branch** — it was measured against an HCE evaluation, and
+   move ordering interacts with the evaluation that scores the moves. Treat it as a reason to
+   expect a gain here, not as this branch's effect size.
+2. **`singular_margin` was retuned to 0** in v0.41.1-NNUE, ported from `master`. The other two
+   singular parameters are documented negatives. The axis is closed.
+3. **The negative extension**, the other half of the singular rebate, is still unmeasured.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
