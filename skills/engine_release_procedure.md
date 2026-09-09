@@ -34,6 +34,17 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    > **This gauntlet is a smoke test, not a measurement.** Its only job is to catch a candidate
    > that is grossly broken — the class of defect a self-A/B cannot see.
 
+   > [!WARNING]
+   > **Give the candidate a version string no opponent carries, before it plays.** The engine
+   > answers `id name` with `env!("CARGO_PKG_VERSION")`, and `build_and_release.sh` is what bumps
+   > that — so a candidate built from the working tree still calls itself by the *released*
+   > version it is being measured against, and Matt-Magie writes both sides of that pairing into
+   > the PGN under one name. The pairing is then unreadable and the run is wasted. Tag the
+   > candidate the way section 5 of the [Matchplay Measurement Procedure](matchplay_measurement_procedure.md)
+   > tags an A/B variant (`sed -i` the version to `X.Y.Z-rc`, build, `git checkout -- Cargo.toml`),
+   > and verify with `id name` before starting. Cost the first time this was missed, 2026-09-09:
+   > one discarded gauntlet at 152 of 200 games.
+
    Evaluate **per pairing**, never by the scoreboard rating: the Matt-Magie scoreboard is an
    iterative Bradley-Terry model normalised to a pool average of 2000, so a rating depends on
    which engines happen to be in the PGN and two ratings from different pools are not comparable.
