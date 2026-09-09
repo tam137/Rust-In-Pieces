@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.43.0-NNUE] - 2026-09-09
+
+Ports `master` v0.43.0 to this branch: Null Move Pruning now runs only where the static evaluation
+is already at or above `beta`. The value is computed at every node the rule fires at, so the gate
+costs no evaluation call — and on this branch `calc_eval` returns the network score before the
+lazy-evaluation block, so the gate reads a full evaluation. See `task.md` 20.1 on `master`.
+
+### Added
+- Null Move Pruning static-eval gate, on by default as `NmpStaticEvalGate`. Measured on `master`
+  at -0.5 Elo, 95% [-7, +6] over 6000 games — a null — against 34.7% of all null searches and
+  3.0% / 11.0% of the generated moves removed. It ships as a throughput change, not as a gain.
+- `NmpPvGuard` and `RfpPvGuard`, both **off** by default, as on `master`. The root searches every
+  root move with `is_pv = true`, so the guard is far larger here than in the formulation it comes
+  from and the tree census reads the gate's whole saving back out again. Unmeasured in games.
+- `search-diag` counters for Null Move Pruning, compiled out unless the feature is on.
+
+### Fixed
+
+
+
 ## [V0.42.0-NNUE] - 2026-09-08
 
 Ports `master` v0.42.0 to this branch. The killer, history and counter-move tables were allocated

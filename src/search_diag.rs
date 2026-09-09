@@ -154,6 +154,33 @@ mod counters {
     /// Extensions granted, by the same depth index.
     pub static SINGULAR_EXT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // ---------------------------------------------------------------------------------------
+    // Null Move Pruning, for `task.md` 20.1 and 20.2.
+    //
+    // Rule 6: before pricing a depth-gated rule, check it fires at the depth of play. Both new
+    // guards only ever *remove* null searches, so what decides whether they are worth a 6000-game
+    // run is how many they remove and at what depth. These counters answer that from one
+    // `search-diag` build, before the run is started.
+    // ---------------------------------------------------------------------------------------
+
+    /// Nodes that pass every guard Null Move Pruning carried *before* 20.1 and 20.2, i.e. the
+    /// candidate population both new guards are subtracted from.
+    pub static NMP_CANDIDATES: AtomicU64 = AtomicU64::new(0);
+    /// Of those, nodes the `!is_pv` guard of 20.2 refuses.
+    pub static NMP_PV_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// Of those, nodes the `static_eval >= beta` gate of 20.1 refuses. A node can be refused by
+    /// both guards, so this and the line above overlap by construction.
+    pub static NMP_GATE_BLOCKED: AtomicU64 = AtomicU64::new(0);
+    /// Null searches that actually ran, i.e. candidates minus everything both guards refused.
+    pub static NMP_SEARCHES: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the ones that produced a cutoff — after the verification search where one ran.
+    pub static NMP_CUTS: AtomicU64 = AtomicU64::new(0);
+    /// Candidates by remaining depth, so one run reports what the guards cost at the root depth
+    /// the time control actually reaches rather than at the depth a test happens to use.
+    pub static NMP_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Nodes both guards let through, by the same depth index.
+    pub static NMP_SEARCH_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -292,6 +319,41 @@ pub fn record_singular(depth: i32, verified: bool, extended: bool, verify_nodes:
     }
 }
 
+/// Records one node that reached Null Move Pruning's pre-20.1 guards, for `task.md` 20.1 and 20.2.
+///
+/// `pv_blocked` and `gate_blocked` are the two new guards' verdicts on this node, taken
+/// independently, so a node refused by both is counted in both — the run reports what each guard
+/// is worth on its own, which is the question the tree census asks in four configurations.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_nmp_candidate(depth: i32, pv_blocked: bool, gate_blocked: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::NMP_CANDIDATES);
+        counters::bump(&counters::NMP_BY_DEPTH[bucket]);
+        if pv_blocked {
+            counters::bump(&counters::NMP_PV_BLOCKED);
+        }
+        if gate_blocked {
+            counters::bump(&counters::NMP_GATE_BLOCKED);
+        }
+        if !pv_blocked && !gate_blocked {
+            counters::bump(&counters::NMP_SEARCHES);
+            counters::bump(&counters::NMP_SEARCH_BY_DEPTH[bucket]);
+        }
+    }
+}
+
+/// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
+/// verification search at the depths that run one.
+#[inline(always)]
+#[allow(dead_code)]
+pub fn record_nmp_cut() {
+    #[cfg(feature = "search-diag")]
+    counters::bump(&counters::NMP_CUTS);
+}
+
 /// Writes the size of the tree the search actually walked.
 ///
 /// The UCI `nodes` field reports `Stats::created_nodes`, i.e. the number of *generated* moves.
@@ -385,6 +447,17 @@ pub fn dump() {
             counters::read(&counters::SINGULAR_VERIFY_NODES),
             by_depth(&counters::SINGULAR_BY_DEPTH),
             by_depth(&counters::SINGULAR_EXT_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGNMP candidates={} pv_blocked={} gate_blocked={} searches={} cuts={} \
+             by_depth={} search_by_depth={}",
+            counters::read(&counters::NMP_CANDIDATES),
+            counters::read(&counters::NMP_PV_BLOCKED),
+            counters::read(&counters::NMP_GATE_BLOCKED),
+            counters::read(&counters::NMP_SEARCHES),
+            counters::read(&counters::NMP_CUTS),
+            by_depth(&counters::NMP_BY_DEPTH),
+            by_depth(&counters::NMP_SEARCH_BY_DEPTH),
         );
     }
 }

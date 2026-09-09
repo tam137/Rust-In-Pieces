@@ -703,13 +703,52 @@ impl SearchService {
             0
         };
 
-        // 0. Null Move Pruning (NMP)
-        if config.enable_nmp 
+        // The candidate population for `task.md` 20.1 and 20.2: every node that reached this
+        // rule before the two guards below existed. Compiled out unless `search-diag` is on, so
+        // the shipped build re-evaluates nothing.
+        #[cfg(feature = "search-diag")]
+        if config.enable_nmp
             && !skip_null_move
-            && depth >= config.nmp_depth_threshold 
-            && !turn.gives_check 
-            && self.has_non_pawn_material(board, board.white_to_move) 
+            && depth >= config.nmp_depth_threshold
+            && !turn.gives_check
+            && self.has_non_pawn_material(board, board.white_to_move)
         {
+            crate::search_diag::record_nmp_candidate(
+                depth,
+                config.nmp_pv_guard && is_pv,
+                config.nmp_static_eval_gate && static_eval < beta,
+            );
+        }
+
+        // 0. Null Move Pruning (NMP)
+        //
+        // The two guards below are `task.md` 20.2 and 20.1. Both are placed ahead of
+        // `has_non_pawn_material`, the only call in this condition: everything above it is a
+        // comparison on a value that is already in a register.
+        if config.enable_nmp
+            && !skip_null_move
+            && depth >= config.nmp_depth_threshold
+            && !turn.gives_check
+            // 20.2. The rule speculates, and on the principal variation the score it returns is
+            // the one that reaches the root. Razoring, Futility Pruning and Late Move Pruning all
+            // carry this guard already; this rule and Reverse Futility Pruning did not. Ships
+            // disabled -- see `task.md` 20.2 and the note on `Config::nmp_pv_guard`.
+            && (!config.nmp_pv_guard || !is_pv)
+            // 20.1. The null move asks whether giving the opponent a free move still fails high.
+            // At a node whose *static* evaluation is already below `beta`, that question has a
+            // predictable answer and the reduced search that asks it is close to pure cost.
+            //
+            // On this branch `calc_eval` returns the network score before the lazy-evaluation
+            // block is reached, so the gate reads a full evaluation and the lazy contract that
+            // makes it safe on `master` is not even needed here.
+            && (!config.nmp_static_eval_gate || static_eval >= beta)
+            && self.has_non_pawn_material(board, board.white_to_move)
+        {
+            // `static_eval` is the sentinel `0` outside `depth > 0 && !turn.gives_check`. This
+            // rule needs `depth >= nmp_depth_threshold` and `!turn.gives_check`, which is a
+            // strict subset, so the gate above can never read the sentinel.
+            debug_assert!(depth > 0 && !turn.gives_check,
+                "NMP reached a node where `static_eval` is the sentinel 0");
             let old_white_to_move = board.white_to_move;
             let old_field_for_en_passante = board.field_for_en_passante;
             let old_hash = board.cached_hash;
@@ -764,21 +803,29 @@ impl SearchService {
                     ).1;
 
                     if verify_eval >= beta {
+                        #[cfg(feature = "search-diag")]
+                        crate::search_diag::record_nmp_cut();
                         return (None, beta);
                     }
                 } else {
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_nmp_cut();
                     return (None, beta);
                 }
             }
         }
 
         // 0.5. Reverse Futility Pruning (RFP) / Static Null Move Pruning
-        if config.enable_rfp 
-            && depth > 0 
-            && depth <= config.rfp_max_depth 
-            && !turn.gives_check 
-            && self.has_non_pawn_material(board, board.white_to_move) 
+        if config.enable_rfp
+            && depth > 0
+            && depth <= config.rfp_max_depth
+            && !turn.gives_check
+            // `task.md` 20.2, the same guard as on Null Move Pruning above. Ships disabled.
+            && (!config.rfp_pv_guard || !is_pv)
+            && self.has_non_pawn_material(board, board.white_to_move)
         {
+            debug_assert!(depth > 0 && !turn.gives_check,
+                "RFP reached a node where `static_eval` is the sentinel 0");
             let margin = config.rfp_margin_per_depth * depth as i16;
 
             if static_eval - margin >= beta {
@@ -2086,6 +2133,71 @@ mod tests {
         assert_eq!(default_tree, measured_variant,
             "the shipped default must be the measured variant ({} vs {})",
             default_tree, measured_variant);
+    }
+
+    /// `task.md` 20.1 and 20.2 both only ever *remove* null searches, so the one thing a unit
+    /// test can establish cheaply is that each of them removes something: a guard that never
+    /// fires cannot be worth a run, and would reach the census as a silent no-op.
+    #[test]
+    fn test_each_new_nmp_guard_changes_the_tree() {
+        let ungated = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.nmp_static_eval_gate = false;
+            c.nmp_pv_guard = false;
+            c.rfp_pv_guard = false;
+        });
+
+        for (name, shape) in [
+            ("nmp_static_eval_gate", (true, false, false)),
+            ("nmp_pv_guard", (false, true, false)),
+            ("rfp_pv_guard", (false, false, true)),
+        ] {
+            let (gate, nmp_pv, rfp_pv) = shape;
+            let gated = search_nodes(CHECK_RICH_FEN, 7, |c| {
+                c.use_zobrist = true;
+                c.nmp_static_eval_gate = gate;
+                c.nmp_pv_guard = nmp_pv;
+                c.rfp_pv_guard = rfp_pv;
+            });
+            assert_ne!(ungated, gated,
+                "{} must reach nodes at depth 7 ({} nodes either way)", name, ungated);
+        }
+    }
+
+    /// v0.43.0 ships the gate of 20.1 and neither PV guard of 20.2, which is the configuration
+    /// the tree census picked and the 6000-game run on `master` priced. This pins it, so a later
+    /// edit cannot quietly ship a configuration nothing measured.
+    #[test]
+    fn test_the_shipped_nmp_configuration_is_the_one_that_was_measured() {
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        let explicit = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.nmp_static_eval_gate = true;
+            c.nmp_pv_guard = false;
+            c.rfp_pv_guard = false;
+        });
+        assert_eq!(default_tree, explicit,
+            "the shipped default must be the gate alone ({} vs {})", default_tree, explicit);
+
+        let ungated = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.nmp_static_eval_gate = false;
+            c.nmp_pv_guard = false;
+            c.rfp_pv_guard = false;
+        });
+        assert_ne!(default_tree, ungated,
+            "the gate must be a different tree from the search without it");
+    }
+
+    /// The gate of 20.1 reads `static_eval`, which is the sentinel `0` outside
+    /// `depth > 0 && !turn.gives_check`. Null Move Pruning's own guards are a strict subset of
+    /// that, and the `debug_assert` in the rule says so. A debug-profile search over a
+    /// check-rich position is what would trip it.
+    #[test]
+    fn test_the_guards_never_read_the_sentinel_static_eval() {
+        for depth in 1..=6 {
+            search_nodes(CHECK_RICH_FEN, depth, |c| c.use_zobrist = true);
+        }
     }
 
     #[test]
