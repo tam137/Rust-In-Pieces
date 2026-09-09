@@ -13,11 +13,11 @@ the staged `MovePicker` -- was correct, cut the generated moves in half, and was
 
 | | |
 | :--- | :--- |
-| Released | **v0.42.0-NNUE** on this branch since 2026-09-08 — persistent killer, history and counter-move tables, ported from `master` v0.42.0. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
+| Released | **v0.43.0-NNUE** on this branch since 2026-09-09 — the Null Move Pruning static-eval gate, ported from `master` v0.43.0, with both `!is_pv` guards shipped disabled. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
 | Authority | **`task.md` on `master` is the roadmap.** This copy exists so the branch is readable on its own and drifts if it is not synced; when the two disagree, `master` is right. Branch-specific work lives in `task/search_task.md` and `task/eval_task.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
-| Run cost | a **6000-game** fixed-N run is **2.3 s per game** at concurrency 5, i.e. **under 4 hours**. A 200-game smoke gauntlet is 8 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
+| Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
 | Blocked on | nothing. The staged `MovePicker` was finished, priced and reversed on 2026-09-03: section 5 is a negative result, and `master`'s search is v0.39.0's again |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
@@ -29,20 +29,35 @@ See the Engines Changelog if needed.
 
 ### The next action
 
-**This section was three releases stale until 2026-09-08.** It claimed v0.39.1 was current and
-that the branch was unmaintained; v0.40.0-NNUE, v0.41.0-NNUE, v0.41.1-NNUE and v0.42.0-NNUE have
-shipped since. Read `master`'s `task.md` for the live backlog. What is true here:
+**Read `master`'s `task.md` for the live backlog; this section carries only what is specific to
+this branch.** Kept current as of 2026-09-09.
 
-1. **Ported in v0.42.0-NNUE: killers, history and counter moves persist across the iterative
-   deepening loop** (`master` `task.md` 23.1). They were allocated inside `get_moves`, which the
-   iterative deepening loop calls once per depth, so every iteration started from empty tables.
-   On `master` in HCE mode this measured **+39.4 Elo, 95% [+29, +49]** over 2598 games. **That
-   number does not transfer to this branch** — it was measured against an HCE evaluation, and
-   move ordering interacts with the evaluation that scores the moves. Treat it as a reason to
-   expect a gain here, not as this branch's effect size.
-2. **`singular_margin` was retuned to 0** in v0.41.1-NNUE, ported from `master`. The other two
+1. **Ported in v0.43.0-NNUE: the Null Move Pruning static-eval gate** (`master` `task.md` 20.1).
+   The rule now runs only where the static evaluation is already at or above `beta`. On `master`
+   it measured **-0.5 Elo, 95% [-7, +6]** over 6000 games — a null at the resolution the count was
+   chosen for — against 34.7% of all null searches removed, and it ships as a throughput change.
+   **On this branch the gate reads a full network score**: `calc_eval` returns before the
+   lazy-evaluation block is reached, so the lazy contract that makes the gate safe on `master` is
+   not needed here. `NmpPvGuard` and `RfpPvGuard` are ported and ship **disabled**, as on
+   `master`. Unpriced in games on this branch.
+2. **The cross-version gauntlet passed, 2026-09-09.** Challenger `suprah-0.43.0-nnue` first,
+   800 games, 1s + 100ms, `openings_wide.txt`, concurrency 5: 335 wins, 285 draws, 180 losses
+   overall, ahead of every NNUE predecessor it played (v0.41.1-NNUE 38/33/29, v0.40.0-NNUE
+   38/41/21, v0.39.1-NNUE 36/44/20, v0.38.0-NNUE 42/40/18, v0.37.2-NNUE 50/33/17, v0.33.1-NNUE
+   42/41/17), 86/9/5 against HCE `suprah-0.39.1` and 3/44/53 against SleepMind. **This is rule 2's
+   regression gate and nothing more** — 100 games per pairing is far below the resolution of this
+   host, and none of these numbers is an effect size.
+3. **Ported in v0.42.0-NNUE: killers, history and counter moves persist across the iterative
+   deepening loop** (`master` `task.md` 23.1). On `master` in HCE mode this measured **+39.4 Elo,
+   95% [+29, +49]** over 2598 games. **That number does not transfer to this branch** — it was
+   measured against an HCE evaluation, and move ordering interacts with the evaluation that scores
+   the moves. Treat it as a reason to expect a gain here, not as this branch's effect size.
+4. **`singular_margin` was retuned to 0** in v0.41.1-NNUE, ported from `master`. The other two
    singular parameters are documented negatives. The axis is closed.
-3. **The negative extension**, the other half of the singular rebate, is still unmeasured.
+5. **The negative extension**, the other half of the singular rebate, is still unmeasured.
+6. **Next in from `master`: Internal Iterative Reduction** (`master` `task.md` 22), backlog item 2
+   there. It is being built and priced on `master` first; nothing is ported here before it has an
+   interval, per `skills/nnue_porting_and_release_procedure.md`.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
@@ -79,11 +94,16 @@ a run at `rounds = 50` never reaches line 51.
 
 ### The backlog, in order
 
-| # | Item | Where | Why this order |
-| ---: | :--- | :--- | :--- |
-| 1 | En passant is invisible to the Quiescence Search | 7 | A missing move, and deterministic to read |
-| 2 | `singular_*` shipped untuned | open table | The SPSA infrastructure already exists |
-| 3 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
+**The backlog lives on `master` and is not duplicated here** — the copy that used to stand in this
+place listed three items that had all shipped (Quiescence Search en passant in v0.39.1-NNUE, the
+singular tuning in v0.41.1-NNUE, the NNUE incremental accumulator in v0.40.0-NNUE), which is
+exactly the drift the Authority row above warns about. `master`'s order as of 2026-09-09:
+Internal Iterative Reduction (22), the two history-table defects (23.2, 23.3), `improving` and the
+Reverse Futility depth bound (21), the Null Move reduction as a tuning group (20.3), the history
+curves (23.4), the Transposition Table rework (25), Continuation History (24), ProbCut (26).
+
+Branch-specific work that is *not* on `master`'s list lives in `task/search_task.md` and
+`task/eval_task.md`.
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
 exemption, measured 2026-08-28: worth 4.5% of the tree and nothing in games. The staged
@@ -99,24 +119,51 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
 | The root can hand a node an empty `alpha == beta` window | open question |
 | Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
-| `singular_margin`, `singular_tt_depth_margin` and `singular_depth_reduction` shipped untuned | open tuning |
-| The Quiescence Search never generates en passant: the generator's en passant block is behind `!only_captures` and the Quiescence Search is the one caller that passes `true` — section 7 | defect, unpriced, deterministic to read |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 5.2 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 5.2 |
-| NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
 | Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run | open question, cheap to test against another engine pairing |
 | `scripts/measure_stage0.py` still drives the engine with a fixed `sleep` instead of `scripts/uci_driver.py` | unsafe measurement; it is kept because four other scripts import its 14-position corpus |
 | `MoveRawList.moves` holds 128 from/to pairs against a legal maximum of 218, and `push` drops the rest silently | latent defect, needs a position with more than 128 moves to fire |
 | `truncate_bad_moves = 99` truncates an unsorted list during search, so it drops moves in generation order rather than the worst ones | latent defect, same class |
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
+| The root searches **every** root move with `is_pv = true` — it runs no Principal Variation Search of its own, so this engine has one PV node per legal root move where the published formulation has one per iteration. It is why the `!is_pv` guards of 20.2 cost tree where they should be nearly free | defect or design choice, unmeasured, established 2026-09-09, section 20.2 |
+| Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
+| The history table is `[from][to]` with no side-to-move index, so White and Black share every entry | defect, unmeasured, section 23.2 |
+| History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
+| `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
+| The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
+| The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
+| The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
+| `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
+| There is no Internal Iterative Reduction and no Internal Iterative Deepening | proposal, unmeasured, section 22 |
+| There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
+| The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
+| There is no ProbCut | proposal, unmeasured, section 26 |
+| There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
+| `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
+| `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
+| The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 
 Closed on 2026-09-01, and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth,
 and the scoreboard configuration that could not price them.
 
 Closed on 2026-09-03: the staged `MovePicker` (section 5) and raising en passant into the capture
 band (section 7). Both were built and both were measured; neither cost a game run.
+
+Closed on 2026-09-08: the tables thrown away at every iterative deepening iteration, section
+23.1, shipped in v0.42.0 at +39.4 Elo [+29, +49]. The section is kept rather than deleted because
+it is the only record of the decay rate actually shipped, which is not the published one.
+
+Closed on 2026-09-07, and not to be reopened: en passant generation in the Quiescence Search
+(shipped v0.39.1) and the singular parameter axis (shipped v0.41.1). Both write-ups were deleted
+here once released and are recoverable from git at `792af14`; what survives of the singular
+campaign is the compact record in section 8.
+
+Closed on this branch, and not on `master`: the NNUE incremental accumulator, shipped in
+v0.40.0-NNUE. `master`'s copy still carries it as parked because `use_nnue` is not its
+default path; here it is.
 
 ### Rules that are not optional
 
