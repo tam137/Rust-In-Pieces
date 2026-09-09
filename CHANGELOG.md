@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.43.0] - 2026-09-09
+
+Null Move Pruning now runs only where the static evaluation is already at or above `beta`, the
+gate the published formulation carries and this engine did not. The value was already computed at
+every node the rule fires at, so the gate costs no evaluation call. See `task.md` 20.1.
+
+### Added
+- Null Move Pruning static-eval gate, on by default as `NmpStaticEvalGate`. Removes 34.7% of all
+  null searches and 3.0% / 11.0% of the generated moves over the two 300-position pools at fixed
+  depth 10. Measured -0.5 Elo, 95% [-7, +6] over 6000 games against v0.42.0: a null at the
+  resolution the count was chosen for, so this ships as a throughput change and not as a gain.
+- `NmpPvGuard` and `RfpPvGuard`, both **off** by default. The `!is_pv` guard that razoring,
+  Futility and Late Move Pruning already carry is far larger in this engine than in the
+  formulation it comes from, because the root searches every root move with `is_pv = true`; with
+  the guards on, the same census reads the gate's whole saving back out again. Unmeasured in
+  games. See `task.md` 20.2.
+- `search-diag` counters for Null Move Pruning: candidates, nodes each guard refuses, null
+  searches run, and cutoffs, by remaining depth. Compiled out unless the feature is on.
+
+### Fixed
+
+
+
 ## [V0.42.0] - 2026-09-08
 
 The killer, history and counter-move tables were allocated inside `SearchService::get_moves`,
