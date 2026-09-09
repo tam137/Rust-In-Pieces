@@ -1,9 +1,11 @@
 # Suprah Engine Strength Enhancement Roadmap (`task.md`)
 
 What to build next in **Suprah**, and the record of what has already been tried and failed.
-Read "Negative results" before proposing anything: seven of the ideas in this document were built,
-measured and reversed. Two of them looked excellent on every metric except games won, and one --
-the staged `MovePicker` -- was correct, cut the generated moves in half, and was still slower.
+Read "Negative results" before proposing anything: eight of the ideas in this document were built,
+measured and put back. Three of them looked excellent on every metric except games won: the staged
+`MovePicker` was correct, cut the generated moves in half and was still slower, and Internal
+Iterative Reduction removed two thirds of the tree and scored 35.5% against the release it was
+built on.
 
 ---
 
@@ -55,9 +57,14 @@ this branch.** Kept current as of 2026-09-09.
 4. **`singular_margin` was retuned to 0** in v0.41.1-NNUE, ported from `master`. The other two
    singular parameters are documented negatives. The axis is closed.
 5. **The negative extension**, the other half of the singular rebate, is still unmeasured.
-6. **Next in from `master`: Internal Iterative Reduction** (`master` `task.md` 22), backlog item 2
-   there. It is being built and priced on `master` first; nothing is ported here before it has an
-   interval, per `skills/nnue_porting_and_release_procedure.md`.
+6. **Nothing is coming in from `master` right now.** Internal Iterative Reduction, its backlog
+   item 2, was built and refused at the gate on 2026-09-09 — 35.5% against v0.43.0 in the
+   published form, 42.0% at `iir_min_depth = 8`, both below 45% — and ships there behind
+   `enable_iir`, default `false`. **It is not ported here, and it should not be ported here as a
+   throughput idea either**: the rule fires where the Transposition Table has no move, and this
+   branch scores with a network, so its own miss rate and its own trade-off would have to be
+   measured from scratch. `master` moves on to backlog item 3, the two History Heuristic defects
+   (23.2, 23.3); that is the next candidate for a port.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
@@ -97,10 +104,11 @@ a run at `rounds = 50` never reaches line 51.
 **The backlog lives on `master` and is not duplicated here** — the copy that used to stand in this
 place listed three items that had all shipped (Quiescence Search en passant in v0.39.1-NNUE, the
 singular tuning in v0.41.1-NNUE, the NNUE incremental accumulator in v0.40.0-NNUE), which is
-exactly the drift the Authority row above warns about. `master`'s order as of 2026-09-09:
-Internal Iterative Reduction (22), the two history-table defects (23.2, 23.3), `improving` and the
-Reverse Futility depth bound (21), the Null Move reduction as a tuning group (20.3), the history
-curves (23.4), the Transposition Table rework (25), Continuation History (24), ProbCut (26).
+exactly the drift the Authority row above warns about. `master`'s order as of 2026-09-09, after
+Internal Iterative Reduction (22) was struck through as a negative result: the two history-table
+defects (23.2, 23.3), `improving` and the Reverse Futility depth bound (21), the Null Move
+reduction as a tuning group (20.3), the history curves (23.4), the Transposition Table rework
+(25), Continuation History (24), ProbCut (26).
 
 Branch-specific work that is *not* on `master`'s list lives in `task/search_task.md` and
 `task/eval_task.md`.
@@ -137,7 +145,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
 | The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
-| There is no Internal Iterative Reduction and no Internal Iterative Deepening | proposal, unmeasured, section 22 |
+| Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
+| There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
