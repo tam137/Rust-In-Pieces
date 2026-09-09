@@ -32,6 +32,17 @@ See the Engines Changelog if needed.
 both write-ups are gone from this document, per `skills/task_management_procedure.md`. What is
 in flight and what comes after it:
 
+**Next up is backlog item 2, Internal Iterative Reduction (section 22)** — six lines, and the
+engine has nothing in this family at all. Item 1 closed on 2026-09-09.
+
+0. **Backlog 1, section 20.1, measured 2026-09-09: the Null Move Pruning static-eval gate is
+   Elo-neutral and makes the tree cheaper.** `-0.5 Elo, 95% [-7, +6]` over 6000 games against
+   v0.42.0, against **+3.0% and +11.0% fewer generated moves** on the two 300-position pools and
+   34.7% of all null searches removed. The gate ships enabled. Both `!is_pv` guards of 20.2 ship
+   **disabled**: the same census reads the gate's whole saving back out again when they are on,
+   because the root gives every root move `is_pv = true`. That root property is new, it is in the
+   open list, and it is not to be changed inside a run pricing something else.
+
 1. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
    engine since the bands.** Killers, the history table and the counter moves moved from locals in
    `get_moves` into `EngineState`; they persist across the iterative deepening loop and the moves
@@ -93,7 +104,7 @@ a run at `rounds = 50` never reaches line 51.
 
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
-| 1 | The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP | 20.1, 20.2 | Five lines, against an evaluation the node already computed |
+| ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 20.1, 20.2 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | 2 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
 | 3 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
 | 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
@@ -127,12 +138,12 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `truncate_bad_moves = 99` truncates an unsorted list during search, so it drops moves in generation order rather than the worst ones | latent defect, same class |
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
+| The root searches **every** root move with `is_pv = true` — it runs no Principal Variation Search of its own, so this engine has one PV node per legal root move where the published formulation has one per iteration. It is why the `!is_pv` guards of 20.2 cost tree where they should be nearly free | defect or design choice, unmeasured, established 2026-09-09, section 20.2 |
+| Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | The history table is `[from][to]` with no side-to-move index, so White and Black share every entry | defect, unmeasured, section 23.2 |
 | History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
 | `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
-| Null Move Pruning has no `static_eval >= beta` gate, although the evaluation is already computed at every node it runs at | proposal, unmeasured, section 20.1 |
-| Null Move Pruning and Reverse Futility Pruning have no `!is_pv` guard, although razoring, Futility and LMP all do | proposal, unmeasured, section 20.2 |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
 | The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
 | The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
@@ -436,8 +447,29 @@ the two needs `margin = 0` with and without `enable_singular_multicut`.
 
 ## 20. Null Move Pruning: the missing static-eval gate, and the missing PV guard
 
-`[Impact: unknown]` `[Complexity: Low]` `[unmeasured]` — five lines, against a static evaluation
-this node has already paid for.
+`[Impact: measured]` `[Complexity: Low]` — five lines, against a static evaluation this node has
+already paid for. **20.1 is built and measured: Elo-neutral, and it removes 3.0% and 11.0% of the
+generated moves on the two 300-position pools. 20.2 is built and shipped disabled: the same census
+reads the whole saving back out again when it is on.** Measured 2026-09-08 and 2026-09-09; the
+numbers are under 20.1 and 20.2 below. 20.3 is untouched and still a proposal.
+
+### What the run said
+
+`suprah-0.43.0-rc` against `suprah-0.42.0`, **fixed N = 6000 games** decided before the start, no
+early stopping, 1s + 150ms, `openings_wide.txt`, Hash=64 Threads=1 OwnBook=false, concurrency 5:
+
+| | |
+| :--- | :--- |
+| Result | **-0.5 Elo for the candidate, 95% [-7, +6]** over 6000 games, 3000 pairs |
+| Games | +1732 =2527 -1741 from the candidate's side, 50.1% to v0.42.0 |
+| Health | no losses on time, 1 identical game in 6000, all 613 opening families seen |
+| Design effect | 1.06, effective sample 2839 of 3000 pairs, intervals widen by 3% |
+
+A null, at the resolution the count was chosen for. The point estimate crossed zero twice on the
+way — +4.9 at 783 games, +0.5 at 1326, +1.9 at 3293, -2.1 at 4086 — which is what a null looks
+like from the inside, and is the reason rule 7 exists.
+
+The deterministic reading is not null, and it is the reason to keep the gate. See 20.1.
 
 `search_service.rs:676`. The rule fires at every eligible node:
 
@@ -475,8 +507,34 @@ Null Move Pruning and Reverse Futility Pruning do not. Both therefore speculate 
 variation, where `beta - alpha > 1` and the score is the one that reaches the root.
 
 `is_pv` is already tracked correctly through the recursion — the Principal Variation Search null
-windows pass `false` at `:1431` and the full-window re-search passes `true` at `:1443` — so this
-is a guard, not a plumbing change.
+windows pass `false` and the full-window re-search passes `true` — so this is a guard, not a
+plumbing change.
+
+**Built, measured and shipped disabled, 2026-09-08.** The guard is not wrong. It is an order of
+magnitude larger in this engine than in the formulation it comes from, and the reason is at the
+root: `search_service.rs` searches **every** root move on the full aspiration window with `is_pv`
+hardcoded `true`, because the root runs no Principal Variation Search of its own. The published
+formulation has one PV node per iteration at the root; this engine has one per legal move. The
+guard therefore switches Null Move Pruning off at every root child — the largest subtrees in the
+search — and not on a narrow leftmost line.
+
+The census says the same thing from the other end. The gate of 20.1 alone removes 3.0% and 11.0%
+of the generated moves; with both PV guards added the same two pools read **-1.7% and -0.5%**, so
+the guards give the entire saving back and a little more. Both halves of 20.2 ship as
+`nmp_pv_guard` and `rfp_pv_guard`, both defaulting **false**, so the census can be reproduced from
+one binary and the rule can be priced in games later without a variant build.
+
+**What is still open on 20.2** is whether it is worth Elo despite costing tree. It removes
+speculation from the nodes whose score reaches the root, which is the entire point of the guard,
+and rule 1 says tree size does not price a search change — the Check Extension was the best of
+four axes on every depth metric and -26.8 Elo in games. Pricing it needs its own 6000-game run
+against v0.43.0, and it needs the root question below answered first, because the two interact:
+if the root stopped calling every move a PV node, this guard would become the small rule the
+literature describes.
+
+**The root treats every root move as a PV node.** That is a separate item, and it is not to be
+changed inside a run that is pricing something else — it moves the tree underneath the rule being
+measured. Recorded in the open list.
 
 ### 20.3 The reduction is shallower than the published one, and it is verified
 
@@ -496,6 +554,32 @@ The engine additionally runs a **verification search** at `depth >= nmp_verifica
 every deep cut. The published pairing is the other way round: the static-eval gate of 20.1 is what
 makes the verification unnecessary, because a node whose static evaluation is already at or above
 `beta` is not the zugzwang case the verification exists to catch.
+
+**Measured, 2026-09-08.** The gate refuses **34.7%** of all Null Move Pruning candidate nodes,
+over 40 positions at depth 10 with the `search-diag` counters: 387,272 candidates, 134,566 refused
+by the gate, 36,335 by the PV guard, 60.7% surviving both, and 66.7% of the null searches that do
+run produce a cutoff. Candidates by remaining depth are `3:212964, 4:94121, 5:45153, 6:19002,
+7:10073, 8:4096, 9:1863`, so the rule is live at the root depth the time control reaches — rule 6
+is satisfied, the gate is not inert at the depth of play.
+
+The tree census, `scripts/measure_tree_size.py`, 300 positions per pool, fixed depth 10, one
+binary against itself with the switch off on the base side:
+
+| | `book_width.txt` | `book_mixed.txt` |
+| :--- | ---: | ---: |
+| generated moves, gate alone | **+3.0%** | **+11.0%** |
+| generated moves, with both PV guards of 20.2 | -1.7% | -0.5% |
+
+**Read the generated-move column, not the wall time.** The timing column of the same census reads
++2.1% and +7.1% for the gate, but every configuration — including the near-inert RFP guard —
+sits about 5 percentage points higher on `book_mixed` than on `book_width`, which is an
+instrument offset and not four independent pool effects. The generated-move count is a plain
+count, no timing enters it, and move generation was not touched, so it is the honest reading here.
+Both pools agree on it.
+
+Shipped **enabled** in v0.43.0 as `nmp_static_eval_gate`. Elo-neutral at 6000 games, cheaper tree
+on both pools: this is the Milestone-1 shape of change, except that it is not node-identical,
+which is why it needed the run.
 
 **Take 20.1 and 20.2 first and separately from 20.3.** The gate and the guards only remove searches;
 the reduction and the verification change what a cut is allowed to conclude, and they are two more
