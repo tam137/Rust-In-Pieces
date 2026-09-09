@@ -181,6 +181,26 @@ mod counters {
     /// Nodes both guards let through, by the same depth index.
     pub static NMP_SEARCH_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // ---------------------------------------------------------------------------------------
+    // `task.md` 22: how much of the tree does Internal Iterative Reduction reach?
+    //
+    // Rule 6 again. The rule fires on nodes at `depth >= iir_min_depth` that have no
+    // Transposition Table move, and nothing measured says how large that class is in an engine
+    // whose killers, history and counter moves have persisted across the iterative deepening
+    // loop since v0.42.0. The share `applied / eligible` is what decides whether the rule is
+    // worth a six-hour run.
+    // ---------------------------------------------------------------------------------------
+
+    /// Nodes that reached the rule at or above `iir_min_depth`, i.e. its candidate population.
+    pub static IIR_ELIGIBLE: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the nodes with no Transposition Table move — the ones actually reduced.
+    pub static IIR_APPLIED: AtomicU64 = AtomicU64::new(0);
+    /// Candidates by remaining depth, so the share is readable at the depth of play and not only
+    /// in aggregate.
+    pub static IIR_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Reduced nodes, by the same depth index.
+    pub static IIR_APPLIED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -345,6 +365,27 @@ pub fn record_nmp_candidate(depth: i32, pv_blocked: bool, gate_blocked: bool) {
     }
 }
 
+/// Records one node that reached Internal Iterative Reduction's depth gate, for `task.md` 22.
+///
+/// `applied` is the rule's verdict: true where the Transposition Table probe yielded no move and
+/// the node is therefore searched one ply shallower. The call site carries the same guards as the
+/// rule apart from `tt_move`, so `applied / eligible` is the share of the candidate population
+/// the rule actually reduces.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_iir(depth: i32, applied: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::IIR_ELIGIBLE);
+        counters::bump(&counters::IIR_BY_DEPTH[bucket]);
+        if applied {
+            counters::bump(&counters::IIR_APPLIED);
+            counters::bump(&counters::IIR_APPLIED_BY_DEPTH[bucket]);
+        }
+    }
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -458,6 +499,13 @@ pub fn dump() {
             counters::read(&counters::NMP_CUTS),
             by_depth(&counters::NMP_BY_DEPTH),
             by_depth(&counters::NMP_SEARCH_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGIIR eligible={} applied={} by_depth={} applied_by_depth={}",
+            counters::read(&counters::IIR_ELIGIBLE),
+            counters::read(&counters::IIR_APPLIED),
+            by_depth(&counters::IIR_BY_DEPTH),
+            by_depth(&counters::IIR_APPLIED_BY_DEPTH),
         );
     }
 }
