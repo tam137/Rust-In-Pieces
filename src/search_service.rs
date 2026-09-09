@@ -502,7 +502,7 @@ impl SearchService {
     /// Quiescence Search and [`Self::singular_verification`] — re-enter *this same node* with a
     /// different move list or depth. They keep the window and the score as they are. Every other
     /// recursion follows a `do_move` or a null move, and negates both.
-    fn minimax(&self, board: &mut Board, turn: &Turn, depth: i32,
+    fn minimax(&self, board: &mut Board, turn: &Turn, mut depth: i32,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
         context: &SearchContext, is_pv: bool,
         skip_null_move: bool,
@@ -857,6 +857,54 @@ impl SearchService {
             if razor_eval <= alpha {
                 return (None, razor_eval);
             }
+        }
+
+        // 0.7. Internal Iterative Reduction (IIR), `task.md` 22.
+        //
+        // A node at real depth whose Transposition Table probe yielded no move has no ordering
+        // guidance from the table at all: the move it searches first is whatever the order bands
+        // or the history table happened to rank highest, and if that move is wrong the node pays
+        // full depth to find out. The rule spends one ply instead.
+        //
+        // Placed after razoring and before the `depth <= 0` branch below, and deliberately not
+        // directly after the Transposition Table probe. Reverse Futility Pruning scales its
+        // margin with `depth` and Null Move Pruning derives its reduction, its depth gate and
+        // its verification threshold from it, so reducing earlier would move three tuned
+        // parameters of two other rules at once and confound whatever this one is worth.
+        //
+        // Three guards the published six lines do not carry, and one they do:
+        // * `use_zobrist` — with no table there is never a table move, so the rule would reduce
+        //   *every* node. That is a shallower search, not this rule.
+        // * `excluded_move` — the Singular Extension verification search re-enters this node at
+        //   a depth the singular rule chose; shortening that changes a different, measured rule.
+        //   A verification search runs because a table move exists, so this is nearly
+        //   unreachable, and it keeps the two rules separable where it is not.
+        // * The published `ply > 0` root exemption is structural here and is not repeated:
+        //   `get_moves` runs the root move loop itself and enters `minimax` at ply 1, which the
+        //   `debug_assert` at the top of this function pins. Iterative deepening therefore
+        //   always completes the depth it was asked for.
+        //
+        // The entry stored under `depth` at the end of this node is the *reduced* depth. That is
+        // intended: a later visit at the original depth will not accept it for a cutoff, which is
+        // what makes the reduction self-repairing rather than permanent.
+        let iir_eligible = config.enable_iir
+            && config.use_zobrist
+            && excluded_move.is_none()
+            && depth >= config.iir_min_depth;
+
+        #[cfg(feature = "search-diag")]
+        if iir_eligible {
+            crate::search_diag::record_iir(depth, tt_move.is_none());
+        }
+
+        if iir_eligible && tt_move.is_none() {
+            // A minimum below 1 would let a rule about *real* depth reach the Quiescence Search,
+            // where `depth` is a negative recursion counter and the clamp below would reset it.
+            // The UCI option declares `min 1`; this is the same bound for anything that sets the
+            // field directly.
+            debug_assert!(config.iir_min_depth >= 1,
+                "Internal Iterative Reduction fired at a non-positive minimum depth");
+            depth = (depth - config.iir_reduction).max(0);
         }
 
         let counter_move = if config.enable_counter_moves && ply > 0 {
@@ -2374,6 +2422,149 @@ mod tests {
         assert_eq!(baseline, unreachable,
             "an unreachable margin must leave the tree untouched ({} vs {})",
             baseline, unreachable);
+    }
+
+    #[test]
+    fn test_iir_changes_the_tree() {
+        // `task.md` 22. Asserted as a change rather than a shrink, for the same reason as LMP,
+        // razoring and the singular extension: a node searched one ply shallower can fail low
+        // where it used to cut, PVS then widens the parent's window and re-searches, so the node
+        // count is not monotone in how many plies are given back.
+        //
+        // Both searches run with the transposition table **on**. The rule is a claim about a
+        // *missing* table move, so with `use_zobrist` false it is inert by construction and this
+        // test would pass against a dead feature — which is what the next test pins.
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = true;
+            c.iir_min_depth = 4;
+            c.iir_reduction = 1;
+        });
+
+        assert_ne!(with, without,
+            "Internal Iterative Reduction must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_iir_is_inert_without_the_transposition_table() {
+        // Without a table every node's probe yields no move, so an ungated rule would reduce
+        // *every* node by a ply — a shallower search, not Internal Iterative Reduction. The
+        // `use_zobrist` guard is what makes the difference, and this pins it: the same shape as
+        // `test_singular_extensions_are_inert_without_the_transposition_table`, and the reason
+        // `Config::for_tests()` (which has `use_zobrist = false`) sees no tree movement at all.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_iir = false;
+        });
+        let enabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = false;
+            c.enable_iir = true;
+            c.iir_min_depth = 4;
+        });
+
+        assert_eq!(baseline, enabled,
+            "without a transposition table the rule must be inert ({} vs {})",
+            baseline, enabled);
+    }
+
+    #[test]
+    fn test_iir_min_depth_above_the_root_neutralises_the_rule() {
+        // The counterpart of `test_razoring_margin_neutralises_the_rule_when_unreachable`: a
+        // minimum depth no node in a depth-7 search can reach must leave the tree bit-identical.
+        // This is how the tuner switches the rule off without the flag, and a guard against a
+        // depth bound that silently disables what it is supposed to shape.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = false;
+        });
+        let unreachable = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = true;
+            c.iir_min_depth = 99;
+        });
+
+        assert_eq!(baseline, unreachable,
+            "a minimum depth above the root must leave the tree untouched ({} vs {})",
+            baseline, unreachable);
+    }
+
+    #[test]
+    fn test_iir_reduction_zero_is_inert() {
+        // The second neutralising value: the rule still fires, and subtracts nothing. The tree
+        // must be bit-identical, which also pins that the block has no side effect beyond the
+        // decrement — no table write, no counter, no changed window.
+        let baseline = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = false;
+        });
+        let zero = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_iir = true;
+            c.iir_min_depth = 4;
+            c.iir_reduction = 0;
+        });
+
+        assert_eq!(baseline, zero,
+            "a zero reduction must leave the tree untouched ({} vs {})", baseline, zero);
+    }
+
+    #[test]
+    fn test_iir_costs_the_smothered_mate_at_most_one_iteration() {
+        // The canary from `task.md` 8.2, asked of a reduction rather than of a pruning rule, and
+        // asked the way the engine actually searches: `game_handler` drives iterative deepening
+        // over one `EngineState`, so each iteration inherits the previous one's table entries and
+        // its killers, history and counter moves. A single cold depth-5 search is not what play
+        // does, and it answers a different question.
+        //
+        // A reduction cannot be pinned as "finds the same mate at the same depth". The node on
+        // the mating line has no table move the first time an iteration reaches it, is searched a
+        // ply shallower, and the mate sits one ply beyond that horizon until the entry the
+        // reduced search stored is deepened. What must hold is that the mate is *delayed*, not
+        // lost: measured here, the baseline sees Philidor's Legacy at depth 5 and the reduction
+        // at depth 6, which is the same one-iteration cost razoring already carries at this
+        // position (`task.md` 3.2, and why the pruning canary switches razoring off).
+        fn first_mate_depth(enable_iir: bool) -> Option<i32> {
+            let service = Service::new();
+            let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+            let mut config = Config::for_tests();
+            // The rule is a claim about a *missing* table entry, so it is inert without a table.
+            config.use_zobrist = true;
+            // Depth 5 resolves this mate only with the Check Extension, exactly as the pruning
+            // canary configures it.
+            config.enable_check_extension = true;
+            // Razoring has its own blind spot here and would mask the reduction's.
+            config.enable_razoring = false;
+            config.enable_iir = enable_iir;
+
+            let state = fresh_engine_state();
+            let mut prev_score: Option<i16> = None;
+            for depth in 2..=7 {
+                let mut stats = Stats::new();
+                let result = service.search.get_moves(
+                    &mut board, depth, true, &mut stats, &config, &service,
+                    &state, std::time::Instant::now(), None, prev_score,
+                );
+                prev_score = Some(result.get_eval());
+                if result.get_eval() > 30000 {
+                    return Some(depth);
+                }
+            }
+            None
+        }
+
+        let baseline = first_mate_depth(false)
+            .expect("the baseline must find the smothered mate by depth 7");
+        let reduced = first_mate_depth(true)
+            .expect("Internal Iterative Reduction must not lose the smothered mate");
+
+        assert!(reduced <= baseline + 1,
+            "the reduction may delay the mate by one iteration, not more (baseline depth {}, \
+             reduced depth {})", baseline, reduced);
     }
 
     #[test]
