@@ -218,6 +218,22 @@ pub struct Config {
     /// two pools; with both PV guards added the same census reads -1.7% and -0.5%, i.e. the
     /// guards give the whole saving back. Unmeasured in games.
     pub nmp_pv_guard: bool,
+    /// Internal Iterative Reduction (`task.md` 22): a node at `depth >= iir_min_depth` whose
+    /// Transposition Table probe yielded no move is searched `iir_reduction` plies shallower.
+    /// Such a node has no ordering guidance beyond the move order bands and the history table,
+    /// and pays full depth to discover that the move it searched first was the wrong one.
+    ///
+    /// The rule needs a table to mean anything: with `use_zobrist` false there is never a table
+    /// move, so the reduction would apply to every node, which is a shallower search and not
+    /// this rule. That guard is pinned by `test_iir_is_inert_without_the_transposition_table`.
+    pub enable_iir: bool,
+    /// Minimum real depth at which Internal Iterative Reduction applies. A value above the root
+    /// depth switches the rule off without touching the flag.
+    pub iir_min_depth: i32,
+    /// Plies removed by Internal Iterative Reduction. `0` switches the rule off without touching
+    /// the flag; the reduced depth is clamped at zero, so a node reduced to nothing drops into
+    /// the Quiescence Search rather than searching at negative depth.
+    pub iir_reduction: i32,
     pub aspiration_window_initial_delta: i16,
     pub aspiration_window_multiplier: i16,
     /// Once the aspiration delta reaches this value, the next re-search uses a full
@@ -514,6 +530,19 @@ impl Config {
             nmp_dynamic_divisor: 6,
             nmp_static_eval_gate: true,
             nmp_pv_guard: false,
+            // `task.md` 22, in the published form: one ply, from real depth 4 up, at PV and
+            // non-PV nodes alike.
+            //
+            // Ships **disabled**. It failed its smoke gauntlet on 2026-09-09 — 35.5% against
+            // v0.43.0 and 44.5% against v0.42.0 over 100 games per pairing, against a gate of
+            // roughly 45% — so no fixed-N run was spent on it and it has no interval. What it
+            // does deterministically is not in doubt: 41.4% of the nodes at depth 4 and above
+            // have no table move, and the ply each of them gives up removes 70.4% and 64.9% of
+            // the generated moves to fixed depth 10 on the two pools. That is two thirds less
+            // tree and a worse engine, which is the profile `task.md` rule 1 exists for.
+            enable_iir: false,
+            iir_min_depth: 4,
+            iir_reduction: 1,
             aspiration_window_initial_delta: 15,
             aspiration_window_multiplier: 4,
             aspiration_window_max_delta: 1000,
@@ -871,6 +900,46 @@ mod tests {
         }
     }
 
+    /// `task.md` 22 ships with its own switch and both of its parameters advertised, so that
+    /// `scripts/measure_tree_size.py --base-options` can survey one binary against itself
+    /// instead of needing a variant build per candidate value.
+    #[test]
+    fn test_iir_defaults_are_the_published_form_and_are_advertised() {
+        let defaults = Config::new();
+        assert!(!defaults.enable_iir,
+                "the rule scored 35.5% against v0.43.0 in its smoke gauntlet of 2026-09-09, \
+                 against a gate of roughly 45%; it does not ship on");
+        assert_eq!(defaults.iir_min_depth, 4, "the published minimum depth");
+        assert_eq!(defaults.iir_reduction, 1, "the published form spends exactly one ply");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        for name in ["EnableIir", "IirMinDepth", "IirReduction"] {
+            assert!(advertised.iter().any(|l| l.starts_with(&format!("option name {} ", name))),
+                    "{} must be advertised as a UCI option", name);
+        }
+    }
+
+    #[test]
+    fn test_iir_options_reach_fields_in_all_spellings() {
+        for spelling in ["EnableIir", "enable_iir", "enableiir"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.enable_iir, "'{}' must reach the field", spelling);
+        }
+
+        for spelling in ["IirMinDepth", "iir_min_depth", "iirmindepth"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "6"), UciOptionEffect::Stored);
+            assert_eq!(config.iir_min_depth, 6, "'{}' must reach the field", spelling);
+        }
+
+        for spelling in ["IirReduction", "iir_reduction", "iirreduction"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "2"), UciOptionEffect::Stored);
+            assert_eq!(config.iir_reduction, 2, "'{}' must reach the field", spelling);
+        }
+    }
+
     #[test]
     fn test_singular_tuning_options_reach_fields_in_all_spellings() {
         for spelling in ["SingularMargin", "singular_margin", "singularmargin"] {
@@ -1008,6 +1077,9 @@ impl Config {
             "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
+            "enableiir" => { self.enable_iir = value.to_lowercase() == "true"; },
+            "iirmindepth" => if let Ok(v) = value.parse::<i32>() { self.iir_min_depth = v; },
+            "iirreduction" => if let Ok(v) = value.parse::<i32>() { self.iir_reduction = v; },
             "lmrmovethreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_move_threshold = v; },
             "lmrdivisor" | "lmrdivisorscaled" => if let Ok(v) = value.parse::<i32>() { self.lmr_divisor = v; self.recalculate_lmr_table(); },
             "killermove1rankbonus" => if let Ok(v) = value.parse::<i32>() { self.killer_move_1_rank_bonus = v; },

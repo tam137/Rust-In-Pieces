@@ -1,9 +1,11 @@
 # Suprah Engine Strength Enhancement Roadmap (`task.md`)
 
 What to build next in **Suprah**, and the record of what has already been tried and failed.
-Read "Negative results" before proposing anything: seven of the ideas in this document were built,
-measured and reversed. Two of them looked excellent on every metric except games won, and one --
-the staged `MovePicker` -- was correct, cut the generated moves in half, and was still slower.
+Read "Negative results" before proposing anything: eight of the ideas in this document were built,
+measured and put back. Three of them looked excellent on every metric except games won: the staged
+`MovePicker` was correct, cut the generated moves in half and was still slower, and Internal
+Iterative Reduction removed two thirds of the tree and scored 35.5% against the release it was
+built on.
 
 ---
 
@@ -32,10 +34,19 @@ See the Engines Changelog if needed.
 both write-ups are gone from this document, per `skills/task_management_procedure.md`. What is
 in flight and what comes after it:
 
-**Next up is backlog item 2, Internal Iterative Reduction (section 22)** — six lines, and the
-engine has nothing in this family at all. Item 1 closed on 2026-09-09.
+**Next up is backlog item 3, the two History Heuristic defects (23.2 and 23.3)** — the statistic
+three other rules read is not side-indexed and cannot go negative. Items 1 and 2 both closed on
+2026-09-09, the second one negative.
 
-0. **Backlog 1, section 20.1, measured 2026-09-09: the Null Move Pruning static-eval gate is
+0. **Backlog 2, section 22, measured and refused 2026-09-09: Internal Iterative Reduction is a
+   negative result on this engine.** It removes **70.4% and 64.9%** of the generated moves to
+   fixed depth 10 and scores **35.5%** against v0.43.0 in its smoke gauntlet; restricted to
+   `iir_min_depth = 8` it removes 39.3% and 42.8% and scores 42.0%. Four pairings, all below the
+   45% gate, so no fixed-N run was spent and no number from it is an effect size. It ships behind
+   `enable_iir`, default `false`. The cause is the table, not the rule: **41.4% of all nodes at
+   depth 4 and above have no Transposition Table move** here. Section 22.3 says to ask again after
+   backlog item 7, and to read the census share before booking a gauntlet.
+1. **Backlog 1, section 20.1, measured 2026-09-09: the Null Move Pruning static-eval gate is
    Elo-neutral and makes the tree cheaper.** `-0.5 Elo, 95% [-7, +6]` over 6000 games against
    v0.42.0, against **+3.0% and +11.0% fewer generated moves** on the two 300-position pools and
    34.7% of all null searches removed. The gate ships enabled. Both `!is_pv` guards of 20.2 ship
@@ -43,7 +54,7 @@ engine has nothing in this family at all. Item 1 closed on 2026-09-09.
    because the root gives every root move `is_pv = true`. That root property is new, it is in the
    open list, and it is not to be changed inside a run pricing something else.
 
-1. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
+2. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
    engine since the bands.** Killers, the history table and the counter moves moved from locals in
    `get_moves` into `EngineState`; they persist across the iterative deepening loop and the moves
    of a game, are halved on entry to each iteration and cleared on `ucinewgame`. **+39.4 Elo,
@@ -51,14 +62,15 @@ engine has nothing in this family at all. Item 1 closed on 2026-09-09.
    positions. No heuristic changed — only how long three tables live. Section 23.1 carries the
    run's caveat: it was stopped by hand at 2598 of a planned 6000.
 
-2. **The rest of the search audit is unmeasured.** The audit of 2026-09-04 produced sections 20
-   to 26: seven rules either absent from this engine or present in a form that cannot fire at the
-   depths it plays. **None of it is measured** — every section is a proposal with a mechanism and
-   a measurement plan, and nothing in them may be quoted as an effect size. Sections 20, 22 and
-   23.2 to 23.3 are between five and thirty lines each; 24, 25 and 26 are reworks. The order to
-   take them in is the backlog table below.
+3. **The rest of the search audit is still unmeasured.** The audit of 2026-09-04 produced
+   sections 20 to 26: seven rules either absent from this engine or present in a form that cannot
+   fire at the depths it plays. Two of them have been through a run — 20 shipped Elo-neutral in
+   v0.43.0, 22 was refused at the gate. **The remaining five are not measured** — each is a
+   proposal with a mechanism and a measurement plan, and nothing in them may be quoted as an
+   effect size. Sections 23.2 to 23.3 are between five and thirty lines each; 24, 25 and 26 are
+   reworks. The order to take them in is the backlog table below.
 
-3. **The negative extension**, the other half of the singular rebate, is still unmeasured, and
+4. **The negative extension**, the other half of the singular rebate, is still unmeasured, and
    section 8 leaves one open question on the same rule: whether `singular_margin = 0` wins through
    the extension or through the multicut it also maximises.
 
@@ -105,7 +117,7 @@ a run at `rounds = 50` never reaches line 51.
 | # | Item | Where | Why this order |
 | ---: | :--- | :--- | :--- |
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 20.1, 20.2 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
-| 2 | Internal Iterative Reduction | 22 | Six lines; the engine has nothing in this family at all |
+| ~~2~~ | ~~Internal Iterative Reduction~~ | 22 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | 3 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
 | 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
 | 5 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
@@ -148,7 +160,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
 | The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
-| There is no Internal Iterative Reduction and no Internal Iterative Deepening | proposal, unmeasured, section 22 |
+| Internal Iterative Reduction is built and ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
+| There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
@@ -166,6 +179,11 @@ band (section 7). Both were built and both were measured; neither cost a game ru
 Closed on 2026-09-08: the tables thrown away at every iterative deepening iteration, section
 23.1, shipped in v0.42.0 at +39.4 Elo [+29, +49]. The section is kept rather than deleted because
 it is the only record of the decay rate actually shipped, which is not the published one.
+
+Closed on 2026-09-09, and reopenable only through backlog item 7: Internal Iterative Reduction,
+section 22. Built, priced at two settings and refused at the smoke gauntlet in both; the section
+is kept rather than deleted because it is the record of a rule that is correct, enormous in the
+tree and worse in games, and of the table property that explains it.
 
 Closed on 2026-09-07, and not to be reopened: en passant generation in the Quiescence Search
 (shipped v0.39.1) and the singular parameter axis (shipped v0.41.1). Both write-ups were deleted
@@ -664,39 +682,79 @@ The same flag conventionally scales the Reverse Futility margin and the Late Mov
 Those are separate changes with separate prices; 21.1 plus 21.2 is the smallest version that uses
 the stack at all, and nothing else should be bundled into the run that prices it.
 
-## 22. Internal Iterative Reduction
+## 22. Internal Iterative Reduction — built, priced and stopped at the gate, 2026-09-09
 
-`[Impact: unknown]` `[Complexity: Low]` `[unmeasured]` — six lines. The engine has nothing in this
-family: no Internal Iterative Deepening, no reduction on a missing table move.
+`[Negative result]` — it works, it removes two thirds of the tree at fixed depth, and it loses
+games. Do not rebuild this expecting to tune your way out of it: the reason is in 22.3 and it is
+not inside the rule.
 
-A node at real depth with no Transposition Table move has no ordering guidance at all — the first
-move it searches is whatever the capture band or the history table happens to rank first, and if
-that move is wrong the node pays full depth to find out. The published rule spends one ply instead
-of searching a badly ordered node at full depth:
+The published discipline spends one ply rather than searching a node with no Transposition Table
+move at full depth. Six lines, after the table probe and before the `depth <= 0` quiescence drop:
 
 ```rust
-// after the TT probe, before the depth <= 0 quiescence drop
-if ply > 0 && depth >= iir_min_depth && tt_move.is_none() {
+if depth >= iir_min_depth && tt_move.is_none() {
     depth -= 1;
 }
 ```
 
-`iir_min_depth` is 4 in the published form, applied at PV and non-PV nodes alike; the root is
-exempt so that iterative deepening still completes the depth it was asked for.
+`master` carries it behind `enable_iir`, which ships **`false`**, with `iir_min_depth` (4) and
+`iir_reduction` (1) as UCI options and a `search-diag` census. The switches are kept rather than
+the code removed, the way `NmpPvGuard` and `RfpPvGuard` of 20.2 are kept: 22.3 says when this is
+worth asking again, and the rule will be one flag away when it is.
 
-Two placement constraints in this engine:
+### 22.1 What it does deterministically, and it is not small
 
-* It must come **after** the Transposition Table probe (`:600` onwards), which is what establishes
-  `tt_move`, and **before** the `depth <= 0` quiescence branch at `:812`, so that a node reduced to
-  zero drops into the Quiescence Search rather than searching at negative depth.
-* `orig_alpha`/`orig_beta` are captured at `:657` and the entry is stored under the *reduced*
-  depth. That is correct and intended — the node really was searched one ply shallower — but it
-  means a later visit at the original depth will not accept the entry for a cutoff, which is the
-  mechanism that makes the reduction self-repairing rather than permanent.
+`scripts/measure_tree_size.py`, one binary against itself, both 300-position pools, fixed depth 10:
 
-**How to price it**: `scripts/measure_tree_size.py` on both 300-position samples; the reading to
-believe is the median per-position ratio and the count, per the lesson in *Start Here*. Then one
-fixed-N run.
+| Setting | `book_width` | `book_mixed` | Median ratio | Nodes reduced |
+| :--- | :--- | :--- | :--- | :--- |
+| `iir_min_depth = 4` | **-70.4%** moves | **-64.9%** | 2.51x / 2.17x | 41.4% of nodes at depth >= 4 |
+| `iir_min_depth = 8` | **-39.3%** moves | **-42.8%** | 1.17x / 1.26x | 28.2% of nodes at depth >= 8 |
+
+Switched off, the build is bit-identical to v0.43.0 on 300 of 300 trees, to the digit — the rule 5
+check that the plumbing is inert before anything measures what the rule does.
+
+The second row is the one to understand. Restricting the rule to the top of the tree cuts the
+population it fires on by a third, and the tree still shrinks by 40%: a ply given up near the root
+deletes a whole layer beneath it. There is no setting of `iir_min_depth` at which this rule is
+cheap, which is why the axis was not swept further.
+
+### 22.2 What it costs in games
+
+Smoke gauntlets per `skills/engine_release_procedure.md`, challenger first, 200 games each,
+1s + 100ms, `openings_wide.txt`, concurrency 5:
+
+| Setting | vs v0.43.0 | vs v0.42.0 |
+| :--- | :--- | :--- |
+| `iir_min_depth = 4`, the published form | 19/33/48, **35.5%** | 24/41/35, **44.5%** |
+| `iir_min_depth = 8` | 27/30/43, **42.0%** | 23/39/38, **42.5%** |
+
+Four pairings, two configurations, every one of them below the gate of roughly 45%, and the
+second configuration is the more favourable half of the axis. **No fixed-N run was spent**, so
+there is no interval and none of these percentages is an effect size — 100 games per pairing is
+about ±80 Elo here. What they establish is the refusal, which is what a gate is for.
+
+The engine gives up roughly a ply and a half of effective depth for the time it saves. Rule 1 in
+one line: the tree got two thirds cheaper and the chess got worse.
+
+### 22.3 Why it fails here, and when to ask again
+
+**The rule assumes a table that answers.** It fires exactly where the probe returned no move, and
+on this engine that is **41.4% of all nodes at depth 4 and above**. A published engine's rate is a
+fraction of that, and the difference is not the rule — it is the table. `master`'s Transposition
+Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches
+no static evaluation: **section 25, backlog item 7**. Every entry that survives longer is a move
+handed out, and every move handed out is a node this rule stops reducing.
+
+So this is a *mistimed* item rather than a wrong one. It is worth exactly one re-measurement after
+item 7 lands, and the number to look at first is the census share, not the games: if the miss rate
+at depth 4 has not fallen well below 41.4%, the gauntlet will read the same and does not need
+running.
+
+Two things this item did not try, and neither rescues the axis on its own: reducing only at
+non-PV nodes — this engine gives every root move `is_pv = true`, so the guard is far larger here
+than published, exactly as 20.2 found — and a second ply of reduction, which moves in the wrong
+direction from a rule that is already too cheap by half.
 
 ## 23. The History Heuristic has four defects, and the killers and counter moves share the worst one
 
