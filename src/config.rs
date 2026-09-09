@@ -202,6 +202,18 @@ pub struct Config {
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
+    /// Null Move Pruning only runs where the *static* evaluation is already at or above `beta`
+    /// (`task.md` 20.1). Ships **enabled**: Elo-neutral over 6000 games on `master`, at 34.7% of
+    /// all null searches and 3.0% / 11.0% of the generated moves removed.
+    pub nmp_static_eval_gate: bool,
+    /// Null Move Pruning does not speculate on the principal variation (`task.md` 20.2).
+    ///
+    /// Ships **disabled**. The guard is not wrong, it is far larger here than in the published
+    /// formulation: the root runs no Principal Variation Search of its own and searches every
+    /// root move with `is_pv = true`, so the guard switches the rule off at every root child --
+    /// the largest subtrees in the search. With it on, the tree census reads the gate's whole
+    /// saving back out again. Unmeasured in games.
+    pub nmp_pv_guard: bool,
     pub aspiration_window_initial_delta: i16,
     pub aspiration_window_multiplier: i16,
     /// Once the aspiration delta reaches this value, the next re-search uses a full
@@ -211,6 +223,9 @@ pub struct Config {
     pub lmr_history_bad_threshold: u32,
     pub rfp_margin_per_depth: i16,
     pub rfp_max_depth: i32,
+    /// Reverse Futility Pruning does not speculate on the principal variation (`task.md` 20.2).
+    /// Ships **disabled**, for the reason given on `nmp_pv_guard`.
+    pub rfp_pv_guard: bool,
 
     /// Enables Check Extensions: a move that gives check is searched one ply deeper,
     /// so that forcing sequences are resolved beyond the nominal horizon.
@@ -490,6 +505,8 @@ impl Config {
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
             nmp_dynamic_divisor: 6,
+            nmp_static_eval_gate: true,
+            nmp_pv_guard: false,
             aspiration_window_initial_delta: 16,
             aspiration_window_multiplier: 5,
             aspiration_window_max_delta: 1000,
@@ -497,6 +514,7 @@ impl Config {
             lmr_history_bad_threshold: 550,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 3,
+            rfp_pv_guard: false,
             enable_check_extension: false,
             check_extension_max_ply: 64,
             check_extension_require_safe: false,
@@ -758,6 +776,44 @@ mod tests {
     /// The name is matched case-insensitively and without separators, so the spelling the engine
     /// advertises, the snake_case spelling the SPSA tuner sends, and a spaced spelling are one
     /// option.
+    /// `task.md` 20.1 ships enabled and 20.2 ships disabled, the configuration the 6000-game run
+    /// on `master` priced. The switches must also be advertised, so one binary can be surveyed
+    /// against itself with `scripts/measure_tree_size.py --base-options`.
+    #[test]
+    fn test_the_nmp_guards_ship_as_master_measured_them() {
+        let defaults = Config::new();
+        assert!(defaults.nmp_static_eval_gate, "the static-eval gate of `task.md` 20.1 ships on");
+        assert!(!defaults.nmp_pv_guard,
+                "the NMP PV guard of `task.md` 20.2 ships off: the tree census reads the gate's \
+                 whole saving back out again when it is on");
+        assert!(!defaults.rfp_pv_guard, "the RFP PV guard of `task.md` 20.2 ships off");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        for name in ["NmpStaticEvalGate", "NmpPvGuard", "RfpPvGuard"] {
+            assert!(advertised.iter().any(|l| l.starts_with(&format!("option name {} ", name))),
+                    "{} must be advertised as a UCI option", name);
+        }
+    }
+
+    #[test]
+    fn test_the_nmp_guard_options_reach_fields_in_all_spellings() {
+        for spelling in ["NmpStaticEvalGate", "nmp_static_eval_gate", "nmpstaticevalgate"] {
+            let mut config = Config::new();
+            config.apply_uci_option(spelling, "false");
+            assert!(!config.nmp_static_eval_gate, "'{}' must reach the field", spelling);
+        }
+        for spelling in ["NmpPvGuard", "nmp_pv_guard", "nmppvguard"] {
+            let mut config = Config::new();
+            config.apply_uci_option(spelling, "true");
+            assert!(config.nmp_pv_guard, "'{}' must reach the field", spelling);
+        }
+        for spelling in ["RfpPvGuard", "rfp_pv_guard", "rfppvguard"] {
+            let mut config = Config::new();
+            config.apply_uci_option(spelling, "true");
+            assert!(config.rfp_pv_guard, "'{}' must reach the field", spelling);
+        }
+    }
+
     #[test]
     fn test_uci_option_names_ignore_case_and_separators() {
         for spelling in ["ConnectedPassedPawnMg", "connected_passed_pawn_mg", "Connected Passed Pawn Mg"] {
@@ -918,6 +974,9 @@ impl Config {
             "nmpreduction" => if let Ok(v) = value.parse::<i32>() { self.nmp_reduction = v; },
             "nmpverificationthreshold" => if let Ok(v) = value.parse::<i32>() { self.nmp_verification_threshold = v; },
             "nmpdynamicdivisor" => if let Ok(v) = value.parse::<i32>() { self.nmp_dynamic_divisor = v; },
+            "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
+            "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
+            "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
             "lmrmovethreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_move_threshold = v; },
             "lmrdivisor" | "lmrdivisorscaled" => if let Ok(v) = value.parse::<i32>() { self.lmr_divisor = v; self.recalculate_lmr_table(); },
             "killermove1rankbonus" => if let Ok(v) = value.parse::<i32>() { self.killer_move_1_rank_bonus = v; },

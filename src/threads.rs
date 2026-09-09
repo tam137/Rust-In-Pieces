@@ -67,6 +67,9 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name FutilityMarginSlope type spin default {} min 0 max 300", defaults.futility_margin_slope),
         format!("option name EnableRazoring type check default {}", defaults.enable_razoring),
         format!("option name RazoringMargin type spin default {} min 50 max 800", defaults.razoring_margin),
+        format!("option name NmpStaticEvalGate type check default {}", defaults.nmp_static_eval_gate),
+        format!("option name NmpPvGuard type check default {}", defaults.nmp_pv_guard),
+        format!("option name RfpPvGuard type check default {}", defaults.rfp_pv_guard),
         format!("option name EnableLmp type check default {}", defaults.enable_lmp),
         // // `lmp_max_depth` is inert above 4: the `lmp_base_moves + 2 * depth^2` threshold
         // // demands more quiet moves at a single node than any node produces. See
