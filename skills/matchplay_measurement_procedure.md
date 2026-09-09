@@ -114,6 +114,11 @@ variance is near 0.065. That is what makes small effects expensive here.
 Matt-Magie sends one `engine_options` string to both engines, so an A/B of two configurations
 needs two **binaries**, not two option sets.
 
+This applies to a **release candidate** as much as to an A/B variant. The version string is
+`env!("CARGO_PKG_VERSION")` and only `build_and_release.sh` bumps it, so a candidate built from
+the working tree calls itself by the version already released — and against that release, both
+sides of the pairing land in the PGN under one name. Tag it `X.Y.Z-rc` here, exactly as below.
+
 ```bash
 # per variant
 sed -i 's/^version = "X.Y.Z"$/version = "X.Y.Z-TAG"/' Cargo.toml
