@@ -458,7 +458,12 @@ impl MoveGenService {
                 } else {
                     let from = move_turn.from as usize;
                     let to = move_turn.to as usize;
-                    crate::model::BAND_QUIET + unsafe { (*context.history_table)[from][to] } as i32
+                    // `task.md` 23.2: the history plane of the side these moves belong to.
+                    // `white_turn` is this node's side to move, i.e. the side that would play
+                    // the move being ranked, which is the side the cutoff credited one ply up.
+                    let side = crate::model::history_side(white_turn);
+                    crate::model::BAND_QUIET
+                        + unsafe { (*context.history_table)[side][from][to] } as i32
                 }
             };
 
@@ -1362,7 +1367,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -1388,7 +1393,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -1661,7 +1666,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = Mutex::new(HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -1805,7 +1810,7 @@ mod tests {
 
         let zobrist_table = ZobristTable::with_capacity(1_000);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -1837,7 +1842,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1_000);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -1994,7 +1999,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -2083,7 +2088,7 @@ mod tests {
                 let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
@@ -2133,7 +2138,7 @@ mod tests {
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
