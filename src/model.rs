@@ -380,8 +380,14 @@ impl MoveList {
         if self.len < 256 {
             // The generation index is the tie-break of the search's move order, so it is stamped
             // where a move enters the list and nowhere else, and folded into the low bits of the
-            // rank so that comparing two ranks is comparing the whole order. The generator clamps
-            // its ranks at zero, so the shift cannot lose a sign.
+            // rank so that comparing two ranks is comparing the whole order.
+            //
+            // The rank may be negative. Since `task.md` 23.3 a refuted quiet carries a negative
+            // history entry and ranks below `BAND_QUIET`, and a capture the SEE demoted has been
+            // reaching about -256,000,000 for longer than that. The shift is still safe: the low
+            // `RANK_TIEBREAK_BITS` are zero afterwards whatever the sign, so the `|` below is an
+            // addition, `rank * 256 + tiebreak` stays monotone, and the extremes -- a quiet at
+            // -MAX_HISTORY and `BAND_TT` -- are both far inside `i32`.
             turn.order = self.len as u8;
             turn.rank = (turn.rank << RANK_TIEBREAK_BITS) | (u8::MAX - turn.order) as i32;
             self.moves[self.len] = turn;
@@ -1814,6 +1820,76 @@ mod tests {
         let mut better = second;
         better.rank += 1 << RANK_TIEBREAK_BITS;
         assert!(better.precedes(&first));
+    }
+
+    #[test]
+    fn push_keeps_the_total_order_when_a_rank_is_negative_test() {
+        use super::{MoveList, Turn, BAND_CAPTURE, BAND_QUIET, MAX_HISTORY, RANK_TIEBREAK_BITS};
+
+        // `task.md` 23.3: a refuted quiet carries a negative history entry, so `push` shifts a
+        // negative rank for the first time. This pins the arithmetic the comment in `push` now
+        // claims -- the sign survives and the order does not invert.
+        let mut list = MoveList::new();
+        let mut refuted = Turn::new(1, 18, 0, 0, false, 0);
+        refuted.rank = BAND_QUIET - MAX_HISTORY;
+        let mut unseen = Turn::new(2, 19, 0, 0, false, 0);
+        unseen.rank = BAND_QUIET;
+        list.push(refuted);
+        list.push(unseen);
+
+        let refuted = list.as_slice()[0];
+        let unseen = list.as_slice()[1];
+        assert_eq!(refuted.rank >> RANK_TIEBREAK_BITS, BAND_QUIET - MAX_HISTORY,
+            "the shift keeps both the sign and the magnitude");
+        assert!(unseen.precedes(&refuted),
+            "a quiet that was never searched has to outrank one that was refuted");
+
+        // The worst quiet still sits above a capture the SEE demoted, which is where negative
+        // ranks in this search came from before 23.3 existed.
+        const SEE_DEMOTION: i32 = (BAND_CAPTURE + 1_000_000) << RANK_TIEBREAK_BITS;
+        let demoted_capture = (BAND_CAPTURE << RANK_TIEBREAK_BITS) - SEE_DEMOTION;
+        assert!(refuted.rank > demoted_capture,
+            "the quiet band must stay above the demoted captures: {} vs {}",
+            refuted.rank, demoted_capture);
+    }
+
+    #[test]
+    fn history_gravity_converges_towards_the_cap_and_never_passes_it_test() {
+        use super::{history_gravity, MAX_HISTORY};
+
+        // `task.md` 23.3. The update converges towards the cap instead of clamping at it, which
+        // is what removes the rescaling pass: nothing outside can pull an entry back, so the
+        // update itself has to keep it inside.
+        let bonus = 8 * 8; // a depth-8 cutoff
+        let mut good = 0;
+        for _ in 0..1000 {
+            history_gravity(&mut good, bonus);
+        }
+        assert!(good <= MAX_HISTORY, "an entry may never pass the cap, read {good}");
+        assert!(good > MAX_HISTORY * 9 / 10,
+            "a thousand cutoffs should converge close to the cap, read {good}");
+
+        let mut refuted = 0;
+        for _ in 0..1000 {
+            history_gravity(&mut refuted, -bonus);
+        }
+        assert!(refuted >= -MAX_HISTORY, "the same bound holds downwards, read {refuted}");
+        assert!(refuted < -MAX_HISTORY * 9 / 10,
+            "a thousand maluses should converge close to the negative cap, read {refuted}");
+
+        // A single oversized bonus cannot leave the range either -- that is what the clamp
+        // inside the update is for, and a fresh entry is the case that would overshoot.
+        let mut fresh = 0;
+        history_gravity(&mut fresh, i32::MAX / 2);
+        assert!(fresh <= MAX_HISTORY, "one huge bonus must not pass the cap, read {fresh}");
+        let mut fresh = 0;
+        history_gravity(&mut fresh, -(i32::MAX / 2));
+        assert!(fresh >= -MAX_HISTORY, "one huge malus must not pass the cap, read {fresh}");
+
+        // At the cap the update is a no-op in the direction that would leave the range.
+        let mut capped = MAX_HISTORY;
+        history_gravity(&mut capped, MAX_HISTORY);
+        assert_eq!(capped, MAX_HISTORY);
     }
 
     #[test]
