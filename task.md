@@ -997,20 +997,71 @@ the range is [-16384, +16384] and there are two ways to go:
 * **Set `bad` negative** — 0 or about -1000 — so the rule fires on moves that were actually
   refuted. That is what 23.3 is for, but it couples the mechanism to a guessed parameter.
 
-**The plan takes the second, and measures rather than guesses.** Before any game is played, add two
-counters and a bucketed histogram of `hist_val` at the LMR decision to `search_diag.rs` — the shape
-`SEARCHDIAGIIR` already uses — and census the 300-position pool at fixed depth 10. Choose `bad` so
-the rule fires about as often as it does today but on the other population. That is calibration,
-not tuning: the curves and the fine values are 23.4, with its own SPSA group, and before that group
-runs someone has to check whether `spsa_tuner.py` accepts a negative range at all, because
-`parameters.json` has never held one.
+**The plan took the second, and measured rather than guessed.** `scripts/measure_history_census.py`
+and the `SEARCHDIAGHIST` counters were built for it, and both readings below are 300 positions from
+`book_width.txt` at fixed depth 10, one process per binary, counters cumulative.
+
+| | decisions | `good` fires | `bad` fires | entry = 0 | entry < 0 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| v0.44.0, unsigned, malus off | 12,846,749 | 0.08% | 97.07% | 64.63% | impossible |
+| 23.3, thresholds still 4000/500 | 12,214,681 | 0.04% | 98.99% | 11.88% | 78.68% |
+| 23.3, `bad = 0` | 14,504,994 | 0.06% | 78.69% | 11.07% | 78.69% |
+
+Three things fall out of it, and only the first was expected.
+
+**The defect is real and it is large.** On v0.44.0 the "bad" branch fired on 97.07% of all
+decisions, and 64.63 of those points were entries reading exactly zero: **two thirds of every
+penalty the rule handed out went to a move the search had never seen.** At `bad = 0` the branch and
+the negative population coincide to the digit — 78.69% and 78.69% — so the rule now says what its
+name says.
+
+**`lmr_history_good_threshold` is inert and always was.** It fires on 0.08% of decisions on
+v0.44.0 and 0.04% here, because almost no entry reaches 4096 under either update. The "reduce
+promising quiets less" half of this rule has not been running. That is a finding about the old
+engine, not about 23.3, and it belongs to 23.4 — moving it would put a second behaviour change in
+the run that prices this one.
+
+**The rule is not a three-way split.** With `good` inert, `lmr_reduction` is "+1 unless the entry
+clears `bad`", so the threshold sets one number: how much of the tree gets an extra ply of
+reduction.
+
+#### What the tree said, and why it cannot settle the threshold
+
+`scripts/measure_tree_size.py` against `suprah-0.44.0`, 300 positions, depth 10, generated moves:
+
+| Candidate | `bad` fires on | `book_width` | `book_mixed` |
+| :--- | ---: | ---: | ---: |
+| `bad = 0`, refuted only | 78.7% | **+12.1%** | **+11.7%** |
+| `bad = 64`, the rate v0.44.0 fired at | 97.2% | +9.3% | — |
+| `bad = 512` | 99.6% | **-8.9%** | — |
+
+No tree in any run is identical to the baseline's. The ordering is the same binary in all three
+rows and only the threshold moves, so the column is the price of *not* penalising a move the
+search knows nothing about — and it is steep. Matching v0.44.0's firing rate does not recover its
+tree either: the population behind the rate is a different one.
+
+**Read what that instrument is, before reading the sign.** A search that reduces more searches a
+smaller tree, near enough by definition, so "generated moves to fixed depth" ranks these three by
+how aggressive the reduction is and not by how well aimed it is. It says the penalty on unseen
+moves was buying tree; it cannot say whether the moves it was buying were worth searching.
+`task.md` rule 1 exists for exactly this and sends the axis to matchplay.
+
+The shipped value is `bad = 0`, the one that states what the item claims. The alternative is not
+gone: it is one UCI option, `LmrHistoryBadThreshold`, so a gauntlet can put two calibrations of one
+binary against each other without a second build — subject to the version-collision rule in
+`skills/engine_release_procedure.md`, which is about `id name` and applies to any two
+configurations that would land in one PGN under one name.
+
+The fine values and the curves stay 23.4, with its own SPSA group. Before that group runs, someone
+has to check whether `spsa_tuner.py` accepts a negative range at all, because `parameters.json` has
+never held one and `lmr_history_bad_threshold` is now the first parameter that wants one.
 
 #### How it gets priced
 
-`cargo test` green, then `scripts/measure_tree_size.py` against `suprah-0.44.0` over 300 positions
-at depth 10 on both pools. 23.2 grew the tree 1.8% and 5.8% precisely because the thresholds no
-longer matched the scale; this item repairs that, so a move back towards v0.43.0's tree is the sign
-the calibration is right. Then the census, then the smoke gauntlet as challenger against v0.44.0
+`cargo test` green and the two deterministic readings above are done; what they said is one
+section up, and the expectation written here before the run — that repairing the calibration would
+move the tree back towards v0.43.0's — was wrong in sign and is left standing as the record of it.
+What remains is the smoke gauntlet as challenger against v0.44.0
 and v0.43.0, 100 games per pairing at 1s + 100ms with `openings_wide.txt` and the 45% gate — and
 the release-candidate version collision of `skills/engine_release_procedure.md` verified *before*
 the run, not after. Finally a fixed-N run of **6000 games against v0.44.0 at 1s + 150ms**,
