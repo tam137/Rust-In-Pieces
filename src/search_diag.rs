@@ -201,6 +201,32 @@ mod counters {
     /// Reduced nodes, by the same depth index.
     pub static IIR_APPLIED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // `task.md` 23.3: what does the Late Move Reduction actually read?
+    //
+    // `lmr_history_good_threshold` and `lmr_history_bad_threshold` were calibrated against an
+    // unsigned table that saturated at zero and was rescaled whenever an entry passed 9000. The
+    // table is now signed, bounded by `model::MAX_HISTORY` and updated by gravity, so both
+    // thresholds sit on a scale that no longer exists. These counters are what replaces guessing
+    // at the new ones: they say how often each branch fires today and, through the histogram,
+    // where the population actually sits.
+    // ---------------------------------------------------------------------------------------
+
+    /// Every quiet move that reached the Late Move Reduction and had its history read.
+    pub static LMR_HIST_DECISIONS: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the ones above `lmr_history_good_threshold`, which are reduced one ply less.
+    pub static LMR_HIST_GOOD: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the ones below `lmr_history_bad_threshold`, which are reduced one ply more.
+    pub static LMR_HIST_BAD: AtomicU64 = AtomicU64::new(0);
+    /// Entries reading exactly zero: the moves this search has never seen refuted or rewarded.
+    /// Against the unsigned table this group and the refuted one were indistinguishable, which
+    /// is the defect 23.3 repairs — the split between this counter and the next one is the
+    /// measurement that says how much of the "bad" branch was landing on the wrong moves.
+    pub static LMR_HIST_ZERO: AtomicU64 = AtomicU64::new(0);
+    /// Entries below zero: the moves that were actually refuted.
+    pub static LMR_HIST_NEGATIVE: AtomicU64 = AtomicU64::new(0);
+    /// The distribution, by signed magnitude. See [`super::history_bucket`] for the mapping.
+    pub static LMR_HIST_BUCKETS: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -386,6 +412,50 @@ pub fn record_iir(depth: i32, applied: bool) {
     }
 }
 
+/// The histogram slot a history entry falls in, by sign and by binary magnitude.
+///
+/// Slot 16 is exactly zero. Slots 17 to 31 are the positive entries, one per power of two, so
+/// slot `17 + k` holds the magnitudes in `[2^k, 2^(k+1))` and slot 31 holds everything from
+/// 2^14 = 16,384 up, which is `model::MAX_HISTORY` and therefore its own edge. Slots 15 down to
+/// 1 mirror that for the negative entries. Slot 0 is never used.
+#[allow(dead_code)]
+pub fn history_bucket(entry: i32) -> usize {
+    if entry == 0 {
+        return 16;
+    }
+    let decade = ((31 - entry.unsigned_abs().leading_zeros()) as usize).min(14);
+    if entry > 0 { 17 + decade } else { 15 - decade }
+}
+
+/// Records one Late Move Reduction history read, `task.md` 23.3.
+///
+/// The thresholds are passed in rather than read from a `Config` here, so the comparison lives in
+/// exactly one place and cannot drift from the one `lmr_reduction` makes. Called from the rule's
+/// own site only: the diagnostic call in the checking-move census above runs on a population the
+/// rule excludes, and counting it would put moves in the sample that never reach the decision.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_lmr_history(hist_val: i32, good_threshold: i32, bad_threshold: i32) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::LMR_HIST_DECISIONS);
+        // The same `else if` the rule uses: a move above the good threshold never reaches the
+        // bad one, which matters at any calibration where the two could overlap.
+        if hist_val > good_threshold {
+            counters::bump(&counters::LMR_HIST_GOOD);
+        } else if hist_val < bad_threshold {
+            counters::bump(&counters::LMR_HIST_BAD);
+        }
+        if hist_val == 0 {
+            counters::bump(&counters::LMR_HIST_ZERO);
+        }
+        if hist_val < 0 {
+            counters::bump(&counters::LMR_HIST_NEGATIVE);
+        }
+        counters::bump(&counters::LMR_HIST_BUCKETS[history_bucket(hist_val)]);
+    }
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -499,6 +569,32 @@ pub fn dump() {
             counters::read(&counters::NMP_CUTS),
             by_depth(&counters::NMP_BY_DEPTH),
             by_depth(&counters::NMP_SEARCH_BY_DEPTH),
+        );
+        let buckets = |table: &[AtomicU64; 32]| -> String {
+            table
+                .iter()
+                .enumerate()
+                .map(|(slot, count)| (slot, counters::read(count)))
+                .filter(|(_, count)| *count > 0)
+                .map(|(slot, count)| {
+                    let label = match slot {
+                        16 => "0".to_string(),
+                        s if s > 16 => format!("+2^{}", s - 17),
+                        s => format!("-2^{}", 15 - s),
+                    };
+                    format!("{}:{}", label, count)
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        eprintln!(
+            "SEARCHDIAGHIST decisions={} good={} bad={} zero={} negative={} buckets={}",
+            counters::read(&counters::LMR_HIST_DECISIONS),
+            counters::read(&counters::LMR_HIST_GOOD),
+            counters::read(&counters::LMR_HIST_BAD),
+            counters::read(&counters::LMR_HIST_ZERO),
+            counters::read(&counters::LMR_HIST_NEGATIVE),
+            buckets(&counters::LMR_HIST_BUCKETS),
         );
         eprintln!(
             "SEARCHDIAGIIR eligible={} applied={} by_depth={} applied_by_depth={}",

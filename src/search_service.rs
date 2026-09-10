@@ -1524,6 +1524,11 @@ impl SearchService {
                 let is_counter = Some(*current_turn) == current_context.counter_move;
                 let hist_val = history_table[crate::model::history_side(white)]
                     [current_turn.from as usize][current_turn.to as usize];
+                crate::search_diag::record_lmr_history(
+                    hist_val,
+                    config.lmr_history_good_threshold,
+                    config.lmr_history_bad_threshold,
+                );
                 let reduction = Self::lmr_reduction(
                     config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
                 );
@@ -2332,19 +2337,32 @@ mod tests {
     #[test]
     fn test_lmp_base_moves_controls_how_much_is_pruned() {
         // The threshold is `lmp_base_moves + 2 * depth^2`, so raising the base searches more
-        // quiet moves before the rule fires. This is the SPSA-facing lever, and unlike the
-        // absolute node count it is monotone.
-        let aggressive = search_nodes(CHECK_RICH_FEN, 7, |c| {
-            c.enable_lmp = true;
-            c.lmp_base_moves = 0;
-        });
-        let permissive = search_nodes(CHECK_RICH_FEN, 7, |c| {
-            c.enable_lmp = true;
-            c.lmp_base_moves = 12;
-        });
+        // quiet moves before the rule fires. This is the SPSA-facing lever.
+        //
+        // It is monotone **in aggregate and not per position**. Pruning a quiet move that would
+        // have cut turns a cutting node into a fail-low one and the parent re-searches it, so a
+        // single position can come out either way; this sample reads two of its eight cells the
+        // other way round. The test used to assert one cell of it, `CHECK_RICH_FEN` at depth 7,
+        // and 23.3 flipped exactly that cell by changing the move order the rule sees. The
+        // property was never a per-position one — `task.md` records the same lesson for the
+        // 14-position corpus, which is why `scripts/measure_tree_size.py` exists.
+        let total = |base: i32| -> usize {
+            let mut nodes = 0;
+            for fen in [CHECK_RICH_FEN, SMOTHERED_MATE_FEN] {
+                for depth in [5, 6, 7, 8] {
+                    nodes += search_nodes(fen, depth, |c| {
+                        c.enable_lmp = true;
+                        c.lmp_base_moves = base;
+                    });
+                }
+            }
+            nodes
+        };
 
+        let aggressive = total(0);
+        let permissive = total(12);
         assert!(aggressive < permissive,
-            "a lower base must prune more ({} at base 0 vs {} at base 12)",
+            "a lower base must prune more over the sample ({} at base 0 vs {} at base 12)",
             aggressive, permissive);
     }
 

@@ -238,10 +238,29 @@ pub struct Config {
     /// Once the aspiration delta reaches this value, the next re-search uses a full
     /// window instead of widening further, bounding the number of root re-searches.
     pub aspiration_window_max_delta: i16,
-    /// `task.md` 23.3: both are compared against a signed history entry bounded by
-    /// `model::MAX_HISTORY`, so `lmr_history_bad_threshold` may be zero or negative. It is not
-    /// yet: the census that sets it is the second half of 23.3 and the values below are still the
-    /// ones calibrated against the unsigned table.
+    /// Both are compared against a signed history entry bounded by `model::MAX_HISTORY`,
+    /// `task.md` 23.3.
+    ///
+    /// `lmr_history_bad_threshold` is **0**, and that is the item: the branch fires on entries
+    /// below zero, which are the moves this search actually refuted. Against the unsigned table
+    /// it was 500, and the census of 300 pool positions at depth 10 says what that meant — the
+    /// branch fired on 97.07% of all decisions and 64.63 of those points were entries reading
+    /// exactly zero, i.e. two thirds of every penalty it handed out went to a move the search had
+    /// never seen. At 0 it fires on 78.68%, all of them refuted.
+    ///
+    /// `lmr_history_good_threshold` stays at 4000 and is **inert**: the same census reads 0.08%
+    /// on the baseline and 0.04% here, because almost no entry ever reaches 4096 under either
+    /// update. Moving it is a second behaviour change and belongs to 23.4 with the curves, not
+    /// into the run that prices this one.
+    ///
+    /// **The tree does not like this value, and the reason is not what the name suggests.** To
+    /// fixed depth 10 over 300 pool positions the candidate at 0 generates 12.1% and 11.7% more
+    /// moves than v0.44.0; the same binary run at 512, where the branch fires on 99.6% of
+    /// decisions, generates 8.9% *fewer*. The penalty on moves the search knows nothing about is
+    /// what was buying the smaller tree, and removing it costs more than the better targeting
+    /// returns — on that instrument. A tree measurement rewards reducing more, almost by
+    /// definition, so it cannot settle this axis on its own; `task.md` rule 1 sends it to
+    /// matchplay and the value here is the one that states what the item claims.
     pub lmr_history_good_threshold: i32,
     pub lmr_history_bad_threshold: i32,
     pub rfp_margin_per_depth: i16,
@@ -552,7 +571,7 @@ impl Config {
             aspiration_window_multiplier: 4,
             aspiration_window_max_delta: 1000,
             lmr_history_good_threshold: 4000,
-            lmr_history_bad_threshold: 500,
+            lmr_history_bad_threshold: 0,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 3,
             rfp_pv_guard: false,
@@ -1007,7 +1026,7 @@ mod tests {
         assert_eq!(config.rfp_margin_per_depth, 80);
         assert_eq!(config.rfp_max_depth, 3);
         assert_eq!(config.lmr_history_good_threshold, 4000);
-        assert_eq!(config.lmr_history_bad_threshold, 500);
+        assert_eq!(config.lmr_history_bad_threshold, 0);
         assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
         assert!(!config.check_extension_require_safe);
