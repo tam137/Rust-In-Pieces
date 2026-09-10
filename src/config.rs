@@ -191,7 +191,6 @@ pub struct Config {
     pub killer_move_1_rank_bonus: i32,
     pub killer_move_2_rank_bonus: i32,
     pub counter_move_rank_bonus: i32,
-    pub history_max_threshold: u32,
     pub lmr_move_threshold: i32,
     pub lmr_divisor: i32,
 
@@ -239,8 +238,12 @@ pub struct Config {
     /// Once the aspiration delta reaches this value, the next re-search uses a full
     /// window instead of widening further, bounding the number of root re-searches.
     pub aspiration_window_max_delta: i16,
-    pub lmr_history_good_threshold: u32,
-    pub lmr_history_bad_threshold: u32,
+    /// `task.md` 23.3: both are compared against a signed history entry bounded by
+    /// `model::MAX_HISTORY`, so `lmr_history_bad_threshold` may be zero or negative. It is not
+    /// yet: the census that sets it is the second half of 23.3 and the values below are still the
+    /// ones calibrated against the unsigned table.
+    pub lmr_history_good_threshold: i32,
+    pub lmr_history_bad_threshold: i32,
     pub rfp_margin_per_depth: i16,
     pub rfp_max_depth: i32,
     /// Reverse Futility Pruning does not speculate on the principal variation (`task.md` 20.2).
@@ -503,11 +506,13 @@ impl Config {
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
             enable_counter_moves: true,
-            enable_history_malus: false,
+            // `task.md` 23.3: on since the history became signed. With the malus off nothing
+            // ever writes a decrement, so no entry could reach a negative value and the signed
+            // table would be a no-op.
+            enable_history_malus: true,
             killer_move_1_rank_bonus: 20000,
             killer_move_2_rank_bonus: 10000,
             counter_move_rank_bonus: 15000,
-            history_max_threshold: 9000,
             lmr_move_threshold: 3,
             lmr_divisor: 185,
 
@@ -1090,12 +1095,11 @@ impl Config {
             "ispvnoderankbonus" => if let Ok(v) = value.parse::<i32>() { self.is_pv_node_rank_bonus = v; },
             "givepromotionrankbonusqueen" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_queen = v; },
             "givepromotionrankbonusknight" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_knight = v; },
-            "historymaxthreshold" => if let Ok(v) = value.parse::<u32>() { self.history_max_threshold = v; },
             "aspirationwindowinitialdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_initial_delta = v; },
             "aspirationwindowmultiplier" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_multiplier = v; },
             "aspirationwindowmaxdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_max_delta = v; },
-            "lmrhistorygoodthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_good_threshold = v; },
-            "lmrhistorybadthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_bad_threshold = v; },
+            "lmrhistorygoodthreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_history_good_threshold = v; },
+            "lmrhistorybadthreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_history_bad_threshold = v; },
             "rfpmarginperdepth" => if let Ok(v) = value.parse::<i16>() { self.rfp_margin_per_depth = v; },
             "rfpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.rfp_max_depth = v; },
             "enablecheckextension" => self.enable_check_extension = value.eq_ignore_ascii_case("true"),
