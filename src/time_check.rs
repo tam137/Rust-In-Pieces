@@ -38,7 +38,7 @@ pub fn run_time_check(engine_state: &Arc<EngineState>) {
     let config = &Config::new().for_timing_tests();
     let mut stats = Stats::new();
 
-    let history_table = [[[0u32; 64]; 64]; 2];
+    let history_table = [[[0i32; 64]; 64]; 2];
     let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
     let context = crate::model::SearchContext {
         zobrist_table: &current_zobrist_table,

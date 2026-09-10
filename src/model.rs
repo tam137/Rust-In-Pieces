@@ -60,7 +60,11 @@ pub struct SearchTables {
     /// Sharing one `[from][to]` plane between the two sides, which is what this replaces, meant a
     /// quiet move that refuted for one side raised the rank of the geometrically identical move
     /// for the other.
-    pub history_table: Box<[[[u32; 64]; 64]; 2]>,
+    ///
+    /// The entries are signed and bounded by [`MAX_HISTORY`] (`task.md` 23.3). Every write goes
+    /// through [`history_gravity`], so an entry can never leave that range and there is no
+    /// rescaling pass.
+    pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
 }
 
@@ -68,7 +72,7 @@ impl SearchTables {
     pub fn new() -> Self {
         SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
-            history_table: Box::new([[[0u32; 64]; 64]; 2]),
+            history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
         }
     }
@@ -77,7 +81,7 @@ impl SearchTables {
     /// carries into the next one.
     pub fn reset(&mut self) {
         *self.killer_moves = [[None; 2]; 128];
-        *self.history_table = [[[0u32; 64]; 64]; 2];
+        *self.history_table = [[[0i32; 64]; 64]; 2];
         *self.counter_moves = [[None; 64]; 64];
     }
 
@@ -93,6 +97,11 @@ impl SearchTables {
     /// the next cutoff at the same ply or from the same parent move, so a stale entry costs one
     /// ordering slot. A stale history entry instead biases the statistic that the Late Move
     /// Reduction, the quiet-move ranking and `lmr_history_bad_threshold` all read.
+    ///
+    /// Since `task.md` 23.3 the entries are signed, and integer division truncates towards zero,
+    /// so a refuted move decays towards 0 at the same rate a good one does. This decay sits on
+    /// top of the gravity in [`crate::model::history_gravity`], which is a second one; whether
+    /// both are wanted is an open question and its own run, not part of 23.3.
     pub fn age(&mut self) {
         for side in self.history_table.iter_mut() {
             for row in side.iter_mut() {
@@ -133,7 +142,7 @@ pub struct SearchContext<'a> {
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
     /// `[side][from][to]`, indexed with [`history_side`]. See `SearchTables::history_table`.
-    pub history_table: *const [[[u32; 64]; 64]; 2],
+    pub history_table: *const [[[i32; 64]; 64]; 2],
     pub counter_move: Option<Turn>,
     pub start_time: std::time::Instant,
     pub target_time: Option<i32>,
@@ -423,6 +432,30 @@ pub const RANK_TIEBREAK_BITS: u32 = 8;
 #[inline(always)]
 pub const fn history_side(white: bool) -> usize {
     if white { 0 } else { 1 }
+}
+
+/// The cap the butterfly history converges towards, `task.md` 23.3.
+///
+/// The table is signed: a quiet move that has been refuted reaches a negative entry and is
+/// distinguishable from one that has never been searched, which reads 0. That distinction is the
+/// whole point of the signed table — `lmr_history_bad_threshold` is meant to fire on refuted
+/// moves, and against an unsigned table that saturates at zero it fired on unseen ones.
+pub const MAX_HISTORY: i32 = 16_384;
+
+/// The gravity update, the single place a history entry is written, `task.md` 23.3.
+///
+/// `*entry += bonus - entry * |bonus| / MAX_HISTORY` converges towards `+/- MAX_HISTORY` instead
+/// of clamping at it: the correction term grows with the entry, so a value near the cap barely
+/// moves and one near zero takes the bonus almost whole. That is what removes the global
+/// rescaling pass the unsigned table needed — an entry cannot leave the range on its own, so
+/// nothing has to walk 4096 entries to pull it back.
+///
+/// `bonus` is clamped first. A single update may not exceed the cap, or the correction term
+/// could overshoot past `-MAX_HISTORY` on the first malus applied to a fresh entry.
+#[inline(always)]
+pub fn history_gravity(entry: &mut i32, bonus: i32) {
+    let bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
+    *entry += bonus - (*entry) * bonus.abs() / MAX_HISTORY;
 }
 
 pub const BAND_TT: i32 = 5_000_000;
@@ -1992,7 +2025,7 @@ mod tests {
         let config = crate::config::Config::for_tests();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
         
         let context = crate::model::SearchContext {
