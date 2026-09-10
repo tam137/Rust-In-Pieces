@@ -32,7 +32,7 @@ See the Engines Changelog if needed.
 ### The next action
 
 **Read `master`'s `task.md` for the live backlog; this section carries only what is specific to
-this branch.** Kept current as of 2026-09-09.
+this branch.** Kept current as of 2026-09-10.
 
 1. **Ported in v0.43.0-NNUE: the Null Move Pruning static-eval gate** (`master` `task.md` 20.1).
    The rule now runs only where the static evaluation is already at or above `beta`. On `master`
@@ -42,13 +42,17 @@ this branch.** Kept current as of 2026-09-09.
    lazy-evaluation block is reached, so the lazy contract that makes the gate safe on `master` is
    not needed here. `NmpPvGuard` and `RfpPvGuard` are ported and ship **disabled**, as on
    `master`. Unpriced in games on this branch.
-2. **The cross-version gauntlet passed, 2026-09-09.** Challenger `suprah-0.43.0-nnue` first,
-   800 games, 1s + 100ms, `openings_wide.txt`, concurrency 5: 335 wins, 285 draws, 180 losses
-   overall, ahead of every NNUE predecessor it played (v0.41.1-NNUE 38/33/29, v0.40.0-NNUE
-   38/41/21, v0.39.1-NNUE 36/44/20, v0.38.0-NNUE 42/40/18, v0.37.2-NNUE 50/33/17, v0.33.1-NNUE
-   42/41/17), 86/9/5 against HCE `suprah-0.39.1` and 3/44/53 against SleepMind. **This is rule 2's
-   regression gate and nothing more** — 100 games per pairing is far below the resolution of this
-   host, and none of these numbers is an effect size.
+2. **The cross-version gauntlet passed, 2026-09-10.** Challenger `suprah-0.44.0-nnue` first,
+   900 games, 1s + 100ms, `openings_wide.txt`, concurrency 5: 362 wins, 338 draws, 200 losses
+   overall, 59.0%. Ahead of every NNUE predecessor except the one it replaces — v0.43.0-NNUE
+   24/45/31 (46.5%), v0.41.1-NNUE 36/39/25, v0.40.0-NNUE 35/47/18, v0.39.1-NNUE 46/38/16,
+   v0.38.0-NNUE 43/38/19, v0.37.2-NNUE 53/31/16, v0.33.1-NNUE 42/45/13 — plus 80/14/6 against HCE
+   `suprah-0.39.1` and 3/41/56 against SleepMind. Health: no losses on time, no duplicate games,
+   White 64.7%, 50 distinct openings at 18 games each, because `rounds = 50` never reaches line 51
+   of the pool. **This is rule 2's regression gate and nothing more** — the one pairing that is
+   below 50% reads **-24.4 Elo, 95% paired [-71, +21]** over 50 pairs, which at 100 games is the
+   resolution of the instrument and not a finding. The release procedure's 45% floor is held.
+   v0.43.0-NNUE's own gauntlet passed the same way on 2026-09-09, at 800 games and 335/285/180.
 3. **Ported in v0.42.0-NNUE: killers, history and counter moves persist across the iterative
    deepening loop** (`master` `task.md` 23.1). On `master` in HCE mode this measured **+39.4 Elo,
    95% [+29, +49]** over 2598 games. **That number does not transfer to this branch** — it was
@@ -60,10 +64,13 @@ this branch.** Kept current as of 2026-09-09.
 6. **Ported in v0.44.0-NNUE: the butterfly history is `[side][from][to]`** (`master` `task.md`
    23.2). White and Black no longer share an entry. On `master` it measured **+1.0 Elo, 95%
    [-6, +7]** over 6000 games — a null, shipped there as the foundation 23.3 and 23.4 have to be
-   priced on. **That number does not transfer here** and this branch has not priced it; the smoke
-   gauntlet read 53.5% against v0.43.0-NNUE and 52.0% against v0.42.0-NNUE, which is a gate and
-   nothing more. The same known limitation applies: the split halved the magnitudes while
-   `lmr_history_good_threshold` and `lmr_history_bad_threshold` stayed put.
+   priced on. **That number does not transfer here** and this branch has not priced it. Two gates
+   were run and they disagree by seven points on the same pairing: the release-candidate smoke
+   gauntlet read 53.5% against v0.43.0-NNUE and 52.0% against v0.42.0-NNUE, the cross-version
+   gauntlet of item 2 read 46.5% against v0.43.0-NNUE. Two 100-game readings that straddle 50% are
+   what a null looks like at this resolution; neither is an effect size. The same known limitation
+   applies: the split halved the magnitudes while `lmr_history_good_threshold` and
+   `lmr_history_bad_threshold` stayed put.
 7. **Nothing else is coming in from `master` right now.** Internal Iterative Reduction, its backlog
    item 2, was built and refused at the gate on 2026-09-09 — 35.5% against v0.43.0 in the
    published form, 42.0% at `iir_min_depth = 8`, both below 45% — and ships there behind
