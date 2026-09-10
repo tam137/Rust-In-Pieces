@@ -1046,11 +1046,39 @@ how aggressive the reduction is and not by how well aimed it is. It says the pen
 moves was buying tree; it cannot say whether the moves it was buying were worth searching.
 `task.md` rule 1 exists for exactly this and sends the axis to matchplay.
 
-The shipped value is `bad = 0`, the one that states what the item claims. The alternative is not
-gone: it is one UCI option, `LmrHistoryBadThreshold`, so a gauntlet can put two calibrations of one
-binary against each other without a second build — subject to the version-collision rule in
-`skills/engine_release_procedure.md`, which is about `id name` and applies to any two
-configurations that would land in one PGN under one name.
+The shipped value is `bad = 0`, the one that states what the item claims.
+
+#### The gate disagreed with the tree, 2026-09-10
+
+Both calibrations were built as their own binaries — `V0.44.1-bad0` and `V0.44.1-bad512`, the
+threshold compiled in rather than set through `engine_options`, which is one global list for every
+engine in a `.trn` — and played a `round_robin` against v0.44.0 and v0.43.0. 600 games, 100 per
+pairing, 1s + 100ms, `openings_wide.txt`, concurrency 5. `round_robin` and not `gauntlet` because
+the pairing that matters is the two calibrations against each other, and rule 2's note says a
+configuration a run exists to qualify has to be the challenger or the mode has to be this one. All
+four `id name` strings were checked distinct before the start.
+
+| Pairing | score | paired Elo | 95% |
+| :--- | ---: | ---: | :--- |
+| `bad = 0` vs v0.44.0 | 54.0% | +27.9 | [-28, +86] |
+| `bad = 512` vs v0.44.0 | 50.5% | +3.5 | [-47, +54] |
+| `bad = 0` vs `bad = 512` | 50.5% | +3.5 | [-53, +60] |
+| `bad = 0` vs v0.43.0 | 55.0% | +34.9 | [-9, +80] |
+| `bad = 512` vs v0.43.0 | 51.0% | +6.9 | [-40, +54] |
+| v0.44.0 vs v0.43.0 | 53.0% | +20.9 | [-37, +79] |
+
+No losses on time, no duplicate games, White 60.0%, 50 openings at 12 games each.
+
+**Every interval includes zero and none of these is an effect size** — the last row is the proof:
+the same pairing was measured over 6000 fixed-N games at +1.0 Elo, and 100 games read it at +20.9.
+That is what +/-110 Elo of resolution looks like, and it is why this run decides only whether
+something is grossly broken.
+
+What it does say is that nothing is: both calibrations clear the 45% gate against both
+predecessors. And the variant carrying a 12% larger tree is the one that is not behind, which is
+the second reading in a row telling the same story about the instrument — generated moves to fixed
+depth ranks these by how aggressive the reduction is, and the games do not. `bad = 0` goes into
+the 6000-game run.
 
 The fine values and the curves stay 23.4, with its own SPSA group. Before that group runs, someone
 has to check whether `spsa_tuner.py` accepts a negative range at all, because `parameters.json` has
