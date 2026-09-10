@@ -42,6 +42,13 @@ in v0.44.0 on 2026-09-10 as a null.
 **Read 23.2 before starting 23.3.** It left the thresholds calibrated against a scale that has
 already moved once, and 23.3 moves it again.
 
+**23.3 now carries a written plan**, agreed 2026-09-10 and set out in that section: the table
+becomes signed with a gravity update, the overflow rescale and `history_max_threshold` go,
+`enable_history_malus` is switched on — without it nothing writes a negative entry and the change
+would be a no-op — and the two Late Move Reduction thresholds are recalibrated against a
+`search-diag` census of the pool before a single game is played. Nothing in it is built or
+measured yet.
+
 0. **Backlog 3 first half, section 23.2, shipped in v0.44.0 on 2026-09-10 as a measured null.**
    The butterfly history is `[side][from][to]`; White and Black no longer share an entry.
    **+1.0 Elo, 95% [-6, +7]** over 6000 games against v0.43.0, and the tree grew 1.8% and 5.8% at
@@ -905,14 +912,18 @@ eventually pays depends on the re-tuning in 23.4, and a session that re-reads th
 
 ### 23.3 History can never go negative, so the LMR "bad" threshold cannot fire as intended
 
+`[Planned]` — the plan below is the agreed one, written 2026-09-10 against `v0.44.0`. Nothing in
+it has been built or measured, and no number in it is a result.
+
 ```rust
-history_table[from][to] += (depth * depth) as u32;                        // :1492
-history_table[b_from][b_to] = history_table[b_from][b_to].saturating_sub(penalty);  // :1502
+history_table[side][from][to] += (depth * depth) as u32;                            // :1617
+history_table[side][b_from][b_to] = ....saturating_sub(penalty);                    // :1628
+if history_table[side][from][to] > config.history_max_threshold { ... }             // :1644
 ```
 
 The table is `u32` and the malus saturates at zero. A quiet move that has been actively refuted a
 dozen times is therefore indistinguishable from a quiet move that has never been searched: both
-read 0. `lmr_history_bad_threshold: 500` at `lmr_reduction` (`:1713`) consequently increases the
+read 0. `lmr_history_bad_threshold: 500` at `lmr_reduction` (`:1843`) consequently increases the
 reduction for *unseen* moves, not for *refuted* ones — the opposite of what the parameter name
 says and of what the reduction is for.
 
@@ -926,6 +937,95 @@ instead of clamping at it and never needs a rescaling pass:
 
 This is the change that makes `lmr_history_bad_threshold` meaningful, so it and 23.4 have to be
 re-tuned together — the thresholds are calibrated to the magnitudes the update produces.
+
+**The malus is off, so this is not a type change.** `enable_history_malus` is `false`
+(`config.rs:506`) and the store loop at `search_service.rs:1620` never runs. Nothing writes a
+decrement today, so a signed table on its own would be a no-op: switching the malus on is part of
+this item and not of 23.4, which changes only the *curves*.
+
+#### The five steps
+
+1. **`u32` to `i32`** in `model.rs:63`, the `SearchContext` pointer at `model.rs:136`, the
+   signatures in `search_service.rs` (`minimax`, `singular_verification`, `lmr_reduction`'s
+   `hist_val`), the two thresholds in `config.rs:242` with their UCI parsers, and the eight test
+   literals in `move_gen_service.rs`. The `as i32` cast at `move_gen_service.rs:466` disappears.
+2. **The gravity update**, as one function beside the `BAND_*` constants so both call sites share
+   it:
+
+   ```rust
+   pub const MAX_HISTORY: i32 = 16_384;
+   pub fn history_gravity(entry: &mut i32, bonus: i32) {
+       let b = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
+       *entry += b - (*entry) * b.abs() / MAX_HISTORY;
+   }
+   ```
+
+   The bonus site and the malus site both call it, the malus with a negative bonus. The overflow
+   rescale at `:1644` goes: gravity cannot drive `|e|` past the cap, so `history_max_threshold`
+   becomes dead and its field, its UCI setter (`config.rs:1093`) and its assertion go with it.
+   `tuning/parameters.json` does not carry it. **`SearchTables::age` stays** — that is 23.1's decay
+   across the iterative deepening iterations, not the overflow pass.
+3. **`enable_history_malus` to `true`.** Bonus and malus stay symmetric at `depth * depth`; making
+   the malus steeper is 23.4.
+4. **The two LMR thresholds onto the new scale**, which is the one real decision — below.
+5. **Tests.** Gravity converges and never passes the cap, at both signs; a refuted quiet ends below
+   zero, which must fail against today's code; `age` with negative entries;
+   `test_history_credits_the_side_that_played_the_move` and
+   `test_the_two_history_planes_are_independent` stay green unchanged; and the ordering check
+   below.
+
+#### Negative ranks are safe, but one comment becomes false
+
+`MoveList::push` (`model.rs:370`) computes `rank = (rank << RANK_TIEBREAK_BITS) | (u8::MAX - order)`.
+With a negative rank the low eight bits after the shift are zero, so the `|` is still an addition
+and `rank * 256 + tiebreak` stays monotone. A quiet at `-MAX_HISTORY` reaches -4,194,304, while a
+capture demoted by `SEE_DEMOTION` (1,024,000,000) sits near -256,000,000: negative ranks already
+exist in this search, and the quiet band stays above the demoted captures. The ceiling is unmoved
+at `BAND_TT << 8` = 1.28e9, inside `i32`. But `push` carries the comment *"The generator clamps its
+ranks at zero, so the shift cannot lose a sign"*, and that stops being true — it has to be
+rewritten with the argument above, and pinned by a test.
+
+#### Step 4: what the thresholds become
+
+Today the table tops out near 9000, `lmr_history_good_threshold` is 4000 (44% of that) and
+`lmr_history_bad_threshold` is 500 — 5.6%, and **positive**, which is the defect. After the change
+the range is [-16384, +16384] and there are two ways to go:
+
+* **Rescale mechanically**: 4000/9000 and 500/9000 of the new cap, so roughly 7300 and 900. The
+  firing rates stay close to today's, but `bad` stays positive and the defect survives in effect;
+  the run would price the gravity curve and little else.
+* **Set `bad` negative** — 0 or about -1000 — so the rule fires on moves that were actually
+  refuted. That is what 23.3 is for, but it couples the mechanism to a guessed parameter.
+
+**The plan takes the second, and measures rather than guesses.** Before any game is played, add two
+counters and a bucketed histogram of `hist_val` at the LMR decision to `search_diag.rs` — the shape
+`SEARCHDIAGIIR` already uses — and census the 300-position pool at fixed depth 10. Choose `bad` so
+the rule fires about as often as it does today but on the other population. That is calibration,
+not tuning: the curves and the fine values are 23.4, with its own SPSA group, and before that group
+runs someone has to check whether `spsa_tuner.py` accepts a negative range at all, because
+`parameters.json` has never held one.
+
+#### How it gets priced
+
+`cargo test` green, then `scripts/measure_tree_size.py` against `suprah-0.44.0` over 300 positions
+at depth 10 on both pools. 23.2 grew the tree 1.8% and 5.8% precisely because the thresholds no
+longer matched the scale; this item repairs that, so a move back towards v0.43.0's tree is the sign
+the calibration is right. Then the census, then the smoke gauntlet as challenger against v0.44.0
+and v0.43.0, 100 games per pairing at 1s + 100ms with `openings_wide.txt` and the 45% gate — and
+the release-candidate version collision of `skills/engine_release_procedure.md` verified *before*
+the run, not after. Finally a fixed-N run of **6000 games against v0.44.0 at 1s + 150ms**,
+concurrency 5, the count fixed in advance and no early stopping, about 6.25 hours, read with
+`scripts/pairing_elo.py` and `scripts/match_health.py`.
+
+#### What could go wrong
+
+The gravity changes the distribution and not only the sign: an entry converges instead of growing
+linearly, and `age` halves on top of that, which is two decays stacked. If the census shows entries
+rarely approaching the cap, that is the first thing to look at — dropping `age` under gravity is a
+separate run, not this one. `MAX_HISTORY = 16_384` is a stipulation and a pure scale factor as long
+as the thresholds are set relative to it; it belongs in 23.4's group. And enabling the malus is a
+behaviour change in its own right that cannot be separated out here, so the release commit has to
+say so, or a later reader will take the run for a type refactor.
 
 ### 23.4 The malus is disabled, and the bonus curve is a rescaling pass
 
