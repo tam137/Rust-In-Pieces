@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.44.0] - 2026-09-10
+
+The butterfly history is now `[side][from][to]`. White and Black shared every `[from][to]` entry,
+so a quiet move that refuted for one side raised the rank of the geometrically identical move for
+the other. See `task.md` 23.2 for the write-up and the run.
+
+### Fixed
+- **The history table is indexed by side to move.** A move is credited to the side that played it
+  and read by the side whose moves are being ranked; `model::history_side` is the single place the
+  convention is written down. The overflow rescale now halves only the plane that overflowed.
+- Measured at **+1.0 Elo, 95% [-6, +7]** over 6000 fixed-N games against v0.43.0, no early
+  stopping and the count fixed before the run: a null at the resolution the count was chosen for.
+  Smoke gauntlet 47.0% against v0.43.0 and 61.0% against v0.42.0.
+
+### Known limitation
+- The tree gets slightly larger: **+1.8% and +5.8%** generated moves to fixed depth 10 on the two
+  300-position pools. Splitting one table into two halves the magnitudes an entry reaches while
+  `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) stay where they are.
+  The repair is expected to pay only once those thresholds are re-tuned with `task.md` 23.3 and
+  23.4; it ships now so that both can be priced against a statistic that no longer averages the
+  two sides.
+
+
+
 ## [V0.43.0] - 2026-09-09
 
 Null Move Pruning now runs only where the static evaluation is already at or above `beta`, the

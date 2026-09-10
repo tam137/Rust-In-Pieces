@@ -49,7 +49,18 @@ pub type LoggerFn = std::sync::Arc<dyn Fn(String) + Send + Sync>;
 /// indirection.
 pub struct SearchTables {
     pub killer_moves: Box<[[Option<Turn>; 2]; 128]>,
-    pub history_table: Box<[[u32; 64]; 64]>,
+    /// The butterfly history, `[side][from][to]` (`task.md` 23.2).
+    ///
+    /// **Index 0 is White, index 1 is Black — [`crate::model::history_side`] is the only place
+    /// that mapping is written down.** A quiet move is credited to the side that played it and
+    /// read by the side whose moves are being ranked, which is the same side one ply apart: the
+    /// cutoff writes for the node's own side to move, and the child's move generation reads for
+    /// the side it is generating for.
+    ///
+    /// Sharing one `[from][to]` plane between the two sides, which is what this replaces, meant a
+    /// quiet move that refuted for one side raised the rank of the geometrically identical move
+    /// for the other.
+    pub history_table: Box<[[[u32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
 }
 
@@ -57,7 +68,7 @@ impl SearchTables {
     pub fn new() -> Self {
         SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
-            history_table: Box::new([[0u32; 64]; 64]),
+            history_table: Box::new([[[0u32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
         }
     }
@@ -66,7 +77,7 @@ impl SearchTables {
     /// carries into the next one.
     pub fn reset(&mut self) {
         *self.killer_moves = [[None; 2]; 128];
-        *self.history_table = [[0u32; 64]; 64];
+        *self.history_table = [[[0u32; 64]; 64]; 2];
         *self.counter_moves = [[None; 64]; 64];
     }
 
@@ -83,9 +94,11 @@ impl SearchTables {
     /// ordering slot. A stale history entry instead biases the statistic that the Late Move
     /// Reduction, the quiet-move ranking and `lmr_history_bad_threshold` all read.
     pub fn age(&mut self) {
-        for row in self.history_table.iter_mut() {
-            for entry in row.iter_mut() {
-                *entry /= 2;
+        for side in self.history_table.iter_mut() {
+            for row in side.iter_mut() {
+                for entry in row.iter_mut() {
+                    *entry /= 2;
+                }
             }
         }
     }
@@ -119,7 +132,8 @@ pub struct SearchContext<'a> {
     pub stop_flag: &'a AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
-    pub history_table: *const [[u32; 64]; 64],
+    /// `[side][from][to]`, indexed with [`history_side`]. See `SearchTables::history_table`.
+    pub history_table: *const [[[u32; 64]; 64]; 2],
     pub counter_move: Option<Turn>,
     pub start_time: std::time::Instant,
     pub target_time: Option<i32>,
@@ -401,6 +415,16 @@ pub const RANK_TIEBREAK_BITS: u32 = 8;
 /// value was clamped to zero, into the middle of the quiet moves it should have been ordered
 /// against. Each band is a million wide and the widest score inside one is a queen promotion
 /// capturing a queen, at 260,000.
+/// The plane of the butterfly history that belongs to one side, `task.md` 23.2.
+///
+/// White is 0 and Black is 1. Every read and every write of `history_table` goes through this
+/// function, so the two can never disagree about the convention, and the argument names the side
+/// that *played* the move rather than the side to move at the reading node.
+#[inline(always)]
+pub const fn history_side(white: bool) -> usize {
+    if white { 0 } else { 1 }
+}
+
 pub const BAND_TT: i32 = 5_000_000;
 pub const BAND_PROMOTION: i32 = 4_000_000;
 pub const BAND_CAPTURE: i32 = 3_000_000;
@@ -1900,32 +1924,60 @@ mod tests {
         // cutoffs early in the game keeps its rank for the rest of it. Killers and counter
         // moves are overwritten wholesale by the next cutoff, so they are not aged.
         let mut tables = crate::model::SearchTables::new();
-        tables.history_table[12][28] = 900;
-        tables.history_table[1][18] = 1;
+        let white = crate::model::history_side(true);
+        let black = crate::model::history_side(false);
+        tables.history_table[white][12][28] = 900;
+        tables.history_table[white][1][18] = 1;
+        // `task.md` 23.2: both planes decay. The decay is a property of how old an entry is, and
+        // that is the same question for either side.
+        tables.history_table[black][12][28] = 700;
         let killer = crate::model::Turn::new(12, 28, 0, 0, false, 0);
         tables.killer_moves[3][0] = Some(killer);
         tables.counter_moves[6][21] = Some(killer);
 
         tables.age();
 
-        assert_eq!(tables.history_table[12][28], 450, "the history is halved on entry");
-        assert_eq!(tables.history_table[1][18], 0, "integer division retires the last point");
+        assert_eq!(tables.history_table[white][12][28], 450, "the history is halved on entry");
+        assert_eq!(tables.history_table[white][1][18], 0,
+                   "integer division retires the last point");
+        assert_eq!(tables.history_table[black][12][28], 350, "both sides are aged");
         assert_eq!(tables.killer_moves[3][0], Some(killer), "killers are not aged");
         assert_eq!(tables.counter_moves[6][21], Some(killer), "counter moves are not aged");
+    }
+
+    #[test]
+    fn test_the_two_history_planes_are_independent() {
+        // `task.md` 23.2, the defect in one assertion: `Ng1-f3` refuting for White used to raise
+        // the rank of `Ng8-f6` for Black, because both indexed the same `[from][to]` entry.
+        let mut tables = crate::model::SearchTables::new();
+        let white = crate::model::history_side(true);
+        let black = crate::model::history_side(false);
+        assert_ne!(white, black, "the two sides must not share a plane");
+
+        tables.history_table[white][6][21] = 4096;
+        assert_eq!(tables.history_table[black][6][21], 0,
+                   "a White cutoff must not raise Black's entry for the same two squares");
+
+        tables.history_table[black][6][21] = 512;
+        assert_eq!(tables.history_table[white][6][21], 4096,
+                   "and the reverse: Black's write must leave White's entry alone");
     }
 
     #[test]
     fn test_search_tables_reset_clears_all_three() {
         // What `ucinewgame` calls. Nothing learned about the previous game may transfer.
         let mut tables = crate::model::SearchTables::new();
-        tables.history_table[12][28] = 900;
+        tables.history_table[crate::model::history_side(true)][12][28] = 900;
+        tables.history_table[crate::model::history_side(false)][12][28] = 900;
         let killer = crate::model::Turn::new(12, 28, 0, 0, false, 0);
         tables.killer_moves[3][0] = Some(killer);
         tables.counter_moves[6][21] = Some(killer);
 
         tables.reset();
 
-        assert_eq!(tables.history_table[12][28], 0);
+        assert_eq!(tables.history_table[crate::model::history_side(true)][12][28], 0);
+        assert_eq!(tables.history_table[crate::model::history_side(false)][12][28], 0,
+                   "both planes are cleared on `ucinewgame`");
         assert_eq!(tables.killer_moves[3][0], None);
         assert_eq!(tables.counter_moves[6][21], None);
     }
@@ -1940,7 +1992,7 @@ mod tests {
         let config = crate::config::Config::for_tests();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
         
         let context = crate::model::SearchContext {
