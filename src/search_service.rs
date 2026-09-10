@@ -2106,6 +2106,44 @@ mod tests {
     }
 
     #[test]
+    fn test_the_malus_drives_a_refuted_quiet_below_zero() {
+        // `task.md` 23.3, the point of the whole item stated as a test. The unsigned table
+        // saturated at zero, so a quiet move that had been refuted a dozen times read the same 0
+        // as one that had never been searched, and `lmr_history_bad_threshold` fired on the
+        // second group rather than the first. Two things have to hold for that to be repaired:
+        // the malus has to run at all -- it shipped disabled until this item -- and the entry it
+        // writes has to be allowed below zero.
+        assert!(Config::new().enable_history_malus,
+            "the signed table is a no-op while nothing writes a decrement");
+
+        let service = Service::new();
+        let state = fresh_engine_state();
+        let config = Config::for_tests();
+        let mut board = service.fen.set_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None,
+        );
+
+        let tables = state.search_tables.lock().unwrap();
+        let negative = tables.history_table.iter().flatten().flatten()
+            .filter(|&&entry| entry < 0).count();
+        let positive = tables.history_table.iter().flatten().flatten()
+            .filter(|&&entry| entry > 0).count();
+
+        assert!(negative > 0,
+            "a depth-6 search refutes quiet moves, and a refuted quiet has to end below zero");
+        assert!(positive > 0,
+            "cutoffs still credit the move that took them; {positive} entries above zero");
+        assert!(tables.history_table.iter().flatten().flatten()
+                .all(|&entry| entry.abs() <= crate::model::MAX_HISTORY),
+            "the gravity update is the only writer, so no entry may leave the range");
+    }
+
+    #[test]
     fn test_a_fresh_engine_state_starts_with_empty_search_tables() {
         let state = fresh_engine_state();
         let tables = state.search_tables.lock().unwrap();
