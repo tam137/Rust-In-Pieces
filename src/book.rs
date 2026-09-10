@@ -554,7 +554,7 @@ mod tests {
         let zobrist_table = ZobristTable::with_capacity(1);
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
