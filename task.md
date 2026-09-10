@@ -15,7 +15,7 @@ built on.
 
 | | |
 | :--- | :--- |
-| Released | **v0.42.0** on `master` (HCE) since 2026-09-08 — persistent killer, history and counter-move tables, worth +39.4 Elo [+29, +49]. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.44.0** on `master` (HCE) since 2026-09-10 — the butterfly history is indexed by side to move, measured at +1.0 Elo [-6, +7] over 6000 games, i.e. a null that ships as the foundation for 23.3 and 23.4. Previously **v0.42.0** since 2026-09-08 — persistent killer, history and counter-move tables, worth +39.4 Elo [+29, +49]. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -34,11 +34,20 @@ See the Engines Changelog if needed.
 both write-ups are gone from this document, per `skills/task_management_procedure.md`. What is
 in flight and what comes after it:
 
-**Next up is backlog item 3, the two History Heuristic defects (23.2 and 23.3)** — the statistic
-three other rules read is not side-indexed and cannot go negative. Items 1 and 2 both closed on
-2026-09-09, the second one negative.
+**Next up is what is left of backlog item 3: 23.3, the history that cannot go negative** — a
+refuted quiet move and an unseen one both read 0, which is why `lmr_history_bad_threshold` fires
+on the wrong moves. Item 1 closed 2026-09-09, item 2 the same day and negative, and 23.2 shipped
+in v0.44.0 on 2026-09-10 as a null.
 
-0. **Backlog 2, section 22, measured and refused 2026-09-09: Internal Iterative Reduction is a
+**Read 23.2 before starting 23.3.** It left the thresholds calibrated against a scale that has
+already moved once, and 23.3 moves it again.
+
+0. **Backlog 3 first half, section 23.2, shipped in v0.44.0 on 2026-09-10 as a measured null.**
+   The butterfly history is `[side][from][to]`; White and Black no longer share an entry.
+   **+1.0 Elo, 95% [-6, +7]** over 6000 games against v0.43.0, and the tree grew 1.8% and 5.8% at
+   fixed depth 10 because splitting the table halved the magnitudes while the two LMR thresholds
+   stayed put. It ships as the foundation 23.3 and 23.4 have to be priced on, not as a gain.
+1. **Backlog 2, section 22, measured and refused 2026-09-09: Internal Iterative Reduction is a
    negative result on this engine.** It removes **70.4% and 64.9%** of the generated moves to
    fixed depth 10 and scores **35.5%** against v0.43.0 in its smoke gauntlet; restricted to
    `iir_min_depth = 8` it removes 39.3% and 42.8% and scores 42.0%. Four pairings, all below the
@@ -46,7 +55,7 @@ three other rules read is not side-indexed and cannot go negative. Items 1 and 2
    `enable_iir`, default `false`. The cause is the table, not the rule: **41.4% of all nodes at
    depth 4 and above have no Transposition Table move** here. Section 22.3 says to ask again after
    backlog item 7, and to read the census share before booking a gauntlet.
-1. **Backlog 1, section 20.1, measured 2026-09-09: the Null Move Pruning static-eval gate is
+2. **Backlog 1, section 20.1, measured 2026-09-09: the Null Move Pruning static-eval gate is
    Elo-neutral and makes the tree cheaper.** `-0.5 Elo, 95% [-7, +6]` over 6000 games against
    v0.42.0, against **+3.0% and +11.0% fewer generated moves** on the two 300-position pools and
    34.7% of all null searches removed. The gate ships enabled. Both `!is_pv` guards of 20.2 ship
@@ -54,7 +63,7 @@ three other rules read is not side-indexed and cannot go negative. Items 1 and 2
    because the root gives every root move `is_pv = true`. That root property is new, it is in the
    open list, and it is not to be changed inside a run pricing something else.
 
-2. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
+3. **Backlog 1, section 23.1, shipped in v0.42.0 — the largest single gain measured on this
    engine since the bands.** Killers, the history table and the counter moves moved from locals in
    `get_moves` into `EngineState`; they persist across the iterative deepening loop and the moves
    of a game, are halved on entry to each iteration and cleared on `ucinewgame`. **+39.4 Elo,
@@ -62,7 +71,7 @@ three other rules read is not side-indexed and cannot go negative. Items 1 and 2
    positions. No heuristic changed — only how long three tables live. Section 23.1 carries the
    run's caveat: it was stopped by hand at 2598 of a planned 6000.
 
-3. **The rest of the search audit is still unmeasured.** The audit of 2026-09-04 produced
+4. **The rest of the search audit is still unmeasured.** The audit of 2026-09-04 produced
    sections 20 to 26: seven rules either absent from this engine or present in a form that cannot
    fire at the depths it plays. Two of them have been through a run — 20 shipped Elo-neutral in
    v0.43.0, 22 was refused at the gate. **The remaining five are not measured** — each is a
@@ -70,7 +79,7 @@ three other rules read is not side-indexed and cannot go negative. Items 1 and 2
    effect size. Sections 23.2 to 23.3 are between five and thirty lines each; 24, 25 and 26 are
    reworks. The order to take them in is the backlog table below.
 
-4. **The negative extension**, the other half of the singular rebate, is still unmeasured, and
+5. **The negative extension**, the other half of the singular rebate, is still unmeasured, and
    section 8 leaves one open question on the same rule: whether `singular_margin = 0` wins through
    the extension or through the multicut it also maximises.
 
@@ -118,7 +127,7 @@ a run at `rounds = 50` never reaches line 51.
 | ---: | :--- | :--- | :--- |
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 20.1, 20.2 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 22 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
-| 3 | The history table is not side-indexed, and cannot go negative | 23.2, 23.3 | Two independent defects in the statistic three other rules read |
+| 3 | History cannot go negative, so a refuted quiet move and an unseen one both read 0 | 23.3 | The half of item 3 that is left: 23.2 shipped in v0.44.0. This is what makes `lmr_history_bad_threshold` mean anything |
 | 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
 | 5 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after 23.3, and only with its own SPSA group |
@@ -144,7 +153,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 5.2 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 5.2 |
 | NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
-| Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run | open question, cheap to test against another engine pairing |
+| Whether the 64% White score at 1s + 100ms is worth attacking — it is the engine's, not the pool's, and it inflates pair variance in every run. **It is about four points smaller at the longer control**: 60.41% in v0.43.0's run and 59.86% in v0.44.0's, both 6000 games at 1s + 150ms on the same pool | open question, two independent readings at 1s + 150ms, established 2026-09-10 |
 | `scripts/measure_stage0.py` still drives the engine with a fixed `sleep` instead of `scripts/uci_driver.py` | unsafe measurement; it is kept because four other scripts import its 14-position corpus |
 | `MoveRawList.moves` holds 128 from/to pairs against a legal maximum of 218, and `push` drops the rest silently | latent defect, needs a position with more than 128 moves to fire |
 | `truncate_bad_moves = 99` truncates an unsorted list during search, so it drops moves in generation order rather than the worst ones | latent defect, same class |
@@ -153,7 +162,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The root searches **every** root move with `is_pv = true` — it runs no Principal Variation Search of its own, so this engine has one PV node per legal root move where the published formulation has one per iteration. It is why the `!is_pv` guards of 20.2 cost tree where they should be nearly free | defect or design choice, unmeasured, established 2026-09-09, section 20.2 |
 | Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
-| The history table is `[from][to]` with no side-to-move index, so White and Black share every entry | defect, unmeasured, section 23.2 |
+| Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
 | `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
@@ -758,8 +767,11 @@ direction from a rule that is already too cheap by half.
 
 ## 23. The History Heuristic has four defects, and the killers and counter moves share the worst one
 
-`[Impact: unknown]` `[Complexity: Low to Medium]` `[unmeasured]` — four independent problems in
-about thirty lines of code. They are listed cheapest first; each can be taken alone.
+`[Impact: unknown]` `[Complexity: Low to Medium]` — four independent problems in about thirty
+lines of code, listed cheapest first; each can be taken alone. **Two are closed**: 23.1 shipped in
+v0.42.0 at +39.4 Elo, the largest gain measured on this engine since the bands, and 23.2 shipped
+in v0.44.0 as a null. 23.3 and 23.4 remain, they change the *scale* of the statistic rather than
+its indexing, and 23.4 must not be attempted before 23.3.
 
 ### 23.1 Every learned table is thrown away at every iterative deepening iteration
 
@@ -854,23 +866,42 @@ The two measurements agree, which is the reason to believe this one: 5.4% less w
 depth deterministically, and a large matchplay gain, from a change that alters no heuristic at
 all — only how long three tables live.
 
-### 23.2 The history table is not indexed by side to move
+### 23.2 The history table was not indexed by side to move — repaired in v0.44.0, measured null
+
+`[Measured]` `[+1.0 Elo, 95% [-6, +7] over 6000 games]` — shipped because the statistic is now
+correct, not because it won anything. Read the last paragraph before building on this.
 
 ```rust
-let mut history_table = [[0u32; 64]; 64];                            // [from][to]
-crate::model::BAND_QUIET + (*context.history_table)[from][to] as i32 // move_gen_service.rs:461
+history_table[side][from][to]          // model.rs, `[2][64][64]`, White is side 0
+crate::model::history_side(white)      // the one place the convention is written down
 ```
 
-White and Black share every `[from][to]` entry. A quiet move that refutes for one side raises the
+White and Black shared every `[from][to]` entry. A quiet move that refuted for one side raised the
 rank of the geometrically identical move for the other, in a position where it usually means
-something else entirely. The published table is `[side][from][to]`, which is one extra dimension
-and 8 KB.
+something else. The repair is an indexing change and not a plumbing one: `board.white_to_move` was
+already available at the write site and at the read site, and the two agree by construction — a
+node credits the side to move at the cutoff, and the child that reads the entry during generation
+is ranking that same side's moves one ply later. `test_history_credits_the_side_that_played_the_move`
+pins it, using the property that a depth-2 search from the start position can only write for
+Black; the test was verified to fail against a deliberately swapped index.
 
-`board.white_to_move` is available at both the write site (`:1489`) and the read site
-(`move_gen_service.rs:461`), so this is an indexing change, not a plumbing change. **The one thing
-to be careful about is which side's index is read at each site**: the write happens at the parent
-node before `do_move`, the read happens during generation for the node whose moves are being
-ranked, and the two must agree.
+**What it measured.** Against v0.43.0, 6000 fixed-N games at 1s + 150ms, no early stopping, the
+count fixed before the run: **+1.0 Elo, 95% paired interval [-6, +7]** over 3000 pairs, 50.1%.
+No losses on time, design effect 1.00, effective sample 3000 of 3000. The smoke gauntlet read
+47.0% against v0.43.0 and 61.0% against v0.42.0.
+
+**The deterministic reading went the other way**, and this is the part to carry forward: the tree
+grows by **+1.8% and +5.8%** generated moves to fixed depth 10 on the two pools, with 18 and 24 of
+300 trees identical. Splitting one table into two roughly halves the magnitude an entry reaches
+while `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) stay where they
+are, so the Late Move Reduction became less generous about sparing well-scoring quiet moves. The
+indexing is right; the thresholds are now calibrated against the wrong scale.
+
+**So 23.2 is a foundation, not a gain.** It ships ahead of 23.3 and 23.4 for one reason: those two
+change the scale of the same statistic, and pricing them on top of a table that averages the two
+sides would confound them with this. The next run gets a clean baseline. Whether the repair
+eventually pays depends on the re-tuning in 23.4, and a session that re-reads this section after
+23.3 should expect the thresholds to move.
 
 ### 23.3 History can never go negative, so the LMR "bad" threshold cannot fire as intended
 
