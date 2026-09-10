@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.44.0-NNUE] - 2026-09-10
+
+Ports `master` v0.44.0 to this branch: the butterfly history is `[side][from][to]`, so White and
+Black no longer share an entry. See `task.md` 23.2 on `master`.
+
+### Fixed
+- **The history table is indexed by side to move.** A move is credited to the side that played it
+  and read by the side whose moves are being ranked; `model::history_side` is the single place the
+  convention is written down. The overflow rescale halves only the plane that overflowed.
+
+### Notes
+- Measured on `master` at **+1.0 Elo, 95% [-6, +7]** over 6000 games — a null. **That number does
+  not transfer to this branch**: move ordering interacts with the evaluation that scores the
+  moves, and this branch scores with a network. Unpriced here.
+- Smoke gauntlet, challenger first, 1s + 100ms, 100 games per pairing: 53.5% against v0.43.0-NNUE
+  and 52.0% against v0.42.0-NNUE, no losses on time. A gate, not a measurement.
+- Known limitation, as on `master`: splitting one table into two halves the magnitude an entry
+  reaches while `lmr_history_good_threshold` and `lmr_history_bad_threshold` stay where they are.
+  The repair is expected to pay only once those are re-tuned with `task.md` 23.3 and 23.4.
+- The protected NNUE flags and SPSA search parameters of this branch are untouched; `config.rs`
+  and `eval_service.rs` are not part of this port.
+
+
+
 ## [V0.43.0-NNUE] - 2026-09-09
 
 Ports `master` v0.43.0 to this branch: Null Move Pruning now runs only where the static evaluation
