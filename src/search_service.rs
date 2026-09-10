@@ -509,7 +509,7 @@ impl SearchService {
         excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers])
         -> (Option<Turn>, i16) {
@@ -1614,18 +1614,22 @@ impl SearchService {
                     let side = crate::model::history_side(white);
                     let from = current_turn.from as usize;
                     let to = current_turn.to as usize;
-                    history_table[side][from][to] += (depth * depth) as u32;
+                    // `task.md` 23.3: the gravity update, so the entry converges towards the cap
+                    // rather than growing until something rescales it.
+                    let bonus = depth * depth;
+                    crate::model::history_gravity(&mut history_table[side][from][to], bonus);
 
-                    // History Malus for previously searched quiet moves
+                    // History Malus for previously searched quiet moves. The same update with a
+                    // negative bonus, which is what carries a refuted quiet below zero and makes
+                    // it distinguishable from one that was never searched.
                     if config.enable_history_malus {
                         for bad_move_opt in searched_quiet_moves.iter().take(searched_quiet_len) {
                             if let Some(bad_move) = *bad_move_opt {
                                 if bad_move != *current_turn {
                                     let b_from = bad_move.from as usize;
                                     let b_to = bad_move.to as usize;
-                                    let penalty = (depth * depth) as u32;
-                                    history_table[side][b_from][b_to] =
-                                        history_table[side][b_from][b_to].saturating_sub(penalty);
+                                    crate::model::history_gravity(
+                                        &mut history_table[side][b_from][b_to], -bonus);
                                 }
                             }
                         }
@@ -1636,18 +1640,9 @@ impl SearchService {
                         counter_moves[turn.from as usize][turn.to as usize] = Some(*current_turn);
                     }
 
-                    // Overflow Protection & Ageing
-                    // Overflow protection rescales the plane that overflowed. The other side's
-                    // entries are a different statistic and are not touched: halving them here
-                    // would reintroduce, through the back door, exactly the coupling between the
-                    // two sides that `task.md` 23.2 removes.
-                    if history_table[side][from][to] > config.history_max_threshold {
-                        for r in history_table[side].iter_mut() {
-                            for c in r.iter_mut() {
-                                *c /= 2;
-                            }
-                        }
-                    }
+                    // No overflow protection: `history_gravity` cannot drive an entry past
+                    // `MAX_HISTORY`, so the rescaling pass over 4096 entries that `task.md` 23.3
+                    // replaces is gone, and with it `history_max_threshold`.
                 }
                 break;
             }
@@ -1722,7 +1717,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
@@ -1778,7 +1773,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
@@ -1818,7 +1813,7 @@ impl SearchService {
         is_pv: bool,
         is_killer: bool,
         is_counter: bool,
-        hist_val: u32,
+        hist_val: i32,
     ) -> i32 {
         let d_idx = (depth as usize).min(63);
         let m_idx = (turn_counter as usize).min(63);
@@ -2097,14 +2092,17 @@ mod tests {
         let tables = state.search_tables.lock().unwrap();
         let white = crate::model::history_side(true);
         let black = crate::model::history_side(false);
-        let white_entries: u32 = tables.history_table[white].iter().flatten().sum();
-        let black_entries: u32 = tables.history_table[black].iter().flatten().sum();
+        // Counted, not summed: since `task.md` 23.3 an entry may be negative, so a plane that
+        // has been written can still add up to zero or less. What the test asks is which plane
+        // was touched at all.
+        let white_written = tables.history_table[white].iter().flatten().filter(|&&e| e != 0).count();
+        let black_written = tables.history_table[black].iter().flatten().filter(|&&e| e != 0).count();
 
-        assert!(black_entries > 0,
+        assert!(black_written > 0,
             "a depth-2 search cuts at Black nodes, so Black's plane must have entries");
-        assert_eq!(white_entries, 0,
-            "no node in a depth-2 search writes for White; {} points landed in White's plane",
-            white_entries);
+        assert_eq!(white_written, 0,
+            "no node in a depth-2 search writes for White; {} entries landed in White's plane",
+            white_written);
     }
 
     #[test]
@@ -3516,7 +3514,7 @@ mod tests {
         config.use_zobrist = true;
         config.enable_qs_tt = true;
 
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &engine_state.stop_flag,
@@ -3534,7 +3532,7 @@ mod tests {
         let mut stats = Stats::new();
         let mut pv = [None; 128];
         let mut killer_moves = [[None; 2]; 128];
-        let mut history_table_mut = [[[0u32; 64]; 64]; 2];
+        let mut history_table_mut = [[[0i32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
         let dummy_turn = Turn::new(0, 0, 0, 0, false, 0);
 
@@ -3692,7 +3690,7 @@ mod tests {
         let mut stats = Stats::new();
         let state = fresh_engine_state();
         let zobrist_table = state.zobrist_table.read().unwrap().clone();
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &state.stop_flag,
