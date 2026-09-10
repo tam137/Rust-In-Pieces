@@ -518,7 +518,7 @@ impl SearchService {
         excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[u32; 64]; 64],
+        history_table: &mut [[[u32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers],
         acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY])
@@ -1448,7 +1448,8 @@ impl SearchService {
                     Some(*current_turn) == killer_moves[ply_idx][0]
                         || Some(*current_turn) == killer_moves[ply_idx][1],
                     Some(*current_turn) == current_context.counter_move,
-                    history_table[current_turn.from as usize][current_turn.to as usize],
+                    history_table[crate::model::history_side(white)]
+                        [current_turn.from as usize][current_turn.to as usize],
                 ) > 0;
 
             // The fourth guard: the SEE pruning of bad captures also exempts a checking move.
@@ -1500,7 +1501,8 @@ impl SearchService {
                 let is_killer = Some(*current_turn) == killer_moves[ply_idx][0]
                     || Some(*current_turn) == killer_moves[ply_idx][1];
                 let is_counter = Some(*current_turn) == current_context.counter_move;
-                let hist_val = history_table[current_turn.from as usize][current_turn.to as usize];
+                let hist_val = history_table[crate::model::history_side(white)]
+                    [current_turn.from as usize][current_turn.to as usize];
                 let reduction = Self::lmr_reduction(
                     config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
                 );
@@ -1585,10 +1587,13 @@ impl SearchService {
                         killer_moves[ply_idx][0] = Some(*current_turn);
                     }
 
-                    // History Heuristic Accumulation
+                    // History Heuristic Accumulation. `task.md` 23.2: credited to the side that
+                    // played the move, which at this point is still this node's side to move —
+                    // the move was undone before the cutoff was taken.
+                    let side = crate::model::history_side(white);
                     let from = current_turn.from as usize;
                     let to = current_turn.to as usize;
-                    history_table[from][to] += (depth * depth) as u32;
+                    history_table[side][from][to] += (depth * depth) as u32;
 
                     // History Malus for previously searched quiet moves
                     if config.enable_history_malus {
@@ -1598,7 +1603,8 @@ impl SearchService {
                                     let b_from = bad_move.from as usize;
                                     let b_to = bad_move.to as usize;
                                     let penalty = (depth * depth) as u32;
-                                    history_table[b_from][b_to] = history_table[b_from][b_to].saturating_sub(penalty);
+                                    history_table[side][b_from][b_to] =
+                                        history_table[side][b_from][b_to].saturating_sub(penalty);
                                 }
                             }
                         }
@@ -1610,8 +1616,12 @@ impl SearchService {
                     }
 
                     // Overflow Protection & Ageing
-                    if history_table[from][to] > config.history_max_threshold {
-                        for r in history_table.iter_mut() {
+                    // Overflow protection rescales the plane that overflowed. The other side's
+                    // entries are a different statistic and are not touched: halving them here
+                    // would reintroduce, through the back door, exactly the coupling between the
+                    // two sides that `task.md` 23.2 removes.
+                    if history_table[side][from][to] > config.history_max_threshold {
+                        for r in history_table[side].iter_mut() {
                             for c in r.iter_mut() {
                                 *c /= 2;
                             }
@@ -1691,7 +1701,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[u32; 64]; 64],
+        history_table: &mut [[[u32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -1748,7 +1758,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[u32; 64]; 64],
+        history_table: &mut [[[u32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -2015,10 +2025,11 @@ mod tests {
 
         // Entries of 1 do not survive the halving on entry, so the survivors are read off the
         // ones worth at least two points -- a cutoff at depth 2 or deeper.
-        let written: Vec<(usize, usize)> = {
+        let written: Vec<(usize, usize, usize)> = {
             let tables = state.search_tables.lock().unwrap();
-            (0..64).flat_map(|f| (0..64).map(move |t| (f, t)))
-                .filter(|(f, t)| tables.history_table[*f][*t] >= 2)
+            (0..2).flat_map(|s| (0..64).flat_map(move |f| (0..64).map(move |t| (s, f, t))))
+                .filter(|(s, f, t)| tables.history_table[*s][*f][*t] >= 2)
+                .map(|(s, f, t)| (s, f, t))
                 .collect()
         };
         assert!(!written.is_empty(),
@@ -2032,17 +2043,55 @@ mod tests {
         );
 
         let tables = state.search_tables.lock().unwrap();
-        let survived = written.iter().filter(|(f, t)| tables.history_table[*f][*t] > 0).count();
+        let survived = written.iter()
+            .filter(|(s, f, t)| tables.history_table[*s][*f][*t] > 0).count();
         assert!(survived > 0,
             "the second search must inherit the first one's history; {} of {} entries survived",
             survived, written.len());
     }
 
     #[test]
+    fn test_history_credits_the_side_that_played_the_move() {
+        // `task.md` 23.2, the plumbing risk stated as a test: the write happens at the node whose
+        // side to move owns the quiet move, the read happens one ply later during that same
+        // side's move generation, and the two must name the same plane.
+        //
+        // A depth-2 search from the start position isolates it. The root move loop lives in
+        // `get_moves` and writes no history; its children are Black nodes at depth 1, which do;
+        // their children enter at depth 0 and drop into the Quiescence Search, which has no
+        // history at all. So **every** entry a depth-2 search can write belongs to Black, and an
+        // index that is swapped, or taken from the board after the move rather than before it,
+        // shows up as entries in White's plane.
+        let service = Service::new();
+        let state = fresh_engine_state();
+        let config = Config::for_tests();
+        let mut board = service.fen.set_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, 2, true, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None,
+        );
+
+        let tables = state.search_tables.lock().unwrap();
+        let white = crate::model::history_side(true);
+        let black = crate::model::history_side(false);
+        let white_entries: u32 = tables.history_table[white].iter().flatten().sum();
+        let black_entries: u32 = tables.history_table[black].iter().flatten().sum();
+
+        assert!(black_entries > 0,
+            "a depth-2 search cuts at Black nodes, so Black's plane must have entries");
+        assert_eq!(white_entries, 0,
+            "no node in a depth-2 search writes for White; {} points landed in White's plane",
+            white_entries);
+    }
+
+    #[test]
     fn test_a_fresh_engine_state_starts_with_empty_search_tables() {
         let state = fresh_engine_state();
         let tables = state.search_tables.lock().unwrap();
-        assert!(tables.history_table.iter().all(|r| r.iter().all(|v| *v == 0)));
+        assert!(tables.history_table.iter().all(|s| s.iter().all(|r| r.iter().all(|v| *v == 0))));
         assert!(tables.killer_moves.iter().all(|k| k.iter().all(|m| m.is_none())));
         assert!(tables.counter_moves.iter().all(|c| c.iter().all(|m| m.is_none())));
     }
@@ -3298,7 +3347,7 @@ mod tests {
         config.use_zobrist = true;
         config.enable_qs_tt = true;
 
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &engine_state.stop_flag,
@@ -3316,7 +3365,7 @@ mod tests {
         let mut stats = Stats::new();
         let mut pv = [None; 128];
         let mut killer_moves = [[None; 2]; 128];
-        let mut history_table_mut = [[0u32; 64]; 64];
+        let mut history_table_mut = [[[0u32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
         let dummy_turn = Turn::new(0, 0, 0, 0, false, 0);
 
@@ -3475,7 +3524,7 @@ mod tests {
         let mut stats = Stats::new();
         let state = fresh_engine_state();
         let zobrist_table = state.zobrist_table.read().unwrap().clone();
-        let history_table = [[0u32; 64]; 64];
+        let history_table = [[[0u32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &state.stop_flag,

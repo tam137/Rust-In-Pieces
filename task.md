@@ -15,7 +15,7 @@ built on.
 
 | | |
 | :--- | :--- |
-| Released | **v0.43.0-NNUE** on this branch since 2026-09-09 — the Null Move Pruning static-eval gate, ported from `master` v0.43.0, with both `!is_pv` guards shipped disabled. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
+| Released | **v0.44.0-NNUE** on this branch since 2026-09-10 — the butterfly history is indexed by side to move, ported from `master` v0.44.0 where it measured a null; unpriced here. Previously **v0.43.0-NNUE** since 2026-09-09 — the Null Move Pruning static-eval gate, ported from `master` v0.43.0, with both `!is_pv` guards shipped disabled. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
 | Authority | **`task.md` on `master` is the roadmap.** This copy exists so the branch is readable on its own and drifts if it is not synced; when the two disagree, `master` is right. Branch-specific work lives in `task/search_task.md` and `task/eval_task.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
@@ -57,14 +57,21 @@ this branch.** Kept current as of 2026-09-09.
 4. **`singular_margin` was retuned to 0** in v0.41.1-NNUE, ported from `master`. The other two
    singular parameters are documented negatives. The axis is closed.
 5. **The negative extension**, the other half of the singular rebate, is still unmeasured.
-6. **Nothing is coming in from `master` right now.** Internal Iterative Reduction, its backlog
+6. **Ported in v0.44.0-NNUE: the butterfly history is `[side][from][to]`** (`master` `task.md`
+   23.2). White and Black no longer share an entry. On `master` it measured **+1.0 Elo, 95%
+   [-6, +7]** over 6000 games — a null, shipped there as the foundation 23.3 and 23.4 have to be
+   priced on. **That number does not transfer here** and this branch has not priced it; the smoke
+   gauntlet read 53.5% against v0.43.0-NNUE and 52.0% against v0.42.0-NNUE, which is a gate and
+   nothing more. The same known limitation applies: the split halved the magnitudes while
+   `lmr_history_good_threshold` and `lmr_history_bad_threshold` stayed put.
+7. **Nothing else is coming in from `master` right now.** Internal Iterative Reduction, its backlog
    item 2, was built and refused at the gate on 2026-09-09 — 35.5% against v0.43.0 in the
    published form, 42.0% at `iir_min_depth = 8`, both below 45% — and ships there behind
    `enable_iir`, default `false`. **It is not ported here, and it should not be ported here as a
    throughput idea either**: the rule fires where the Transposition Table has no move, and this
    branch scores with a network, so its own miss rate and its own trade-off would have to be
-   measured from scratch. `master` moves on to backlog item 3, the two History Heuristic defects
-   (23.2, 23.3); that is the next candidate for a port.
+   measured from scratch. `master` moves on to what is left of backlog item 3 — 23.3, the history that
+   cannot go negative; that is the next candidate for a port.
 
 **The bands are what paid.** Measured **+25.6 Elo** over 6000 games, 95% interval **[+19, +32]**,
 against a bound fixed before the run at -5. Deterministically, **21.4% less work to fixed depth 10**
