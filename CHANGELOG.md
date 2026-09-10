@@ -22,6 +22,14 @@ Black no longer share an entry. See `task.md` 23.2 on `master`.
   moves, and this branch scores with a network. Unpriced here.
 - Smoke gauntlet, challenger first, 1s + 100ms, 100 games per pairing: 53.5% against v0.43.0-NNUE
   and 52.0% against v0.42.0-NNUE, no losses on time. A gate, not a measurement.
+- Cross-version gauntlet, 2026-09-10, challenger first, 900 games, 1s + 100ms, `openings_wide.txt`,
+  concurrency 5: **362 wins, 338 draws, 200 losses, 59.0% overall**, ahead of every NNUE
+  predecessor except v0.43.0-NNUE, where it read **46.5%** (24/45/31), and 87.0% against HCE
+  `suprah-0.39.1`. No losses on time, no duplicate games. The release procedure's 45% floor is
+  held. This is the mandatory regression gate of rule 2 and not a measurement: that one pairing
+  is **-24.4 Elo, 95% paired [-71, +21]** over 50 pairs, and the smoke gauntlet had the same two
+  engines seven points the other way. Both readings are consistent with the null measured on
+  `master`.
 - Known limitation, as on `master`: splitting one table into two halves the magnitude an entry
   reaches while `lmr_history_good_threshold` and `lmr_history_bad_threshold` stay where they are.
   The repair is expected to pay only once those are re-tuned with `task.md` 23.3 and 23.4.
