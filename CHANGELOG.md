@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.0-NNUE] - 2026-09-11
+
+Ports `master` v0.45.0 to this branch: the butterfly history is signed and updated by gravity, so a
+refuted quiet move is distinguishable from one that was never searched. See `task.md` 23.3 on
+`master`.
+
+### Fixed
+- **History entries can go negative.** The table was `u32` and the malus saturated at zero, so a
+  quiet move refuted a dozen times read the same 0 as one never searched.
+
+### Changed
+- **The gravity update replaces the rescaling pass.** `model::history_gravity` is the only writer
+  and an entry converges towards `model::MAX_HISTORY` (16,384) instead of clamping at it.
+  `history_max_threshold` is removed along with its UCI option `HistoryMaxThreshold`.
+- **New default `enable_history_malus: true`.** Without it nothing writes a decrement and the
+  signed table would be a no-op.
+- `scripts/measure_history_census.py` and the `SEARCHDIAGHIST` counters are ported with it. The
+  Internal Iterative Reduction counters that sit beside them on `master` are not: that rule is a
+  negative result there and has never been ported here.
+
+### Notes
+- **No Elo number is claimed for this branch.** `master` measured **+9.6 Elo, 95% [+3, +16]** over
+  6000 fixed-N games, and it does not transfer for two separate reasons: it was measured against a
+  classical evaluation, and it was measured with `lmr_history_bad_threshold = 0`.
+- **This branch keeps `lmr_history_bad_threshold = 550`**, a protected SPSA parameter of
+  `skills/nnue_porting_and_release_procedure.md`. What is ported is the mechanism, not the
+  calibration. On the new scale 550 fires on nearly every Late Move Reduction decision, which is
+  approximately where this branch already sat with the unsigned table, so its behaviour is close to
+  continuous across the port. Re-tuning it belongs to `task.md` 23.4 and its SPSA group.
+- Cross-version smoke gauntlet, challenger first, 1s + 100ms, 100 games per pairing: **53.5%**
+  against v0.44.0-NNUE and **50.5%** against v0.43.0-NNUE, no losses on time, no duplicate games.
+  A gate, not a measurement.
+- Known limitation, as on `master`: `lmr_history_good_threshold` stays 4000 and is inert — the
+  census reads 0.06% of decisions.
+- The protected NNUE flags of this branch are untouched; `eval_service.rs` and `nnue_service.rs`
+  are not part of this port beyond one test construction that carried the old table shape.
+
+
+
 ## [V0.44.0-NNUE] - 2026-09-10
 
 Ports `master` v0.44.0 to this branch: the butterfly history is `[side][from][to]`, so White and

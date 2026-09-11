@@ -15,7 +15,7 @@ built on.
 
 | | |
 | :--- | :--- |
-| Released | **v0.44.0-NNUE** on this branch since 2026-09-10 — the butterfly history is indexed by side to move, ported from `master` v0.44.0 where it measured a null; unpriced here. Previously **v0.43.0-NNUE** since 2026-09-09 — the Null Move Pruning static-eval gate, ported from `master` v0.43.0, with both `!is_pv` guards shipped disabled. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
+| Released | **v0.45.0-NNUE** on this branch since 2026-09-11 — the butterfly history is signed and updated by gravity, ported from `master` v0.45.0 where it measured +9.6 Elo [+3, +16]; **that number does not transfer here**, because this branch keeps the protected `lmr_history_bad_threshold = 550` where `master` measured 0, and because it was measured on HCE. Previously **v0.44.0-NNUE** since 2026-09-10 — the butterfly history is indexed by side to move, ported from `master` v0.44.0 where it measured a null; unpriced here. Previously **v0.43.0-NNUE** since 2026-09-09 — the Null Move Pruning static-eval gate, ported from `master` v0.43.0, with both `!is_pv` guards shipped disabled. This branch **is** maintained again; the "HCE on `master` only" rule of 2026-09-02 was lifted on 2026-09-07 |
 | Authority | **`task.md` on `master` is the roadmap.** This copy exists so the branch is readable on its own and drifts if it is not synced; when the two disagree, `master` is right. Branch-specific work lives in `task/search_task.md` and `task/eval_task.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
@@ -32,7 +32,7 @@ See the Engines Changelog if needed.
 ### The next action
 
 **Read `master`'s `task.md` for the live backlog; this section carries only what is specific to
-this branch.** Kept current as of 2026-09-10.
+this branch.** Kept current as of 2026-09-11.
 
 1. **Ported in v0.43.0-NNUE: the Null Move Pruning static-eval gate** (`master` `task.md` 20.1).
    The rule now runs only where the static evaluation is already at or above `beta`. On `master`
@@ -71,7 +71,21 @@ this branch.** Kept current as of 2026-09-10.
    what a null looks like at this resolution; neither is an effect size. The same known limitation
    applies: the split halved the magnitudes while `lmr_history_good_threshold` and
    `lmr_history_bad_threshold` stayed put.
-7. **Nothing else is coming in from `master` right now.** Internal Iterative Reduction, its backlog
+7. **Ported in v0.45.0-NNUE: the butterfly history is signed, updated by gravity, and the malus
+   is on** (`master` `task.md` 23.3). `history_max_threshold` and the rescaling pass are gone; an
+   entry converges towards `model::MAX_HISTORY` and a refuted quiet move now ends below zero,
+   where before it was indistinguishable from one that had never been searched. On `master` this
+   measured **+9.6 Elo, 95% [+3, +16]** over 6000 fixed-N games — the largest measured gain since
+   v0.42.0, and won against a tree that is 12% *larger*.
+
+   **Two reasons that number is not this branch's.** It was measured on HCE, and move ordering
+   interacts with the evaluation that scores the moves. And `master` measured it with
+   `lmr_history_bad_threshold = 0`, while this branch keeps **550**, one of the protected SPSA
+   values: on the new scale 550 fires on essentially every decision, which is approximately where
+   this branch already sat, so what is ported is the mechanism and not the calibration. Re-tuning
+   it belongs to 23.4's SPSA group. `master`'s census also found `lmr_history_good_threshold`
+   inert at 0.06% of decisions, which applies here just as much and is unmeasured on either branch.
+8. **Nothing else is coming in from `master` right now.** Internal Iterative Reduction, its backlog
    item 2, was built and refused at the gate on 2026-09-09 — 35.5% against v0.43.0 in the
    published form, 42.0% at `iir_min_depth = 8`, both below 45% — and ships there behind
    `enable_iir`, default `false`. **It is not ported here, and it should not be ported here as a
