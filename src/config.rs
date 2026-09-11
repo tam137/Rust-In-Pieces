@@ -191,7 +191,6 @@ pub struct Config {
     pub killer_move_1_rank_bonus: i32,
     pub killer_move_2_rank_bonus: i32,
     pub counter_move_rank_bonus: i32,
-    pub history_max_threshold: u32,
     pub lmr_move_threshold: i32,
     pub lmr_divisor: i32,
 
@@ -219,8 +218,30 @@ pub struct Config {
     /// Once the aspiration delta reaches this value, the next re-search uses a full
     /// window instead of widening further, bounding the number of root re-searches.
     pub aspiration_window_max_delta: i16,
-    pub lmr_history_good_threshold: u32,
-    pub lmr_history_bad_threshold: u32,
+    /// Both are compared against a signed history entry bounded by `model::MAX_HISTORY`,
+    /// `task.md` 23.3 on `master`.
+    ///
+    /// **This branch keeps `lmr_history_bad_threshold` at 550 and `master` sets it to 0.** The
+    /// 550 is one of the protected SPSA values of `skills/nnue_porting_and_release_procedure.md`,
+    /// so the port brings the mechanism and not the calibration — and the two are not the same
+    /// change. On `master`'s census of 300 pool positions at depth 10, a threshold of 0 fires on
+    /// the 78.69% of decisions whose entry is negative, i.e. on the moves the search refuted,
+    /// while one of 512 fires on 99.6% and keeps penalising the moves it has never seen. 550 sits
+    /// on that second side, which is approximately where this branch already was: it read 550
+    /// against an unsigned table that saturated at zero, and the branch's behaviour is therefore
+    /// close to continuous across this port. What does *not* transfer is `master`'s **+9.6 Elo,
+    /// 95% [+3, +16]** — that number was measured on HCE with the threshold at 0 and is not this
+    /// branch's effect size in either respect.
+    ///
+    /// Re-tuning it here is 23.4's SPSA group, which now has a scale that means something and a
+    /// parameter that may go negative.
+    ///
+    /// `lmr_history_good_threshold` stays at 4000 and is **inert**: `master`'s census reads 0.08%
+    /// before the change and 0.06% after, because almost no entry ever reaches 4096 under either
+    /// update. The half of the Late Move Reduction that spares promising quiet moves has never
+    /// run. Also 23.4.
+    pub lmr_history_good_threshold: i32,
+    pub lmr_history_bad_threshold: i32,
     pub rfp_margin_per_depth: i16,
     pub rfp_max_depth: i32,
     /// Reverse Futility Pruning does not speculate on the principal variation (`task.md` 20.2).
@@ -480,11 +501,13 @@ impl Config {
             enable_delta_pruning: false,
             delta_pruning_margin: 300,
             enable_counter_moves: true,
-            enable_history_malus: false,
+            // `task.md` 23.3: on since the history became signed. With the malus off nothing
+            // ever writes a decrement, so no entry could reach a negative value and the signed
+            // table would be a no-op.
+            enable_history_malus: true,
             killer_move_1_rank_bonus: 20000,
             killer_move_2_rank_bonus: 10000,
             counter_move_rank_bonus: 15000,
-            history_max_threshold: 9000,
             lmr_move_threshold: 2,
             lmr_divisor: 140,
 
@@ -987,12 +1010,11 @@ impl Config {
             "ispvnoderankbonus" => if let Ok(v) = value.parse::<i32>() { self.is_pv_node_rank_bonus = v; },
             "givepromotionrankbonusqueen" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_queen = v; },
             "givepromotionrankbonusknight" => if let Ok(v) = value.parse::<i32>() { self.give_promotion_rank_bonus_knight = v; },
-            "historymaxthreshold" => if let Ok(v) = value.parse::<u32>() { self.history_max_threshold = v; },
             "aspirationwindowinitialdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_initial_delta = v; },
             "aspirationwindowmultiplier" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_multiplier = v; },
             "aspirationwindowmaxdelta" => if let Ok(v) = value.parse::<i16>() { self.aspiration_window_max_delta = v; },
-            "lmrhistorygoodthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_good_threshold = v; },
-            "lmrhistorybadthreshold" => if let Ok(v) = value.parse::<u32>() { self.lmr_history_bad_threshold = v; },
+            "lmrhistorygoodthreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_history_good_threshold = v; },
+            "lmrhistorybadthreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_history_bad_threshold = v; },
             "rfpmarginperdepth" => if let Ok(v) = value.parse::<i16>() { self.rfp_margin_per_depth = v; },
             "rfpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.rfp_max_depth = v; },
             "enablecheckextension" => self.enable_check_extension = value.eq_ignore_ascii_case("true"),

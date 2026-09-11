@@ -518,7 +518,7 @@ impl SearchService {
         excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers],
         acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY])
@@ -1503,6 +1503,11 @@ impl SearchService {
                 let is_counter = Some(*current_turn) == current_context.counter_move;
                 let hist_val = history_table[crate::model::history_side(white)]
                     [current_turn.from as usize][current_turn.to as usize];
+                crate::search_diag::record_lmr_history(
+                    hist_val,
+                    config.lmr_history_good_threshold,
+                    config.lmr_history_bad_threshold,
+                );
                 let reduction = Self::lmr_reduction(
                     config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
                 );
@@ -1593,18 +1598,22 @@ impl SearchService {
                     let side = crate::model::history_side(white);
                     let from = current_turn.from as usize;
                     let to = current_turn.to as usize;
-                    history_table[side][from][to] += (depth * depth) as u32;
+                    // `task.md` 23.3: the gravity update, so the entry converges towards the cap
+                    // rather than growing until something rescales it.
+                    let bonus = depth * depth;
+                    crate::model::history_gravity(&mut history_table[side][from][to], bonus);
 
-                    // History Malus for previously searched quiet moves
+                    // History Malus for previously searched quiet moves. The same update with a
+                    // negative bonus, which is what carries a refuted quiet below zero and makes
+                    // it distinguishable from one that was never searched.
                     if config.enable_history_malus {
                         for bad_move_opt in searched_quiet_moves.iter().take(searched_quiet_len) {
                             if let Some(bad_move) = *bad_move_opt {
                                 if bad_move != *current_turn {
                                     let b_from = bad_move.from as usize;
                                     let b_to = bad_move.to as usize;
-                                    let penalty = (depth * depth) as u32;
-                                    history_table[side][b_from][b_to] =
-                                        history_table[side][b_from][b_to].saturating_sub(penalty);
+                                    crate::model::history_gravity(
+                                        &mut history_table[side][b_from][b_to], -bonus);
                                 }
                             }
                         }
@@ -1615,18 +1624,9 @@ impl SearchService {
                         counter_moves[turn.from as usize][turn.to as usize] = Some(*current_turn);
                     }
 
-                    // Overflow Protection & Ageing
-                    // Overflow protection rescales the plane that overflowed. The other side's
-                    // entries are a different statistic and are not touched: halving them here
-                    // would reintroduce, through the back door, exactly the coupling between the
-                    // two sides that `task.md` 23.2 removes.
-                    if history_table[side][from][to] > config.history_max_threshold {
-                        for r in history_table[side].iter_mut() {
-                            for c in r.iter_mut() {
-                                *c /= 2;
-                            }
-                        }
-                    }
+                    // No overflow protection: `history_gravity` cannot drive an entry past
+                    // `MAX_HISTORY`, so the rescaling pass over 4096 entries that `task.md` 23.3
+                    // replaces is gone, and with it `history_max_threshold`.
                 }
                 break;
             }
@@ -1701,7 +1701,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -1758,7 +1758,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
-        history_table: &mut [[[u32; 64]; 64]; 2],
+        history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -1799,7 +1799,7 @@ impl SearchService {
         is_pv: bool,
         is_killer: bool,
         is_counter: bool,
-        hist_val: u32,
+        hist_val: i32,
     ) -> i32 {
         let d_idx = (depth as usize).min(63);
         let m_idx = (turn_counter as usize).min(63);
@@ -2077,14 +2077,55 @@ mod tests {
         let tables = state.search_tables.lock().unwrap();
         let white = crate::model::history_side(true);
         let black = crate::model::history_side(false);
-        let white_entries: u32 = tables.history_table[white].iter().flatten().sum();
-        let black_entries: u32 = tables.history_table[black].iter().flatten().sum();
+        // Counted, not summed: since `task.md` 23.3 an entry may be negative, so a plane that
+        // has been written can still add up to zero or less. What the test asks is which plane
+        // was touched at all.
+        let white_written = tables.history_table[white].iter().flatten().filter(|&&e| e != 0).count();
+        let black_written = tables.history_table[black].iter().flatten().filter(|&&e| e != 0).count();
 
-        assert!(black_entries > 0,
+        assert!(black_written > 0,
             "a depth-2 search cuts at Black nodes, so Black's plane must have entries");
-        assert_eq!(white_entries, 0,
-            "no node in a depth-2 search writes for White; {} points landed in White's plane",
-            white_entries);
+        assert_eq!(white_written, 0,
+            "no node in a depth-2 search writes for White; {} entries landed in White's plane",
+            white_written);
+    }
+
+    #[test]
+    fn test_the_malus_drives_a_refuted_quiet_below_zero() {
+        // `task.md` 23.3, the point of the whole item stated as a test. The unsigned table
+        // saturated at zero, so a quiet move that had been refuted a dozen times read the same 0
+        // as one that had never been searched, and `lmr_history_bad_threshold` fired on the
+        // second group rather than the first. Two things have to hold for that to be repaired:
+        // the malus has to run at all -- it shipped disabled until this item -- and the entry it
+        // writes has to be allowed below zero.
+        assert!(Config::new().enable_history_malus,
+            "the signed table is a no-op while nothing writes a decrement");
+
+        let service = Service::new();
+        let state = fresh_engine_state();
+        let config = Config::for_tests();
+        let mut board = service.fen.set_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        let mut stats = Stats::new();
+
+        service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None,
+        );
+
+        let tables = state.search_tables.lock().unwrap();
+        let negative = tables.history_table.iter().flatten().flatten()
+            .filter(|&&entry| entry < 0).count();
+        let positive = tables.history_table.iter().flatten().flatten()
+            .filter(|&&entry| entry > 0).count();
+
+        assert!(negative > 0,
+            "a depth-6 search refutes quiet moves, and a refuted quiet has to end below zero");
+        assert!(positive > 0,
+            "cutoffs still credit the move that took them; {positive} entries above zero");
+        assert!(tables.history_table.iter().flatten().flatten()
+                .all(|&entry| entry.abs() <= crate::model::MAX_HISTORY),
+            "the gravity update is the only writer, so no entry may leave the range");
     }
 
     #[test]
@@ -2270,19 +2311,32 @@ mod tests {
     #[test]
     fn test_lmp_base_moves_controls_how_much_is_pruned() {
         // The threshold is `lmp_base_moves + 2 * depth^2`, so raising the base searches more
-        // quiet moves before the rule fires. This is the SPSA-facing lever, and unlike the
-        // absolute node count it is monotone.
-        let aggressive = search_nodes(CHECK_RICH_FEN, 7, |c| {
-            c.enable_lmp = true;
-            c.lmp_base_moves = 0;
-        });
-        let permissive = search_nodes(CHECK_RICH_FEN, 7, |c| {
-            c.enable_lmp = true;
-            c.lmp_base_moves = 12;
-        });
+        // quiet moves before the rule fires. This is the SPSA-facing lever.
+        //
+        // It is monotone **in aggregate and not per position**. Pruning a quiet move that would
+        // have cut turns a cutting node into a fail-low one and the parent re-searches it, so a
+        // single position can come out either way; this sample reads two of its eight cells the
+        // other way round. The test used to assert one cell of it, `CHECK_RICH_FEN` at depth 7,
+        // and 23.3 flipped exactly that cell by changing the move order the rule sees. The
+        // property was never a per-position one — `task.md` records the same lesson for the
+        // 14-position corpus, which is why `scripts/measure_tree_size.py` exists.
+        let total = |base: i32| -> usize {
+            let mut nodes = 0;
+            for fen in [CHECK_RICH_FEN, SMOTHERED_MATE_FEN] {
+                for depth in [5, 6, 7, 8] {
+                    nodes += search_nodes(fen, depth, |c| {
+                        c.enable_lmp = true;
+                        c.lmp_base_moves = base;
+                    });
+                }
+            }
+            nodes
+        };
 
+        let aggressive = total(0);
+        let permissive = total(12);
         assert!(aggressive < permissive,
-            "a lower base must prune more ({} at base 0 vs {} at base 12)",
+            "a lower base must prune more over the sample ({} at base 0 vs {} at base 12)",
             aggressive, permissive);
     }
 
@@ -3347,7 +3401,7 @@ mod tests {
         config.use_zobrist = true;
         config.enable_qs_tt = true;
 
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &engine_state.stop_flag,
@@ -3365,7 +3419,7 @@ mod tests {
         let mut stats = Stats::new();
         let mut pv = [None; 128];
         let mut killer_moves = [[None; 2]; 128];
-        let mut history_table_mut = [[[0u32; 64]; 64]; 2];
+        let mut history_table_mut = [[[0i32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
         let dummy_turn = Turn::new(0, 0, 0, 0, false, 0);
 
@@ -3524,7 +3578,7 @@ mod tests {
         let mut stats = Stats::new();
         let state = fresh_engine_state();
         let zobrist_table = state.zobrist_table.read().unwrap().clone();
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &state.stop_flag,

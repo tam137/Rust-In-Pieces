@@ -153,7 +153,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     if book_move.is_empty() {
 
                         let mut stats = Stats::default();
-                        let history_table = [[[0u32; 64]; 64]; 2];
+                        let history_table = [[[0i32; 64]; 64]; 2];
                         let current_zobrist_table_1 = engine_state.zobrist_table.read().unwrap().clone();
                         let context = crate::model::SearchContext {
                             zobrist_table: &current_zobrist_table_1,
@@ -284,7 +284,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         } else {
                             let mut stats = Stats::default();
-                            let history_table = [[[0u32; 64]; 64]; 2];
+                            let history_table = [[[0i32; 64]; 64]; 2];
                             let current_zobrist_table_2 = engine_state.zobrist_table.read().unwrap().clone();
                             let context = crate::model::SearchContext {
                                 zobrist_table: &current_zobrist_table_2,
