@@ -3271,6 +3271,37 @@ mod tests {
         assert_eq!(config_conservative.lmr_table[16][16], 3);
     }
 
+    /// `task.md` 23.4: with both history thresholds at 0 the Late Move Reduction rebate reads the
+    /// **sign** of the history entry and nothing else. This fails against the 4000 that v0.45.0
+    /// shipped, where the positive branch fired on 0.06% of all decisions and the half of the rule
+    /// that spares promising quiet moves never ran.
+    #[test]
+    fn test_lmr_history_rebate_reads_the_sign_of_the_entry() {
+        let config = Config::new();
+        assert_eq!(config.lmr_history_good_threshold, 0);
+        assert_eq!(config.lmr_history_bad_threshold, 0);
+
+        // A cell with room for a rebate in both directions, so neither assertion reads a clamp.
+        let (depth, turn_counter) = (16i32, 16i32);
+        let base = config.lmr_table[depth as usize][turn_counter as usize] as i32;
+        assert!(base >= 2, "the pinned cell must leave room for a rebate, got {}", base);
+
+        let reduction = |hist_val| super::SearchService::lmr_reduction(
+            &config, depth, turn_counter, false, false, false, hist_val,
+        );
+
+        assert_eq!(reduction(1), base - 1,
+                   "a quiet move that was ever rewarded reduces one ply less");
+        assert_eq!(reduction(crate::model::MAX_HISTORY), base - 1,
+                   "the rebate is one ply whatever the magnitude -- it is not a curve");
+        assert_eq!(reduction(0), base,
+                   "a move the search has never seen keeps the table's reduction");
+        assert_eq!(reduction(-1), base + 1,
+                   "a refuted quiet move reduces one ply more");
+        assert_eq!(reduction(-crate::model::MAX_HISTORY), base + 1,
+                   "and the penalty is one ply whatever the magnitude");
+    }
+
     #[test]
     fn test_static_exchange_evaluation() {
         let service = Service::new();

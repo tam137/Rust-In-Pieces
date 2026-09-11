@@ -248,10 +248,17 @@ pub struct Config {
     /// exactly zero, i.e. two thirds of every penalty it handed out went to a move the search had
     /// never seen. At 0 it fires on 78.68%, all of them refuted.
     ///
-    /// `lmr_history_good_threshold` stays at 4000 and is **inert**: the same census reads 0.08%
-    /// on the baseline and 0.04% here, because almost no entry ever reaches 4096 under either
-    /// update. Moving it is a second behaviour change and belongs to 23.4 with the curves, not
-    /// into the run that prices this one.
+    /// `lmr_history_good_threshold` is **0**, `task.md` 23.4. At 4000 it was inert and always had
+    /// been: the census read 0.08% of all decisions against the unsigned table and 0.06% against
+    /// v0.45.0, because the positive population ends at `+2^13` and 4000 sits above 99.94% of
+    /// every entry the rule ever reads. The half of this rule that is supposed to spare promising
+    /// quiet moves had therefore never run. The positive side of the distribution has no knee to
+    /// pick a magnitude from — it rises to a broad maximum around `+2^5` and falls away smoothly,
+    /// so any value between 32 and 1024 is a hand-picked point on a smooth curve and belongs to
+    /// 23.4's SPSA group with the curves. 0 is the value that needs no constant: with both
+    /// thresholds there the rule is the sign of the entry and nothing else — positive reduces one
+    /// ply less, exactly zero is untouched, negative reduces one ply more. It fires on 10.24% of
+    /// all decisions against 0.06% before.
     ///
     /// **The tree does not like this value, and the reason is not what the name suggests.** To
     /// fixed depth 10 over 300 pool positions the candidate at 0 generates 12.1% and 11.7% more
@@ -570,7 +577,7 @@ impl Config {
             aspiration_window_initial_delta: 15,
             aspiration_window_multiplier: 4,
             aspiration_window_max_delta: 1000,
-            lmr_history_good_threshold: 4000,
+            lmr_history_good_threshold: 0,
             lmr_history_bad_threshold: 0,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 3,
@@ -1025,7 +1032,7 @@ mod tests {
         assert_eq!(config.aspiration_window_max_delta, 1000);
         assert_eq!(config.rfp_margin_per_depth, 80);
         assert_eq!(config.rfp_max_depth, 3);
-        assert_eq!(config.lmr_history_good_threshold, 4000);
+        assert_eq!(config.lmr_history_good_threshold, 0);
         assert_eq!(config.lmr_history_bad_threshold, 0);
         assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
