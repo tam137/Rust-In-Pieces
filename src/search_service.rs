@@ -10,6 +10,14 @@ use crate::move_gen_service::MoveGenService;
 /// are sized accordingly, so no ply may ever exceed this limit.
 pub const MAX_PLY: usize = 128;
 
+/// The per-ply static evaluation stack of `task.md` 21.1 holds this where a node had no static
+/// evaluation to record -- in check, or in the Quiescence Search. It is deliberately **not** the
+/// `0` that `static_eval` itself carries outside `depth > 0 && !gives_check`, which three pruning
+/// guards are pinned against by `test_the_guards_never_read_the_sentinel_static_eval`: a stack
+/// slot has to be distinguishable from a node that really evaluated to a dead draw, or
+/// `improving` reads "better than a dead draw" where it means "no comparison exists".
+pub const STATIC_EVAL_UNAVAILABLE: i16 = i16::MIN;
+
 /// A capture is waiting for its Static Exchange Evaluation exactly while it still stands in the
 /// capture band. The Transposition Table move and the promotions rank above the band and are
 /// never lazily evaluated, which is what the pre-band literal of 100,000 also achieved for them.
@@ -103,6 +111,13 @@ impl SearchService {
         let killer_moves = &mut *tables.killer_moves;
         let history_table = &mut *tables.history_table;
         let counter_moves = &mut *tables.counter_moves;
+
+        // `task.md` 21.1. Path state, not learned state: every node writes its own slot before it
+        // recurses, so a node at ply p reads the slot its grandparent on the *current path*
+        // wrote. It is therefore a per-search local and deliberately not a `SearchTables` field
+        // that `age` and `ucinewgame` would have to reason about. Two bytes per ply against the
+        // 16 KB history snapshot the arena rule of `task.md` 5.5 was written for.
+        let mut static_eval_stack = [STATIC_EVAL_UNAVAILABLE; MAX_PLY];
 
         let mut context = SearchContext {
             zobrist_table,
@@ -256,7 +271,7 @@ impl SearchService {
 
                 let min_max_result = self.minimax(board, turn, depth - 1,
                     child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
-                    1, &mut *killer_moves, &mut *history_table, &mut *counter_moves, deeper);
+                    1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper);
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     board.undo_move(turn, mi);
@@ -509,6 +524,7 @@ impl SearchService {
         excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
+        static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers])
@@ -689,6 +705,19 @@ impl SearchService {
             0
         };
 
+        // `task.md` 21.1. Written at every node and before any recursion below, so the slot a
+        // node reads at `ply - 2` always belongs to its own grandparent on this path. A node that
+        // has no static evaluation -- in check, or in the Quiescence Search -- records the
+        // sentinel rather than the `0` that `static_eval` carries there, because `improving`
+        // must be able to tell "no comparison exists" from "evaluated to a dead draw".
+        static_eval_stack[ply_idx] = if depth > 0 && !turn.gives_check {
+            static_eval
+        } else {
+            STATIC_EVAL_UNAVAILABLE
+        };
+
+        let improving = Self::is_improving(static_eval_stack, ply_idx);
+
         // The candidate population for `task.md` 20.1 and 20.2: every node that reached this
         // rule before the two guards below existed. Compiled out unless `search-diag` is on, so
         // the shipped build re-evaluates nothing.
@@ -762,7 +791,7 @@ impl SearchService {
             let null_eval = -self.minimax(
                 board, turn, reduced_depth,
                 -beta, -beta + 1, stats, config, service, context,
-                is_pv, true, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                is_pv, true, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
             ).1;
 
             // Undo Null Move
@@ -784,7 +813,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, None, child_pv, ply, killer_moves, history_table, counter_moves, deeper
+                        is_pv, true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
 
                     if verify_eval >= beta {
@@ -851,7 +880,7 @@ impl SearchService {
             let razor_eval = self.minimax(
                 board, turn, 0,
                 alpha, alpha + 1, stats, config, service, context,
-                false, skip_null_move, None, child_pv, ply, killer_moves, history_table,
+                false, skip_null_move, None, child_pv, ply, killer_moves, static_eval_stack, history_table,
                 counter_moves, deeper
             ).1;
             if razor_eval <= alpha {
@@ -1107,7 +1136,7 @@ impl SearchService {
                 context.zobrist_table.prefetch(board.cached_hash);
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
                     -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
-                    ply + 1, killer_moves, history_table, counter_moves, deeper).1;
+                    ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper).1;
                 board.undo_move(capture_turn, mi);
 
                 if eval < min_max_eval {
@@ -1198,9 +1227,10 @@ impl SearchService {
         // Two separate counters. `searched_quiet_len` bounds the writes into the fixed-size
         // history-malus store, while `quiet_count` counts quiet moves without a ceiling so the
         // Late Move Pruning threshold stays reachable. Sharing one counter capped the LMP
-        // trigger at 64 and made `lmp_max_depth` values from 6 upwards silent no-ops, because
-        // `lmp_base_moves + 2 * depth^2` exceeds 64 there. The shipped default of 4 has a
-        // threshold of 35 and is unaffected, so the default search tree does not move.
+        // trigger at 64, which mattered while the threshold was `lmp_base_moves + 2 * depth^2`
+        // and exceeded 64 from depth 6 upwards. Since `task.md` 21.2 the threshold is
+        // `(lmp_base_moves + depth^2) / (2 - improving)` and tops out at 67 at depth 8, so the
+        // two counters still have to be separate for the deepest improving nodes.
         let mut searched_quiet_moves = [None; 64];
         let mut searched_quiet_len = 0;
         let mut quiet_count = 0;
@@ -1276,7 +1306,7 @@ impl SearchService {
                 && !current_turn.gives_check
                 && alpha.abs() < 20000
                 && beta.abs() < 20000
-                && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth
+                && quiet_count as i32 > Self::lmp_quiet_threshold(config, depth, improving)
             {
                 i += 1;
                 continue;
@@ -1295,7 +1325,7 @@ impl SearchService {
                 && current_turn.gives_check
                 && alpha.abs() < 20000
                 && beta.abs() < 20000
-                && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth;
+                && quiet_count as i32 > Self::lmp_quiet_threshold(config, depth, improving);
 
             // 0.8. Futility Pruning (FP) at low search depths
             if config.enable_futility_pruning
@@ -1424,7 +1454,7 @@ impl SearchService {
             {
                 self.singular_verdict(
                     board, turn, depth, ply, tt_entry, *current_turn,
-                    stats, config, service, context, killer_moves, history_table, counter_moves,
+                    stats, config, service, context, killer_moves, static_eval_stack, history_table, counter_moves,
                     child_pv, deeper,
                 )
             } else {
@@ -1540,7 +1570,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
                     // The reduced search failed low, so the move is confirmed uninteresting and
                     // no full-depth re-search is needed.
@@ -1556,7 +1586,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
 
                     // The null window only proved the move is not worse than the best so far.
@@ -1565,14 +1595,14 @@ impl SearchService {
                         min_max_eval = -self.minimax(
                             board, current_turn, child_depth,
                             -beta, -alpha, stats, config, service, &current_context,
-                            true, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                            true, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                         ).1;
                     }
                 } else {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -beta, -alpha, stats, config, service, &current_context,
-                        is_pv, false, None, child_pv, ply + 1, killer_moves, history_table, counter_moves, deeper
+                        is_pv, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
                 }
             }
@@ -1722,6 +1752,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
+        static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
@@ -1762,7 +1793,7 @@ impl SearchService {
         let eval = self.minimax(
             board, turn, verification_depth,
             threshold - 1, threshold, stats, config, service, context,
-            false, true, Some(tt_move), pv_buffer, ply, killer_moves, history_table,
+            false, true, Some(tt_move), pv_buffer, ply, killer_moves, static_eval_stack, history_table,
             counter_moves, buffers,
         ).1;
         Some(SingularVerdict { eval, threshold })
@@ -1778,6 +1809,7 @@ impl SearchService {
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
+        static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
@@ -1788,7 +1820,7 @@ impl SearchService {
 
         let verdict = self.singular_verification(
             board, turn, depth, ply, tt_entry, tt_move,
-            stats, config, service, context, killer_moves, history_table, counter_moves,
+            stats, config, service, context, killer_moves, static_eval_stack, history_table, counter_moves,
             pv_buffer, buffers,
         );
 
@@ -1801,6 +1833,32 @@ impl SearchService {
         );
 
         verdict
+    }
+
+    /// Is the side to move doing better than it was two plies ago? `task.md` 21.1.
+    ///
+    /// False wherever the comparison does not exist: at the first two plies, and wherever either
+    /// end of it was a node with no static evaluation -- in check, or in the Quiescence Search.
+    /// Those record `STATIC_EVAL_UNAVAILABLE` and not `0`, so a node that really evaluated to a
+    /// dead draw is not mistaken for one that never evaluated at all.
+    fn is_improving(static_eval_stack: &[i16; MAX_PLY], ply_idx: usize) -> bool {
+        ply_idx >= 2
+            && static_eval_stack[ply_idx] != STATIC_EVAL_UNAVAILABLE
+            && static_eval_stack[ply_idx - 2] != STATIC_EVAL_UNAVAILABLE
+            && static_eval_stack[ply_idx] > static_eval_stack[ply_idx - 2]
+    }
+
+    /// How many quiet moves a node may search before Late Move Pruning deletes the rest,
+    /// `task.md` 21.2.
+    ///
+    /// The growth term is `depth^2` and not the `2 * depth^2` that shipped until then: that one
+    /// demanded 53 quiet moves at a single node at depth 5 and 75 at depth 6, more than any node
+    /// produces, so every `lmp_max_depth` from 4 upwards searched the same tree. Halving the
+    /// budget when the side to move is not improving is the other half of the same edit -- with
+    /// the old growth term the wider cap is inert by construction, so the two cannot be priced
+    /// apart.
+    fn lmp_quiet_threshold(config: &Config, depth: i32, improving: bool) -> i32 {
+        (config.lmp_base_moves + depth * depth) / (2 - improving as i32)
     }
 
     /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
@@ -2382,24 +2440,18 @@ mod tests {
     }
 
     #[test]
-    fn test_lmp_max_depth_is_inert_above_four() {
-        // `task.md` 10.6 asked for a test that LMP still moves the tree at `lmp_max_depth = 8`.
-        // It does not, and the reason is not the one that section originally gave.
+    fn test_lmp_max_depth_is_live_to_eight() {
+        // This is `test_lmp_max_depth_is_inert_above_four` turned into its opposite, which is what
+        // that test existed for: it pinned a flat region so that a change to the threshold formula
+        // would fail here loudly rather than silently widen what the tuner explores. `task.md`
+        // 21.2 is that change.
         //
-        // The array cap it blamed is gone - `quiet_count` has run unbounded since v0.35.x - but
-        // the threshold `lmp_base_moves + 2 * depth^2` outruns the position instead. At depth 5
-        // it demands 53 quiet moves searched at a single node, at depth 6 it demands 75, and no
-        // node produces that many: a full move list is rarely over 50 moves and beta cutoffs end
-        // most nodes long before it is exhausted. Every value from 4 upwards therefore searches
-        // exactly the same tree.
-        //
-        // The consequence is the one 10.6 cared about and it is unchanged: `tuning/parameters.json`
-        // registers `lmp_max_depth` with `max: 8` and the UCI facade advertises `max 10`, so SPSA
-        // and any GUI can wander over a flat region from 4 upwards and tune nothing. The fix is
-        // the growth term, not the counter and not the advertised bound.
-        //
-        // This test pins the flat region so that a future change to the threshold formula fails
-        // here loudly rather than silently widening what the tuner explores.
+        // Until then the threshold was `lmp_base_moves + 2 * depth^2`, which demanded 53 quiet
+        // moves at a single node at depth 5 and 75 at depth 6 -- a full move list is rarely over
+        // 50 and most nodes cut long before it is exhausted -- so every `lmp_max_depth` from 4
+        // upwards searched exactly the same tree. It is now
+        // `(lmp_base_moves + depth^2) / (2 - improving)`, and at `lmp_base_moves = 0` the budget
+        // at depths 5 to 8 is 12 to 32 quiet moves for a node that is not improving.
         for (name, fen) in [
             ("Kiwipete", CHECK_RICH_FEN),
             ("Middlegame", "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6"),
@@ -2414,13 +2466,76 @@ mod tests {
                 })
             };
             let at_four = shape(4);
-            for max_depth in [5, 6, 8] {
-                assert_eq!(at_four, shape(max_depth),
-                    "{}: lmp_max_depth {} must still be inert; if it is not, the threshold \
-                     formula changed and `task.md` 10.6 needs rewriting rather than this test \
-                     adjusting", name, max_depth);
-            }
+            assert_ne!(at_four, shape(8),
+                "{}: lmp_max_depth 8 must reach nodes that 4 does not; if it does not, the \
+                 threshold formula is inert again and `task.md` 21.2 needs rewriting rather \
+                 than this test adjusting", name);
         }
+    }
+
+    /// `task.md` 21.1. The sentinel is the whole point of the stack: a node with no static
+    /// evaluation must be distinguishable from one that evaluated to a dead draw, or a check node
+    /// two plies down reads "improving" off a number that was never an evaluation.
+    #[test]
+    fn test_improving_is_false_wherever_the_comparison_does_not_exist() {
+        let mut stack = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+
+        // Nothing to compare against at the first two plies, whatever the slots hold.
+        stack[0] = 10;
+        stack[1] = 50;
+        assert!(!super::SearchService::is_improving(&stack, 1), "ply 1 has no grandparent");
+
+        // A real improvement two plies down.
+        stack[2] = 20;
+        stack[4] = 30;
+        assert!(super::SearchService::is_improving(&stack, 4), "30 is better than 20 two plies ago");
+
+        // The same numbers the other way round.
+        stack[4] = 10;
+        assert!(!super::SearchService::is_improving(&stack, 4), "10 is not better than 20");
+
+        // Equality is not improvement.
+        stack[4] = 20;
+        assert!(!super::SearchService::is_improving(&stack, 4), "equal is not better");
+
+        // This node was in check, so it recorded no evaluation of its own.
+        stack[4] = super::STATIC_EVAL_UNAVAILABLE;
+        assert!(!super::SearchService::is_improving(&stack, 4), "a node in check cannot be improving");
+
+        // The grandparent was in check. Without the sentinel this would read
+        // `30 > i16::MIN` -- or, with a `0` sentinel, `30 > 0` -- and be true.
+        stack[2] = super::STATIC_EVAL_UNAVAILABLE;
+        stack[4] = 30;
+        assert!(!super::SearchService::is_improving(&stack, 4),
+                "no comparison exists when the grandparent recorded nothing");
+
+        // And a node that really evaluated to a dead draw is a comparison, not a hole.
+        stack[2] = 0;
+        assert!(super::SearchService::is_improving(&stack, 4),
+                "0 is an evaluation: 30 is better than it");
+    }
+
+    /// `task.md` 21.2. The published form halves the budget when the side to move is not
+    /// improving; this pins both the halving and the growth term it is applied to.
+    #[test]
+    fn test_the_lmp_budget_halves_when_the_side_to_move_is_not_improving() {
+        let config = Config::new();
+        assert_eq!(config.lmp_base_moves, 3, "the table below is computed from this base");
+
+        for (depth, not_improving, improving) in [
+            (1, 2, 4), (2, 3, 7), (3, 6, 12), (4, 9, 19), (8, 33, 67),
+        ] {
+            assert_eq!(super::SearchService::lmp_quiet_threshold(&config, depth, false), not_improving,
+                       "depth {} while not improving", depth);
+            assert_eq!(super::SearchService::lmp_quiet_threshold(&config, depth, true), improving,
+                       "depth {} while improving", depth);
+        }
+
+        // The growth term is the one that was replaced, not the one that shipped: the old
+        // `lmp_base_moves + 2 * depth^2` admitted 35 quiet moves at depth 4 and 131 at depth 8,
+        // which is why every cap above 4 was inert.
+        assert!(super::SearchService::lmp_quiet_threshold(&config, 4, true) < 35,
+                "depth 4 must admit fewer moves than the 2 * depth^2 term did");
     }
 
     #[test]
@@ -2972,12 +3087,29 @@ mod tests {
         // An extension granted high in the tree multiplies an entire subtree, while the
         // horizon effect it cures is a frontier phenomenon. Restricting extensions to
         // shallow remaining depth must therefore cut the tree substantially.
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        //
+        // Late Move Pruning is switched off here so that the three readings differ in the
+        // extension and nothing else. It used to be left at its default, and that stopped
+        // working with `task.md` 21.2: the growth term `(lmp_base_moves + depth^2) / (2 -
+        // improving)` admits 9 quiet moves at depth 4 where `lmp_base_moves + 2 * depth^2`
+        // admitted 35, and at that pruning rate the frontier extensions no longer enlarge this
+        // position's tree at all -- 97,576 nodes against 97,966 with extensions off, an inversion
+        // of the property below. The cause is the growth term and not the wider `lmp_max_depth`:
+        // the same inversion reads 97,737 against 98,104 with the cap still at 4. See `task.md`
+        // 21.2; the extension itself is unchanged and still behaves as this test claims.
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.enable_lmp = false;
+        });
         let frontier_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.enable_check_extension = true;
             c.check_extension_max_depth = 2;
+            c.enable_lmp = false;
         });
-        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
+        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = false;
+            c.enable_lmp = false;
+        });
 
         assert!(frontier_only < unlimited,
             "restricting extensions to the frontier must shrink the tree ({} vs {})",
@@ -3621,6 +3753,7 @@ mod tests {
         let mut killer_moves = [[None; 2]; 128];
         let mut history_table_mut = [[[0i32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
+        let mut static_eval_stack = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
         let dummy_turn = Turn::new(0, 0, 0, 0, false, 0);
 
         let (ret_move, ret_eval) = service.search.minimax(
@@ -3639,6 +3772,7 @@ mod tests {
             &mut pv,
             1,
             &mut killer_moves,
+            &mut static_eval_stack,
             &mut history_table_mut,
             &mut counter_moves,
             &mut crate::model::new_search_buffers(),

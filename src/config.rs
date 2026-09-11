@@ -519,7 +519,7 @@ impl Config {
             futility_margin_base: 120,
             futility_margin_slope: 80,
             enable_lmp: true,
-            lmp_max_depth: 4,
+            lmp_max_depth: 8,
             lmp_base_moves: 3,
             enable_bad_capture_pruning: true,
             bad_capture_see_threshold: -50,
@@ -869,8 +869,10 @@ mod tests {
         assert!(!config.cache_book_in_ram);
     }
 
-    /// `lmp_max_depth` is inert above 4 (`task.md` 10.6), so neither the UCI facade nor the SPSA
-    /// parameter file may offer a wider range for a tuner to wander over.
+    /// `lmp_max_depth` is live to 8 since `task.md` 21.2 replaced the `2 * depth^2` growth term,
+    /// and the UCI facade and the SPSA parameter file must offer exactly the range that is live --
+    /// no more, so a tuner cannot wander over a flat region, and no less, so it can reach the
+    /// depths the new threshold actually prunes at.
     #[test]
     fn test_lmp_max_depth_advertises_only_its_live_range() {
         let defaults = Config::new();
@@ -878,7 +880,7 @@ mod tests {
             .into_iter()
             .find(|l| l.starts_with("option name LmpMaxDepth "))
             .expect("LmpMaxDepth must be advertised");
-        assert!(line.ends_with(" max 4"), "LmpMaxDepth must advertise max 4, got: {}", line);
+        assert!(line.ends_with(" max 8"), "LmpMaxDepth must advertise max 8, got: {}", line);
 
         let registered = std::fs::read_to_string("tuning/parameters.json").expect("parameters.json");
         let entry = registered
@@ -886,8 +888,8 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split('}').next())
             .expect("lmp_max_depth must be registered for tuning");
-        assert!(entry.contains("\"max\": 4"),
-                "tuning/parameters.json must not offer lmp_max_depth above 4, got: {}", entry);
+        assert!(entry.contains("\"max\": 8"),
+                "tuning/parameters.json must offer lmp_max_depth exactly to 8, got: {}", entry);
     }
 
     /// `task.md` 20.1 ships enabled and 20.2 ships disabled. The three switches exist so that

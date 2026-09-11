@@ -74,10 +74,10 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name IirMinDepth type spin default {} min 1 max 32", defaults.iir_min_depth),
         format!("option name IirReduction type spin default {} min 0 max 4", defaults.iir_reduction),
         format!("option name EnableLmp type check default {}", defaults.enable_lmp),
-        // // `lmp_max_depth` is inert above 4: the `lmp_base_moves + 2 * depth^2` threshold
-        // // demands more quiet moves at a single node than any node produces. See
-        // // `task.md` 10.6, pinned by `test_lmp_max_depth_is_inert_above_four`.
-        format!("option name LmpMaxDepth type spin default {} min 1 max 4", defaults.lmp_max_depth),
+        // // `lmp_max_depth` is live to 8 since `task.md` 21.2: the growth term is `depth^2`
+        // // halved when the side to move is not improving, so depths 5 to 8 prune for the first
+        // // time. Pinned by `test_lmp_max_depth_is_live_to_eight`.
+        format!("option name LmpMaxDepth type spin default {} min 1 max 8", defaults.lmp_max_depth),
         format!("option name LmpBaseMoves type spin default {} min 0 max 20", defaults.lmp_base_moves),
         format!("option name EnableBadCapturePruning type check default {}", defaults.enable_bad_capture_pruning),
         format!("option name BadCaptureSeeThreshold type spin default {} min -400 max 0", defaults.bad_capture_see_threshold),
