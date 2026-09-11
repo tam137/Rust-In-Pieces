@@ -15,7 +15,7 @@ built on.
 
 | | |
 | :--- | :--- |
-| Released | **v0.44.0** on `master` (HCE) since 2026-09-10 — the butterfly history is indexed by side to move, measured at +1.0 Elo [-6, +7] over 6000 games, i.e. a null that ships as the foundation for 23.3 and 23.4. Previously **v0.42.0** since 2026-09-08 — persistent killer, history and counter-move tables, worth +39.4 Elo [+29, +49]. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.45.0** on `master` (HCE) since 2026-09-11 — the butterfly history is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` moved to 0 so the Late Move Reduction penalty lands on refuted quiet moves instead of unseen ones. Measured **+9.6 Elo, 95% [+3, +16]** over 6000 fixed-N games, against a tree that is 12% *larger*. Previously **v0.44.0** since 2026-09-10, the side-indexed table, a null at +1.0 [-6, +7] that shipped as this one's foundation. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -34,20 +34,21 @@ See the Engines Changelog if needed.
 both write-ups are gone from this document, per `skills/task_management_procedure.md`. What is
 in flight and what comes after it:
 
-**Next up is what is left of backlog item 3: 23.3, the history that cannot go negative** — a
-refuted quiet move and an unseen one both read 0, which is why `lmr_history_bad_threshold` fires
-on the wrong moves. Item 1 closed 2026-09-09, item 2 the same day and negative, and 23.2 shipped
-in v0.44.0 on 2026-09-10 as a null.
+**Backlog item 3 closed with v0.45.0 on 2026-09-11**, both halves: 23.2 shipped the side index as
+a null in v0.44.0, and 23.3 shipped the signed table at **+9.6 Elo, 95% [+3, +16]** over 6000
+fixed-N games. Item 1 closed 2026-09-09 and item 2 the same day, negative.
 
-**Read 23.2 before starting 23.3.** It left the thresholds calibrated against a scale that has
-already moved once, and 23.3 moves it again.
+**Next up is backlog item 4: section 21** — the engine has no `improving` flag, the Late Move
+Pruning growth term makes every `lmp_max_depth` above 4 search the same tree, and `rfp_max_depth`
+is 3 against a published 6 to 9. It needs the per-ply static-eval stack, which is why it waited
+for item 1.
 
-**23.3 now carries a written plan**, agreed 2026-09-10 and set out in that section: the table
-becomes signed with a gravity update, the overflow rescale and `history_max_threshold` go,
-`enable_history_malus` is switched on — without it nothing writes a negative entry and the change
-would be a no-op — and the two Late Move Reduction thresholds are recalibrated against a
-`search-diag` census of the pool before a single game is played. Nothing in it is built or
-measured yet.
+**23.4 is now genuinely next in line as well**, and 23.3 handed it a specific target rather than a
+general one: the census says `lmr_history_good_threshold` fires on **0.06%** of decisions and fired
+on 0.08% before, so the half of the Late Move Reduction that is supposed to spare promising quiet
+moves has never been running. It is a parameter on a scale that finally means something, and it
+wants the SPSA group 23.4 asks for — including the check whether `spsa_tuner.py` accepts the
+negative range `lmr_history_bad_threshold` now lives on.
 
 0. **Backlog 3 first half, section 23.2, shipped in v0.44.0 on 2026-09-10 as a measured null.**
    The butterfly history is `[side][from][to]`; White and Black no longer share an entry.
@@ -134,7 +135,7 @@ a run at `rounds = 50` never reaches line 51.
 | ---: | :--- | :--- | :--- |
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 20.1, 20.2 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 22 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
-| 3 | History cannot go negative, so a refuted quiet move and an unseen one both read 0 | 23.3 | The half of item 3 that is left: 23.2 shipped in v0.44.0. This is what makes `lmr_history_bad_threshold` mean anything |
+| ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 23.3 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
 | 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
 | 5 | The Null Move reduction and its verification search | 20.3 | Parameters, not code — belongs in a tuning group once 20.1 has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after 23.3, and only with its own SPSA group |
@@ -170,8 +171,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
-| History is `u32` and its malus saturates at zero, so a refuted quiet is indistinguishable from an unseen one and `lmr_history_bad_threshold` fires on the wrong moves | defect, unmeasured, section 23.3 |
-| `enable_history_malus` ships `false`, and the bonus is `depth^2` with a global 4096-entry halving pass | property, unmeasured, section 23.4 |
+| ~~History is `u32` and its malus saturates at zero~~ | repaired in v0.45.0, +9.6 Elo [+3, +16], section 23.3 |
+| ~~`enable_history_malus` ships `false`~~ — it ships `true` since v0.45.0, and the global halving pass is gone with `history_max_threshold`; the bonus curve is still `depth^2` | partly closed, the curves are section 23.4 |
+| `lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions and fired on 0.08% before v0.45.0, so the half of the rule that spares promising quiet moves has never run | defect, **measured** 2026-09-10 by the census, unpriced, section 23.4 |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
 | The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
 | The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
@@ -912,8 +914,24 @@ eventually pays depends on the re-tuning in 23.4, and a session that re-reads th
 
 ### 23.3 History can never go negative, so the LMR "bad" threshold cannot fire as intended
 
-`[Planned]` — the plan below is the agreed one, written 2026-09-10 against `v0.44.0`. Nothing in
-it has been built or measured, and no number in it is a result.
+`[Measured]` `[+9.6 Elo, 95% [+3, +16] over 6000 games]` — shipped in **v0.45.0** on 2026-09-11.
+The plan below was written on 2026-09-10 against v0.44.0 and is left standing, including the one
+expectation in it that came out wrong in sign; what each step actually returned is recorded under
+it.
+
+**What it measured.** `suprah-0.45.0-rc` against `suprah-0.44.0`, 6000 fixed-N games at
+1s + 150ms, the count fixed before the run and no early stopping: **+9.6 Elo, 95% paired interval
+[+3, +16]** over 3000 pairs, 51.4%. The interval excludes zero. No losses on time, no identical
+games, all 613 opening families seen at 4.9 pairs each, ICC 0.022 and a design effect of 1.09 —
+higher than the 1.00 of earlier runs because `rounds = 3000` plays each family several times, so
+the effective sample is 2759 of 3000 and a conservative reading of the interval is [+3, +16]
+widened by 4%, which still excludes zero. Pair outcomes 252 / 762 / 1094 / 683 / 209.
+
+**It won with a bigger tree.** The same change generates **12.1% and 11.7% more moves** to fixed
+depth 10 on the two pools. Both readings of the deterministic instrument, the tree and the
+calibration gate, preferred the configuration the games did not, and this is the clearest case
+this engine has produced that generated moves to fixed depth rank a Late Move Reduction change by
+how aggressive it is rather than by how well it is aimed. `task.md` rule 1, in one number.
 
 ```rust
 history_table[side][from][to] += (depth * depth) as u32;                            // :1617
