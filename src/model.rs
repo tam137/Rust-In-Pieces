@@ -61,7 +61,11 @@ pub struct SearchTables {
     /// Sharing one `[from][to]` plane between the two sides, which is what this replaces, meant a
     /// quiet move that refuted for one side raised the rank of the geometrically identical move
     /// for the other.
-    pub history_table: Box<[[[u32; 64]; 64]; 2]>,
+    ///
+    /// The entries are signed and bounded by [`MAX_HISTORY`] (`task.md` 23.3). Every write goes
+    /// through [`history_gravity`], so an entry can never leave that range and there is no
+    /// rescaling pass.
+    pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
 }
 
@@ -69,7 +73,7 @@ impl SearchTables {
     pub fn new() -> Self {
         SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
-            history_table: Box::new([[[0u32; 64]; 64]; 2]),
+            history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
         }
     }
@@ -78,7 +82,7 @@ impl SearchTables {
     /// carries into the next one.
     pub fn reset(&mut self) {
         *self.killer_moves = [[None; 2]; 128];
-        *self.history_table = [[[0u32; 64]; 64]; 2];
+        *self.history_table = [[[0i32; 64]; 64]; 2];
         *self.counter_moves = [[None; 64]; 64];
     }
 
@@ -94,6 +98,11 @@ impl SearchTables {
     /// the next cutoff at the same ply or from the same parent move, so a stale entry costs one
     /// ordering slot. A stale history entry instead biases the statistic that the Late Move
     /// Reduction, the quiet-move ranking and `lmr_history_bad_threshold` all read.
+    ///
+    /// Since `task.md` 23.3 the entries are signed, and integer division truncates towards zero,
+    /// so a refuted move decays towards 0 at the same rate a good one does. This decay sits on
+    /// top of the gravity in [`crate::model::history_gravity`], which is a second one; whether
+    /// both are wanted is an open question and its own run, not part of 23.3.
     pub fn age(&mut self) {
         for side in self.history_table.iter_mut() {
             for row in side.iter_mut() {
@@ -134,7 +143,7 @@ pub struct SearchContext<'a> {
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
     /// `[side][from][to]`, indexed with [`history_side`]. See `SearchTables::history_table`.
-    pub history_table: *const [[[u32; 64]; 64]; 2],
+    pub history_table: *const [[[i32; 64]; 64]; 2],
     pub counter_move: Option<Turn>,
     pub start_time: std::time::Instant,
     pub target_time: Option<i32>,
@@ -372,8 +381,14 @@ impl MoveList {
         if self.len < 256 {
             // The generation index is the tie-break of the search's move order, so it is stamped
             // where a move enters the list and nowhere else, and folded into the low bits of the
-            // rank so that comparing two ranks is comparing the whole order. The generator clamps
-            // its ranks at zero, so the shift cannot lose a sign.
+            // rank so that comparing two ranks is comparing the whole order.
+            //
+            // The rank may be negative. Since `task.md` 23.3 a refuted quiet carries a negative
+            // history entry and ranks below `BAND_QUIET`, and a capture the SEE demoted has been
+            // reaching about -256,000,000 for longer than that. The shift is still safe: the low
+            // `RANK_TIEBREAK_BITS` are zero afterwards whatever the sign, so the `|` below is an
+            // addition, `rank * 256 + tiebreak` stays monotone, and the extremes -- a quiet at
+            // -MAX_HISTORY and `BAND_TT` -- are both far inside `i32`.
             turn.order = self.len as u8;
             turn.rank = (turn.rank << RANK_TIEBREAK_BITS) | (u8::MAX - turn.order) as i32;
             self.moves[self.len] = turn;
@@ -424,6 +439,30 @@ pub const RANK_TIEBREAK_BITS: u32 = 8;
 #[inline(always)]
 pub const fn history_side(white: bool) -> usize {
     if white { 0 } else { 1 }
+}
+
+/// The cap the butterfly history converges towards, `task.md` 23.3.
+///
+/// The table is signed: a quiet move that has been refuted reaches a negative entry and is
+/// distinguishable from one that has never been searched, which reads 0. That distinction is the
+/// whole point of the signed table — `lmr_history_bad_threshold` is meant to fire on refuted
+/// moves, and against an unsigned table that saturates at zero it fired on unseen ones.
+pub const MAX_HISTORY: i32 = 16_384;
+
+/// The gravity update, the single place a history entry is written, `task.md` 23.3.
+///
+/// `*entry += bonus - entry * |bonus| / MAX_HISTORY` converges towards `+/- MAX_HISTORY` instead
+/// of clamping at it: the correction term grows with the entry, so a value near the cap barely
+/// moves and one near zero takes the bonus almost whole. That is what removes the global
+/// rescaling pass the unsigned table needed — an entry cannot leave the range on its own, so
+/// nothing has to walk 4096 entries to pull it back.
+///
+/// `bonus` is clamped first. A single update may not exceed the cap, or the correction term
+/// could overshoot past `-MAX_HISTORY` on the first malus applied to a fresh entry.
+#[inline(always)]
+pub fn history_gravity(entry: &mut i32, bonus: i32) {
+    let bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
+    *entry += bonus - (*entry) * bonus.abs() / MAX_HISTORY;
 }
 
 pub const BAND_TT: i32 = 5_000_000;
@@ -1785,6 +1824,76 @@ mod tests {
     }
 
     #[test]
+    fn push_keeps_the_total_order_when_a_rank_is_negative_test() {
+        use super::{MoveList, Turn, BAND_CAPTURE, BAND_QUIET, MAX_HISTORY, RANK_TIEBREAK_BITS};
+
+        // `task.md` 23.3: a refuted quiet carries a negative history entry, so `push` shifts a
+        // negative rank for the first time. This pins the arithmetic the comment in `push` now
+        // claims -- the sign survives and the order does not invert.
+        let mut list = MoveList::new();
+        let mut refuted = Turn::new(1, 18, 0, 0, false, 0);
+        refuted.rank = BAND_QUIET - MAX_HISTORY;
+        let mut unseen = Turn::new(2, 19, 0, 0, false, 0);
+        unseen.rank = BAND_QUIET;
+        list.push(refuted);
+        list.push(unseen);
+
+        let refuted = list.as_slice()[0];
+        let unseen = list.as_slice()[1];
+        assert_eq!(refuted.rank >> RANK_TIEBREAK_BITS, BAND_QUIET - MAX_HISTORY,
+            "the shift keeps both the sign and the magnitude");
+        assert!(unseen.precedes(&refuted),
+            "a quiet that was never searched has to outrank one that was refuted");
+
+        // The worst quiet still sits above a capture the SEE demoted, which is where negative
+        // ranks in this search came from before 23.3 existed.
+        const SEE_DEMOTION: i32 = (BAND_CAPTURE + 1_000_000) << RANK_TIEBREAK_BITS;
+        let demoted_capture = (BAND_CAPTURE << RANK_TIEBREAK_BITS) - SEE_DEMOTION;
+        assert!(refuted.rank > demoted_capture,
+            "the quiet band must stay above the demoted captures: {} vs {}",
+            refuted.rank, demoted_capture);
+    }
+
+    #[test]
+    fn history_gravity_converges_towards_the_cap_and_never_passes_it_test() {
+        use super::{history_gravity, MAX_HISTORY};
+
+        // `task.md` 23.3. The update converges towards the cap instead of clamping at it, which
+        // is what removes the rescaling pass: nothing outside can pull an entry back, so the
+        // update itself has to keep it inside.
+        let bonus = 8 * 8; // a depth-8 cutoff
+        let mut good = 0;
+        for _ in 0..1000 {
+            history_gravity(&mut good, bonus);
+        }
+        assert!(good <= MAX_HISTORY, "an entry may never pass the cap, read {good}");
+        assert!(good > MAX_HISTORY * 9 / 10,
+            "a thousand cutoffs should converge close to the cap, read {good}");
+
+        let mut refuted = 0;
+        for _ in 0..1000 {
+            history_gravity(&mut refuted, -bonus);
+        }
+        assert!(refuted >= -MAX_HISTORY, "the same bound holds downwards, read {refuted}");
+        assert!(refuted < -MAX_HISTORY * 9 / 10,
+            "a thousand maluses should converge close to the negative cap, read {refuted}");
+
+        // A single oversized bonus cannot leave the range either -- that is what the clamp
+        // inside the update is for, and a fresh entry is the case that would overshoot.
+        let mut fresh = 0;
+        history_gravity(&mut fresh, i32::MAX / 2);
+        assert!(fresh <= MAX_HISTORY, "one huge bonus must not pass the cap, read {fresh}");
+        let mut fresh = 0;
+        history_gravity(&mut fresh, -(i32::MAX / 2));
+        assert!(fresh >= -MAX_HISTORY, "one huge malus must not pass the cap, read {fresh}");
+
+        // At the cap the update is a no-op in the direction that would leave the range.
+        let mut capped = MAX_HISTORY;
+        history_gravity(&mut capped, MAX_HISTORY);
+        assert_eq!(capped, MAX_HISTORY);
+    }
+
+    #[test]
     fn move_list_clear_empties_the_list_and_leaves_it_reusable_test() {
         use super::{MoveList, Turn};
 
@@ -1993,7 +2102,7 @@ mod tests {
         let config = crate::config::Config::for_tests();
         let stop_flag = std::sync::atomic::AtomicBool::new(false);
         let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
-        let history_table = [[[0u32; 64]; 64]; 2];
+        let history_table = [[[0i32; 64]; 64]; 2];
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
         
         let context = crate::model::SearchContext {
