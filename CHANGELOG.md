@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.0] - 2026-09-11
+
+The butterfly history becomes signed, so a refuted quiet move is distinguishable from one that was
+never searched. Measured **+9.6 Elo, 95% [+3, +16]** over 6000 fixed-N games against v0.44.0. Full
+write-up in `task.md` 23.3.
+
+### Fixed
+- **History entries can go negative.** The table was `u32` and the malus saturated at zero, so a
+  quiet move refuted a dozen times read the same 0 as one never searched. `lmr_history_bad_threshold`
+  therefore raised the reduction for *unseen* moves rather than refuted ones.
+
+### Changed
+- **The gravity update replaces the rescaling pass.** `model::history_gravity` is the only writer:
+  an entry converges towards `model::MAX_HISTORY` (16,384) instead of clamping at it, so nothing has
+  to walk 4096 entries to pull it back. `history_max_threshold` is removed, along with its UCI
+  option `HistoryMaxThreshold`.
+- **New default `enable_history_malus: true`.** Without it nothing writes a decrement and the signed
+  table would be a no-op.
+- **New default `lmr_history_bad_threshold: 0`**, previously 500. A census of 300 pool positions at
+  depth 10 found the branch firing on 97.07% of all Late Move Reduction decisions on v0.44.0, with
+  64.63 of those points on entries reading exactly zero — two thirds of every penalty going to a
+  move the search had never seen. It now fires on 78.69%, all of them refuted.
+- `scripts/measure_history_census.py` and the `SEARCHDIAGHIST` counters report that distribution.
+
+### Notes
+- **The tree got bigger and the engine got stronger**: 12.1% and 11.7% more generated moves to fixed
+  depth 10 on the two pools. Generated moves to fixed depth rank a reduction change by how aggressive
+  it is, not by how well aimed, which is what `task.md` rule 1 exists for.
+- Known limitation: `lmr_history_good_threshold` stays 4000 and is inert — the same census reads
+  0.06% here and 0.08% before, so the half of the rule that spares promising quiet moves has never
+  run. It belongs to `task.md` 23.4 with the bonus and malus curves.
+- `test_lmp_base_moves_controls_how_much_is_pruned` now sums over two positions and four depths.
+  It asserted one cell, and the move order this release changes flipped it; the monotonicity it
+  pins holds in aggregate and not per position.
+
+
+
 ## [V0.44.0] - 2026-09-10
 
 The butterfly history is now `[side][from][to]`. White and Black shared every `[from][to]` entry,
