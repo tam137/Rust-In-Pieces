@@ -173,7 +173,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | ~~History is `u32` and its malus saturates at zero~~ | repaired in v0.45.0, +9.6 Elo [+3, +16], section 23.3 |
 | ~~`enable_history_malus` ships `false`~~ — it ships `true` since v0.45.0, and the global halving pass is gone with `history_max_threshold`; the bonus curve is still `depth^2` | partly closed, the curves are section 23.4 |
-| `lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions and fired on 0.08% before v0.45.0, so the half of the rule that spares promising quiet moves has never run | defect, **measured** 2026-09-10 by the census, unpriced, section 23.4 |
+| ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **in flight**: built and gated, the 6000-game run is what closes it, section 23.4 |
+| `spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters | defect in the tuner, **measured by reading it** 2026-09-11, blocks 23.4's tuning group |
+| The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20.3 |
 | The engine has no `improving` flag, so no rule can scale on whether the side to move is doing better than two plies ago | proposal, unmeasured, section 21.1 |
 | The Late Move Pruning growth term `2 * depth^2` makes every `lmp_max_depth` from 4 upwards search the same tree | defect, pinned by `test_lmp_max_depth_is_inert_above_four`, section 21.2 |
@@ -1124,20 +1126,97 @@ as the thresholds are set relative to it; it belongs in 23.4's group. And enabli
 behaviour change in its own right that cannot be separated out here, so the release commit has to
 say so, or a later reader will take the run for a type refactor.
 
-### 23.4 The malus is disabled, and the bonus curve is a rescaling pass
+### 23.4 `lmr_history_good_threshold` has never fired, and the curves are still untuned
 
-`enable_history_malus: false` at `config.rs:471`. The store loop at `:1495` exists and is off.
+`[In flight, 2026-09-11]` — two halves. The threshold is being priced now; the curves are not.
 
-Separately, `depth * depth` as the bonus with a global halving of all 4096 entries whenever any
-one of them passes `history_max_threshold: 9000` (`:1514`) is a different curve from the published
-`min(mult * depth - sub, max)` with separate bonus and malus slopes. The published form makes the
-malus steeper than the bonus so a refuted move is unlearned faster than a good one is learned, and
-the gravity update of 12.3 removes the halving pass entirely.
+#### The threshold: 4000 on a scale that ends at 8192
 
-Any change here moves four parameters at once (`hist_bonus_*`, `hist_malus_*`) plus the two LMR
-thresholds, so it wants its own SPSA group rather than a hand-picked default. **It should not be
-attempted before 23.3**, because a bonus curve tuned against a table that clamps at zero does not
-transfer to one that goes negative.
+23.3 left this behind as a measured defect, not a proposal: the "reduce promising quiet moves
+less" half of the Late Move Reduction fires on **0.06%** of all decisions, and fired on 0.08%
+before the signed table. `scripts/measure_history_census.py` against `suprah-0.45.0-diag`, 300
+positions from `book_width.txt` at fixed depth 10, says why — the positive population ends at
+`+2^13` and 4000 sits above 99.94% of every entry the rule ever reads:
+
+| bucket | share of all decisions | at or above |
+| :--- | ---: | ---: |
+| `+2^13` [8192..) | 0.01% | 0.01% |
+| `+2^12` [4096..) | 0.05% | 0.06% |
+| `+2^11` [2048..) | 0.16% | 0.22% |
+| `+2^9` [512..) | 0.64% | 1.24% |
+| `+2^7` [128..) | 1.21% | 3.39% |
+| `+2^5` [32..) | 1.40% | 6.15% |
+| `+2^0` [1..) | 0.37% | **10.24%** |
+
+**The value is 0, and it is not a tuning choice.** The positive side has no knee: the buckets rise
+to a broad maximum around `+2^5` and fall away smoothly, so anything between 32 and 1024 is a
+hand-picked point on a smooth curve — which is what 23.3 refused to do for `bad` and what the
+curves below reserve for a tuning group. At `good = 0` and `bad = 0` the rule is the **sign** of
+the entry and nothing else: positive reduces one ply less, exactly zero is untouched, negative
+reduces one ply more. The rebate is one ply whatever the magnitude, pinned by
+`test_lmr_history_rebate_reads_the_sign_of_the_entry`. Nothing new becomes reachable — the call
+site takes `if reduction > 0`, so a decision that falls to zero skips the reduced search and goes
+to the full-depth Principal Variation Search, exactly as a killer or a counter move already can.
+
+The candidate's own census confirms the threshold is the only thing that moved: `good` reads
+**10.19%** against the 10.24% the baseline distribution predicted, and `bad`, `zero` and
+`negative` stay at 79.69% / 10.12% / 79.69% against 78.69% / 11.07% / 78.69% — the drift is the
+tree changing shape under the new reduction, not the branch.
+
+**The tree hates it, more than it hated 23.3.** `scripts/measure_tree_size.py` against
+`suprah-0.45.0`, 300 positions per pool, depth 10:
+
+| pool | generated moves | wall time | median per-position ratio | faster |
+| :--- | ---: | ---: | ---: | ---: |
+| `book_width` | **+21.1%** | +12.8% slower | 0.875 | 115 of 300 |
+| `book_mixed` | **+18.3%** | +17.5% slower | 0.834 | 106 of 300 |
+
+23.3 went into its run at +12.1% and +11.7% and returned +9.6 Elo, and this instrument has now
+twice ranked a Late Move Reduction change by how aggressive it is rather than by how well it is
+aimed — `task.md` rule 1. But note what is different here and record it before the games are
+played: 23.3's cost was in generated moves, and **this one is also in wall time at fixed depth**,
+13% and 17%. At a fixed time control that is depth the engine does not reach, and it is the first
+reading in this axis that the games cannot simply overrule by being better aimed.
+
+#### The curves, and why they cannot be tuned yet
+
+The bonus is `depth * depth` and the malus is its symmetric negative through `model::history_gravity`;
+the published form is `min(mult * depth - sub, max)` with a **steeper malus than bonus**, so a
+refuted move is unlearned faster than a good one is learned. `MAX_HISTORY = 16_384` is a
+stipulation and a pure scale factor as long as the thresholds are set relative to it. Four
+parameters plus the two thresholds is a tuning group, not a hand-picked default.
+
+**That group cannot run today, and the reason is not the negative range.** `spsa_tuner.py:194`
+takes its perturbation as `max(1.0, round(abs(theta) * mutate_pct / 100))` and then moves the
+parameter by `lr_pct` percent of it. The bounds handle negative numbers correctly — they are plain
+`max`/`min` — but the **step is proportional to the magnitude of the value**, so a parameter
+sitting at 0 gets a step of 1 and an update of a fraction of it, and can never leave the
+neighbourhood of zero. Both LMR history thresholds are now exactly there. Before this group is
+booked, the tuner needs an absolute per-parameter step; that is its own item with its own plan,
+and it is the same mechanism that made SPSA useless for the singular parameters in section 8.
+
+`tuning/parameters.json` is brought in line with the shipped defaults in the meantime
+(`good` 0 over `[0, 1024]`, `bad` 0 over `[-1024, 0]`) — it registered `good` over `[2000, 8000]`,
+entirely above the live population, and still carried `bad: 500` over `[250, 1000]`, the
+calibration v0.45.0 replaced. **This changes no play**: the tuner reads that file, the engine does
+not.
+
+#### How the threshold gets priced
+
+`cargo test` green, the census and both tree readings above are done. Then the smoke gauntlet as
+challenger against v0.45.0 and v0.44.0, 100 games per pairing at 1s + 100ms on
+`openings_wide.txt`, the 45% gate, version collision verified before the run. Finally a fixed-N
+run of **6000 games against v0.45.0 at 1s + 150ms**, concurrency 5, the count fixed in advance
+and no early stopping, about 6.25 hours, read with `scripts/pairing_elo.py` and
+`scripts/match_health.py`.
+
+**What could go wrong.** An entry goes positive after a single bonus — `depth * depth` at depth 4
+is 16, inside the bucket carrying most of the positive mass — so "positive" means "rewarded once
+and not since refuted", not "reliably good". The symmetric argument applied to `bad = 0` and the
+games came out in favour, which is the reason to try the symmetric value before a magnitude. And
+a killer that is also historically positive now gets two rebates; that overlap was never priced
+and the census cannot see it. If the run reads negative, the axis is not closed — the next
+question is a magnitude on the positive side, and it belongs to the tuning group above.
 
 ## 24. Continuation History
 
