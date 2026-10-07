@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.1] - 2026-10-07
+
+The Late Move Reduction rebate reads the sign of the history entry. Measured **+2.7 Elo, 95%
+[-4, +9]** over 6000 fixed-N games against v0.45.0 — a null, kept because it is not worse and
+removes a constant that never fired. Full write-up in `task.md` 23.4.
+
+### Changed
+- **New default `lmr_history_good_threshold: 0`**, previously 4000. At 4000 the rebate fired on
+  0.06% of all Late Move Reduction decisions; at 0 it fires on 10.19% — a positive entry reduces
+  one ply less, zero is untouched, a negative entry one ply more.
+- `tuning/parameters.json` registers both LMR history thresholds on the shipped scale (`good` 0
+  over [0, 1024], `bad` 0 over [-1024, 0]). No effect on play.
+
+### Fixed
+- `build_and_release.sh` refuses to start unless `MM_DIR`, or the sibling default, is a Matt-Magie
+  directory, and no longer copies `eval_models/` into its engines folder, where nothing reads it.
+
+### Notes
+- The tree is 21.1% and 18.3% larger and 12.8% and 17.5% slower to fixed depth 10 on the two
+  pools; the games registered neither the cost nor a gain.
+
+
 ## [V0.45.0] - 2026-09-11
 
 The butterfly history becomes signed, so a refuted quiet move is distinguishable from one that was
