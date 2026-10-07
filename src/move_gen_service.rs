@@ -1,5 +1,4 @@
 use rand::Rng;
-use once_cell::sync::Lazy;
 
 use crate::zobrist;
 use crate::config::Config;
@@ -10,48 +9,64 @@ use crate::model::{
 };
 
 
-static KNIGHT_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
+// The three move tables are built at compile time. Behind `once_cell::sync::Lazy`, as they used
+// to be, every read on the hottest paths of move generation, attack detection and the evaluation
+// paid an initialisation guard - the indirection v0.41.0 already removed from the Zobrist keys.
+// `const fn` cannot use `for` or ranges, hence the `while` loops; the tables are the same.
+
+const fn knight_attack_table() -> [u64; 64] {
+    let offsets: [(i32, i32); 8] = [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)];
     let mut attacks = [0u64; 64];
-    let offsets = [
-        (-2, -1), (-2, 1), (-1, -2), (-1, 2),
-        (1, -2), (1, 2), (2, -1), (2, 1)
-    ];
-    for (sq, attack_mask) in attacks.iter_mut().enumerate() {
+    let mut sq = 0;
+    while sq < 64 {
         let file = (sq % 8) as i32;
         let rank = (sq / 8) as i32;
         let mut mask = 0u64;
-        for &(df, dr) in &offsets {
-            let f = file + df;
-            let r = rank + dr;
-            if (0..8).contains(&f) && (0..8).contains(&r) {
+        let mut i = 0;
+        while i < 8 {
+            let f = file + offsets[i].0;
+            let r = rank + offsets[i].1;
+            if f >= 0 && f < 8 && r >= 0 && r < 8 {
                 mask |= 1u64 << (r * 8 + f);
             }
+            i += 1;
         }
-        *attack_mask = mask;
+        attacks[sq] = mask;
+        sq += 1;
     }
     attacks
-});
+}
 
-static KING_ATTACKS: Lazy<[u64; 64]> = Lazy::new(|| {
+const fn king_attack_table() -> [u64; 64] {
     let mut attacks = [0u64; 64];
-    for (sq, attack_mask) in attacks.iter_mut().enumerate() {
+    let mut sq = 0;
+    while sq < 64 {
         let file = (sq % 8) as i32;
         let rank = (sq / 8) as i32;
         let mut mask = 0u64;
-        for df in -1..=1 {
-            for dr in -1..=1 {
-                if df == 0 && dr == 0 { continue; }
-                let f = file + df;
-                let r = rank + dr;
-                if (0..8).contains(&f) && (0..8).contains(&r) {
-                    mask |= 1u64 << (r * 8 + f);
+        let mut df = -1;
+        while df <= 1 {
+            let mut dr = -1;
+            while dr <= 1 {
+                if !(df == 0 && dr == 0) {
+                    let f = file + df;
+                    let r = rank + dr;
+                    if f >= 0 && f < 8 && r >= 0 && r < 8 {
+                        mask |= 1u64 << (r * 8 + f);
+                    }
                 }
+                dr += 1;
             }
+            df += 1;
         }
-        *attack_mask = mask;
+        attacks[sq] = mask;
+        sq += 1;
     }
     attacks
-});
+}
+
+static KNIGHT_ATTACKS: [u64; 64] = knight_attack_table();
+static KING_ATTACKS: [u64; 64] = king_attack_table();
 
 /// Ray geometry between every pair of squares, used to decide legality and discovered checks
 /// without playing a move.
@@ -64,25 +79,25 @@ struct RayTables {
     between: [[u64; 64]; 64],
 }
 
-static RAYS: Lazy<RayTables> = Lazy::new(|| {
-    const DIRECTIONS: [(i32, i32); 8] = [
-        (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1),
-    ];
+const fn ray_tables() -> RayTables {
+    let directions: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)];
     let mut line = [[0u64; 64]; 64];
     let mut between = [[0u64; 64]; 64];
-
-    for from in 0..64usize {
+    let mut from = 0usize;
+    while from < 64 {
         let from_file = (from % 8) as i32;
         let from_rank = (from / 8) as i32;
-
-        for &(df, dr) in &DIRECTIONS {
+        let mut d = 0;
+        while d < 8 {
+            let (df, dr) = directions[d];
             // Walk outwards from `from` and remember the squares in order, so that the squares
             // already passed are exactly the ones between `from` and the current square.
             let mut forward = [0usize; 7];
             let mut forward_len = 0;
             let mut ray = 0u64;
-            let (mut file, mut rank) = (from_file + df, from_rank + dr);
-            while (0..8).contains(&file) && (0..8).contains(&rank) {
+            let mut file = from_file + df;
+            let mut rank = from_rank + dr;
+            while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
                 let square = (rank * 8 + file) as usize;
                 forward[forward_len] = square;
                 forward_len += 1;
@@ -92,8 +107,9 @@ static RAYS: Lazy<RayTables> = Lazy::new(|| {
             }
 
             // The opposite direction completes the line through `from`.
-            let (mut file, mut rank) = (from_file - df, from_rank - dr);
-            while (0..8).contains(&file) && (0..8).contains(&rank) {
+            let mut file = from_file - df;
+            let mut rank = from_rank - dr;
+            while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
                 ray |= 1u64 << ((rank * 8 + file) as usize);
                 file -= df;
                 rank -= dr;
@@ -101,16 +117,22 @@ static RAYS: Lazy<RayTables> = Lazy::new(|| {
 
             let full_line = ray | (1u64 << from);
             let mut passed = 0u64;
-            for &to in &forward[0..forward_len] {
+            let mut k = 0;
+            while k < forward_len {
+                let to = forward[k];
                 line[from][to] = full_line;
                 between[from][to] = passed;
                 passed |= 1u64 << to;
+                k += 1;
             }
+            d += 1;
         }
+        from += 1;
     }
-
     RayTables { line, between }
-});
+}
+
+static RAYS: RayTables = ray_tables();
 
 /// The complete line through `from` and `to`, or 0 when they do not share a ray.
 #[inline(always)]
@@ -177,9 +199,6 @@ pub struct MoveGenService {}
 
 impl MoveGenService {
     pub fn new() -> Self {
-        // Force the ray tables to be built on the calling thread rather than inside the search,
-        // where the first access would otherwise pay a 64 KB initialisation.
-        Lazy::force(&RAYS);
         MoveGenService {}
     }
 
