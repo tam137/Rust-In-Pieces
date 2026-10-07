@@ -42,10 +42,32 @@ import argparse
 import math
 import os
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pairing_elo import parse_games, score_for, elo  # noqa: E402
+
+
+class Undecided(Exception):
+    """Too few games to run the test yet. Exit 2: the watchdog keeps playing."""
+
+
+class UsageError(Exception):
+    """A wrong argument or an unusable PGN. Exit 3: the watchdog stops and reports it.
+
+    `sys.exit("message")` exits 1, which is the code for "H0 accepted"; a watchdog that stops on
+    a verdict would read every error as a rejected change. Errors are raised as this instead and
+    mapped to 3 in one place.
+    """
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """Reports a usage error as exit 3 instead of argparse's 2, which means "undecided"."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        raise UsageError(message)
 
 
 # Normalised score of a pair, i.e. the mean of its two game scores.
@@ -162,17 +184,23 @@ def resolve_engine_names(paths, wanted):
     resolved = []
     for needle in wanted:
         # An exact match wins outright, or a version prefix like "V0.34.0" would be ambiguous
-        # against its own measurement variants "V0.34.0-LMP" and "V0.34.0-BOTH".
-        exact = [name for name in names if name == needle]
+        # against its own measurement variants "V0.34.0-LMP" and "V0.34.0-BOTH". The last token
+        # of the id name counts as exact too, so "V0.34.0" resolves "Rust-In-Pieces V0.34.0".
+        exact = [name for name in names if name == needle or name.endswith(" " + needle)]
         matches = exact if len(exact) == 1 else [
             name for name in names if needle.lower() in name.lower()]
-        if len(matches) != 1:
-            sys.exit("'%s' matches %d engines in the PGN (%s); use a longer substring "
-                     "or the full id name"
-                     % (needle, len(matches), ", ".join(sorted(names)) or "none"))
+        if not matches:
+            # A round robin that has not reached this pairing yet looks the same as a typo;
+            # both are "keep playing", and the trace log shows the names that do exist.
+            raise Undecided("'%s' matches no engine in the PGN yet (%s)"
+                            % (needle, ", ".join(sorted(names)) or "no games"))
+        if len(matches) > 1:
+            raise UsageError("'%s' matches %d engines in the PGN (%s); use a longer substring "
+                             "or the full id name"
+                             % (needle, len(matches), ", ".join(sorted(matches))))
         resolved.append(matches[0])
     if resolved[0] == resolved[1]:
-        sys.exit("both patterns resolved to '%s'" % resolved[0])
+        raise UsageError("both patterns resolved to '%s'" % resolved[0])
     return resolved
 
 
@@ -311,7 +339,7 @@ def plan(pair_scores, elo0, elo1, lower_bound, upper_bound, grid):
 
 
 def main():
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("pgn", nargs="+", help="PGN files to read")
     parser.add_argument("--engines", nargs=2, required=True, metavar=("A", "B"),
@@ -338,12 +366,15 @@ def main():
     args = parser.parse_args()
 
     if not args.elo0 < args.elo1:
-        sys.exit("--elo0 must be below --elo1")
+        raise UsageError("--elo0 must be below --elo1")
+    for path in args.pgn:
+        if not os.path.isfile(path):
+            raise UsageError("no such PGN: %s" % path)
 
     first, second = resolve_engine_names(args.pgn, args.engines)
     pair_scores = collect_pairs(args.pgn, first, second)
     if not pair_scores:
-        sys.exit("no complete game pairs for %s vs %s" % (first, second))
+        raise Undecided("no complete game pairs for %s vs %s yet" % (first, second))
 
     lower_bound = math.log(args.beta / (1.0 - args.alpha))
     upper_bound = math.log((1.0 - args.beta) / args.alpha)
@@ -357,8 +388,25 @@ def main():
                   lower_bound, upper_bound)
 
 
-if __name__ == "__main__":
+def run():
+    """`main` behind the exit-code contract of the module docstring.
+
+    Nothing but a verdict may exit 0 or 1: a watchdog stops the tournament on either.
+    """
     try:
-        sys.exit(main())
+        return main()
+    except Undecided as reason:
+        print("undecided: %s" % reason)
+        return 2
+    except UsageError as reason:
+        print("error: %s" % reason, file=sys.stderr)
+        return 3
     except BrokenPipeError:
-        sys.exit(3)
+        return 3
+    except Exception:  # noqa: BLE001 - a traceback must never read as a verdict
+        traceback.print_exc()
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(run())
