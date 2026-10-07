@@ -3,11 +3,12 @@
 
 Throughput cannot be read from `nps` or `nodes` here: both report *generated* moves rather than
 searched nodes, so any change to move generation moves them for reasons unrelated to speed. The
-metric is wall time to a fixed depth, taken from the engine's own `info ... time` field through
-`scripts/uci_driver.py`, which waits for `bestmove` instead of sleeping for a guessed interval.
+metric is wall time to a fixed depth, from `go` to `bestmove`, through `scripts/uci_driver.py`,
+which waits for `bestmove` instead of sleeping for a guessed interval.
 
-The two binaries are run interleaved per position, so a host that slows down halfway through the
-corpus penalises both equally, and the best of `--repeats` is kept for each, because the fastest
+The two binaries are run interleaved per position and per repeat, alternating which one goes
+first, so a host that slows down halfway through the corpus penalises both equally and neither
+is always the one that runs second. The best of `--repeats` is kept for each, because the fastest
 run of a set is the one least disturbed by other load.
 
 The comparison also reports whether the two binaries searched the same tree: `depth`, `score`,
@@ -40,14 +41,20 @@ def parse_options(pairs):
     return tuple(parsed)
 
 
-def best_of(binary, fen, depth, repeats, extra=()):
-    """Runs one position `repeats` times and returns the fastest result."""
-    best = None
-    for _ in range(repeats):
-        result = uci_driver.search(binary, fen, depth, options=OPTIONS + tuple(extra))
-        if best is None or result.time_ms < best.time_ms:
-            best = result
-    return best
+def best_of_both(baseline, candidate, fen, depth, repeats, base_extra, cand_extra, flip):
+    """Runs one position `repeats` times per binary, interleaved, and returns the fastest of each.
+
+    The binary that goes first alternates per repeat, and `flip` alternates it per position.
+    """
+    best = {"base": None, "cand": None}
+    runs = (("base", baseline, base_extra), ("cand", candidate, cand_extra))
+    for repeat in range(repeats):
+        order = runs if (repeat + flip) % 2 == 0 else runs[::-1]
+        for which, binary, extra in order:
+            result = uci_driver.search(binary, fen, depth, options=OPTIONS + tuple(extra))
+            if best[which] is None or result.time_ms < best[which].time_ms:
+                best[which] = result
+    return best["base"], best["cand"]
 
 
 def main():
@@ -83,9 +90,9 @@ def main():
     faster = 0
     base_total = 0
     cand_total = 0
-    for name, fen in POSITIONS:
-        base = best_of(args.baseline, fen, args.depth, args.repeats, base_options)
-        cand = best_of(args.candidate, fen, args.depth, args.repeats, cand_options)
+    for index, (name, fen) in enumerate(POSITIONS):
+        base, cand = best_of_both(args.baseline, args.candidate, fen, args.depth, args.repeats,
+                                  base_options, cand_options, index % 2)
 
         same = strip_nodes(base.info_signature) == strip_nodes(cand.info_signature)
         identical &= same

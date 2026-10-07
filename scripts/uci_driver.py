@@ -8,12 +8,15 @@ survive on stderr are then whatever the last *completed* iteration happened to b
 with machine load rather than with the change under test.
 
 This driver instead reads stdout until `bestmove` appears, so a fixed-depth search is always
-compared against the same fixed-depth search. Timings come from the engine's own `info ... time`
-field rather than from a wall clock around the process, so process start-up is not counted.
+compared against the same fixed-depth search. Timings are the wall time from sending `go` to
+reading `bestmove`, so process start-up is not counted. The engine's own `info ... time` is not
+used: it is the time of the last change of the best root move, not of the finished iteration,
+and reads as little as half the real time to depth when the first root move stays best.
 """
 import os
 import subprocess
 import tempfile
+import time
 
 
 class SearchResult:
@@ -43,10 +46,22 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             text=True, bufsize=1, cwd=cwd,
         )
         try:
+            # `ucinewgame` because the start-up benchmark leaves its killer, history and
+            # counter-move tables behind, and a search without it starts from them - a tree no
+            # game ever searches, since the match manager sends `ucinewgame` before every game.
+            # `setoption Hash` reallocates the table on the UCI thread before `readyok` is sent,
+            # which takes about 100 ms and must not be timed as search.
             commands = ["uci", "setoption name OwnBook value false"]
             commands += [f"setoption name {name} value {value}" for name, value in options]
-            commands += ["isready", f"position fen {fen}", f"go depth {depth}"]
+            commands += ["isready"]
             proc.stdin.write("\n".join(commands) + "\n")
+            proc.stdin.flush()
+            for line in proc.stdout:
+                if line.startswith("readyok"):
+                    break
+            proc.stdin.write(f"ucinewgame\nposition fen {fen}\n")
+            started = time.monotonic()
+            proc.stdin.write(f"go depth {depth}\n")
             proc.stdin.flush()
 
             info = []
@@ -61,6 +76,7 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
                     parts = line.split()
                     best_move = parts[1] if len(parts) > 1 else ""
                     break
+            wall_ms = (time.monotonic() - started) * 1000.0
             proc.stdin.write("quit\n")
             proc.stdin.flush()
             proc.wait(timeout=10)
@@ -71,17 +87,19 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             err.seek(0)
             stderr = err.read()
 
-    reached, score, time_ms, signature = parse_info(info)
-    return SearchResult(reached, score, best_move, time_ms, stderr, signature)
+    reached, score, signature = parse_info(info)
+    return SearchResult(reached, score, best_move, round(wall_ms), stderr, signature)
 
 
 def parse_info(info):
-    """Reduces a search's `info depth` lines to `(depth, score, time_ms, signature)`.
+    """Reduces a search's `info depth` lines to `(depth, score, signature)`.
 
     The signature is one entry per line, so two searches can be compared for tree identity rather
-    than only for their final numbers.
+    than only for their final numbers. `score` is kept with its value: the bare type, `cp` or
+    `mate`, would let a change that moves the evaluation without moving a principal variation
+    pass as identical.
     """
-    reached, score, time_ms = "", "", 0
+    reached, score = "", ""
     signature = []
     for line in info:
         tokens = line.split()
@@ -89,14 +107,17 @@ def parse_info(info):
         for key in ("depth", "score", "nodes", "pv"):
             if key in tokens:
                 idx = tokens.index(key)
-                entry[key] = " ".join(tokens[idx + 1:]) if key == "pv" else tokens[idx + 1]
+                if key == "pv":
+                    entry[key] = " ".join(tokens[idx + 1:])
+                elif key == "score":
+                    entry[key] = " ".join(tokens[idx + 1:idx + 3])
+                else:
+                    entry[key] = tokens[idx + 1]
         signature.append(tuple(sorted(entry.items())))
         reached = tokens[tokens.index("depth") + 1]
         if "score" in tokens:
             score = " ".join(tokens[tokens.index("score") + 1:tokens.index("score") + 3])
-        if "time" in tokens:
-            time_ms = int(tokens[tokens.index("time") + 1])
-    return reached, score, time_ms, signature
+    return reached, score, signature
 
 
 class Session:
@@ -127,6 +148,10 @@ class Session:
         self._send("setoption name OwnBook value false")
         for name, value in options:
             self._send(f"setoption name {name} value {value}")
+        # A `Hash` reallocation finishes before `readyok`; without the wait it would be timed as
+        # part of whichever search comes first.
+        self._send("isready")
+        self._read_until("readyok")
 
     def _send(self, command):
         self._proc.stdin.write(command + "\n")
@@ -155,12 +180,14 @@ class Session:
         if moves:
             position += " moves " + " ".join(moves)
         self._send(position)
+        started = time.monotonic()
         self._send(f"go depth {depth}")
         info, bestmove = self._read_until("bestmove")
+        wall_ms = (time.monotonic() - started) * 1000.0
         parts = bestmove.split()
         best_move = parts[1] if len(parts) > 1 else ""
-        reached, score, time_ms, signature = parse_info(info)
-        return SearchResult(reached, score, best_move, time_ms, "", signature)
+        reached, score, signature = parse_info(info)
+        return SearchResult(reached, score, best_move, round(wall_ms), "", signature)
 
     def close(self):
         if self._proc.poll() is None:
