@@ -66,6 +66,10 @@ pub struct SearchTables {
     /// rescaling pass.
     pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
+    /// The per-level node buffers, [`SEARCH_LEVELS`] of them, about 1.6 MB. Allocated once per
+    /// engine instead of once per iterative deepening iteration; nothing in them carries from
+    /// one search to the next, see [`NodeBuffers`]. Not touched by `reset`.
+    pub buffers: Vec<NodeBuffers>,
 }
 
 impl SearchTables {
@@ -74,6 +78,7 @@ impl SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
             history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
+            buffers: new_search_buffers(),
         }
     }
 
@@ -484,9 +489,10 @@ pub const SEARCH_LEVELS: usize = 2 * 128;
 ///
 /// Both used to be constructed at every node. `MoveList::new()` writes 256 `Turn` values of 16
 /// bytes and the principal variation another 128 `Option<Turn>`, about 6 KB of stores per node
-/// for storage that is never read back: `MoveList::len` bounds every read of the first, and
-/// `minimax` clears the second on entry. Reusing one set per recursion level therefore cannot
-/// move the search tree.
+/// for storage that is never read back: `MoveList::len` bounds every read of the first, every
+/// list is cleared before it is generated into, and every reader of the second stops at the
+/// `None` that `minimax` writes on entry. Reusing one set per recursion level, and across
+/// searches, therefore cannot move the search tree.
 pub struct NodeBuffers {
     pub moves: MoveList,
     /// Sized like every `pv` parameter in the search.
@@ -502,8 +508,8 @@ impl NodeBuffers {
     }
 }
 
-/// Allocates the arena once per search. This is the only allocation the search makes, and it is
-/// made before the first node rather than inside one.
+/// Allocates the arena. `SearchTables` holds the one the search uses, so this runs once per
+/// engine rather than once per search; tests that enter `minimax` directly build their own.
 pub fn new_search_buffers() -> Vec<NodeBuffers> {
     (0..SEARCH_LEVELS).map(|_| NodeBuffers::new()).collect()
 }
@@ -737,8 +743,24 @@ impl Board {
     /// It only panics if the from field is != 0
     /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
+        self.make_move(turn, None)
+    }
+
+    /// [`Self::do_move`], starting the load of the child's Transposition Table slot as soon as
+    /// the child's key is known and before the board is touched. Issued after `do_move` returned,
+    /// as it used to be, the request overlapped with almost nothing in the Quiescence Search,
+    /// whose probe is the first thing a child does.
+    pub fn do_move_prefetching(&mut self, turn: &Turn, table: &crate::zobrist::ZobristTable) -> MoveInformation {
+        self.make_move(turn, Some(table))
+    }
+
+    #[inline(always)]
+    fn make_move(&mut self, turn: &Turn, prefetch: Option<&crate::zobrist::ZobristTable>) -> MoveInformation {
         let old_cached_hash = self.cached_hash;
         let new_cached_hash = crate::zobrist::calc_incremental_hash(self, turn);
+        if let Some(table) = prefetch {
+            table.prefetch(new_cached_hash);
+        }
         let from = turn.from;
         let to = turn.to;
         let from_mask = 1u64 << from;

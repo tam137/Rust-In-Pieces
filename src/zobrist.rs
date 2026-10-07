@@ -212,6 +212,37 @@ impl TranspositionEntry {
     }
 }
 
+/// Asks the kernel to back `len` bytes at `ptr` with transparent huge pages. It has to happen
+/// before the first write faults the pages in.
+///
+/// A table far larger than the TLB's reach otherwise pays a page-table walk on nearly every
+/// probe before its DRAM access can even start: 64 MB of Transposition Table span 16,384 pages
+/// of 4 KiB against a second-level TLB that covers a few MB. Advisory only - on a host whose
+/// transparent huge pages are disabled the call changes nothing, and nothing depends on it.
+pub fn advise_huge_pages(ptr: *const u8, len: usize) {
+    #[cfg(target_os = "linux")]
+    {
+        const MADV_HUGEPAGE: i32 = 14;
+        const PAGE: usize = 4096;
+        unsafe extern "C" {
+            fn madvise(addr: *mut std::ffi::c_void, len: usize, advice: i32) -> i32;
+        }
+        let start = (ptr as usize).next_multiple_of(PAGE);
+        let end = (ptr as usize + len) & !(PAGE - 1);
+        if end > start {
+            // SAFETY: the range lies inside one live allocation and `madvise` with
+            // `MADV_HUGEPAGE` changes how it is backed, never its contents.
+            unsafe {
+                madvise(start as *mut std::ffi::c_void, end - start, MADV_HUGEPAGE);
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (ptr, len);
+    }
+}
+
 #[derive(Debug)]
 pub struct AtomicEntry {
     pub key: std::sync::atomic::AtomicU64,
@@ -226,7 +257,8 @@ pub struct ZobristTable {
 impl ZobristTable {
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let mut table = Vec::with_capacity(capacity.max(1));
+        let mut table: Vec<AtomicEntry> = Vec::with_capacity(capacity.max(1));
+        advise_huge_pages(table.as_ptr() as *const u8, table.capacity() * std::mem::size_of::<AtomicEntry>());
         let default_entry = TranspositionEntry::default();
         let default_key = default_entry.key;
         let default_data = default_entry.pack();
