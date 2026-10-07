@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.2] - 2026-10-08
+
+Tree-identical speed and two rare-path defects from the source review of 2026-10-07. The search
+tree is identical to v0.45.1 on 300 of 300 pool positions at depth 10, scores included, and
+reaches that depth in **11.9% less time**; **+12.6%** on the 14-position throughput corpus. No Elo
+is claimed: an identical tree needs no game run (`task.md` rule 5).
+
+### Changed
+- Principal variations are cleared and copied only up to their terminator instead of all 128
+  slots at every node and every alpha raise.
+- `see_ge` answers from a lower bound, the victim minus the capturing piece, whenever that already
+  clears the threshold; the lazy-SEE block skips `see` when the bound is non-negative.
+- The node-buffer arena lives in `SearchTables` and is allocated once per engine, not once per
+  iterative deepening iteration.
+- The Transposition Table and the pawn table are backed by transparent huge pages where Linux
+  offers them, and the child's table slot is prefetched inside the move (`do_move_prefetching`).
+
+### Fixed
+- The null move restores the game status. A null child without a legal move left `Draw` on the
+  board, and the node scored itself 0 — a mate in one was searched as a draw.
+- Null Move Pruning and Reverse Futility Pruning carry the `|beta| < 20000` bound of every other
+  pruning rule. Against a mated `beta` both claimed a fail high and could hide a faster mate.
+
+### Notes
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 54.0% against v0.45.1, 59.0% against
+  v0.45.0, 72.0% against v0.34.0, no losses on time. A gate, not a measurement.
+- Deferred from the review: the lock-free `pv_nodes` lookup (0.2% to 2%) and the table-move band
+  for promotions and en passant (changes ordering, too small to price in games).
+
+
+
 ## [V0.45.1] - 2026-10-07
 
 The Late Move Reduction rebate reads the sign of the history entry. Measured **+2.7 Elo, 95%
