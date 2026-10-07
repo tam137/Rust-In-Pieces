@@ -594,9 +594,9 @@ impl SearchService {
         // within bounds and that the search tree remains finite.
         if ply >= MAX_PLY as i32 - 1 {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval(
+            let absolute = service.eval.calc_eval_known_check(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+                abs_alpha, abs_beta, config.lazy_eval_margin_search, turn.gives_check);
             return (None, Self::relative_score(white, absolute));
         }
 
@@ -721,9 +721,9 @@ impl SearchService {
         // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval(
+            let absolute = service.eval.calc_eval_known_check(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search);
+                abs_alpha, abs_beta, config.lazy_eval_margin_search, false);
             Self::relative_score(white, absolute)
         } else {
             0
@@ -1049,9 +1049,9 @@ impl SearchService {
 
             if !in_check {
                 let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-                stand_pat = Self::relative_score(white, service.eval.calc_eval(
+                stand_pat = Self::relative_score(white, service.eval.calc_eval_known_check(
                     board, config, &service.move_gen, &service.pawn_table,
-                    abs_alpha, abs_beta, config.lazy_eval_margin_qs));
+                    abs_alpha, abs_beta, config.lazy_eval_margin_qs, false));
                 eval = stand_pat;
 
                 // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can

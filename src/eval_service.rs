@@ -92,8 +92,6 @@ const BLACK_PASSED_PAWN_MASKS: [u64; 64] = {
 
 pub struct EvalService {
     _knight_moves: [i16; 8],
-    attack_bonus_white: [(i16, i16, i16); 2],
-    attack_bonus_black: [(i16, i16, i16); 2],
     pub nnue_net: crate::nnue_service::NNUENetwork,
 }
 
@@ -115,27 +113,8 @@ impl EvalService {
 
         Self {
             _knight_moves: [-21, -19, -12, -8, 21, 19, 12, 8],
-            attack_bonus_white: [
-                (21, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
-                (23, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
-            ],
-            attack_bonus_black: [
-                (11, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
-                (13, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
-            ],
             nnue_net,
         }
-    }
-
-    pub fn _set_custom_config(&mut self, config: &Config) {
-        self.attack_bonus_white = [
-            (21, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
-            (23, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
-        ];
-        self.attack_bonus_black = [
-            (11, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
-            (13, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
-        ];
     }
 
     pub fn cheap_eval(&self, board: &Board, config: &Config, pawn_table: &crate::pawn_hash::PawnHashTable) -> i16 {
@@ -157,7 +136,7 @@ impl EvalService {
 
         // Apply bishop pair scaling if opposite colored bishops
         if Self::is_opposite_colored_bishops_endgame(board) {
-            eval = (eval * config.opposite_bishops_draw_scale) / 100;
+            eval = Self::scale_opposite_bishops(eval, config);
         }
 
         // Apply endgame scaling
@@ -165,19 +144,47 @@ impl EvalService {
         eval
     }
 
+    /// `eval * opposite_bishops_draw_scale / 100` in `i32`. In `i16` the product wrapped above
+    /// 642 centipawns at the default scale of 51 and flipped the sign of a winning evaluation.
+    #[inline(always)]
+    fn scale_opposite_bishops(eval: i16, config: &Config) -> i16 {
+        (eval as i32 * config.opposite_bishops_draw_scale as i32 / 100) as i16
+    }
+
+    /// The static evaluation, White-positive. It finds out for itself whether the side to move is
+    /// in check and counts the attackers of both kings, which is the reference behaviour the tests
+    /// and diagnostics use. The search calls [`Self::calc_eval_known_check`].
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16) -> i16 {
+        let in_check = movegen.is_in_check(board);
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, true)
+    }
+
+    /// [`Self::calc_eval`] for a caller that already knows whether the side to move is in check.
+    /// The search always does - it is the `gives_check` of the move that led to the node - and it
+    /// evaluates a node in check only at its ply ceiling. In a legal position only the side to
+    /// move can be in check, so the king-safety terms count the attackers of that king alone, and
+    /// of neither king when it is not in check: the counts `calc_eval` computes, without the check
+    /// test and the two attacker scans it pays at every leaf.
+    pub fn calc_eval_known_check(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool) -> i16 {
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, false)
+    }
+
+    fn evaluate(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool, count_both_kings: bool) -> i16 {
         if config.use_nnue && self.nnue_net.loaded {
             return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
         }
         if Self::is_insufficient_material(board) {
             return 0;
         }
-        let cheap = self.cheap_eval(board, config, pawn_table);
         let game_phase = self.get_game_phase(board);
-        let in_check = movegen.is_in_check(board);
 
-        // Skip Lazy Eval if disabled, if in check, or in deep endgame (game_phase < min_game_phase) where positional opposition & passed pawn dynamics dominate
-        if config.enable_lazy_eval && !in_check && game_phase >= config.lazy_eval_min_game_phase {
+        // Skip Lazy Eval if disabled, if in check, or in deep endgame (game_phase < min_game_phase)
+        // where positional opposition & passed pawn dynamics dominate. Neither return can fire
+        // when both bounds are open, so `cheap_eval` is computed only when one of them is not.
+        if config.enable_lazy_eval && !in_check && game_phase >= config.lazy_eval_min_game_phase
+            && (alpha > i16::MIN + 2000 || beta < i16::MAX - 2000)
+        {
+            let cheap = self.cheap_eval(board, config, pawn_table);
             if alpha > i16::MIN + 2000 && cheap + margin <= alpha {
                 return cheap;
             }
@@ -237,24 +244,7 @@ impl EvalService {
         }
 
         // Add dynamic pawn scores (King proximity, attacks/defenses)
-        let mut dyn_mg = 0;
-        let mut dyn_eg = 0;
-        let mut temp_w = board.bitboards[crate::model::WHITE_PAWN];
-        while temp_w != 0 {
-            let sq = temp_w.trailing_zeros() as u8;
-            let (mg, eg) = self.white_pawn_dynamic_score(sq, board, config, white_passed_pawns);
-            dyn_mg += mg;
-            dyn_eg += eg;
-            temp_w &= temp_w - 1;
-        }
-        let mut temp_b = board.bitboards[crate::model::BLACK_PAWN];
-        while temp_b != 0 {
-            let sq = temp_b.trailing_zeros() as u8;
-            let (mg, eg) = self.black_pawn_dynamic_score(sq, board, config, black_passed_pawns);
-            dyn_mg += mg;
-            dyn_eg += eg;
-            temp_b &= temp_b - 1;
-        }
+        let (dyn_mg, dyn_eg) = Self::pawn_dynamic_scores(board, config, white_passed_pawns, black_passed_pawns);
 
         eval += self.calculate_weighted_eval(struct_mg + dyn_mg, struct_eg + dyn_eg, game_phase);
 
@@ -266,27 +256,10 @@ impl EvalService {
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
 
         if (board.bitboards[crate::model::WHITE_KNIGHT] | board.bitboards[crate::model::WHITE_BISHOP]) != 0 {
-            let supported_by_white = ((white_pawns << 9) & !0x0101010101010101u64) | ((white_pawns << 7) & !0x8080808080808080u64);
-            let mut white_candidates = supported_by_white & 0x0000FFFFFF000000u64;
-            while white_candidates != 0 {
-                let sq = white_candidates.trailing_zeros() as u8;
-                if self.is_true_outpost(sq, true, board) {
-                    white_true_outposts |= 1u64 << sq;
-                }
-                white_candidates &= white_candidates - 1;
-            }
+            white_true_outposts = Self::true_outposts(white_pawns, black_pawns, true);
         }
-
         if (board.bitboards[crate::model::BLACK_KNIGHT] | board.bitboards[crate::model::BLACK_BISHOP]) != 0 {
-            let supported_by_black = ((black_pawns >> 9) & !0x8080808080808080u64) | ((black_pawns >> 7) & !0x0101010101010101u64);
-            let mut black_candidates = supported_by_black & 0x000000FFFFFF0000u64;
-            while black_candidates != 0 {
-                let sq = black_candidates.trailing_zeros() as u8;
-                if self.is_true_outpost(sq, false, board) {
-                    black_true_outposts |= 1u64 << sq;
-                }
-                black_candidates &= black_candidates - 1;
-            }
+            black_true_outposts = Self::true_outposts(white_pawns, black_pawns, false);
         }
 
         let white_pawn_attacks = Self::get_white_pawn_attacks(white_pawns);
@@ -345,7 +318,8 @@ impl EvalService {
         let mut temp_w_king = board.bitboards[crate::model::WHITE_KING];
         while temp_w_king != 0 {
             let sq = temp_w_king.trailing_zeros() as u8;
-            let (eval_for_piece, _attackers, _danger) = self.white_king(sq, board, config, game_phase, movegen);
+            let (eval_for_piece, _attackers, _danger) = self.white_king(sq, board, config, game_phase, movegen,
+                count_both_kings || (in_check && board.white_to_move));
             if config.print_eval_per_figure { println!("{},\t15,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             temp_w_king &= temp_w_king - 1;
@@ -394,7 +368,8 @@ impl EvalService {
         let mut temp_b_king = board.bitboards[crate::model::BLACK_KING];
         while temp_b_king != 0 {
             let sq = temp_b_king.trailing_zeros() as u8;
-            let (eval_for_piece, _attackers, _danger) = self.black_king(sq, board, config, game_phase, movegen);
+            let (eval_for_piece, _attackers, _danger) = self.black_king(sq, board, config, game_phase, movegen,
+                count_both_kings || (in_check && !board.white_to_move));
             if config.print_eval_per_figure { println!("{},\t25,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             temp_b_king &= temp_b_king - 1;
@@ -559,7 +534,7 @@ impl EvalService {
         }
 
         if Self::is_opposite_colored_bishops_endgame(board) {
-            eval = (eval * config.opposite_bishops_draw_scale) / 100;
+            eval = Self::scale_opposite_bishops(eval, config);
         }
 
         eval = self.adjust_eval(eval, game_phase, config);
@@ -1063,8 +1038,12 @@ impl EvalService {
         // Threat Matrix: Knight attacks Queen
         let attacked_black_queens = (attacks & board.bitboards[crate::model::BLACK_QUEEN]).count_ones() as i16;
         o_eval += attacked_black_queens * config.threat_minor_attacks_queen;
-        for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_white {
-            let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
+        // Read from `config` at evaluation time. They were copied out of the defaults when the
+        // service was built, so `setoption` and the tuner could not move them.
+        for (target_bb_idx, bonus_simple, bonus_tempo) in [
+            (crate::model::BLACK_ROOK, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+            (crate::model::BLACK_BISHOP, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+        ] {
             let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
             o_eval += count * bonus_simple;
             if board.white_to_move {
@@ -1126,8 +1105,10 @@ impl EvalService {
         // Threat Matrix: Knight attacks Queen
         let attacked_white_queens = (attacks & board.bitboards[crate::model::WHITE_QUEEN]).count_ones() as i16;
         o_eval -= attacked_white_queens * config.threat_minor_attacks_queen;
-        for &(target_piece, bonus_simple, bonus_tempo) in &self.attack_bonus_black {
-            let target_bb_idx = Board::piece_to_bb_idx(target_piece as u8);
+        for (target_bb_idx, bonus_simple, bonus_tempo) in [
+            (crate::model::WHITE_ROOK, config.knight_attacks_rook, config.knight_attacks_rook_tempo),
+            (crate::model::WHITE_BISHOP, config.knight_attacks_bishop, config.knight_attacks_bishop_tempo),
+        ] {
             let count = (attacks & board.bitboards[target_bb_idx]).count_ones() as i16;
             o_eval -= count * bonus_simple;
             if !board.white_to_move {
@@ -1341,7 +1322,9 @@ impl EvalService {
         (eval, attackers, danger)
     }
  
-    fn white_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> (i16, u8, i16) {
+    /// `may_be_attacked` false is a promise that the White king is not in check, which spares
+    /// the attacker scan; see [`Self::calc_eval_known_check`].
+    fn white_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, may_be_attacked: bool) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1360,7 +1343,11 @@ impl EvalService {
             o_eval -= config.undeveloped_king_malus
         }
 
-        let in_check = movegen.get_attackers_mask(board, true, sq as u8, board.occupied).count_ones() as usize;
+        let in_check = if may_be_attacked {
+            movegen.get_attackers_mask(board, true, sq as u8, board.occupied).count_ones() as usize
+        } else {
+            0
+        };
         if in_check == 1 {
             o_eval -= config.king_in_check_malus;
             e_eval -= config.king_in_check_malus;
@@ -1421,7 +1408,8 @@ impl EvalService {
         (eval, 0, 0)
     }
 
-    fn black_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService) -> (i16, u8, i16) {
+    /// See [`Self::white_king`] for `may_be_attacked`.
+    fn black_king(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, may_be_attacked: bool) -> (i16, u8, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1440,7 +1428,11 @@ impl EvalService {
             o_eval += config.undeveloped_king_malus
         }
 
-        let in_check = movegen.get_attackers_mask(board, false, sq as u8, board.occupied).count_ones() as usize;
+        let in_check = if may_be_attacked {
+            movegen.get_attackers_mask(board, false, sq as u8, board.occupied).count_ones() as usize
+        } else {
+            0
+        };
         if in_check == 1 {
             o_eval += config.king_in_check_malus;
             e_eval += config.king_in_check_malus;
@@ -1547,6 +1539,114 @@ impl EvalService {
         eval        
     }
 
+    /// Squares on ranks 4 to 6 (White) or 3 to 5 (Black) that a friendly pawn defends and that no
+    /// enemy pawn can ever attack: no enemy pawn stands on an adjacent file in front of them. The
+    /// set an enemy pawn can ever attack is its attack span, its current attacks filled towards
+    /// its own back rank, so that one fill replaces the per-square scan over adjacent files.
+    #[inline(always)]
+    fn true_outposts(white_pawns: u64, black_pawns: u64, white: bool) -> u64 {
+        const FILE_A: u64 = 0x0101010101010101;
+        const FILE_H: u64 = 0x8080808080808080;
+        if white {
+            let supported = ((white_pawns << 9) & !FILE_A) | ((white_pawns << 7) & !FILE_H);
+            let mut span = Self::get_black_pawn_attacks(black_pawns);
+            span |= span >> 8;
+            span |= span >> 16;
+            span |= span >> 32;
+            supported & 0x0000FFFFFF000000u64 & !span
+        } else {
+            let supported = ((black_pawns >> 9) & !FILE_H) | ((black_pawns >> 7) & !FILE_A);
+            let mut span = Self::get_white_pawn_attacks(white_pawns);
+            span |= span << 8;
+            span |= span << 16;
+            span |= span << 32;
+            supported & 0x000000FFFFFF0000u64 & !span
+        }
+    }
+
+    /// The dynamic pawn terms of both sides as `(mg, eg)`: pawns defending a knight outpost or a
+    /// bishop, pawns attacking a piece, the king distance of passed pawns and the pawn storm.
+    ///
+    /// Every term but the king distance is the same constant for each pawn that qualifies, so it
+    /// is a population count over a set instead of a call per pawn; `i16` addition wraps the same
+    /// way in either order, which keeps the sums identical to the per-pawn form.
+    fn pawn_dynamic_scores(board: &Board, config: &Config, white_passed: u64, black_passed: u64) -> (i16, i16) {
+        use crate::model::{WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, WHITE_KING,
+            BLACK_PAWN, BLACK_KNIGHT, BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN, BLACK_KING};
+        const FILE_A: u64 = 0x0101010101010101;
+        const FILE_H: u64 = 0x8080808080808080;
+        let bb = &board.bitboards;
+        let wp = bb[WHITE_PAWN];
+        let bp = bb[BLACK_PAWN];
+        let mut mg: i16 = 0;
+        let mut eg: i16 = 0;
+
+        // A pawn on rank 3 to 5 with a friendly knight diagonally in front of it.
+        let w_knights = (((bb[WHITE_KNIGHT] >> 7) & !FILE_A) | ((bb[WHITE_KNIGHT] >> 9) & !FILE_H))
+            & wp & 0x000000FFFFFF0000u64;
+        let b_knights = (((bb[BLACK_KNIGHT] << 9) & !FILE_A) | ((bb[BLACK_KNIGHT] << 7) & !FILE_H))
+            & bp & 0x0000FFFFFF000000u64;
+        mg += (w_knights.count_ones() as i16 - b_knights.count_ones() as i16) * config.pawn_supports_knight_outpost;
+
+        // A pawn with a friendly bishop diagonally in front of it.
+        let w_bishops = (((bb[WHITE_BISHOP] >> 9) & !FILE_H) | ((bb[WHITE_BISHOP] >> 7) & !FILE_A)) & wp;
+        let b_bishops = (((bb[BLACK_BISHOP] << 9) & !FILE_A) | ((bb[BLACK_BISHOP] << 7) & !FILE_H)) & bp;
+        eg += (w_bishops.count_ones() as i16 - b_bishops.count_ones() as i16) * config.pawn_defends_bishop;
+
+        // A pawn attacking an enemy piece other than a pawn, the king included.
+        let black_pieces = bb[BLACK_ROOK] | bb[BLACK_KNIGHT] | bb[BLACK_BISHOP] | bb[BLACK_QUEEN] | bb[BLACK_KING];
+        let white_pieces = bb[WHITE_ROOK] | bb[WHITE_KNIGHT] | bb[WHITE_BISHOP] | bb[WHITE_QUEEN] | bb[WHITE_KING];
+        let w_attacks = ((((black_pieces >> 9) & !FILE_H) | ((black_pieces >> 7) & !FILE_A)) & wp).count_ones() as i16;
+        let b_attacks = ((((white_pieces << 9) & !FILE_A) | ((white_pieces << 7) & !FILE_H)) & bp).count_ones() as i16;
+        let tempo = config.pawn_attacks_opponent_fig_with_tempo;
+        mg += w_attacks * (config.pawn_attacks_opponent_fig + if board.white_to_move { tempo } else { 0 });
+        mg -= b_attacks * (config.pawn_attacks_opponent_fig + if !board.white_to_move { tempo } else { 0 });
+        eg += (w_attacks - b_attacks) * (config.pawn_attacks_opponent_fig / 2);
+
+        // The king distance of each passed pawn.
+        let white_king_sq = bb[WHITE_KING].trailing_zeros() as u8;
+        let black_king_sq = bb[BLACK_KING].trailing_zeros() as u8;
+        let mut passers = white_passed & wp;
+        while passers != 0 {
+            let sq = passers.trailing_zeros() as u8;
+            eg += Self::king_passer_proximity_score(sq, true, white_king_sq, black_king_sq, config);
+            passers &= passers - 1;
+        }
+        let mut passers = black_passed & bp;
+        while passers != 0 {
+            let sq = passers.trailing_zeros() as u8;
+            eg -= Self::king_passer_proximity_score(sq, false, white_king_sq, black_king_sq, config);
+            passers &= passers - 1;
+        }
+
+        // The pawn storm on the wing of an enemy king that stands on its own back two ranks: a
+        // pawn on that wing (files a to c, or f to h) gains with every rank it has advanced.
+        const WING_QUEEN: u64 = 0x0707070707070707;
+        const WING_KING: u64 = 0xE0E0E0E0E0E0E0E0;
+        let (bk_file, bk_rank) = ((black_king_sq % 8) as i32, (black_king_sq / 8) as i32);
+        if bk_rank >= 5 {
+            let wing = if bk_file >= 5 { WING_KING } else if bk_file <= 2 { WING_QUEEN } else { 0 };
+            let mut storm = wp & wing & 0xFFFFFFFFFF000000u64;
+            while storm != 0 {
+                let rank = (storm.trailing_zeros() / 8) as i32;
+                mg += config.pawn_storm_bonus * (rank - 2) as i16;
+                storm &= storm - 1;
+            }
+        }
+        let (wk_file, wk_rank) = ((white_king_sq % 8) as i32, (white_king_sq / 8) as i32);
+        if wk_rank <= 2 {
+            let wing = if wk_file >= 5 { WING_KING } else if wk_file <= 2 { WING_QUEEN } else { 0 };
+            let mut storm = bp & wing & 0x000000FFFFFFFFFFu64;
+            while storm != 0 {
+                let rank = (storm.trailing_zeros() / 8) as i32;
+                mg -= config.pawn_storm_bonus * (5 - rank) as i16;
+                storm &= storm - 1;
+            }
+        }
+
+        (mg, eg)
+    }
+
     #[inline(always)]
     pub fn get_white_pawn_attacks(white_pawns: u64) -> u64 {
         ((white_pawns & !0x0101010101010101u64) << 7) | ((white_pawns & !0x8080808080808080u64) << 9)
@@ -1598,6 +1698,9 @@ impl EvalService {
         KING_RING_MASKS[king_sq as usize]
     }
 
+    /// The per-square form of [`Self::true_outposts`], kept as the reference its tests compare
+    /// against.
+    #[cfg(test)]
     fn is_true_outpost(&self, sq: u8, is_white: bool, board: &Board) -> bool {
         let file = (sq % 8) as i32;
         let rank = (sq / 8) as i32;
@@ -1900,6 +2003,9 @@ impl EvalService {
     }
 
 
+    /// The per-pawn form of [`Self::pawn_dynamic_scores`], kept as the reference its tests
+    /// compare against.
+    #[cfg(test)]
     fn white_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
@@ -1963,6 +2069,8 @@ impl EvalService {
         (o_eval, e_eval)
     }
 
+    /// See [`Self::white_pawn_dynamic_score`].
+    #[cfg(test)]
     fn black_pawn_dynamic_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
         let mut o_eval = 0;
         let mut e_eval = 0;
@@ -2227,8 +2335,7 @@ mod tests {
 
     fn equal_eval(fen: &str) {
         let fen_service = Service::new().fen;
-        let mut eval_service = Service::new().eval;
-        eval_service._set_custom_config(&Config::_for_evel_equal_tests());
+        let eval_service = Service::new().eval;
         let movegen = Service::new().move_gen;
 
         let config = &Config::_for_evel_equal_tests();
@@ -2947,11 +3054,11 @@ mod tests {
 
         // Position A: White King on e1 with open e-file facing Black Rook on e8 (heavy piece threat)
         let board_threat = fen_service.set_fen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1");
-        let (eval_threat, _, _) = eval_service.white_king(4, &board_threat, &config, 150, movegen);
+        let (eval_threat, _, _) = eval_service.white_king(4, &board_threat, &config, 150, movegen, true);
 
         // Position B: White King on e1 with open e-file facing Black Knight on e8 (no heavy piece on file)
         let board_no_threat = fen_service.set_fen("4n2k/8/8/8/8/8/8/4K3 w - - 0 1");
-        let (eval_no_threat, _, _) = eval_service.white_king(4, &board_no_threat, &config, 150, movegen);
+        let (eval_no_threat, _, _) = eval_service.white_king(4, &board_no_threat, &config, 150, movegen, true);
 
         assert!(
             eval_threat < eval_no_threat,
@@ -3243,5 +3350,161 @@ mod tests {
             eval_of(fen, &config, i16::MIN, i16::MAX),
             -eval_of(&mirrored, &config, i16::MIN, i16::MAX),
             "an enemy pawn on the candidate's own rank must not count as being in front of it");
+    }
+
+    /// Every position of `games` random legal games of up to `plies` plies, from a fixed seed so
+    /// that a failure reproduces.
+    fn random_positions(games: usize, plies: usize, seed: u64) -> Vec<crate::model::Board> {
+        let service = Service::new();
+        let config = Config::for_tests();
+        let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
+        let stop_flag = std::sync::atomic::AtomicBool::new(false);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 0,
+        };
+        let mut state = seed;
+        let mut positions = Vec::new();
+        for _ in 0..games {
+            let mut board = service.fen.set_init_board();
+            for _ in 0..plies {
+                let mut moves = crate::model::MoveList::new();
+                service.move_gen.generate_valid_moves_list(
+                    &mut board, &mut crate::model::Stats::new(), &config, &context, false, &mut moves);
+                if moves.is_empty() {
+                    break;
+                }
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let mv = moves.moves[(state % moves.len as u64) as usize];
+                board.do_move(&mv);
+                positions.push(board.clone());
+            }
+        }
+        positions
+    }
+
+    #[test]
+    fn test_the_set_wise_pawn_terms_equal_the_per_pawn_form() {
+        // `pawn_dynamic_scores` and `true_outposts` replace a call per pawn and a scan per square.
+        // They are only an optimisation if they agree with that form everywhere, which is checked
+        // here against the per-pawn and per-square originals over random games.
+        use crate::model::{WHITE_PAWN, BLACK_PAWN};
+        let service = Service::new();
+        let eval = &service.eval;
+        let config = Config::new();
+        let positions = random_positions(60, 160, 0x9E37_79B9_7F4A_7C15);
+        assert!(positions.len() > 5000, "only {} positions", positions.len());
+        for board in &positions {
+            let white_pawns = board.bitboards[WHITE_PAWN];
+            let black_pawns = board.bitboards[BLACK_PAWN];
+            let mut white_passed = 0u64;
+            let mut black_passed = 0u64;
+            let (mut mg, mut eg) = (0i16, 0i16);
+            for sq in 0..64u8 {
+                if white_pawns & (1u64 << sq) != 0 && eval.is_white_passed_pawn(sq, board) {
+                    white_passed |= 1u64 << sq;
+                }
+                if black_pawns & (1u64 << sq) != 0 && eval.is_black_passed_pawn(sq, board) {
+                    black_passed |= 1u64 << sq;
+                }
+            }
+            for sq in 0..64u8 {
+                if white_pawns & (1u64 << sq) != 0 {
+                    let (m, e) = eval.white_pawn_dynamic_score(sq, board, &config, white_passed);
+                    mg += m;
+                    eg += e;
+                }
+                if black_pawns & (1u64 << sq) != 0 {
+                    let (m, e) = eval.black_pawn_dynamic_score(sq, board, &config, black_passed);
+                    mg += m;
+                    eg += e;
+                }
+            }
+            let fen = service.fen.get_fen(board);
+            assert_eq!(super::EvalService::pawn_dynamic_scores(board, &config, white_passed, black_passed),
+                (mg, eg), "dynamic pawn terms differ in {fen}");
+
+            for white in [true, false] {
+                let mut reference = 0u64;
+                for sq in 0..64u8 {
+                    if eval.is_true_outpost(sq, white, board) {
+                        reference |= 1u64 << sq;
+                    }
+                }
+                assert_eq!(super::EvalService::true_outposts(white_pawns, black_pawns, white), reference,
+                    "outposts for {} differ in {fen}", if white { "White" } else { "Black" });
+            }
+        }
+    }
+
+    #[test]
+    fn test_the_known_check_evaluation_equals_the_reference() {
+        // The search tells the evaluation whether the side to move is in check instead of having it
+        // test, and skips `cheap_eval` where no lazy return is possible. Over random positions,
+        // in check and not, and over open and narrow windows, the value must be the reference's.
+        // Each call gets an empty pawn table, so neither reads what the other stored.
+        let service = Service::new();
+        let config = Config::new();
+        let positions = random_positions(30, 160, 0xD1B5_4A32_D192_ED03);
+        let windows = [(i16::MIN, i16::MAX), (-40, 40), (150, 151), (-400, -399), (900, 901)];
+        let mut in_check_seen = 0;
+        for board in &positions {
+            let in_check = service.move_gen.is_in_check(board);
+            in_check_seen += in_check as usize;
+            for (alpha, beta) in windows {
+                for margin in [120, 180] {
+                    let reference = service.eval.calc_eval(board, &config, &service.move_gen,
+                        &crate::pawn_hash::PawnHashTable::new(16), alpha, beta, margin);
+                    let known = service.eval.calc_eval_known_check(board, &config, &service.move_gen,
+                        &crate::pawn_hash::PawnHashTable::new(16), alpha, beta, margin, in_check);
+                    assert_eq!(known, reference, "{} at ({alpha}, {beta}) margin {margin}",
+                        service.fen.get_fen(board));
+                }
+            }
+        }
+        assert!(in_check_seen > 50, "the corpus must contain positions in check, saw {in_check_seen}");
+    }
+
+    #[test]
+    fn test_opposite_bishops_scaling_keeps_the_sign_of_a_winning_evaluation() {
+        // Four connected passed pawns against a bishop of the other colour. The draw scale was
+        // multiplied in `i16`, which wraps above 642 centipawns at the default of 51 and turned
+        // this evaluation negative for White.
+        let service = Service::new();
+        let config = Config::new();
+        let board = service.fen.set_fen("4k3/8/8/PPPP4/8/8/3B4/4K2b w - - 0 1");
+        let eval = service.eval.calc_eval(&board, &config, &service.move_gen,
+            &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
+        assert!(eval > 300, "White is winning, got {eval}");
+    }
+
+    #[test]
+    fn test_the_knight_attack_bonuses_follow_the_configuration() {
+        // The four knight-attack parameters were copied out of the defaults when the evaluation was
+        // built, so `setoption` and the tuner changed a `Config` field that nothing read.
+        let service = Service::new();
+        let board = service.fen.set_fen("8/1k6/4r3/8/5N2/1K6/8/8 w - - 0 1");
+        let eval_with = |shape: &dyn Fn(&mut Config)| {
+            let mut config = Config::new();
+            shape(&mut config);
+            service.eval.calc_eval(&board, &config, &service.move_gen,
+                &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180)
+        };
+        let default = eval_with(&|_| {});
+        let bigger = eval_with(&|c| c.knight_attacks_rook += 200);
+        assert!(bigger > default, "KnightAttacksRook must reach the evaluation: {default} -> {bigger}");
     }
 }
