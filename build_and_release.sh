@@ -16,6 +16,16 @@ echo -e "${CYAN}================================================================
 echo -e "${CYAN}             SUPRAH AUTOMATED BUILD & RELEASE PIPELINE          ${NC}"
 echo -e "${CYAN}================================================================${NC}"
 
+# The Matt-Magie directory is a sibling of the repository on some hosts and elsewhere on others.
+# Override with MM_DIR when it is not. See the path policy in AGENTS.md. Checked before anything is
+# touched: a wrong guess would otherwise deploy the release into a directory nothing reads.
+MM_ROOT="${MM_DIR:-../matt-magie}"
+if [ ! -f "$MM_ROOT/mm.sh" ]; then
+    echo -e "\n${RED}Error: '$MM_ROOT' is not a Matt-Magie directory (no mm.sh). Set MM_DIR.${NC}"
+    exit 1
+fi
+TARGET_DIR="$MM_ROOT/engines"
+
 # Step 1: Run all tests
 echo -e "\n${YELLOW}[1/6] Running tests...${NC}"
 cargo test
@@ -118,27 +128,17 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}Success: Release binary compiled successfully!${NC}"
 
-# Step 5: Copy to Matt-Magie engines folder
+# Step 5: Copy to Matt-Magie engines folder. The network is not deployed: HCE builds load none,
+# NNUE builds embed it, and the old NNUE builds that read a file read it from their working
+# directory, which is the Matt-Magie root and not its engines folder.
 echo -e "\n${YELLOW}[5/6] Deploying release to Matt-Magie engines directory...${NC}"
-# The Matt-Magie directory is a sibling of the repository on some hosts and elsewhere on others.
-# Override with MM_DIR when it is not. See the path policy in AGENTS.md.
-TARGET_DIR="${MM_DIR:-../matt-magie}/engines"
 mkdir -p "$TARGET_DIR"
 
 COPY_TARGET="$TARGET_DIR/suprah-$NEW_VERSION"
-cp "target/release/suprah" "$COPY_TARGET"
-chmod +x "$COPY_TARGET"
-
-if [ $? -eq 0 ]; then
+if cp "target/release/suprah" "$COPY_TARGET" && chmod +x "$COPY_TARGET"; then
     # Clean up backups since build and deploy succeeded
     rm -f Cargo.toml.bak CHANGELOG.md.bak
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
-    
-    if [ -d "eval_models" ]; then
-        mkdir -p "$TARGET_DIR/eval_models"
-        cp -r eval_models/* "$TARGET_DIR/eval_models/"
-        echo -e "${GREEN}Success: Deployed eval_models to $TARGET_DIR/eval_models!${NC}"
-    fi
 
     # Step 6: Remote ARM Server Compilation & Deployment
     if [ -z "$EODSERVERIP" ]; then
