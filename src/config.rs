@@ -372,7 +372,9 @@ impl Config {
             cache_book_in_ram: true,
             book_file: String::new(),
             book_max_ply: 0,
-            max_zobrist_hash_entries: 50_000_000, // 800 MB
+            // 128 MB, the advertised `Hash` default. It was 50,000,000 entries, 800 MB written
+            // before `uciok` on every start and replaced as soon as a GUI sent `Hash`.
+            max_zobrist_hash_entries: 8_388_608,
             max_pawn_hash_entries: 1_000_000, // 16 MB: Proven +30 Elo sweet spot (avoids CPU L3 & TLB thrashing)
             search_depth: 4, // only used as default for tests
             max_depth: 99,
@@ -1023,7 +1025,7 @@ mod tests {
         let config = Config::new();
         assert_eq!(config.aggressiveness, Aggressiveness::Normal);
         assert_eq!(config.max_pawn_hash_entries, 1_000_000);
-        assert_eq!(config.max_zobrist_hash_entries, 50_000_000);
+        assert_eq!(config.max_zobrist_hash_entries * 16, 128 * 1024 * 1024);
         assert!(!config.use_nnue);
         assert_eq!(config.lmr_divisor, 185);
         assert_eq!(config.lmr_move_threshold, 3);
@@ -1041,6 +1043,36 @@ mod tests {
         assert_eq!(config.check_extension_min_depth, 0);
         assert_eq!(config.check_extension_max_depth, 0);
         assert!(!config.enable_one_reply_extension);
+    }
+
+    #[test]
+    fn test_every_tuned_parameter_starts_at_its_shipped_default() {
+        // The tuner starts from `tuning/parameters.json` and sends every registered value in every
+        // game, active or not. A value that drifted from `Config::new()` therefore tunes against an
+        // evaluation the engine does not ship - the mobility factors sat at 2/1/1 against 3/3/2.
+        // Applying each registered value to the defaults must change nothing, and must reach a
+        // field.
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tuning/parameters.json"))
+            .expect("tuning/parameters.json");
+        let defaults = Config::new();
+        let mut name: Option<String> = None;
+        let mut checked = 0;
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('"') && line.ends_with('{') {
+                name = line.trim_start_matches('"').split('"').next().map(str::to_string);
+            } else if let Some(value) = line.strip_prefix("\"value\":") {
+                let value = value.trim().trim_end_matches(',');
+                let name = name.as_deref().expect("a value belongs to a parameter");
+                let mut config = Config::new();
+                assert_ne!(config.apply_uci_option(name, value), UciOptionEffect::Unknown,
+                    "{name} is registered for tuning but not a UCI option");
+                assert!(config == defaults,
+                    "{name}: tuning/parameters.json registers {value}, which is not the shipped default");
+                checked += 1;
+            }
+        }
+        assert!(checked > 50, "only {checked} parameters were read");
     }
 }
 /// What the caller must do after a `setoption` beyond storing the value.
@@ -1158,7 +1190,9 @@ impl Config {
             "threatrookattacksqueen" => if let Ok(v) = value.parse::<i16>() { self.threat_rook_attacks_queen = v; },
             "logpath" => { self.log_path = std::sync::Arc::from(value.as_str()); },
             "bookfile" => {
-                self.book_file = value.to_string();
+                // `<empty>` is how UCI spells the empty string, and the advertised default: a GUI
+                // that echoes it back must get the embedded book, not a file called `<empty>`.
+                self.book_file = if value == "<empty>" { String::new() } else { value.to_string() };
                 return UciOptionEffect::BookFileChanged;
             },
             "bookmaxply" => if let Ok(v) = value.parse::<i32>() { self.book_max_ply = v; },

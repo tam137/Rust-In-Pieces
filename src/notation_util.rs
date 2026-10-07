@@ -1,5 +1,4 @@
 use crate::model::Turn;
-use regex::Regex;
 
 pub struct NotationUtil;
 
@@ -21,10 +20,23 @@ impl NotationUtil {
         (row * 8) + col
     }
 
+    /// `^[a-h][1-8][a-h][1-8][qkbnr]?$`, checked byte by byte. A regular expression compiled per
+    /// call cost about 25 microseconds for every move of every `position ... moves` list, after the
+    /// match manager's clock had started and before the engine's own: up to 5 ms per move late in
+    /// a game, invisible to the time management.
+    pub fn is_long_algebraic(notation_move: &str) -> bool {
+        let b = notation_move.as_bytes();
+        (b.len() == 4 || b.len() == 5)
+            && (b'a'..=b'h').contains(&b[0])
+            && (b'1'..=b'8').contains(&b[1])
+            && (b'a'..=b'h').contains(&b[2])
+            && (b'1'..=b'8').contains(&b[3])
+            && (b.len() == 4 || b"qkbnr".contains(&b[4]))
+    }
+
     /// Converts a notation move (like "e2e4") to a `Turn` object.
     pub fn get_turn_from_notation(notation_move: &str) -> Turn {
-        let valid_move_regex = Regex::new(r"^[a-h][1-8][a-h][1-8][qkbnr]?$").unwrap();
-        if !valid_move_regex.is_match(notation_move) {
+        if !Self::is_long_algebraic(notation_move) {
             panic!("RIP Invalid chess move notation: Must be in standard algebraic format. But: '{}'", notation_move);
         }
 
@@ -181,5 +193,17 @@ mod tests {
     #[should_panic(expected = "Invalid chess move notation: Must be in standard algebraic format. But: 'g1=Q+'")]
     fn test_invalid_notation_hash() {
         NotationUtil::get_turn_from_notation("g1=Q+");
+    }
+
+    #[test]
+    fn test_long_algebraic_validation_is_the_old_pattern() {
+        // The cases the replaced `^[a-h][1-8][a-h][1-8][qkbnr]?$` accepted and rejected.
+        for valid in ["e2e4", "a1h8", "h7h8q", "a2a1n", "b7b8r", "g2g1b", "e7e8k"] {
+            assert!(NotationUtil::is_long_algebraic(valid), "{valid} must be accepted");
+        }
+        for invalid in ["", "e2e", "e2e4e", "e2e4Q", "i2e4", "e0e4", "e2e9", "0000", "e2-e4",
+                        "e2e4 ", " e2e4", "e2e4q1", "E2E4"] {
+            assert!(!NotationUtil::is_long_algebraic(invalid), "{invalid:?} must be rejected");
+        }
     }
 }
