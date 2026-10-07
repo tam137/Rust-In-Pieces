@@ -172,6 +172,90 @@ class Bucketing(unittest.TestCase):
         self.assertEqual(sprt.bucket([0.5] * 7 + [1.0] * 3), [0, 0, 7, 0, 3])
 
 
+class ResolveEngineNames(unittest.TestCase):
+    def setUp(self):
+        self.path = write_pgn([
+            ("Rust-In-Pieces V0.45.1", "Rust-In-Pieces V0.45.1-rc", "1-0"),
+            ("Rust-In-Pieces V0.45.1-rc", "Rust-In-Pieces V0.45.1", "0-1"),
+        ], 2)
+
+    def tearDown(self):
+        os.unlink(self.path)
+
+    def test_the_last_token_of_an_id_name_is_an_exact_match(self):
+        # "V0.45.1" is a substring of both names; only one of them ends in it.
+        self.assertEqual(sprt.resolve_engine_names([self.path], ["V0.45.1-rc", "V0.45.1"]),
+                         ["Rust-In-Pieces V0.45.1-rc", "Rust-In-Pieces V0.45.1"])
+
+    def test_an_engine_that_has_not_played_yet_is_undecided_not_rejected(self):
+        with self.assertRaises(sprt.Undecided):
+            sprt.resolve_engine_names([self.path], ["V0.45.1", "V0.44.0"])
+
+    def test_an_ambiguous_substring_is_an_error(self):
+        with self.assertRaises(sprt.UsageError):
+            sprt.resolve_engine_names([self.path], ["V0.45", "rc"])
+
+
+class ExitCodes(unittest.TestCase):
+    """0 and 1 are verdicts and a watchdog stops on them; nothing else may produce them."""
+
+    def setUp(self):
+        self.paths = []
+        self.argv = sys.argv
+
+    def tearDown(self):
+        sys.argv = self.argv
+        for path in self.paths:
+            os.unlink(path)
+
+    def _run(self, *args):
+        sys.argv = ["sprt.py"] + list(args)
+        with open(os.devnull, "w") as sink:
+            stdout, stderr = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = sink
+            try:
+                return sprt.run()
+            finally:
+                sys.stdout, sys.stderr = stdout, stderr
+
+    def _pgn(self, games, total):
+        path = write_pgn(games, total)
+        self.paths.append(path)
+        return path
+
+    def test_an_empty_pgn_is_undecided(self):
+        path = self._pgn([], 2)
+        self.assertEqual(self._run(path, "--engines", "A", "B"), 2)
+
+    def test_a_pairing_without_a_complete_pair_is_undecided(self):
+        path = self._pgn([("A", "B", "1-0")], 2)
+        self.assertEqual(self._run(path, "--engines", "A", "B"), 2)
+
+    def test_a_missing_pgn_is_an_error(self):
+        self.assertEqual(self._run("/nonexistent/x.pgn", "--engines", "A", "B"), 3)
+
+    def test_swapped_hypotheses_are_an_error(self):
+        path = self._pgn([("A", "B", "1-0"), ("B", "A", "0-1")], 2)
+        self.assertEqual(
+            self._run(path, "--engines", "A", "B", "--elo0", "10", "--elo1", "0"), 3)
+
+    def test_a_mistyped_option_is_an_error_and_not_undecided(self):
+        path = self._pgn([("A", "B", "1-0"), ("B", "A", "0-1")], 2)
+        self.assertEqual(self._run(path, "--engines", "A", "B", "--elo-1", "5"), 3)
+
+    def test_a_decisive_record_still_returns_its_verdict(self):
+        # A spread of outcomes: a record where every pair lands in one category is degenerate,
+        # no distribution can be fitted to it, and the test rightly stays undecided.
+        games = []
+        for _ in range(40):
+            games += [("A", "B", "1-0"), ("B", "A", "0-1")] * 7
+            games += [("A", "B", "1/2-1/2"), ("B", "A", "1/2-1/2")] * 2
+            games += [("A", "B", "0-1"), ("B", "A", "1-0")]
+        path = self._pgn(games, len(games))
+        self.assertEqual(self._run(path, "--engines", "A", "B"), 0)
+        self.assertEqual(self._run(path, "--engines", "B", "A"), 1)
+
+
 class Verdict(unittest.TestCase):
     def setUp(self):
         self.lower = math.log(0.05 / 0.95)
