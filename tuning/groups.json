@@ -87,9 +87,7 @@
         "singular_depth_reduction"
     ],
     "search_and_ordering": [
-        "is_hashed_rank_bonus",
         "give_check_rank_bonus",
-        "is_pv_node_rank_bonus",
         "your_turn_bonus",
         "lmr_move_threshold",
         "lmr_divisor",
@@ -109,9 +107,7 @@
         "singular_depth_reduction"
     ],
     "all": [
-        "is_hashed_rank_bonus",
         "give_check_rank_bonus",
-        "is_pv_node_rank_bonus",
         "your_turn_bonus",
         "undeveloped_knight_malus",
         "undeveloped_bishop_malus",
@@ -203,4 +199,3 @@
         "singular_depth_reduction"
     ]
 }
-
