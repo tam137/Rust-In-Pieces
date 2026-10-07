@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.4] - 2026-10-08
+
+Time lost outside the search, start-up cost and robustness from the source review. Identical to
+v0.45.3 on 300 of 300 pool positions at depth 10, scores included; +0.9% to depth, +0.7% on the
+throughput corpus. No Elo is claimed (`task.md` rule 5).
+
+### Changed
+- UCI moves are validated byte by byte. A regular expression compiled for every move of every
+  `position ... moves` list cost about 25 microseconds per ply after the match manager's clock had
+  started and before the engine's own, up to 5 ms per move late in a game. `regex` is gone from
+  the dependencies.
+- The knight, king and ray tables are built at compile time instead of behind `once_cell::Lazy`.
+- **New default table size 128 MB**, the advertised `Hash` default; it was 50,000,000 entries,
+  800 MB written before `uciok`. Start-up 369 to 267 ms, peak memory 788 to 152 MB. Matches set
+  `Hash` and are unaffected. The advertised default is now derived from `Config`.
+- `tuning/parameters.json` registers the shipped mobility factors 3/3/2 instead of 2/1/1, and no
+  longer tunes the two rank bonuses nothing reads; a test pins every registered value to its
+  default.
+
+### Fixed
+- A `position ... moves` list ending on a threefold left the root flagged as drawn, and the engine
+  answered `bestmove 0000`.
+- A book move is played only if it is legal and does not complete a threefold; the embedded book
+  repeats the Najdorf Poisoned Pawn line into one.
+- `setoption name BookFile value <empty>`, the advertised default, selects the embedded book
+  instead of making the engine exit.
+
+### Notes
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 53.0% against v0.45.3, 50.5% against
+  v0.45.2, 72.0% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.3] - 2026-10-08
 
 Tree-identical evaluation speed and one overflow from the source review. Identical to v0.45.2 on
