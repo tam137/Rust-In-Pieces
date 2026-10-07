@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.3] - 2026-10-08
+
+Tree-identical evaluation speed and one overflow from the source review. Identical to v0.45.2 on
+300 of 300 positions of both pools at depth 10, scores included, in **10.4% and 10.2% less time**;
+**+9.5%** on the throughput corpus. No Elo is claimed (`task.md` rule 5).
+
+### Changed
+- The search tells the evaluation whether the side to move is in check
+  (`calc_eval_known_check`); the check test and the attacker scans of both kings, which never fire
+  outside the ply ceiling, are gone from every leaf. `calc_eval` keeps the reference behaviour.
+- `cheap_eval` is computed only where a lazy return is possible.
+- The dynamic pawn terms and the true outposts are computed set-wise; the per-pawn and per-square
+  forms stay as the test reference they are checked against over random games.
+
+### Fixed
+- **The opposite-coloured-bishop draw scale overflowed `i16`** above 642 centipawns at the default
+  51 and flipped the sign of a winning ending; it is computed in `i32`.
+- `KnightAttacksRook`, `KnightAttacksBishop` and their tempo variants were copied out of the
+  defaults when the evaluation was built, so `setoption` and the tuner changed nothing. They are
+  read from the configuration; play at the defaults is unchanged.
+
+### Notes
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 51.5% against v0.45.2, 58.0% against
+  v0.45.1, 73.0% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.2] - 2026-10-08
 
 Tree-identical speed and two rare-path defects from the source review of 2026-10-07. The search
