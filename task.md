@@ -18,29 +18,26 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
-| Blocked on | nothing. The host is busy until 23.4's run finishes, which is what section 21 waits for |
+| Blocked on | nothing. 23.4's run finished on 2026-09-12 (recorded 2026-10-07, section 23.4); a full source review of `master` is in progress since 2026-10-07 and holds the host |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 
 ### The next action
 
-Two items are in flight at once, 2026-09-11.
+**A full source review of `master` runs since 2026-10-07** and holds the host until it is
+finished. Everything it ships is shown either tree-identical or not weaker in games, and its
+findings are recorded with the releases they produce.
 
-**23.4, the `lmr_history_good_threshold`, is being priced right now.** The census found the
-rebate branch firing on **0.06%** of all Late Move Reduction decisions — the half of the rule that
-spares promising quiet moves has never run — and nothing in the table above `+2^13` to justify the
-4000 it was set to. It is 0 since `3d61a85`, which makes the rule the sign of the history entry
-and fires it on 10.19%. The smoke gauntlet cleared the gate (49.5% against v0.45.0, 53.0% against
-v0.44.0, a gate and not a measurement) and the 6000-game fixed-N run against v0.45.0 at 1s + 150ms
-is the number that decides it. Against it: the tree is **21.1% and 18.3%** larger and **12.8% and
-17.5%** slower to fixed depth 10, and the wall-time column is new — 23.3 won with a bigger tree,
-but not with a slower one.
+**23.4, the `lmr_history_good_threshold`, is closed: kept, null.** The 6000-game fixed-N run of
+`3d61a85` against v0.45.0 at 1s + 150ms finished on 2026-09-12 and reads **+2.7 Elo, 95%
+[-4, +9]** — not a gain, and not a loss. The threshold stays 0 and ships with the next release.
+See 23.4.
 
 **Backlog item 4, section 21, is built and unmeasured** on branch `feature/improving-stack`
 (`4586d2c`): the per-ply static-eval stack, and the Late Move Pruning growth term replaced by
 `depth^2` halved when the side to move is not improving, with `lmp_max_depth` opened to 8. Its
-tree measurement, its census and its gauntlet all need the host to itself and are waiting for
-23.4's run to finish.
+tree measurement, its census and its gauntlet all need the host to itself and wait for the
+review; the branch will have to be rebased onto whatever the review ships.
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -120,7 +117,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
-| ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **in flight**: built and gated, the 6000-game run is what closes it, section 23.4 |
+| ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
 | `spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters | defect in the tuner, **measured by reading it** 2026-09-11, blocks 23.4's tuning group |
 | The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20 |
@@ -345,7 +342,7 @@ fourth is below.
 
 ### 23.4 `lmr_history_good_threshold` has never fired, and the curves are still untuned
 
-`[In flight, 2026-09-11]` — the threshold is being priced now; the curves are not.
+`[Threshold closed 2026-10-07: kept at 0, +2.7 Elo, 95% [-4, +9]]` — the curves are still untuned.
 
 **The threshold was 4000 on a scale that ends at 8192.** 23.3 left this as a measured defect, not
 a proposal: the "reduce promising quiet moves less" half of the Late Move Reduction fired on
@@ -380,6 +377,13 @@ better aimed.
 against v0.45.0 and 53.0% against v0.44.0, no losses on time, no duplicates — a gate, not a
 measurement. Then 6000 fixed-N games against v0.45.0 at 1s + 150ms, concurrency 5, the count fixed
 in advance, read with `pairing_elo.py` and `match_health.py`.
+
+**What it measured.** The run finished on 2026-09-12 and was read on 2026-10-07: **+2.7 Elo, 95%
+[-4, +9]** for `good = 0` over 3000 pairs, pair outcomes from the candidate's side 2-0: 208,
+1.5-0.5: 749, 1-1: 1142, 0.5-1.5: 683, 0-2: 218; no losses on time, White 60.35%, design effect
+1.05. A null: the 12.8% to 17.5% wall-time cost at fixed depth did not show up as a loss, and the
+rebate did not show up as a gain. **The threshold stays 0** — it is the shipped default of the
+next release, not worse than 4000 and free of the constant.
 
 **What could go wrong.** An entry goes positive after a single bonus — `depth * depth` at depth 4
 is 16, inside the bucket carrying most of the positive mass — so "positive" means "rewarded once
