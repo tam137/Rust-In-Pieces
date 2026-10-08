@@ -1267,6 +1267,10 @@ pub struct SearchResult {
     pub is_pv_search_result: bool,
     pub best_score: i16,
     pub second_best_score: i16,
+    /// The aspiration window the pass that produced this result started with, on the absolute,
+    /// White-positive scale. A root score outside it is a bound, not a value.
+    pub window_alpha: i16,
+    pub window_beta: i16,
 }
 
 #[derive(Debug, Clone)]
@@ -1288,6 +1292,8 @@ impl SearchResult {
             is_pv_search_result: false,
             best_score: 0,
             second_best_score: 0,
+            window_alpha: i16::MIN,
+            window_beta: i16::MAX,
         }
     }
 
