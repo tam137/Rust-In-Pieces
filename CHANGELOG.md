@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.6] - 2026-10-08
+
+A fail low no longer erases the move the Transposition Table holds for the position. Gated by
+**SPRT [0, 10]: H1 after 3830 games** at 1s + 150ms against v0.45.5. The stopping score, 51.6%, is
+not an effect size (`task.md` rule 7).
+
+### Fixed
+- **A fail low threw away the table move of the same position.** A node that fails low has no best
+  move of its own - a fail-hard all-node ends with none, and a stand pat stores none - and
+  `insert_entry` wrote that empty move over the move an earlier search of the same position had
+  found, so the next visit lost the refutation it would have tried first; the next iteration
+  overwrote 8% of same-key entries that way. A store without a move now keeps the slot's move when
+  the slot holds the same position. Bound, score and depth are the new entry's, and the move only
+  orders the generated moves.
+
+### Notes
+- The search tree moves both ways: none of 300 pool positions at depth 10 is identical to v0.45.5,
+  +3.5% time in aggregate, the median position 2.5% faster. Recorded, not a gate (`task.md` rule 1).
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 44.5% against v0.45.5, 56.5% against
+  v0.45.4, 74.5% against v0.34.0, no losses on time. Half a point under the procedure's 45% against
+  v0.45.5 - inside the noise of 100 games, against an SPRT that accepted H1 - and released on the
+  user's decision.
+- Not shipped from the same review: a soft time limit at 60% of the budget with the budget bounded
+  below the clock. SPRT [0, 10] H0 after 9050 games, [0, 5] undecided at 9244 games, +2.3 Elo
+  [-3, +8].
+
+
+
 ## [V0.45.5] - 2026-10-08
 
 A position on the board for the third time is a draw at node entry. Gated by **SPRT [0, 10]: H1
