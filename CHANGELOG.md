@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.7] - 2026-10-08
+
+Won endings are mated instead of drawn: iterative deepening no longer stops on a mate score the
+table supplied at depth 2. Gated by a targeted conversion test instead of an SPRT, because the
+change acts only once a mate score reaches the root, which a match prices at a few Elo at most.
+
+### Fixed
+- **A queen or rook against a bare king was drawn in 6.9% of the games that reached it.**
+  Iterative deepening stopped at any mate score. Once a mate had been seen, the table carried mate
+  scores for the whole mating net, so on the following moves a depth-2 or depth-3 iteration read a
+  mate through a table cutoff and ended the search there - and the move a 2-ply search prefers
+  among moves that all read "mate" is rarely the one that makes progress, so won endings went round
+  in circles into a threefold. Of the 9245 games of one 1s + 150ms run, 2815 reached a queen or
+  rook against a bare king and 194 of those were drawn. The search now stops for a mate only once
+  its distance lies inside the completed depth.
+
+### Notes
+- Conversion test (`scripts/conversion_test.py`, `openings/bare_king_endings.epd`): 539 such
+  positions, each played out by this version and by v0.45.6 against v0.45.6 at 1s + 150ms. Mated
+  inside 100 plies: **539 of 539 against 528 of 539**; the 11 positions where only one side mated
+  all went this version's way (exact one-sided McNemar p = 0.0005). Where both mated, 12 plies at
+  the median against 14.
+- The search tree is unchanged wherever no mate score reaches the root: 300 of 300 pool positions
+  at depth 10 are identical to v0.45.6, scores included.
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 58.5% against v0.45.6, 54.5% against
+  v0.45.5, 74.0% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.6] - 2026-10-08
 
 A fail low no longer erases the move the Transposition Table holds for the position. Gated by
