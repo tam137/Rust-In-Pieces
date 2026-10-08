@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.5] - 2026-10-08
+
+A position on the board for the third time is a draw at node entry. Gated by **SPRT [0, 10]: H1
+after 1446 games** at 1s + 150ms against v0.45.4. The stopping score, 52.8%, is not an effect size
+(`task.md` rule 7).
+
+### Fixed
+- **The search walked into threefold repetitions from won positions.** `do_move` flagged the
+  third occurrence, but the only reader of the flag sat after move generation, and everything
+  that returns earlier answered first: the table cutoff from an earlier visit of the same
+  position, Null Move Pruning, Reverse Futility Pruning, razoring and the whole Quiescence Search.
+  In the 6000 games of 23.4's run 41.5% ended in a threefold, 2.9% of them with a rook or more
+  against a bare king. `minimax` now returns 0 for a threefold before any of them, and stores
+  nothing for it.
+
+### Notes
+- The search tree is unchanged wherever no position repeats: 300 of 300 pool positions at depth
+  10 are identical to v0.45.4.
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 47.0% against v0.45.4, 60.5% against
+  v0.45.3, 77.5% against v0.34.0, no losses on time. A gate, not a measurement; the 47.0% is inside
+  the noise of 100 games and the SPRT above is the reading that counts.
+
+
+
 ## [V0.45.4] - 2026-10-08
 
 Time lost outside the search, start-up cost and robustness from the source review. Identical to
