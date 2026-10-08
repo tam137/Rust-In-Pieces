@@ -588,6 +588,17 @@ impl SearchService {
             return (None, -i16::MAX);
         }
 
+        // A position on the board for the third time is a draw, whatever its table entry, its
+        // static evaluation or a Quiescence Search say about it - and every one of those used to
+        // answer first. The only draw test sat after move generation, so a repeated position was
+        // scored from the entry an earlier visit stored, Null Move Pruning, Reverse Futility
+        // Pruning and razoring returned their static bounds ahead of it, and the Quiescence Search
+        // stood pat. The engine walked into threefolds from won positions because the table still
+        // read them as won. Nothing is stored: the draw belongs to the path, not the position.
+        if board.game_status == GameStatus::Draw {
+            return (None, 0);
+        }
+
         // Hard ply ceiling. Check Extensions can keep the remaining depth constant along a
         // forcing line, so the ply may grow past the nominal root depth. Terminating with a
         // static evaluation here guarantees that every ply-indexed table access below stays
@@ -4192,5 +4203,82 @@ mod tests {
             }
         }
         assert_eq!(search(&dirty), fresh);
+    }
+
+    /// The position after 1. Nf3 on the board for the third time, Black to move.
+    const THREEFOLD_AFTER_NF3: &str = "g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8 g1f3";
+
+    /// The board after `moves` from the start position, with a table that already holds an
+    /// exact +700 for the final position at depth 20, as an earlier visit in a game would have.
+    fn repeated_position_with_a_stale_entry(moves: &str) -> (crate::model::Board, ZobristTable) {
+        let service = Service::new();
+        let mut game = crate::model::UciGame::new(service.fen.set_init_board());
+        for mv in moves.split_whitespace() {
+            game.do_move(mv);
+        }
+        let table = ZobristTable::with_capacity(100_000);
+        let hash = crate::zobrist::gen_hash(&game.board);
+        table.insert_entry(hash, crate::zobrist::TranspositionEntry {
+            key: hash,
+            eval: 700,
+            depth: 20,
+            entry_type: crate::zobrist::TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        });
+        (game.board, table)
+    }
+
+    fn search_with_table(board: &mut crate::model::Board, table: &ZobristTable, depth: i32) -> i16 {
+        let service = Service::new();
+        let mut config = Config::new();
+        config.pre_sort_moves = false;
+        let state = fresh_engine_state();
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: table,
+            stop_flag: &state.stop_flag,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: depth,
+        };
+        let mut stats = Stats::new();
+        let mut pv = [None; 128];
+        let mut killer_moves = [[None; 2]; 128];
+        let mut history = [[[0i32; 64]; 64]; 2];
+        let mut counter_moves = [[None; 64]; 64];
+        let no_move = Turn::new(0, 0, 0, 0, false, 0);
+        service.search.minimax(
+            board, &no_move, depth, -30_000, 30_000, &mut stats, &config, &service, &context,
+            false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
+            &mut crate::model::new_search_buffers(),
+        ).1
+    }
+
+    #[test]
+    fn test_a_threefold_is_a_draw_whatever_the_table_says() {
+        // The table holds the score of an earlier visit, before the position repeated. The node
+        // must not answer from it - not in the main search, and not in the Quiescence Search.
+        for depth in [5, 1, 0] {
+            let (mut board, table) = repeated_position_with_a_stale_entry(THREEFOLD_AFTER_NF3);
+            assert_eq!(board.game_status, crate::model::GameStatus::Draw, "the fixture must be a threefold");
+            assert_eq!(search_with_table(&mut board, &table, depth), 0,
+                "depth {depth}: a threefold scored from the table");
+        }
+    }
+
+    #[test]
+    fn test_a_twofold_is_still_searched() {
+        // One repetition short of the threefold the node is a normal position, and the table
+        // entry answers as it always did.
+        let (mut board, table) = repeated_position_with_a_stale_entry("g1f3 g8f6 f3g1 f6g8 g1f3");
+        assert_eq!(board.game_status, crate::model::GameStatus::Normal);
+        assert_eq!(search_with_table(&mut board, &table, 5), 700);
     }
 }
