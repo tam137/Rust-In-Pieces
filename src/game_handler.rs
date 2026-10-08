@@ -270,7 +270,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             }
 
                             if let Some(ref res) = best_result {
-                                if res.get_eval().abs() > 32000 {
+                                if mate_within_horizon(res.get_eval(), res.calculated_depth) {
                                     logger.send("found mate. stopping search".to_string()).ok();
                                     break;
                                 }
@@ -323,6 +323,21 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
     }
 }
 
+
+/// Whether a mate score has been proven inside the completed depth, which is when iterative
+/// deepening may stop for it.
+///
+/// Any mate score used to stop the search. Once a mate had been seen, the table carried mate
+/// scores for the whole mating net, so on the following moves a depth-2 or depth-3 iteration
+/// already read a mate through a table cutoff and ended the search there - and the move a
+/// 2-ply search prefers among moves that all read "mate" is rarely the one that makes progress.
+/// The stored distance does not shrink, nothing forced progress, and won endings went round in
+/// circles into a threefold. A mate in `n` plies is proven once `n` plies have been searched.
+fn mate_within_horizon(eval: i16, completed_depth: i32) -> bool {
+    let score = eval.saturating_abs();
+    score > crate::model::MATE_SCORE_THRESHOLD
+        && (crate::model::MATE_SCORE - score) as i32 <= completed_depth
+}
 
 /// Plays the moves of a `position ... moves` list onto the game.
 ///
@@ -438,6 +453,19 @@ mod tests {
             log_sender: tx_log,
             search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
         })
+    }
+
+    #[test]
+    fn test_a_mate_stops_the_search_only_inside_the_completed_depth() {
+        use crate::model::MATE_SCORE;
+        // Mate in five plies, for either side: proven at depth 5, not at depth 4 or 2.
+        for sign in [1i16, -1] {
+            assert!(!super::mate_within_horizon(sign * (MATE_SCORE - 5), 2));
+            assert!(!super::mate_within_horizon(sign * (MATE_SCORE - 5), 4));
+            assert!(super::mate_within_horizon(sign * (MATE_SCORE - 5), 5));
+            assert!(super::mate_within_horizon(sign * (MATE_SCORE - 1), 2));
+        }
+        assert!(!super::mate_within_horizon(950, 30), "a centipawn score is not a mate");
     }
 
     #[test]
