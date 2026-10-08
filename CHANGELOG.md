@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.8] - 2026-10-08
+
+The iteration the clock interrupts is no longer thrown away when it has already proven a better
+root move. Gated by **SPRT [0, 10]: H1 after 866 games** at 1s + 150ms against v0.45.7. The
+stopping score, 54.5%, comes from an early stop and is not an effect size (`task.md` rule 7).
+
+### Fixed
+- **A root move proven better in the last, interrupted iteration was not played.** Only completed
+  iterations counted, and the last one is nearly always cut by the clock - 37.8% of all search time
+  at 1s + 150ms went into it. The root loop stops only between moves, so every move such an
+  iteration finished was searched to the new depth. When the previous best move was among them and
+  another move beat it with a score inside the pass's aspiration window, that move is now played.
+  A comparison between two fail-low bounds proves nothing and is not used. In timed self-play the
+  rule acted on about 1.4% of moves - by construction the moves where the engine changes its mind.
+
+### Notes
+- Fixed-depth searches are never interrupted by the clock: 300 of 300 pool positions at depth 10
+  are identical to v0.45.7, scores included.
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 50.5% against v0.45.7, 50.0% against
+  v0.45.6, 80.5% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.7] - 2026-10-08
 
 Won endings are mated instead of drawn: iterative deepening no longer stops on a mate score the
