@@ -164,6 +164,8 @@ impl SearchService {
             search_result.calculated_depth = depth;
             search_result.is_white_move = white;
             search_result.is_pv_search_result = true;
+            search_result.window_alpha = alpha;
+            search_result.window_beta = beta;
             search_result.best_score = if white { i16::MIN } else { i16::MAX };
             search_result.second_best_score = if white { i16::MIN } else { i16::MAX };
 
