@@ -14,30 +14,30 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.45.0** on `master` (HCE) since 2026-09-11 — the butterfly history is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` moved to 0 so the Late Move Reduction penalty lands on refuted quiet moves instead of unseen ones. Measured **+9.6 Elo, 95% [+3, +16]** over 6000 fixed-N games, against a tree that is 12% *larger*. Previously **v0.44.0** since 2026-09-10, the side-indexed table, a null at +1.0 [-6, +7] that shipped as this one's foundation. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
-| Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees |
+| Released | **v0.45.9** on `master` (HCE) since 2026-10-09 — the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
-| Blocked on | nothing. 23.4's run finished on 2026-09-12 (recorded 2026-10-07, section 23.4); a full source review of `master` is in progress since 2026-10-07 and holds the host |
+| Blocked on | nothing. The source review of 2026-10-07 finished on 2026-10-09 (section 27); its leftovers are in the table below |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
 
 
 ### The next action
 
-**A full source review of `master` runs since 2026-10-07** and holds the host until it is
-finished. Everything it ships is shown either tree-identical or not weaker in games, and its
-findings are recorded with the releases they produce.
+**The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
+each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
+short list of findings that were deferred or could not be priced — the review rows of the table
+below. What it changes for the next work: the owner accepts **+5 Elo** for a change (2026-10-08),
+which an SPRT [0, 10] cannot see; 27 has the [0, 5] extension procedure used for R18.
 
-**23.4, the `lmr_history_good_threshold`, is closed: kept, null.** The 6000-game fixed-N run of
-`3d61a85` against v0.45.0 at 1s + 150ms finished on 2026-09-12 and reads **+2.7 Elo, 95%
-[-4, +9]** — not a gain, and not a loss. The threshold stays 0 and ships with the next release.
-See 23.4.
+**23.4, the `lmr_history_good_threshold`, is closed: kept, null** — +2.7 Elo, 95% [-4, +9] over
+6000 games, shipped in v0.45.1. See 23.4.
 
 **Backlog item 4, section 21, is built and unmeasured** on branch `feature/improving-stack`
 (`4586d2c`): the per-ply static-eval stack, and the Late Move Pruning growth term replaced by
 `depth^2` halved when the side to move is not improving, with `lmp_max_depth` opened to 8. Its
-tree measurement, its census and its gauntlet all need the host to itself and wait for the
-review; the branch will have to be rebased onto whatever the review ships.
+tree measurement, its census and its gauntlet all need the host to itself; the branch has to be
+rebased onto v0.45.9 first, where `get_moves` and the repetition rules have moved.
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -129,6 +129,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
 | The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
+| Review leftovers, deferred: R4 `pv_nodes` behind a mutex and a SipHash map at every interior node (0.3% to 2%, 18 call sites), R7 a table move that is a promotion or en passant never gets the table band, R16c a `stop` that arrives before its `go` is lost | deferred, section 27 |
+| Review leftovers, unpriced: R22 the lazy margin does not bound the positional terms (a tuning question), R23 table cutoffs at the root's children can hide a repetition, R25 no quiet queen promotion in the Quiescence Search, R26 the pawn hash caches a blockade by pieces, R27 the null child's counter-move entry and an abort sentinel that looks like a cutoff, R28 two steps in the evaluation, R29 no fifty-move rule and the start position missing from the repetition history, R30 rook and bishop promotions off by default | listed, unmeasured, section 27 |
+| R18, the time allocation — a soft limit at 60% of the budget and the budget bounded below the clock — is **not shipped**: SPRT [0, 10] H0 after 9050 games, [0, 5] undecided at 9244, +2.3 Elo [-3, +8]. The code is on the local branch `review/r18-time-management`; the clock bound alone, the 10 ms cliff, is untested | negative result, section 27 |
 
 Also closed and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth, and the
 scoreboard configuration that could not price them (2026-09-01). Everything else that is finished
@@ -501,3 +504,63 @@ Two constraints specific to this engine:
 
 `scripts/measure_tree_size.py` first: a rule that does not shrink the tree deterministically has
 nothing to offer a game run.
+
+## 27. The source review of 2026-10-07 to 2026-10-09
+
+A full review of `master` at `49480c0` in nine groups — root, node, evaluation, move generation,
+table, UCI and time, book and configuration, build and scripts, NNUE — produced 34 findings, R1 to
+R34, each classed by what it does to the search tree: **A** identical, **B** different only in
+special cases, **C** priced in games, **Q** code quality only. Strength came before code quality,
+and nothing shipped without the evidence its class asks for.
+
+| Release | Findings | Evidence |
+| :--- | :--- | :--- |
+| v0.45.1 | 23.4 alone | +2.7 Elo [-4, +9], 6000 games, section 23.4 |
+| v0.45.2 | R1 PV copied only up to its end, R2 SEE stops once the victim outweighs the attacker, R3 the search arena allocated once, R5 the null move restores the game status, R6 a mate bound on Null Move Pruning and Reverse Futility Pruning, R33 huge pages and an earlier table prefetch | 300 of 300 trees identical, **-11.9% time** to depth 10 |
+| v0.45.3 | R8 evaluation work the search never reads, set-wise pawn terms, R9 the opposite-bishop scale overflowed `i16`, R10 knight parameters read from the configuration | identical, **-10.4%** |
+| v0.45.4 | R11 no regular expression per UCI move, R12 compile-time move tables, R13 a 128 MB default table, R14 tuning parameters at the shipped values, R16a/b book robustness, R34 a replayed threefold no longer answers `bestmove 0000` | identical, +0.9%; start-up 369 to 267 ms, peak RSS 788 to 152 MB |
+| v0.45.5 | R17 a threefold is a draw at node entry | SPRT [0, 10] H1 after 1446 games |
+| v0.45.6 | R20 a fail low keeps the table move of the same position | SPRT [0, 10] H1 after 3830 games |
+| v0.45.7 | R21 a mate stops iterative deepening only inside the completed depth | 539 of 539 won endings mated against 528, McNemar p = 0.0005 |
+| v0.45.8 | R19 an interrupted iteration keeps a root move it has already proven better | SPRT [0, 10] H1 after 866 games |
+| v0.45.9 | R24 a repetition strictly inside the search tree is a draw at its second occurrence | SPRT [0, 10] H1 after 3860 games |
+
+**The review as a whole**, v0.45.9 against v0.45.0, fixed-N 6000 games at 1s + 150ms, finished
+2026-10-09: **+98.6 Elo, 95% [+92, +106]** (63.82%, 3000 pairs: 2-0 585, 1.5-0.5 1001, 1-1 979,
+0.5-1.5 358, 0-2 77; no losses on time, design effect 1.00). The SPRT stopping scores above are not
+effect sizes (rule 7); this is.
+
+**Not shipped.** R18, the time allocation — no new iteration once 60% of the budget is spent, and
+the budget bounded below the clock instead of collapsing to 10 ms: SPRT [0, 10] H0 after 9050
+games, [0, 5] undecided at 9244, +2.3 Elo [-3, +8]. Stopped for futility on the owner's decision;
+the code is on the local branch `review/r18-time-management` (`e8bda1e`). The release profile
+(fat LTO, one codegen unit, `panic = abort`) measured +/-0.1% and `target-cpu=native` -0.7%.
+
+**What the campaign taught, for the next one:**
+
+* **A [0, 10] SPRT cannot see +5 Elo, and the owner accepts +5** (2026-10-08). When a [0, 10] run
+  drifts towards its cap with a positive estimate, the same games can be read under [0, 5] — but
+  only if the [0, 5] trajectory (`scripts/sprt.py --trajectory --elo1 5`) has never touched a
+  bound, so that a [0, 5] test from game 1 would be in the same state; continue with
+  `SPRT_APPEND=1` and a round total the first run did not use. Simulated over R18's whole
+  procedure, that ships a 0-Elo change 5.4% of the time and a -3-Elo change 0.8%. A futility stop
+  never raises those numbers.
+* **A change that acts in a corner of the game is priced on positions from that corner.** R21
+  acts only once a mate score reaches the root: in the R18 run 2815 of 9245 games reached a queen
+  or rook against a bare king and 194 of them were drawn, which a match prices at +3 to +4.5 Elo
+  at most. `scripts/conversion_test.py` plays such positions out with each binary as the attacker
+  (`openings/bare_king_endings.epd`) and decides on the positions where the two disagree.
+* **Nothing runs beside a timing measurement.** R19's first tree reading, taken while a probe
+  played games on another core, said -2.3% on identical trees; the repeat said -0.3%.
+* **The review's estimate of a tree effect does not transfer.** R20 was found as "25% fewer
+  nodes at depth 10" and measured +3.5% time on the pool — and won its SPRT anyway. Price in
+  games, as rule 1 says.
+
+**Left open** — in the table at the top: R4, R7 and R16c deferred; R22, R23 and R25 to R30 listed
+and unpriced. The NNUE branch was read but not changed: an accumulator update that is bit-identical
+at 20% less CPU, lazy child accumulators, the static evaluation in the table entry, Futility and
+razoring margins in HCE units, and `NnueModelPath` / `UseNNUE` options that do nothing (N1 to N5).
+Q, not done: 26 clippy lints, unused dependencies (`chashmap` with RUSTSEC-2022-0040, `rayon`,
+`crossbeam-queue`), the broken legacy scripts `bench.sh`, `benchmark_nps.py`,
+`run_perft_bench.py` and `apply_spsa.py`, and a `#[test]` that sits outside `mod tests` at the end
+of `model.rs`.
