@@ -612,6 +612,9 @@ pub struct Board {
     /// irreversible move (capture or pawn move) lies there. The Zobrist hash covers material
     /// and pawn placement, so no earlier position can ever match again.
     pub irreversible_floor: usize,
+    /// `history_len` at the root of the running search, `usize::MAX` outside one. A position whose
+    /// earlier occurrence lies at or beyond it repeated inside the search tree; see `do_move`.
+    pub search_root_len: usize,
     pub cached_hash: u64,
     pub pawn_key: u64,
     pub pst_mg: i16,
@@ -694,6 +697,7 @@ impl Board {
             history_hashes: [0; MAX_HISTORY_PLIES],
             history_len: 0,
             irreversible_floor: 0,
+            search_root_len: usize::MAX,
             cached_hash: 0,
             pawn_key: 0,
             pst_mg,
@@ -963,7 +967,10 @@ impl Board {
             while idx >= self.irreversible_floor as isize {
                 if self.history_hashes[idx as usize] == self.cached_hash {
                     repetitions += 1;
-                    if repetitions == 3 {
+                    // Inside the search tree a cycle is a draw at once: whoever walked into it can
+                    // repeat it at will. Only a first occurrence at or before the root - the
+                    // game's own history - keeps the threefold of the rules.
+                    if repetitions == 3 || idx as usize >= self.search_root_len {
                         self.game_status = GameStatus::Draw;
                         break;
                     }
@@ -2119,6 +2126,62 @@ mod tests {
         assert_eq!(tables.counter_moves[6][21], None);
     }
 
+
+    fn game_after(moves: &[&str]) -> UciGame {
+        let service = crate::service::Service::new();
+        let mut game = UciGame::new(service.fen.set_init_board());
+        for mv in moves {
+            game.do_move(mv);
+        }
+        game
+    }
+
+    #[test]
+    fn a_cycle_inside_the_search_is_a_draw_at_its_second_occurrence() {
+        let mut game = game_after(&["e2e4", "e7e5"]);
+        game.board.search_root_len = game.board.history_len;
+        for mv in ["g1f3", "g8f6", "f3g1", "f6g8"] {
+            game.do_move(mv);
+        }
+        // Back at the root: its first occurrence is the root itself, so the game's rule holds.
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+        // The position after Nf3 occurred once before, strictly inside the search.
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Draw);
+    }
+
+    #[test]
+    fn a_twofold_that_began_before_the_root_keeps_the_threefold() {
+        let mut game = game_after(&["e2e4", "e7e5", "g1f3", "g8f6", "f3g1", "f6g8"]);
+        game.board.search_root_len = game.board.history_len;
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+    }
+
+    #[test]
+    fn outside_a_search_only_the_threefold_counts() {
+        let mut game = game_after(&["g1f3", "g8f6", "f3g1", "f6g8", "g1f3"]);
+        assert_eq!(game.board.search_root_len, usize::MAX);
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+        for mv in ["g8f6", "f3g1", "f6g8", "g1f3"] {
+            game.do_move(mv);
+        }
+        assert_eq!(game.board.game_status, super::GameStatus::Draw);
+    }
+
+    #[test]
+    fn the_floor_a_null_move_raises_hides_the_positions_before_it() {
+        // A null move pushes no history entry; the search lifts the floor to the history length
+        // for its subtree, and the scan must not reach past it.
+        let mut game = game_after(&["e2e4", "e7e5"]);
+        game.board.search_root_len = game.board.history_len;
+        for mv in ["g1f3", "g8f6", "f3g1", "f6g8"] {
+            game.do_move(mv);
+        }
+        game.board.irreversible_floor = game.board.history_len;
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+    }
 }
     #[test]
     fn incremental_hash_complex_sequence_test() {

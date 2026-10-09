@@ -82,6 +82,9 @@ impl SearchService {
 
         // Always ensure that WhiteGivesCheck and BlackGivesCheck are initialized in local_map
                 
+        // Repetitions strictly inside this search are draws at their second occurrence.
+        board.search_root_len = board.history_len;
+
         let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
         let zobrist_table = &*current_zobrist_table;
         let stop_flag = &engine_state.stop_flag;
@@ -378,6 +381,7 @@ impl SearchService {
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
+        board.search_root_len = usize::MAX;
         crate::search_diag::dump();
         crate::search_diag::dump_tree(
             search_result.stats.calculated_nodes,
@@ -802,6 +806,10 @@ impl SearchService {
             // A null child without a legal move writes `Draw` onto the board, and nothing undoes
             // a null move the way `undo_move` undoes a real one, so the status is saved here.
             let old_game_status = board.game_status.clone();
+            // A null move pushes no history entry, so nothing before it may count as a repetition
+            // of what follows: the cycle a pass makes possible is not one either side can force.
+            let old_irreversible_floor = board.irreversible_floor;
+            board.irreversible_floor = board.history_len;
 
             // Make Null Move. The hash is derived from the position as it still stands, so that
             // the update can never drift apart from `gen_hash` and `calc_incremental_hash`.
@@ -830,6 +838,7 @@ impl SearchService {
             board.field_for_en_passante = old_field_for_en_passante;
             board.cached_hash = old_hash;
             board.game_status = old_game_status;
+            board.irreversible_floor = old_irreversible_floor;
 
             if null_eval >= beta {
                 // Verification Search for high depths. The null move has already been undone,
