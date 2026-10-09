@@ -51,11 +51,12 @@ if [[ -z "$PGN_NAME" ]]; then
 fi
 PGN="$MM_DIR/$PGN_NAME"
 
-if [[ -f "$PGN" ]]; then
-    echo "warning: $PGN_NAME already exists and Matt-Magie appends to it."
-    echo "         Games from an earlier run with the same round total would be mixed into"
-    echo "         this test. Move it aside first if that is not what you want."
-    echo
+if [[ -f "$PGN" && "${SPRT_APPEND:-0}" != "1" ]]; then
+    # Matt-Magie appends, and a pair is two consecutive game numbers of the same round total, so
+    # the games of an earlier run of the same tournament would be paired with this one's.
+    echo "$PGN_NAME already exists and Matt-Magie appends to it: an earlier run's games would" >&2
+    echo "be paired with this run's. Move it aside, or set SPRT_APPEND=1 to extend that run." >&2
+    exit 3
 fi
 
 LOG="$MM_DIR/${PGN_NAME%.pgn}.sprt.log"
@@ -72,8 +73,24 @@ cd "$MM_DIR" || exit 3
 setsid ./mm.sh -t "$TRN" > "${PGN_NAME%.pgn}.out" 2>&1 &
 MM_PID=$!
 # `setsid` makes the tournament its own process group, so one signal reaches every game rather
-# than only the shell that scheduled them.
-MM_PGID="$(ps -o pgid= -p "$MM_PID" 2>/dev/null | tr -d ' ')"
+# than only the shell that scheduled them. Without job control it calls setsid() and execs in
+# place, so the group id becomes the PID - but only once the child has got that far. Reading the
+# group straight after the launch can return this script's own group, and signalling that would
+# stop the watchdog and leave the tournament running. Wait for the group to be the tournament's.
+OWN_PGID="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
+MM_PGID=""
+for _ in $(seq 1 50); do
+    if [[ "$(ps -o pgid= -p "$MM_PID" 2>/dev/null | tr -d ' ')" == "$MM_PID" ]]; then
+        MM_PGID="$MM_PID"
+        break
+    fi
+    sleep 0.1
+done
+if [[ -z "$MM_PGID" || "$MM_PGID" == "$OWN_PGID" ]]; then
+    echo "the tournament did not get a process group of its own; stopping it" >&2
+    kill -TERM "$MM_PID" 2>/dev/null
+    exit 3
+fi
 echo "tournament running as pid $MM_PID (process group $MM_PGID)"
 
 stop_tournament() {
@@ -88,10 +105,13 @@ stop_tournament() {
 }
 trap 'echo; echo "interrupted, stopping the tournament"; stop_tournament; exit 130' INT TERM
 
-VERDICT=2
+# `sprt.py` exits 0 or 1 on a verdict, 2 while undecided and 3 on any error. Only a verdict
+# stops the tournament as a result; an error stops it too, but is reported as one.
+STOP_VERDICT=""
 while kill -0 "$MM_PID" 2>/dev/null; do
     sleep "$POLL_SECONDS"
-    [[ -f "$PGN" ]] || continue
+    # `mm.sh` creates the PGN empty at the start.
+    [[ -s "$PGN" ]] || continue
 
     OUTPUT="$(python3 "$REPO_ROOT/scripts/sprt.py" "$PGN" --engines "$ENGINE_A" "$ENGINE_B" "$@" 2>&1)"
     VERDICT=$?
@@ -99,11 +119,19 @@ while kill -0 "$MM_PID" 2>/dev/null; do
         date +"--- %H:%M:%S"
         echo "$OUTPUT"
     } >> "$LOG"
-    echo "$OUTPUT" | sed -n '2p;5p'
+    echo "$OUTPUT" | sed -n '1,2p;5p'
 
     if [[ "$VERDICT" -eq 0 || "$VERDICT" -eq 1 ]]; then
         echo
         echo "SPRT decided; stopping the tournament."
+        STOP_VERDICT="$VERDICT"
+        stop_tournament
+        break
+    fi
+    if [[ "$VERDICT" -eq 3 ]]; then
+        echo
+        echo "sprt.py reported an error; stopping the tournament. See ${PGN_NAME%.pgn}.sprt.log." >&2
+        STOP_VERDICT=3
         stop_tournament
         break
     fi
@@ -115,7 +143,9 @@ trap - INT TERM
 echo
 echo "=== final ==="
 python3 "$REPO_ROOT/scripts/sprt.py" "$PGN" --engines "$ENGINE_A" "$ENGINE_B" "$@"
-VERDICT=$?
+FINAL_VERDICT=$?
 echo
 python3 "$REPO_ROOT/scripts/pairing_elo.py" "$PGN"
-exit "$VERDICT"
+# The verdict that stopped the run is the run's verdict. Games that finished while the
+# tournament was being stopped are in the report above, not in the exit code.
+exit "${STOP_VERDICT:-$FINAL_VERDICT}"

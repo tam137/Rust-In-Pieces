@@ -41,8 +41,7 @@ impl PawnHashTable {
 
         let mask = capacity - 1;
 
-        // Initialize with default empty cells
-        let entries = vec![Cell::new(PawnEntry { pawn_hash: 0, mg: 0, eg: 0 }); capacity];
+        let entries = Self::empty_entries(capacity);
 
         PawnHashTable {
             entries,
@@ -62,13 +61,23 @@ impl PawnHashTable {
         }
         
         let mask = actual_capacity - 1;
-        let entries = vec![Cell::new(PawnEntry { pawn_hash: 0, mg: 0, eg: 0 }); actual_capacity];
+        let entries = Self::empty_entries(actual_capacity);
 
         PawnHashTable {
             entries,
             capacity: actual_capacity,
             mask,
         }
+    }
+
+    /// `capacity` empty cells, on transparent huge pages where the host provides them; see
+    /// `zobrist::advise_huge_pages`.
+    fn empty_entries(capacity: usize) -> Vec<Cell<PawnEntry>> {
+        let mut entries: Vec<Cell<PawnEntry>> = Vec::with_capacity(capacity);
+        crate::zobrist::advise_huge_pages(
+            entries.as_ptr() as *const u8, entries.capacity() * std::mem::size_of::<Cell<PawnEntry>>());
+        entries.resize(capacity, Cell::new(PawnEntry { pawn_hash: 0, mg: 0, eg: 0 }));
+        entries
     }
 
     /// Fetches the pawn structure scores if the hash matches.
