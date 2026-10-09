@@ -778,6 +778,13 @@ impl SearchService {
 
         let improving = Self::is_improving(static_eval_stack, ply_idx);
 
+        #[cfg(feature = "search-diag")]
+        if own_static_eval != STATIC_EVAL_UNAVAILABLE {
+            crate::search_diag::record_improving(depth,
+                ply_idx >= 2 && static_eval_stack[ply_idx - 2] != STATIC_EVAL_UNAVAILABLE,
+                improving);
+        }
+
         // The candidate population for `task.md` 20.1 and 20.2: every node that reached this
         // rule before the two guards below existed. Compiled out unless `search-diag` is on, so
         // the shipped build re-evaluates nothing.
@@ -1389,6 +1396,9 @@ impl SearchService {
                 && beta.abs() < 20000
                 && quiet_count as i32 > Self::lmp_quiet_threshold(config, depth, improving)
             {
+                #[cfg(feature = "search-diag")]
+                crate::search_diag::record_lmp_prune(depth, improving,
+                    depth <= 4 && quiet_count as i32 > config.lmp_base_moves + 2 * depth * depth);
                 i += 1;
                 continue;
             }
