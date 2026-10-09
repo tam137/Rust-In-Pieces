@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.9-NNUE] - 2026-10-09
+
+- Ported master v0.45.1 to v0.45.9, the source review (`task.md` section 27 on `master`): the
+  tree-identical speed and robustness work (R1-R3, R5, R6, R8-R14, R16a/b, R33, R34) and the
+  game-priced search changes R17, R19, R20, R21 and R24.
+- Kept on this branch: every protected NNUE and SPSA parameter, and `lmr_history_good_threshold`
+  at 4000 - 23.4, a default change measured null on `master`, is not ported.
+- `tuning/parameters.json` now registers this branch's shipped defaults; the default table is
+  128 MB as advertised.
+- Measured here, fixed-N 2000 games against v0.45.0-NNUE at 1s + 150ms: **+79.0 Elo, 95%
+  [+69, +89]**. Smoke gauntlet 59.0% / 67.5% / 77.5% against v0.45.0-NNUE / v0.44.0-NNUE /
+  v0.34.0-NNUE. `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.45.0-NNUE] - 2026-09-11
 
 Ports `master` v0.45.0 to this branch: the butterfly history is signed and updated by gravity, so a
