@@ -201,6 +201,24 @@ mod counters {
     /// Reduced nodes, by the same depth index.
     pub static IIR_APPLIED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // `task.md` 21.1 and 21.2: how often is the side to move improving, and where does the new
+    // Late Move Pruning threshold cut?
+    // ---------------------------------------------------------------------------------------
+
+    /// Nodes with a static evaluation of their own (`depth > 0`, not in check), by depth.
+    pub static IMPROVING_NODES_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the nodes whose grandparent recorded one too, so the comparison exists.
+    pub static IMPROVING_COMPARABLE_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the nodes that are improving.
+    pub static IMPROVING_TRUE_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Quiet moves Late Move Pruning deleted, by depth.
+    pub static LMP_PRUNED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the ones at an improving node.
+    pub static LMP_PRUNED_IMPROVING_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those deletions, the ones the old rule (`base + 2 * depth^2`, capped at depth 4) would
+    /// also have made at the same node and the same `quiet_count`.
+    pub static LMP_PRUNED_OLD_RULE_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     // `task.md` 23.3: what does the Late Move Reduction actually read?
     //
     // `lmr_history_good_threshold` and `lmr_history_bad_threshold` were calibrated against an
@@ -456,6 +474,42 @@ pub fn record_lmr_history(hist_val: i32, good_threshold: i32, bad_threshold: i32
     }
 }
 
+/// Records one node that has a static evaluation of its own, `task.md` 21.1: whether the
+/// `improving` comparison exists there, and its answer.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_improving(depth: i32, comparable: bool, improving: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::IMPROVING_NODES_BY_DEPTH[bucket]);
+        if comparable {
+            counters::bump(&counters::IMPROVING_COMPARABLE_BY_DEPTH[bucket]);
+        }
+        if improving {
+            counters::bump(&counters::IMPROVING_TRUE_BY_DEPTH[bucket]);
+        }
+    }
+}
+
+/// Records one quiet move deleted by Late Move Pruning, `task.md` 21.2. `old_rule_too` is whether
+/// the threshold that shipped until then would have deleted it at the same `quiet_count`.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_lmp_prune(depth: i32, improving: bool, old_rule_too: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::LMP_PRUNED_BY_DEPTH[bucket]);
+        if improving {
+            counters::bump(&counters::LMP_PRUNED_IMPROVING_BY_DEPTH[bucket]);
+        }
+        if old_rule_too {
+            counters::bump(&counters::LMP_PRUNED_OLD_RULE_BY_DEPTH[bucket]);
+        }
+    }
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -602,6 +656,18 @@ pub fn dump() {
             counters::read(&counters::IIR_APPLIED),
             by_depth(&counters::IIR_BY_DEPTH),
             by_depth(&counters::IIR_APPLIED_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGIMPROVING nodes={} comparable={} improving={}",
+            by_depth(&counters::IMPROVING_NODES_BY_DEPTH),
+            by_depth(&counters::IMPROVING_COMPARABLE_BY_DEPTH),
+            by_depth(&counters::IMPROVING_TRUE_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGLMP pruned={} pruned_improving={} pruned_old_rule_too={}",
+            by_depth(&counters::LMP_PRUNED_BY_DEPTH),
+            by_depth(&counters::LMP_PRUNED_IMPROVING_BY_DEPTH),
+            by_depth(&counters::LMP_PRUNED_OLD_RULE_BY_DEPTH),
         );
     }
 }
