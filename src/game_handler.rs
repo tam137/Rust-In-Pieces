@@ -83,10 +83,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     if command.len() <= 5 {
                         continue;
                     }
-                    let moves_iter = moves_str.split_whitespace();
-                    for mv in moves_iter {
-                        game.do_move(mv);
-                    }                   
+                    replay_moves(&mut game, moves_str);
                 }
 
                 else if command == "infinite" {
@@ -148,6 +145,13 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_ply = game.made_moves_str.split_whitespace().count();
                     let book_move = book.get_book_move(&game.board, &game_fen, book_ply, &active_config, Some(&logger));
+                    let book_move = if book_move.is_empty()
+                        || is_playable_book_move(service, &game.board, &book_move, &active_config, &engine_state) {
+                        book_move
+                    } else {
+                        logger.send(format!("book move {} rejected: illegal here or a threefold", book_move)).ok();
+                        String::new()
+                    };
                     let time_info = uci_parser.parse_go(command.as_str());
 
                     if book_move.is_empty() {
@@ -259,6 +263,19 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     old_board.do_move(&turn);
                                 }
                                 engine_state.pv_nodes_len.store(search_result.calculated_depth, Ordering::SeqCst);
+                            } else if let Some(previous_best) = best_result.as_ref()
+                                .and_then(|previous| previous.variants.first())
+                                .and_then(|variant| variant.best_move)
+                            {
+                                if proven_better_while_interrupted(&previous_best, &search_result) {
+                                    logger.send(format!(
+                                        "interrupted depth {} already proved {} over {}",
+                                        depth,
+                                        search_result.get_best_move_algebraic(),
+                                        previous_best.to_algebraic()
+                                    )).ok();
+                                    best_result = Some(search_result.clone());
+                                }
                             }
 
                             if time_info.time_mode == TimeMode::Depth && depth >= time_info.depth {
@@ -266,7 +283,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             }
 
                             if let Some(ref res) = best_result {
-                                if res.get_eval().abs() > 32000 {
+                                if mate_within_horizon(res.get_eval(), res.calculated_depth) {
                                     logger.send("found mate. stopping search".to_string()).ok();
                                     break;
                                 }
@@ -320,6 +337,96 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 }
 
 
+/// Whether an iteration the clock interrupted has already proven a root move better than the one
+/// the last completed iteration chose, so that it is played instead.
+///
+/// Only completed iterations used to count, and the last one, nearly always cut by the clock, was
+/// thrown away whole: 37.8% of all search time at 1s + 150ms. `get_moves` stops its root loop only
+/// between moves, so every variant of an interrupted pass is a move searched to the new depth, and
+/// a variant is recorded only when it beats every move before it. The previous best is ordered
+/// first; when it is among the variants it was searched in this pass, and another move on top beat
+/// it. That proves something only inside the pass's window: below `alpha` for White, or above
+/// `beta` for Black, every score is a fail-low bound, and two bounds compared say nothing.
+fn proven_better_while_interrupted(previous_best: &crate::model::Turn, result: &SearchResult) -> bool {
+    let top = match result.variants.first() {
+        Some(top) => top,
+        None => return false,
+    };
+    if top.best_move.as_ref() == Some(previous_best) {
+        return false;
+    }
+    if !result.variants.iter().any(|variant| variant.best_move.as_ref() == Some(previous_best)) {
+        return false;
+    }
+    if result.is_white_move {
+        top.eval > result.window_alpha
+    } else {
+        top.eval < result.window_beta
+    }
+}
+
+/// Whether a mate score has been proven inside the completed depth, which is when iterative
+/// deepening may stop for it.
+///
+/// Any mate score used to stop the search. Once a mate had been seen, the table carried mate
+/// scores for the whole mating net, so on the following moves a depth-2 or depth-3 iteration
+/// already read a mate through a table cutoff and ended the search there - and the move a
+/// 2-ply search prefers among moves that all read "mate" is rarely the one that makes progress.
+/// The stored distance does not shrink, nothing forced progress, and won endings went round in
+/// circles into a threefold. A mate in `n` plies is proven once `n` plies have been searched.
+fn mate_within_horizon(eval: i16, completed_depth: i32) -> bool {
+    let score = eval.saturating_abs();
+    score > crate::model::MATE_SCORE_THRESHOLD
+        && (crate::model::MATE_SCORE - score) as i32 <= completed_depth
+}
+
+/// Plays the moves of a `position ... moves` list onto the game.
+///
+/// A threefold inside the list leaves `Draw` on the board, after which the root generates no move
+/// and the engine answered `bestmove 0000`. The game goes on until someone claims the draw, so the
+/// root is searched like any other position.
+fn replay_moves(game: &mut UciGame, moves_str: &str) {
+    for mv in moves_str.split_whitespace() {
+        game.do_move(mv);
+    }
+    game.board.game_status = crate::model::GameStatus::Normal;
+}
+
+/// Whether `book_move` may be played on `board`: it has to be one of the legal moves, and it may
+/// not complete a threefold. The book knows neither - a key collision or a corrupt user book can
+/// name any move, and the embedded book repeats the Najdorf Poisoned Pawn line into a draw.
+fn is_playable_book_move(service: &Service, board: &crate::model::Board, book_move: &str, config: &Config, engine_state: &EngineState) -> bool {
+    if !crate::notation_util::NotationUtil::is_long_algebraic(book_move) {
+        return false;
+    }
+    let mut stats = Stats::default();
+    let history_table = [[[0i32; 64]; 64]; 2];
+    let zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
+    let context = crate::model::SearchContext {
+        zobrist_table: &zobrist_table,
+        stop_flag: &engine_state.stop_flag,
+        pv_nodes: &engine_state.pv_nodes,
+        killer_moves: [None; 2],
+        history_table: &history_table,
+        counter_move: None,
+        start_time: std::time::Instant::now(),
+        target_time: None,
+        root_moves_total: 0,
+        root_moves_searched: 0,
+        root_depth: 0,
+    };
+    let mut probe = board.clone();
+    let mut legal = crate::model::MoveList::new();
+    service.move_gen.generate_valid_moves_list(&mut probe, &mut stats, config, &context, false, &mut legal);
+    match legal.as_slice().iter().find(|turn| turn.to_algebraic() == book_move) {
+        Some(turn) => {
+            probe.do_move(turn);
+            probe.game_status != crate::model::GameStatus::Draw
+        }
+        None => false,
+    }
+}
+
 fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, config: &Config) -> u64 {
     let mut my_time = if white { time_info.wtime } else { time_info.btime };
     my_time = my_time.saturating_sub(config.move_overhead as i32);
@@ -371,6 +478,101 @@ mod tests {
     use crate::model::{TimeInfo, TimeMode};
     use super::calculate_thinking_time;
     use crate::Config;
+
+    /// 1. Nf3 Nf6 2. Ng1 Ng8 twice and 5. Nf3: the position after 1. Nf3 for the third time.
+    const THREEFOLD_AFTER_NF3: &str = "g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8 g1f3";
+
+    fn engine_state() -> std::sync::Arc<crate::model::EngineState> {
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        std::sync::Arc::new(crate::model::EngineState {
+            stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(std::sync::Arc::new(crate::zobrist::ZobristTable::with_capacity(1024))),
+            pv_nodes: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(|_| {}))),
+            log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
+        })
+    }
+
+    fn pass(white: bool, window: (i16, i16), variants: &[((u8, u8), i16)]) -> crate::model::SearchResult {
+        let mut result = crate::model::SearchResult::default();
+        result.is_white_move = white;
+        result.window_alpha = window.0;
+        result.window_beta = window.1;
+        for &((from, to), eval) in variants {
+            result.add_variant(crate::model::Variant {
+                eval,
+                best_move: Some(crate::model::Turn::new(from, to, 0, 0, false, 0)),
+                move_row: std::collections::VecDeque::new(),
+            });
+        }
+        result
+    }
+
+    #[test]
+    fn test_an_interrupted_iteration_keeps_a_move_it_has_proven_better() {
+        use super::proven_better_while_interrupted as proven;
+        let previous = crate::model::Turn::new(12, 28, 0, 0, false, 0);
+        let (a, b, c) = ((12, 28), (6, 21), (11, 27));
+
+        // White: the previous best was searched first, a later move beat it inside the window.
+        assert!(proven(&previous, &pass(true, (10, 30), &[(b, 35), (a, 20)])));
+        // Black, on the absolute scale: lower is better, and the edge that counts is `beta`.
+        assert!(proven(&previous, &pass(false, (-30, -10), &[(b, -35), (a, -20)])));
+
+        // The previous best is still on top.
+        assert!(!proven(&previous, &pass(true, (10, 30), &[(a, 25), (b, 15)])));
+        // The previous best was not searched in this pass, so nothing was beaten.
+        assert!(!proven(&previous, &pass(true, (10, 30), &[(b, 35), (c, 20)])));
+        // Every score failed low: two upper bounds compared with each other prove nothing.
+        assert!(!proven(&previous, &pass(true, (50, 70), &[(b, 40), (a, 30)])));
+        assert!(!proven(&previous, &pass(false, (-70, -50), &[(b, -40), (a, -30)])));
+        // Nothing finished at all.
+        assert!(!proven(&previous, &pass(true, (10, 30), &[])));
+    }
+
+    #[test]
+    fn test_a_mate_stops_the_search_only_inside_the_completed_depth() {
+        use crate::model::MATE_SCORE;
+        // Mate in five plies, for either side: proven at depth 5, not at depth 4 or 2.
+        for sign in [1i16, -1] {
+            assert!(!super::mate_within_horizon(sign * (MATE_SCORE - 5), 2));
+            assert!(!super::mate_within_horizon(sign * (MATE_SCORE - 5), 4));
+            assert!(super::mate_within_horizon(sign * (MATE_SCORE - 5), 5));
+            assert!(super::mate_within_horizon(sign * (MATE_SCORE - 1), 2));
+        }
+        assert!(!super::mate_within_horizon(950, 30), "a centipawn score is not a mate");
+    }
+
+    #[test]
+    fn test_a_replayed_threefold_leaves_the_root_searchable() {
+        let service = crate::service::Service::new();
+        let mut game = crate::model::UciGame::new(service.fen.set_init_board());
+        super::replay_moves(&mut game, THREEFOLD_AFTER_NF3);
+        assert_eq!(game.board.game_status, crate::model::GameStatus::Normal,
+            "the root must not keep the draw flag of the replayed list");
+    }
+
+    #[test]
+    fn test_a_book_move_must_be_legal_and_must_not_repeat() {
+        let service = crate::service::Service::new();
+        let config = Config::new();
+        let state = engine_state();
+        let start = service.fen.set_init_board();
+        assert!(super::is_playable_book_move(&service, &start, "e2e4", &config, &state));
+        assert!(!super::is_playable_book_move(&service, &start, "e2e5", &config, &state), "illegal");
+        assert!(!super::is_playable_book_move(&service, &start, "0000", &config, &state), "not a move");
+
+        // One ply short of the threefold: the book move that completes it is refused, any other
+        // legal move is not.
+        let mut game = crate::model::UciGame::new(service.fen.set_init_board());
+        super::replay_moves(&mut game, "g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8");
+        assert!(!super::is_playable_book_move(&service, &game.board, "g1f3", &config, &state),
+            "g1f3 repeats the position after 1. Nf3 a third time");
+        assert!(super::is_playable_book_move(&service, &game.board, "e2e4", &config, &state));
+    }
 
     #[test]
     fn calculate_thinking_time_test() {

@@ -82,6 +82,9 @@ impl SearchService {
 
         // Always ensure that WhiteGivesCheck and BlackGivesCheck are initialized in local_map
                 
+        // Repetitions strictly inside this search are draws at their second occurrence.
+        board.search_root_len = board.history_len;
+
         let current_zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
         let zobrist_table = &*current_zobrist_table;
         let stop_flag = &engine_state.stop_flag;
@@ -118,18 +121,19 @@ impl SearchService {
             root_depth: depth,
         };
 
-        // One buffer set per recursion level for the whole search: the root keeps the first
-        // and hands the rest to `minimax`. See `model::NodeBuffers` for why reusing them cannot
-        // move the search tree.
-        let mut buffers = crate::model::new_search_buffers();
+        // One buffer set per recursion level: the root keeps the first and hands the rest to
+        // `minimax`. The arena belongs to `SearchTables` and outlives the search, so the root
+        // list is cleared before generation, as `minimax` clears its own; see
+        // `model::NodeBuffers` for why reusing the buffers cannot move the search tree.
         let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); MAX_PLY];
         if config.use_nnue && service.eval.nnue_net.loaded {
             acc_stack[0] = crate::nnue_service::NNUEService::compute_accumulator(board, &service.eval.nnue_net);
         }
-        let (root_level, deeper) = buffers
+        let (root_level, deeper) = tables.buffers
             .split_first_mut()
             .expect("the arena is allocated with SEARCH_LEVELS entries");
         let crate::model::NodeBuffers { moves: turns, pv: child_pv } = root_level;
+        turns.clear();
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, turns);
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
@@ -167,6 +171,8 @@ impl SearchService {
             search_result.calculated_depth = depth;
             search_result.is_white_move = white;
             search_result.is_pv_search_result = true;
+            search_result.window_alpha = alpha;
+            search_result.window_beta = beta;
             search_result.best_score = if white { i16::MIN } else { i16::MAX };
             search_result.second_best_score = if white { i16::MIN } else { i16::MAX };
 
@@ -219,10 +225,9 @@ impl SearchService {
 
                 turn_counter += 1;
                 context.root_moves_searched = turn_counter - 1;
-                let mi = board.do_move(turn);
-                // The child key is already final at this point, so the slot request can start now
-                // and overlap with move generation and evaluation below.
-                context.zobrist_table.prefetch(board.cached_hash);
+                // The slot request starts as soon as the child key is known, inside the move, and
+                // overlaps with the rest of the move, move generation and evaluation.
+                let mi = board.do_move_prefetching(turn, context.zobrist_table);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     acc_stack[1] = crate::nnue_service::NNUEService::update_accumulator(
                         &acc_stack[0], board, turn, &mi, &service.eval.nnue_net
@@ -385,6 +390,7 @@ impl SearchService {
         search_result.stats = stats.clone();
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
+        board.search_root_len = usize::MAX;
         crate::search_diag::dump();
         crate::search_diag::dump_tree(
             search_result.stats.calculated_nodes,
@@ -393,6 +399,20 @@ impl SearchService {
         search_result
     }
     
+
+    /// Writes `mv` followed by the child's principal variation into `pv`.
+    ///
+    /// Every reader of a line stops at its first `None` - `get_moves` collects it with
+    /// `take_while`, and a table cutoff writes `[m, None]` - so the child's line is copied up to
+    /// and including its terminator and the rest of `pv` is left as it was. Clearing all 128 slots
+    /// on entry and copying 127 on every alpha raise, which this replaces, wrote about 4 KB per
+    /// node for the same line.
+    #[inline(always)]
+    fn write_pv(pv: &mut [Option<Turn>; 128], mv: Turn, child_pv: &[Option<Turn>; 128]) {
+        pv[0] = Some(mv);
+        let len = child_pv[..127].iter().position(Option::is_none).map_or(127, |end| end + 1);
+        pv[1..=len].copy_from_slice(&child_pv[..len]);
+    }
 
     #[inline(always)]
     fn get_piece_value(&self, piece: u8, _config: &Config) -> i16 {
@@ -497,9 +517,32 @@ impl SearchService {
         gain[0]
     }
 
+    /// A lower bound of [`Self::see`] from two lookups: the opponent may always decline to
+    /// recapture, so the exchange never ends below the victim minus the capturing piece. The
+    /// victim and the capturer are valued exactly as `see` values them, en passant included, and
+    /// its back-propagation subtracts at most the capturer's value from the victim, which is what
+    /// makes this a bound of `see` itself and not only of the true exchange.
+    #[inline(always)]
+    pub fn see_floor(&self, board: &Board, mv: &Turn, config: &Config) -> i16 {
+        let attacker = board.get_piece_at(mv.from);
+        let is_en_passant = (attacker == 10 || attacker == 20)
+            && mv.capture != 0
+            && mv.promotion == 0
+            && mv.to as i8 == board.field_for_en_passante;
+        let victim = if is_en_passant {
+            crate::pst::PIECE_EVAL_PAWN
+        } else {
+            self.get_piece_value(board.get_piece_at(mv.to), config)
+        };
+        victim - self.get_piece_value(attacker, config)
+    }
+
+    /// `see(mv) >= threshold`, answered from [`Self::see_floor`] whenever the floor already clears
+    /// the threshold - a capture of an equal or more valuable piece against a non-positive one.
     #[inline(always)]
     pub fn see_ge(&self, board: &Board, mv: &Turn, threshold: i16, config: &Config, movegen: &MoveGenService) -> bool {
-        self.see(board, mv, config, movegen) >= threshold
+        self.see_floor(board, mv, config) >= threshold
+            || self.see(board, mv, config, movegen) >= threshold
     }
 
     /// One negamax node. `alpha`, `beta` and the returned score are **relative to the side to
@@ -534,9 +577,9 @@ impl SearchService {
 
         let white = board.white_to_move;
 
-        for slot in pv.iter_mut() {
-            *slot = None;
-        }
+        // Every reader of a principal variation stops at its first `None`, so an empty line is
+        // one write. See `write_pv`.
+        pv[0] = None;
 
         // Saturating index for all ply-indexed tables (killer moves and accumulator stack).
         let ply_idx = (ply.max(0) as usize).min(MAX_PLY - 1);
@@ -564,15 +607,26 @@ impl SearchService {
             return (None, -i16::MAX);
         }
 
+        // A position on the board for the third time is a draw, whatever its table entry, its
+        // static evaluation or a Quiescence Search say about it - and every one of those used to
+        // answer first. The only draw test sat after move generation, so a repeated position was
+        // scored from the entry an earlier visit stored, Null Move Pruning, Reverse Futility
+        // Pruning and razoring returned their static bounds ahead of it, and the Quiescence Search
+        // stood pat. The engine walked into threefolds from won positions because the table still
+        // read them as won. Nothing is stored: the draw belongs to the path, not the position.
+        if board.game_status == GameStatus::Draw {
+            return (None, 0);
+        }
+
         // Hard ply ceiling. Check Extensions can keep the remaining depth constant along a
         // forcing line, so the ply may grow past the nominal root depth. Terminating with a
         // static evaluation here guarantees that every ply-indexed table access below stays
         // within bounds and that the search tree remains finite.
         if ply >= MAX_PLY as i32 - 1 {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval_with_acc(
+            let absolute = service.eval.calc_eval_known_check_with_acc(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search,
+                abs_alpha, abs_beta, config.lazy_eval_margin_search, turn.gives_check,
                 if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
             );
             return (None, Self::relative_score(white, absolute));
@@ -654,6 +708,7 @@ impl SearchService {
                         crate::zobrist::TranspositionType::Exact => {
                             if let Some(m) = decompressed {
                                 pv[0] = Some(m);
+                                pv[1] = None;
                             }
                             return (decompressed, entry_eval);
                         }
@@ -662,6 +717,7 @@ impl SearchService {
                             if alpha >= beta {
                                 if let Some(m) = decompressed {
                                     pv[0] = Some(m);
+                                    pv[1] = None;
                                 }
                                 return (decompressed, entry_eval);
                             }
@@ -671,6 +727,7 @@ impl SearchService {
                             if alpha >= beta {
                                 if let Some(m) = decompressed {
                                     pv[0] = Some(m);
+                                    pv[1] = None;
                                 }
                                 return (decompressed, entry_eval);
                             }
@@ -693,9 +750,9 @@ impl SearchService {
         // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval_with_acc(
+            let absolute = service.eval.calc_eval_known_check_with_acc(
                 board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search,
+                abs_alpha, abs_beta, config.lazy_eval_margin_search, false,
                 if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
             );
             Self::relative_score(white, absolute)
@@ -742,6 +799,10 @@ impl SearchService {
             // block is reached, so the gate reads a full evaluation and the lazy contract that
             // makes it safe on `master` is not even needed here.
             && (!config.nmp_static_eval_gate || static_eval >= beta)
+            // A mated `beta` is cleared by every static evaluation, and the reduced null search
+            // cannot see a quiet mate, so the cut would claim "not mated that fast" without
+            // evidence. The same bound every other pruning rule carries.
+            && beta.abs() < 20000
             && self.has_non_pawn_material(board, board.white_to_move)
         {
             // `static_eval` is the sentinel `0` outside `depth > 0 && !turn.gives_check`. This
@@ -752,6 +813,13 @@ impl SearchService {
             let old_white_to_move = board.white_to_move;
             let old_field_for_en_passante = board.field_for_en_passante;
             let old_hash = board.cached_hash;
+            // A null child without a legal move writes `Draw` onto the board, and nothing undoes
+            // a null move the way `undo_move` undoes a real one, so the status is saved here.
+            let old_game_status = board.game_status.clone();
+            // A null move pushes no history entry, so nothing before it may count as a repetition
+            // of what follows: the cycle a pass makes possible is not one either side can force.
+            let old_irreversible_floor = board.irreversible_floor;
+            board.irreversible_floor = board.history_len;
 
             // Make Null Move. The hash is derived from the position as it still stands, because
             // the en passant key is only part of it when the side to move can actually capture.
@@ -784,6 +852,8 @@ impl SearchService {
             board.white_to_move = old_white_to_move;
             board.field_for_en_passante = old_field_for_en_passante;
             board.cached_hash = old_hash;
+            board.game_status = old_game_status;
+            board.irreversible_floor = old_irreversible_floor;
 
             if null_eval >= beta {
                 // Verification Search for high depths. The null move has already been undone,
@@ -822,6 +892,9 @@ impl SearchService {
             && !turn.gives_check
             // `task.md` 20.2, the same guard as on Null Move Pruning above. Ships disabled.
             && (!config.rfp_pv_guard || !is_pv)
+            // Every static evaluation clears a mated `beta`; see the same guard on Null Move
+            // Pruning above.
+            && beta.abs() < 20000
             && self.has_non_pawn_material(board, board.white_to_move)
         {
             debug_assert!(depth > 0 && !turn.gives_check,
@@ -919,6 +992,7 @@ impl SearchService {
                             crate::zobrist::TranspositionType::Exact => {
                                 if let Some(m) = tt_move {
                                     pv[0] = Some(m);
+                                    pv[1] = None;
                                 }
                                 return (tt_move, entry_eval);
                             }
@@ -927,6 +1001,7 @@ impl SearchService {
                                 if alpha >= beta {
                                     if let Some(m) = tt_move {
                                         pv[0] = Some(m);
+                                        pv[1] = None;
                                     }
                                     return (tt_move, entry_eval);
                                 }
@@ -936,6 +1011,7 @@ impl SearchService {
                                 if alpha >= beta {
                                     if let Some(m) = tt_move {
                                         pv[0] = Some(m);
+                                        pv[1] = None;
                                     }
                                     return (tt_move, entry_eval);
                                 }
@@ -960,9 +1036,9 @@ impl SearchService {
 
             if !in_check {
                 let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-                stand_pat = Self::relative_score(white, service.eval.calc_eval_with_acc(
+                stand_pat = Self::relative_score(white, service.eval.calc_eval_known_check_with_acc(
                     board, config, &service.move_gen, &service.pawn_table,
-                    abs_alpha, abs_beta, config.lazy_eval_margin_qs,
+                    abs_alpha, abs_beta, config.lazy_eval_margin_qs, false,
                     if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
                 ));
                 eval = stand_pat;
@@ -1068,10 +1144,9 @@ impl SearchService {
                     break;
                 }
                 stats.add_calculated_nodes(1);
-                let mi = board.do_move(capture_turn);
-                // The child key is already final at this point, so the slot request can start now
-                // and overlap with move generation and evaluation below.
-                context.zobrist_table.prefetch(board.cached_hash);
+                // The slot request starts as soon as the child key is known, inside the move, and
+                // overlaps with the rest of the move, move generation and evaluation.
+                let mi = board.do_move_prefetching(capture_turn, context.zobrist_table);
                 let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
@@ -1087,8 +1162,7 @@ impl SearchService {
                     eval = min_max_eval;
                     alpha = alpha.max(min_max_eval);
                     best_move = Some(*capture_turn);
-                    pv[0] = Some(*capture_turn);
-                    pv[1..].copy_from_slice(&child_pv[..127]);
+                    Self::write_pv(pv, *capture_turn, child_pv);
                 }
 
                 if beta <= alpha {
@@ -1201,7 +1275,9 @@ impl SearchService {
             // Lazy SEE. A capture is evaluated exactly once: on its first selection its rank is
             // still inside the capture band, and demoting it out of that band keeps this branch from
             // firing a second time when it is selected again from the tail of the list.
-            if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING {
+            // Nothing below reads a non-negative value, and a floor of zero or more proves one.
+            if turns.moves[i].capture != 0 && turns.moves[i].rank >= SEE_PENDING_FLOOR && turns.moves[i].rank < SEE_PENDING_CEILING
+                && self.see_floor(board, &turns.moves[i], config) < 0 {
                 let see_value = self.see(board, &turns.moves[i], config, &service.move_gen);
                 if see_value < 0 {
                     // 0.7. SEE pruning of bad captures. A capture that loses more than
@@ -1474,10 +1550,9 @@ impl SearchService {
             #[cfg(feature = "search-diag")]
             let diag_nodes_before = stats.calculated_nodes;
 
-            let mi = board.do_move(current_turn);
-            // The child key is already final at this point, so the slot request can start now
-            // and overlap with move generation and evaluation below.
-            context.zobrist_table.prefetch(board.cached_hash);
+            // The slot request starts as soon as the child key is known, inside the move, and
+            // overlaps with the rest of the move, move generation and evaluation.
+            let mi = board.do_move_prefetching(current_turn, context.zobrist_table);
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
                 acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
@@ -1574,8 +1649,7 @@ impl SearchService {
                 eval = min_max_eval;
                 alpha = alpha.max(min_max_eval);
                 best_move = Some(*current_turn);
-                pv[0] = Some(*current_turn);
-                pv[1..].copy_from_slice(&child_pv[..127]);
+                Self::write_pv(pv, *current_turn, child_pv);
                 if config.in_debug && turn_counter > 30 {
                     stats.add_turn_nr_gt_threshold(1);
                     stats.add_log(format!("{}, move {} was the {} lvl:{}",
@@ -3102,6 +3176,37 @@ mod tests {
         assert_eq!(config_conservative.lmr_table[16][16], 3);
     }
 
+    /// `task.md` 23.4: with both history thresholds at 0 the Late Move Reduction rebate reads the
+    /// **sign** of the history entry and nothing else. `master` ships those thresholds since
+    /// v0.45.1; this branch keeps its own (4000 and the protected 550), so the test sets them and
+    /// checks the mechanism only.
+    #[test]
+    fn test_lmr_history_rebate_reads_the_sign_of_the_entry() {
+        let mut config = Config::new();
+        config.lmr_history_good_threshold = 0;
+        config.lmr_history_bad_threshold = 0;
+
+        // A cell with room for a rebate in both directions, so neither assertion reads a clamp.
+        let (depth, turn_counter) = (16i32, 16i32);
+        let base = config.lmr_table[depth as usize][turn_counter as usize] as i32;
+        assert!(base >= 2, "the pinned cell must leave room for a rebate, got {}", base);
+
+        let reduction = |hist_val| super::SearchService::lmr_reduction(
+            &config, depth, turn_counter, false, false, false, hist_val,
+        );
+
+        assert_eq!(reduction(1), base - 1,
+                   "a quiet move that was ever rewarded reduces one ply less");
+        assert_eq!(reduction(crate::model::MAX_HISTORY), base - 1,
+                   "the rebate is one ply whatever the magnitude -- it is not a curve");
+        assert_eq!(reduction(0), base,
+                   "a move the search has never seen keeps the table's reduction");
+        assert_eq!(reduction(-1), base + 1,
+                   "a refuted quiet move reduces one ply more");
+        assert_eq!(reduction(-crate::model::MAX_HISTORY), base + 1,
+                   "and the penalty is one ply whatever the magnitude");
+    }
+
     #[test]
     fn test_static_exchange_evaluation() {
         let service = Service::new();
@@ -3767,5 +3872,258 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(60))
             .expect("the aspiration re-search loop must terminate for every tunable multiplier");
         assert!(found_a_move, "the search must still return a move");
+    }
+
+    /// One `minimax` node on `fen`, entered at ply 1 under the shipped configuration as `shape`
+    /// leaves it, with an empty table, the way `get_moves` enters a root child. Returns the score
+    /// and the board the node leaves behind.
+    fn search_node(fen: &str, depth: i32, alpha: i16, beta: i16, shape: impl Fn(&mut Config))
+        -> (i16, crate::model::Board) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let mut config = Config::new();
+        // `get_moves` searches with this off, and a node entered directly has to match it.
+        config.pre_sort_moves = false;
+        shape(&mut config);
+        let table = ZobristTable::with_capacity(100_000);
+        let state = fresh_engine_state();
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: &table,
+            stop_flag: &state.stop_flag,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: depth,
+        };
+        let mut stats = Stats::new();
+        let mut pv = [None; 128];
+        let mut killer_moves = [[None; 2]; 128];
+        let mut history = [[[0i32; 64]; 64]; 2];
+        let mut counter_moves = [[None; 64]; 64];
+        let no_move = Turn::new(0, 0, 0, 0, false, 0);
+        let (_, score) = service.search.minimax(
+            &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
+            false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
+            &mut crate::model::new_search_buffers(),
+            &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
+        );
+        (score, board)
+    }
+
+    #[test]
+    fn test_a_null_move_into_stalemate_does_not_leave_the_node_drawn() {
+        // White mates with Qb7, but Black to move would be stalemated. The null child generates no
+        // move and writes `Draw` onto the shared board, and the node then scored itself 0 because
+        // nothing restored the status. At depths 5 and 6 Null Move Pruning reaches the null child
+        // without razoring answering first.
+        let fen = "k7/2K5/1Q6/8/8/8/8/8 w - - 0 1";
+        for depth in [5, 6] {
+            let (score, board) = search_node(fen, depth, 0, 1, |_| {});
+            assert!(score > crate::model::MATE_SCORE_THRESHOLD,
+                "depth {depth}: Qb7# must score as a mate, got {score}");
+            assert_eq!(board.game_status, crate::model::GameStatus::Normal,
+                "depth {depth}: the null move must not leave a status behind on the board");
+        }
+    }
+
+    /// Every White move allows Qg2#, so White is mated two plies below this node, and a window
+    /// at "mated in 16" must fail low.
+    const MATED_IN_TWO_FEN: &str = "8/8/8/8/8/6q1/5k2/N6K w - - 0 1";
+    const MATED_BETA: i16 = -(crate::model::MATE_SCORE - 16);
+
+    #[test]
+    fn test_reverse_futility_does_not_cut_against_a_mated_beta() {
+        // Any static evaluation clears a `beta` in the mated range, so Reverse Futility Pruning
+        // answered this node with a static fail high. Null Move Pruning is off to reach it.
+        let (score, _) = search_node(MATED_IN_TWO_FEN, 3, MATED_BETA - 1, MATED_BETA,
+            |c| c.enable_nmp = false);
+        assert!(score < MATED_BETA, "White is mated in two plies, so the node must fail low, got {score}");
+    }
+
+    #[test]
+    fn test_null_move_does_not_cut_against_a_mated_beta() {
+        // The static-eval gate `static_eval >= beta` holds for every mated `beta`, and the reduced
+        // null search - a Quiescence Search at this depth - cannot see a quiet mate, so the node
+        // returned `beta` as a cutoff. Reverse Futility Pruning is off to isolate the rule.
+        let (score, _) = search_node(MATED_IN_TWO_FEN, 3, MATED_BETA - 1, MATED_BETA,
+            |c| c.enable_rfp = false);
+        assert!(score < MATED_BETA, "White is mated in two plies, so the node must fail low, got {score}");
+    }
+
+    #[test]
+    fn test_the_shipped_search_fails_low_against_a_mated_beta() {
+        let (score, _) = search_node(MATED_IN_TWO_FEN, 3, MATED_BETA - 1, MATED_BETA, |_| {});
+        assert!(score < MATED_BETA, "White is mated in two plies, so the node must fail low, got {score}");
+    }
+
+    #[test]
+    fn test_write_pv_copies_the_child_line_through_its_terminator() {
+        let a = Turn::new(12, 28, 0, 0, false, 0);
+        let b = Turn::new(52, 36, 0, 0, false, 0);
+        // Stale contents everywhere, as a reused buffer holds them.
+        let mut pv = [Some(b); 128];
+
+        let mut short = [Some(a); 128];
+        short[2] = None;
+        super::SearchService::write_pv(&mut pv, b, &short);
+        assert_eq!(&pv[..4], &[Some(b), Some(a), Some(a), None]);
+
+        super::SearchService::write_pv(&mut pv, a, &[None; 128]);
+        assert_eq!(&pv[..2], &[Some(a), None]);
+
+        // A full child line keeps its first 127 moves, as the full copy did.
+        super::SearchService::write_pv(&mut pv, b, &[Some(a); 128]);
+        assert_eq!(pv[0], Some(b));
+        assert!(pv[1..].iter().all(|m| *m == Some(a)));
+    }
+
+    #[test]
+    fn test_the_see_floor_is_a_lower_bound_of_see_for_every_move() {
+        // `see_ge` answers from the floor whenever it clears the threshold, so the floor must never
+        // exceed `see` - for captures, en passant, promotions and quiet moves alike - or the
+        // shortcut would change which captures the search prunes and demotes.
+        let fens = [
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq - 0 1",
+            "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+            "r1n1k3/1P6/8/8/8/8/6p1/4K2R w K - 0 1",
+            "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N2N2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+            "2r3k1/1q1nbppp/r3p3/3pP3/pPpP4/P1Q2N2/2RN1PPP/2R4K b - - 0 22",
+        ];
+        let mut checked = 0;
+        for fen in fens {
+            let (service, board, turns) = generate_moves_for(fen);
+            let config = Config::for_tests();
+            for mv in &turns.moves[..turns.len] {
+                let see = service.search.see(&board, mv, &config, &service.move_gen);
+                let floor = service.search.see_floor(&board, mv, &config);
+                assert!(floor <= see, "{fen}: {} floor {floor} above see {see}", mv.to_algebraic());
+                for threshold in [-500, -100, -1, 0, 1, 100, 300] {
+                    assert_eq!(
+                        service.search.see_ge(&board, mv, threshold, &config, &service.move_gen),
+                        see >= threshold,
+                        "{fen}: {} at threshold {threshold}", mv.to_algebraic());
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 150, "the corpus must exercise the bound, checked only {checked} moves");
+    }
+
+    #[test]
+    fn test_a_reused_arena_searches_the_tree_a_fresh_one_does() {
+        // The arena belongs to `SearchTables` and outlives a search. Whatever an earlier search
+        // left in any level must not reach the next one.
+        let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        let config = Config::for_tests();
+        // A `Service` per search: it owns the pawn hash table, and a warm one evaluates
+        // differently from a cold one.
+        let search = |state: &Arc<EngineState>| {
+            let service = Service::new();
+            let mut board = service.fen.set_fen(fen);
+            let mut stats = Stats::new();
+            let result = service.search.get_moves(&mut board, 5, true, &mut stats, &config,
+                &service, state, std::time::Instant::now(), None, None);
+            (result.get_eval(), result.get_best_move_algebraic(), stats.calculated_nodes)
+        };
+        let fresh = search(&fresh_engine_state());
+
+        let dirty = fresh_engine_state();
+        {
+            let junk = Turn::new(1, 2, 0, 0, false, 0);
+            let mut tables = dirty.search_tables.lock().unwrap();
+            for level in tables.buffers.iter_mut() {
+                level.moves.clear();
+                for _ in 0..40 {
+                    level.moves.push(junk);
+                }
+                level.pv = [Some(junk); 128];
+            }
+        }
+        assert_eq!(search(&dirty), fresh);
+    }
+
+    /// The position after 1. Nf3 on the board for the third time, Black to move.
+    const THREEFOLD_AFTER_NF3: &str = "g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8 g1f3";
+
+    /// The board after `moves` from the start position, with a table that already holds an
+    /// exact +700 for the final position at depth 20, as an earlier visit in a game would have.
+    fn repeated_position_with_a_stale_entry(moves: &str) -> (crate::model::Board, ZobristTable) {
+        let service = Service::new();
+        let mut game = crate::model::UciGame::new(service.fen.set_init_board());
+        for mv in moves.split_whitespace() {
+            game.do_move(mv);
+        }
+        let table = ZobristTable::with_capacity(100_000);
+        let hash = crate::zobrist::gen_hash(&game.board);
+        table.insert_entry(hash, crate::zobrist::TranspositionEntry {
+            key: hash,
+            eval: 700,
+            depth: 20,
+            entry_type: crate::zobrist::TranspositionType::Exact,
+            best_move: 0,
+            padding: [0; 2],
+        });
+        (game.board, table)
+    }
+
+    fn search_with_table(board: &mut crate::model::Board, table: &ZobristTable, depth: i32) -> i16 {
+        let service = Service::new();
+        let mut config = Config::new();
+        config.pre_sort_moves = false;
+        let state = fresh_engine_state();
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: table,
+            stop_flag: &state.stop_flag,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: depth,
+        };
+        let mut stats = Stats::new();
+        let mut pv = [None; 128];
+        let mut killer_moves = [[None; 2]; 128];
+        let mut history = [[[0i32; 64]; 64]; 2];
+        let mut counter_moves = [[None; 64]; 64];
+        let no_move = Turn::new(0, 0, 0, 0, false, 0);
+        service.search.minimax(
+            board, &no_move, depth, -30_000, 30_000, &mut stats, &config, &service, &context,
+            false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
+            &mut crate::model::new_search_buffers(),
+            &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
+        ).1
+    }
+
+    #[test]
+    fn test_a_threefold_is_a_draw_whatever_the_table_says() {
+        // The table holds the score of an earlier visit, before the position repeated. The node
+        // must not answer from it - not in the main search, and not in the Quiescence Search.
+        for depth in [5, 1, 0] {
+            let (mut board, table) = repeated_position_with_a_stale_entry(THREEFOLD_AFTER_NF3);
+            assert_eq!(board.game_status, crate::model::GameStatus::Draw, "the fixture must be a threefold");
+            assert_eq!(search_with_table(&mut board, &table, depth), 0,
+                "depth {depth}: a threefold scored from the table");
+        }
+    }
+
+    #[test]
+    fn test_a_twofold_is_still_searched() {
+        // One repetition short of the threefold the node is a normal position, and the table
+        // entry answers as it always did.
+        let (mut board, table) = repeated_position_with_a_stale_entry("g1f3 g8f6 f3g1 f6g8 g1f3");
+        assert_eq!(board.game_status, crate::model::GameStatus::Normal);
+        assert_eq!(search_with_table(&mut board, &table, 5), 700);
     }
 }
