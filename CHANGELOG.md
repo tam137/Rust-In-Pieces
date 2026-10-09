@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.45.9] - 2026-10-09
+
+A position repeated inside the search tree is a draw at its second occurrence. Gated by
+**SPRT [0, 10]: H1 after 3860 games** at 1s + 150ms against v0.45.8. The stopping score, 51.6%, is
+not an effect size (`task.md` rule 7).
+
+### Changed
+- **A cycle inside the search tree is a draw at once.** `do_move` marked a draw only at the third
+  occurrence of a position, so the search walked cycles that either side could repeat at will
+  until the third time round. A repetition whose earlier occurrence lies strictly after the root
+  of the running search is now a draw at the second occurrence; one that began at or before the
+  root - the game's own history - still needs the third, so the rule of the game is unchanged at
+  the root and outside a search.
+- **The repetition scan stops at a null move.** A null move pushes no history entry, and the scan
+  used to run straight through it - with a draw at the second occurrence that would have scored a
+  cycle only a pass made possible. Null Move Pruning now lifts the scan's floor for its subtree.
+
+### Notes
+- Tree size against v0.45.8, 300 pool positions at depth 10: 143 identical, 2.7% fewer generated
+  moves and 1.5% less time. Recorded, not a gate (`task.md` rule 1).
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 45.5% against v0.45.8, 53.5% against
+  v0.45.7, 81.5% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.8] - 2026-10-08
 
 The iteration the clock interrupts is no longer thrown away when it has already proven a better
