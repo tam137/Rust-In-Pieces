@@ -27,7 +27,8 @@ use crate::model::RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE;
 /// that every name the engine advertises actually reaches a field. See `task.md` 1.1.
 pub fn uci_options(defaults: &Config) -> Vec<String> {
     vec![
-        "option name Hash type spin default 128 min 1 max 1024".to_string(),
+        format!("option name Hash type spin default {} min 1 max 1024",
+            defaults.max_zobrist_hash_entries * 16 / (1024 * 1024)),
         "option name Threads type spin default 1 min 1 max 8".to_string(),
         format!("option name Move Overhead type spin default {} min 0 max 5000", defaults.move_overhead),
         "option name BookFile type string default <empty>".to_string(),

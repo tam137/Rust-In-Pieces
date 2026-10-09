@@ -245,22 +245,22 @@
         "max": 22
     },
     "knight_mobility_factor": {
-        "value": 2,
+        "value": 3,
         "min": 0,
         "max": 10
     },
     "bishop_mobility_factor": {
-        "value": 1,
+        "value": 3,
         "min": 0,
         "max": 10
     },
     "rook_mobility_factor": {
-        "value": 1,
+        "value": 2,
         "min": 0,
         "max": 10
     },
     "lmr_move_threshold": {
-        "value": 3,
+        "value": 2,
         "min": 0,
         "max": 10
     },
@@ -295,7 +295,7 @@
         "max": 40.0
     },
     "lmr_divisor": {
-        "value": 170,
+        "value": 140,
         "min": 92,
         "max": 370
     },
@@ -390,12 +390,12 @@
         "max": 400
     },
     "aspiration_window_initial_delta": {
-        "value": 15,
+        "value": 16,
         "min": 7,
         "max": 30
     },
     "aspiration_window_multiplier": {
-        "value": 4,
+        "value": 5,
         "min": 2,
         "max": 10
     },
@@ -405,7 +405,7 @@
         "max": 8000
     },
     "lmr_history_bad_threshold": {
-        "value": 500,
+        "value": 550,
         "min": 250,
         "max": 1000
     },

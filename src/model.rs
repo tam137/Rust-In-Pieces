@@ -67,6 +67,10 @@ pub struct SearchTables {
     /// rescaling pass.
     pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
+    /// The per-level node buffers, [`SEARCH_LEVELS`] of them, about 1.6 MB. Allocated once per
+    /// engine instead of once per iterative deepening iteration; nothing in them carries from
+    /// one search to the next, see [`NodeBuffers`]. Not touched by `reset`.
+    pub buffers: Vec<NodeBuffers>,
 }
 
 impl SearchTables {
@@ -75,6 +79,7 @@ impl SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
             history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
+            buffers: new_search_buffers(),
         }
     }
 
@@ -485,9 +490,10 @@ pub const SEARCH_LEVELS: usize = 2 * 128;
 ///
 /// Both used to be constructed at every node. `MoveList::new()` writes 256 `Turn` values of 16
 /// bytes and the principal variation another 128 `Option<Turn>`, about 6 KB of stores per node
-/// for storage that is never read back: `MoveList::len` bounds every read of the first, and
-/// `minimax` clears the second on entry. Reusing one set per recursion level therefore cannot
-/// move the search tree.
+/// for storage that is never read back: `MoveList::len` bounds every read of the first, every
+/// list is cleared before it is generated into, and every reader of the second stops at the
+/// `None` that `minimax` writes on entry. Reusing one set per recursion level, and across
+/// searches, therefore cannot move the search tree.
 pub struct NodeBuffers {
     pub moves: MoveList,
     /// Sized like every `pv` parameter in the search.
@@ -503,8 +509,8 @@ impl NodeBuffers {
     }
 }
 
-/// Allocates the arena once per search. This is the only allocation the search makes, and it is
-/// made before the first node rather than inside one.
+/// Allocates the arena. `SearchTables` holds the one the search uses, so this runs once per
+/// engine rather than once per search; tests that enter `minimax` directly build their own.
 pub fn new_search_buffers() -> Vec<NodeBuffers> {
     (0..SEARCH_LEVELS).map(|_| NodeBuffers::new()).collect()
 }
@@ -607,6 +613,9 @@ pub struct Board {
     /// irreversible move (capture or pawn move) lies there. The Zobrist hash covers material
     /// and pawn placement, so no earlier position can ever match again.
     pub irreversible_floor: usize,
+    /// `history_len` at the root of the running search, `usize::MAX` outside one. A position whose
+    /// earlier occurrence lies at or beyond it repeated inside the search tree; see `do_move`.
+    pub search_root_len: usize,
     pub cached_hash: u64,
     pub pawn_key: u64,
     pub pst_mg: i16,
@@ -689,6 +698,7 @@ impl Board {
             history_hashes: [0; MAX_HISTORY_PLIES],
             history_len: 0,
             irreversible_floor: 0,
+            search_root_len: usize::MAX,
             cached_hash: 0,
             pawn_key: 0,
             pst_mg,
@@ -738,8 +748,24 @@ impl Board {
     /// It only panics if the from field is != 0
     /// calculate hash -> cached_hash
     pub fn do_move(&mut self, turn: &Turn) -> MoveInformation {
+        self.make_move(turn, None)
+    }
+
+    /// [`Self::do_move`], starting the load of the child's Transposition Table slot as soon as
+    /// the child's key is known and before the board is touched. Issued after `do_move` returned,
+    /// as it used to be, the request overlapped with almost nothing in the Quiescence Search,
+    /// whose probe is the first thing a child does.
+    pub fn do_move_prefetching(&mut self, turn: &Turn, table: &crate::zobrist::ZobristTable) -> MoveInformation {
+        self.make_move(turn, Some(table))
+    }
+
+    #[inline(always)]
+    fn make_move(&mut self, turn: &Turn, prefetch: Option<&crate::zobrist::ZobristTable>) -> MoveInformation {
         let old_cached_hash = self.cached_hash;
         let new_cached_hash = crate::zobrist::calc_incremental_hash(self, turn);
+        if let Some(table) = prefetch {
+            table.prefetch(new_cached_hash);
+        }
         let from = turn.from;
         let to = turn.to;
         let from_mask = 1u64 << from;
@@ -942,7 +968,10 @@ impl Board {
             while idx >= self.irreversible_floor as isize {
                 if self.history_hashes[idx as usize] == self.cached_hash {
                     repetitions += 1;
-                    if repetitions == 3 {
+                    // Inside the search tree a cycle is a draw at once: whoever walked into it can
+                    // repeat it at will. Only a first occurrence at or before the root - the
+                    // game's own history - keeps the threefold of the rules.
+                    if repetitions == 3 || idx as usize >= self.search_root_len {
                         self.game_status = GameStatus::Draw;
                         break;
                     }
@@ -1246,6 +1275,10 @@ pub struct SearchResult {
     pub is_pv_search_result: bool,
     pub best_score: i16,
     pub second_best_score: i16,
+    /// The aspiration window the pass that produced this result started with, on the absolute,
+    /// White-positive scale. A root score outside it is a bound, not a value.
+    pub window_alpha: i16,
+    pub window_beta: i16,
 }
 
 #[derive(Debug, Clone)]
@@ -1267,6 +1300,8 @@ impl SearchResult {
             is_pv_search_result: false,
             best_score: 0,
             second_best_score: 0,
+            window_alpha: i16::MIN,
+            window_beta: i16::MAX,
         }
     }
 
@@ -2092,6 +2127,62 @@ mod tests {
         assert_eq!(tables.counter_moves[6][21], None);
     }
 
+
+    fn game_after(moves: &[&str]) -> UciGame {
+        let service = crate::service::Service::new();
+        let mut game = UciGame::new(service.fen.set_init_board());
+        for mv in moves {
+            game.do_move(mv);
+        }
+        game
+    }
+
+    #[test]
+    fn a_cycle_inside_the_search_is_a_draw_at_its_second_occurrence() {
+        let mut game = game_after(&["e2e4", "e7e5"]);
+        game.board.search_root_len = game.board.history_len;
+        for mv in ["g1f3", "g8f6", "f3g1", "f6g8"] {
+            game.do_move(mv);
+        }
+        // Back at the root: its first occurrence is the root itself, so the game's rule holds.
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+        // The position after Nf3 occurred once before, strictly inside the search.
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Draw);
+    }
+
+    #[test]
+    fn a_twofold_that_began_before_the_root_keeps_the_threefold() {
+        let mut game = game_after(&["e2e4", "e7e5", "g1f3", "g8f6", "f3g1", "f6g8"]);
+        game.board.search_root_len = game.board.history_len;
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+    }
+
+    #[test]
+    fn outside_a_search_only_the_threefold_counts() {
+        let mut game = game_after(&["g1f3", "g8f6", "f3g1", "f6g8", "g1f3"]);
+        assert_eq!(game.board.search_root_len, usize::MAX);
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+        for mv in ["g8f6", "f3g1", "f6g8", "g1f3"] {
+            game.do_move(mv);
+        }
+        assert_eq!(game.board.game_status, super::GameStatus::Draw);
+    }
+
+    #[test]
+    fn the_floor_a_null_move_raises_hides_the_positions_before_it() {
+        // A null move pushes no history entry; the search lifts the floor to the history length
+        // for its subtree, and the scan must not reach past it.
+        let mut game = game_after(&["e2e4", "e7e5"]);
+        game.board.search_root_len = game.board.history_len;
+        for mv in ["g1f3", "g8f6", "f3g1", "f6g8"] {
+            game.do_move(mv);
+        }
+        game.board.irreversible_floor = game.board.history_len;
+        game.do_move("g1f3");
+        assert_eq!(game.board.game_status, super::GameStatus::Normal);
+    }
 }
     #[test]
     fn incremental_hash_complex_sequence_test() {

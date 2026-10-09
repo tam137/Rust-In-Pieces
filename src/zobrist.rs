@@ -212,6 +212,37 @@ impl TranspositionEntry {
     }
 }
 
+/// Asks the kernel to back `len` bytes at `ptr` with transparent huge pages. It has to happen
+/// before the first write faults the pages in.
+///
+/// A table far larger than the TLB's reach otherwise pays a page-table walk on nearly every
+/// probe before its DRAM access can even start: 64 MB of Transposition Table span 16,384 pages
+/// of 4 KiB against a second-level TLB that covers a few MB. Advisory only - on a host whose
+/// transparent huge pages are disabled the call changes nothing, and nothing depends on it.
+pub fn advise_huge_pages(ptr: *const u8, len: usize) {
+    #[cfg(target_os = "linux")]
+    {
+        const MADV_HUGEPAGE: i32 = 14;
+        const PAGE: usize = 4096;
+        unsafe extern "C" {
+            fn madvise(addr: *mut std::ffi::c_void, len: usize, advice: i32) -> i32;
+        }
+        let start = (ptr as usize).next_multiple_of(PAGE);
+        let end = (ptr as usize + len) & !(PAGE - 1);
+        if end > start {
+            // SAFETY: the range lies inside one live allocation and `madvise` with
+            // `MADV_HUGEPAGE` changes how it is backed, never its contents.
+            unsafe {
+                madvise(start as *mut std::ffi::c_void, end - start, MADV_HUGEPAGE);
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (ptr, len);
+    }
+}
+
 #[derive(Debug)]
 pub struct AtomicEntry {
     pub key: std::sync::atomic::AtomicU64,
@@ -226,7 +257,8 @@ pub struct ZobristTable {
 impl ZobristTable {
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let mut table = Vec::with_capacity(capacity.max(1));
+        let mut table: Vec<AtomicEntry> = Vec::with_capacity(capacity.max(1));
+        advise_huge_pages(table.as_ptr() as *const u8, table.capacity() * std::mem::size_of::<AtomicEntry>());
         let default_entry = TranspositionEntry::default();
         let default_key = default_entry.key;
         let default_data = default_entry.pack();
@@ -321,6 +353,15 @@ impl ZobristTable {
         };
 
         if should_replace {
+            // A node that fails low has no best move of its own - a fail-hard all-node ends with
+            // none, and a stand pat stores none - and writing that over the move an earlier search
+            // of the same position found threw away the refutation the next visit would have tried
+            // first; the next iteration overwrote 8% of same-key entries that way. The move only
+            // ever orders moves, so keeping it cannot make a stored bound wrong.
+            let mut entry = entry;
+            if entry.best_move == 0 && existing.key == hash && existing.depth != -1 {
+                entry.best_move = existing.best_move;
+            }
             // Invalidate the key before writing data to prevent a "torn read" by another thread.
             slot.key.store(!hash, std::sync::atomic::Ordering::Release);
             slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
@@ -482,6 +523,31 @@ mod tests {
         let kept = table.get_entry(SLOT_A_3).unwrap();
         assert_eq!(kept.eval, 400);
         assert_eq!(kept.depth, 2);
+    }
+
+    #[test]
+    fn a_store_without_a_move_keeps_the_move_of_the_same_position() {
+        let table = ZobristTable::with_capacity(2);
+        assert_slot_layout(&table);
+        let with_move = |key, eval, depth, best_move| TranspositionEntry {
+            key, eval, depth, entry_type: TranspositionType::LowerBound, best_move, padding: [0; 2]
+        };
+        let refutation = 0x8000 | (12 << 6) | 28;
+
+        // A deeper fail low of the same position replaces the bound and keeps the move.
+        table.insert_entry(SLOT_A_1, with_move(SLOT_A_1, 40, 5, refutation));
+        table.insert_entry(SLOT_A_1, entry(SLOT_A_1, -20, 6, TranspositionType::UpperBound));
+        let kept = table.get_entry(SLOT_A_1).unwrap();
+        assert_eq!((kept.eval, kept.depth, kept.best_move), (-20, 6, refutation));
+
+        // A move of its own wins over the old one.
+        let other = 0x8000 | (6 << 6) | 21;
+        table.insert_entry(SLOT_A_1, with_move(SLOT_A_1, 10, 7, other));
+        assert_eq!(table.get_entry(SLOT_A_1).unwrap().best_move, other);
+
+        // A different position in the same slot inherits nothing.
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 0, 8, TranspositionType::UpperBound));
+        assert_eq!(table.get_entry(SLOT_A_2).unwrap().best_move, 0);
     }
 
     #[test]
