@@ -767,11 +767,14 @@ impl SearchService {
         // has no static evaluation -- in check, or in the Quiescence Search -- records the
         // sentinel rather than the `0` that `static_eval` carries there, because `improving`
         // must be able to tell "no comparison exists" from "evaluated to a dead draw".
-        static_eval_stack[ply_idx] = if depth > 0 && !turn.gives_check {
+        // The three re-entries of this same node below -- the Null Move verification, razoring
+        // and the singular verification -- write this slot too, so each one puts it back.
+        let own_static_eval = if depth > 0 && !turn.gives_check {
             static_eval
         } else {
             STATIC_EVAL_UNAVAILABLE
         };
+        static_eval_stack[ply_idx] = own_static_eval;
 
         let improving = Self::is_improving(static_eval_stack, ply_idx);
 
@@ -885,6 +888,7 @@ impl SearchService {
                         alpha, beta, stats, config, service, context,
                         is_pv, true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
+                    static_eval_stack[ply_idx] = own_static_eval;
 
                     if verify_eval >= beta {
                         #[cfg(feature = "search-diag")]
@@ -956,6 +960,7 @@ impl SearchService {
                 false, skip_null_move, None, child_pv, ply, killer_moves, static_eval_stack, history_table,
                 counter_moves, deeper
             ).1;
+            static_eval_stack[ply_idx] = own_static_eval;
             if razor_eval <= alpha {
                 return (None, razor_eval);
             }
@@ -1536,6 +1541,7 @@ impl SearchService {
             } else {
                 None
             };
+            static_eval_stack[ply_idx] = own_static_eval;
 
             let singular_extension = matches!(singular_verdict, Some(v) if v.is_singular());
 
@@ -4181,6 +4187,15 @@ mod tests {
     /// and the board the node leaves behind.
     fn search_node(fen: &str, depth: i32, alpha: i16, beta: i16, shape: impl Fn(&mut Config))
         -> (i16, crate::model::Board) {
+        let mut static_eval_stack = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        search_node_on_stack(fen, depth, alpha, beta, shape, &mut static_eval_stack)
+    }
+
+    /// [`search_node`] on a caller-owned static evaluation stack, so a test can read what the
+    /// node left in its own slot.
+    fn search_node_on_stack(fen: &str, depth: i32, alpha: i16, beta: i16,
+        shape: impl Fn(&mut Config), static_eval_stack: &mut [i16; super::MAX_PLY])
+        -> (i16, crate::model::Board) {
         let service = Service::new();
         let mut board = service.fen.set_fen(fen);
         let mut config = Config::new();
@@ -4211,10 +4226,36 @@ mod tests {
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
-            false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
-            &mut crate::model::new_search_buffers(),
+            false, false, None, &mut pv, 1, &mut killer_moves, static_eval_stack,
+            &mut history, &mut counter_moves, &mut crate::model::new_search_buffers(),
         );
         (score, board)
+    }
+
+    /// `task.md` 21.1. Razoring, the Null Move verification and the singular verification
+    /// re-enter *this* node at its own ply, and each re-entry writes the node's slot of the static
+    /// evaluation stack: razoring's Quiescence Search writes the sentinel, and the singular
+    /// verification evaluates under its own narrow window, which the lazy evaluation can answer
+    /// with a different number. The node's grandchildren read that slot as their `ply - 2`, so
+    /// after every re-entry the node's own value has to be back.
+    ///
+    /// White wins the queen with `exd5`, so the static evaluation trails `alpha = -400` by more
+    /// than the 300 razoring margin while the Quiescence Search clears it: razoring fires and does
+    /// not cut, and the node goes on to search its moves at depth 1.
+    #[test]
+    fn test_a_same_ply_re_entry_leaves_the_node_its_own_static_evaluation() {
+        let fen = "4k3/8/8/3q4/4P3/8/8/4K3 w - - 0 1";
+        let mut stack = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        let (score, _) = search_node_on_stack(fen, 1, -400, -399, |_| {}, &mut stack);
+        assert!(score > -400, "the Quiescence Search must clear alpha, or razoring cuts: {}", score);
+
+        let mut unrazored = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        search_node_on_stack(fen, 1, -400, -399, |c| c.enable_razoring = false, &mut unrazored);
+        assert!(unrazored[1] != super::STATIC_EVAL_UNAVAILABLE && unrazored[1] + 300 <= -400,
+                "the node must evaluate far enough below alpha for razoring to fire: {}", unrazored[1]);
+
+        assert_eq!(stack[1], unrazored[1],
+                   "the slot must hold the node's own static evaluation after razoring re-entered it");
     }
 
     #[test]
@@ -4401,7 +4442,8 @@ mod tests {
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         service.search.minimax(
             board, &no_move, depth, -30_000, 30_000, &mut stats, &config, &service, &context,
-            false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
+            false, false, None, &mut pv, 1, &mut killer_moves,
+            &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut history, &mut counter_moves,
             &mut crate::model::new_search_buffers(),
         ).1
     }
