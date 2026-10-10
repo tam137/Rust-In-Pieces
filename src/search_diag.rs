@@ -219,6 +219,20 @@ mod counters {
     /// also have made at the same node and the same `quiet_count`.
     pub static LMP_PRUNED_OLD_RULE_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // `task.md` 21.4: what does `improving` change in the Late Move Reduction?
+    // ---------------------------------------------------------------------------------------
+
+    /// Quiet moves the Late Move Reduction reduced, by depth.
+    pub static LMR_REDUCED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the ones at a node that is not improving.
+    pub static LMR_REDUCED_NOT_IMPROVING_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the ones whose extra ply got past the clamp to `depth - 2`.
+    pub static LMR_DEEPER_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Reduced searches that came back above `alpha` and are searched again, by depth.
+    pub static LMR_RESEARCHED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, the ones at a node that is not improving.
+    pub static LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+
     // `task.md` 23.3: what does the Late Move Reduction actually read?
     //
     // `lmr_history_good_threshold` and `lmr_history_bad_threshold` were calibrated against an
@@ -510,6 +524,39 @@ pub fn record_lmp_prune(depth: i32, improving: bool, old_rule_too: bool) {
     }
 }
 
+/// Records one move the Late Move Reduction reduced, `task.md` 21.4: whether its node was
+/// improving, and whether the extra ply of a node that is not got past the clamp.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_lmr_reduced(depth: i32, improving: bool, deeper: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::LMR_REDUCED_BY_DEPTH[bucket]);
+        if !improving {
+            counters::bump(&counters::LMR_REDUCED_NOT_IMPROVING_BY_DEPTH[bucket]);
+        }
+        if deeper {
+            counters::bump(&counters::LMR_DEEPER_BY_DEPTH[bucket]);
+        }
+    }
+}
+
+/// Records the outcome of one reduced search, `task.md` 21.4: `researched` is whether it came back
+/// above `alpha`, so the move is searched again at full depth.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_lmr_research(depth: i32, improving: bool, researched: bool) {
+    #[cfg(feature = "search-diag")]
+    if researched {
+        let bucket = (depth.max(0) as usize).min(31);
+        counters::bump(&counters::LMR_RESEARCHED_BY_DEPTH[bucket]);
+        if !improving {
+            counters::bump(&counters::LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH[bucket]);
+        }
+    }
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -668,6 +715,14 @@ pub fn dump() {
             by_depth(&counters::LMP_PRUNED_BY_DEPTH),
             by_depth(&counters::LMP_PRUNED_IMPROVING_BY_DEPTH),
             by_depth(&counters::LMP_PRUNED_OLD_RULE_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGLMRIMP reduced={} reduced_not_improving={} deeper={} researched={} researched_not_improving={}",
+            by_depth(&counters::LMR_REDUCED_BY_DEPTH),
+            by_depth(&counters::LMR_REDUCED_NOT_IMPROVING_BY_DEPTH),
+            by_depth(&counters::LMR_DEEPER_BY_DEPTH),
+            by_depth(&counters::LMR_RESEARCHED_BY_DEPTH),
+            by_depth(&counters::LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH),
         );
     }
 }
