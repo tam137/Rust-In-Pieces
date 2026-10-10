@@ -82,7 +82,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 19 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
-| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**; left: `improving` in the RFP margin and the LMR table (21.4), the Reverse Futility depth bound (21.3) | 21 | The stack exists now, so 21.4 is one parameterless change per rule |
+| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**; left: `improving` in the LMR table (21.4), the Reverse Futility depth bound (21.3); the RFP margin with the published step was refused 2026-10-10 | 21 | The stack exists now, so 21.4 is one parameterless change per rule |
 | 5 | The Null Move reduction and its verification search | 20 | Parameters, not code — a tuning group, and the gate it pairs with has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
@@ -122,7 +122,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20 |
 | ~~The `improving` flag and the Late Move Pruning growth term~~ | **closed 2026-10-10**: shipped in v0.46.0, SPRT [0, 10] H1 after 4580 games, [0, 5] H1 after 6234, section 21 |
-| `improving` is not used by the Reverse Futility margin or the Late Move Reduction table | proposal, unmeasured, section 21.4 |
+| `improving` is not used by the Late Move Reduction table | proposal, unmeasured, section 21.4 |
+| `improving` in the Reverse Futility margin, published form `margin * (depth - improving)`: **refused 2026-10-10**, SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4] over 1038 against v0.46.0; code on the local branch `rfp-improving-margin`. A smaller step (margin kept at depth 1) is untried | negative result, section 21.4 |
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
@@ -254,7 +255,8 @@ while the reduction and the verification change what a cut is allowed to conclud
 ## 21. `improving`, and the two rules whose depth bounds keep them from firing
 
 `[Impact: Medium]` `[Complexity: Medium]` — **21.1 and 21.2 shipped in v0.46.0 (2026-10-10).**
-21.3 and 21.4 are open, each its own change and run.
+21.3 and the LMR half of 21.4 are open, each its own change and run; the RFP half of 21.4 in its
+published form was refused at the gate on 2026-10-10, see 21.4.
 
 ### 21.1 The engine had no notion of `improving`
 
@@ -352,6 +354,27 @@ proposition than at depth 3. **Not in the 21.1/21.2 build.**
 The same flag conventionally scales the Reverse Futility margin and the Late Move Reduction table.
 Those are separate changes with separate prices, and nothing else may be bundled into the run that
 prices 21.1 plus 21.2.
+
+**The Reverse Futility half, published form: refused 2026-10-10.** The margin
+`rfp_margin_per_depth * (depth - improving)` keeps v0.46.0's 80/160/240 when not improving and
+takes it to **0**/80/160 when improving, so an improving node at depth 1 cuts on
+`static_eval >= beta` alone. The code is on the local branch `rfp-improving-margin` (`8344c76`):
+the helper `rfp_margin`, a node-level test at ply 3, and `search-diag` counters for the cuts.
+
+* **Census** (300 pool positions, depth 10): **29%** of all Reverse Futility cuts are ones the
+  v0.46.0 margin would not have made, +39% / +48% / +77% at depths 1 / 2 / 3; `improving` at 66% /
+  66% / 45% of the candidates.
+* **Tree** against v0.46.0, depth 10: 0 of 300 identical on both pools, **21.9%** and **21.4%**
+  less time. Recorded, not a gate (rule 1) - and the games went the other way.
+* **Gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, run under [0, 5] with
+  [0, 10] watched on the same games. [0, 10] **H0 after 1036 games** (LLR -3.22, stopping score
+  46.86%); [0, 5] undecided at -1.46. Over the 1038 games **-21.8 Elo, paired 95% [-40, -4]** -
+  a stopped run, so not an effect size (rule 7), but the interval excludes zero. No losses on
+  time, White 58.14%, design effect 1.03.
+
+What is untried: a smaller step that keeps a margin at depth 1, e.g. half a step
+(`margin * depth - margin / 2 * improving`, 40 at depth 1), or the step applied from depth 2 only.
+The census says most of the new cuts are at depth 1, where the published form leaves no margin.
 
 ## 23. The History Heuristic
 
