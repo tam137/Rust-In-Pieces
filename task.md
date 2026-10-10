@@ -14,7 +14,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.45.9** on `master` (HCE) since 2026-10-09 — the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.46.0** on `master` (HCE) since 2026-10-10 — `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before it, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -33,11 +33,11 @@ which an SPRT [0, 10] cannot see; 27 has the [0, 5] extension procedure used for
 **23.4, the `lmr_history_good_threshold`, is closed: kept, null** — +2.7 Elo, 95% [-4, +9] over
 6000 games, shipped in v0.45.1. See 23.4.
 
-**Backlog item 4, section 21, is built and unmeasured** on branch `feature/improving-stack`
-(`4586d2c`): the per-ply static-eval stack, and the Late Move Pruning growth term replaced by
-`depth^2` halved when the side to move is not improving, with `lmp_max_depth` opened to 8. Its
-tree measurement, its census and its gauntlet all need the host to itself; the branch has to be
-rebased onto v0.45.9 first, where `get_moves` and the repetition rules have moved.
+**Backlog item 4, 21.1 and 21.2, shipped in v0.46.0** (2026-10-10): the per-ply static-eval
+stack and the Late Move Pruning threshold `(base + depth^2) / (2 - improving)` with
+`lmp_max_depth` 8. SPRT [0, 10] H1 after 4580 games, [0, 5] H1 after 6234; over the 6234 games
++10.3 Elo, paired 95% [+3, +17], a stopped run and not an effect size. What is left of the item is
+21.3 and 21.4, each its own change and run.
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -82,7 +82,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 19 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
-| 4 | `improving`, the Late Move Pruning growth term, and the Reverse Futility depth bound | 21 | Needs the per-ply static-eval stack, so it lands after 1 |
+| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**; left: `improving` in the RFP margin and the LMR table (21.4), the Reverse Futility depth bound (21.3) | 21 | The stack exists now, so 21.4 is one parameterless change per rule |
 | 5 | The Null Move reduction and its verification search | 20 | Parameters, not code — a tuning group, and the gate it pairs with has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
@@ -121,7 +121,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters | defect in the tuner, **measured by reading it** 2026-09-11, blocks 23.4's tuning group |
 | The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20 |
-| The `improving` flag and the Late Move Pruning growth term are **built and unmeasured** on `feature/improving-stack`: the stack exists, the term is `depth^2` halved when not improving, and `lmp_max_depth` is open to 8 | built 2026-09-11, needs a tree reading, a gauntlet and a run, section 21 |
+| ~~The `improving` flag and the Late Move Pruning growth term~~ | **closed 2026-10-10**: shipped in v0.46.0, SPRT [0, 10] H1 after 4580 games, [0, 5] H1 after 6234, section 21 |
+| `improving` is not used by the Reverse Futility margin or the Late Move Reduction table | proposal, unmeasured, section 21.4 |
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
@@ -252,9 +253,8 @@ while the reduction and the verification change what a cut is allowed to conclud
 
 ## 21. `improving`, and the two rules whose depth bounds keep them from firing
 
-`[Impact: unknown]` `[Complexity: Medium]` — **21.1 and 21.2 are built on branch
-`feature/improving-stack` (2026-09-11, `4586d2c`), unit-tested and unmeasured.** 21.3 is not in
-that build and 21.4 is not to be bundled into the run that prices it.
+`[Impact: Medium]` `[Complexity: Medium]` — **21.1 and 21.2 shipped in v0.46.0 (2026-10-10).**
+21.3 and 21.4 are open, each its own change and run.
 
 ### 21.1 The engine had no notion of `improving`
 
@@ -317,9 +317,26 @@ The UCI facade, `tuning/parameters.json` and `test_lmp_max_depth_advertises_only
 move to 8 with the cap, and the inertness test is replaced by its opposite,
 `test_lmp_max_depth_is_live_to_eight`. That is what the old test existed for.
 
-**Still to do before it can be released:** the tree measurement on both pools, a census of how
-often `improving` is true, the smoke gauntlet, and a 6000-game fixed-N run. None of them could run
-while 23.4's run held the host.
+### 21.5 What 21.1 and 21.2 measured, v0.46.0
+
+Built on `3d61a85` and cherry-picked onto v0.45.9 without conflicts. One defect was found on the
+way and fixed with a test that failed first: razoring, the Null Move verification and the singular
+verification re-enter a node at its own ply, so they overwrote the node's slot - razoring with the
+sentinel, the singular verification with an evaluation taken under its own narrow window, which
+the lazy evaluation can answer differently. Each re-entry now restores the slot.
+
+* **Census** (`search-diag`, 300 pool positions, depth 10): the comparison exists at 93.7% of the
+  nodes with a static evaluation, and `improving` is true at **66.1%** of those, 48% to 70% by
+  depth. The old threshold would have made **0.1%** of the deletions the new one makes: the rule
+  this replaced was all but dead, so v0.46.0 is in effect a new pruning rule, not a retuned one.
+* **Tree** against v0.45.9, depth 10: 0 of 300 identical on both pools, **12.8%** and **10.2%**
+  less time. Recorded, not a gate (rule 1).
+* **Gate:** SPRT at 1s + 150ms on `openings_wide.txt`, run under [0, 5] with [0, 10] watched on the
+  same games. [0, 10] H1 after 4580 games (stopping score 51.44%), [0, 5] H1 after 6234 (51.48%).
+  Over the 6234 games **+10.3 Elo, paired 95% [+3, +17]** - a stopped run, so an upper reading and
+  not an effect size (rule 7). No losses on time, White 60.37%, design effect 1.00.
+* **Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 47.5% against v0.45.9, 55.5% against
+  v0.45.8, 81.5% against v0.34.0.
 
 ### 21.3 Reverse Futility Pruning stops at depth 3
 

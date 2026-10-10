@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.0] - 2026-10-10
+
+The search knows whether the side to move is `improving`, and Late Move Pruning uses it. Gated by
+**SPRT [0, 10]: H1 after 4580 games** at 1s + 150ms against v0.45.9; the run went on to
+**[0, 5] H1 after 6234 games**. Over those 6234 games +10.3 Elo, paired 95% [+3, +17] - a stopped
+run, not an effect size (`task.md` rule 7). See `task.md` 21.
+
+### Added
+- **A per-ply static evaluation stack** (`[i16; MAX_PLY]`, sentinel `i16::MIN` for nodes in check
+  or in the Quiescence Search). `improving` is true when the node's static evaluation beats its
+  grandparent's on the current path; false wherever either side of the comparison is missing.
+- Razoring, the Null Move verification and the singular verification re-enter a node at its own
+  ply and now restore the node's slot afterwards, so its grandchildren compare against the node's
+  own evaluation.
+
+### Changed
+- **Late Move Pruning threshold** `lmp_base_moves + 2 * depth^2` -> `(lmp_base_moves + depth^2) /
+  (2 - improving)`, and `lmp_max_depth` 4 -> 8. The old threshold made 0.1% of the deletions the
+  new one makes, so the rule was nearly dead; at depth 4 a node that is not improving now searches
+  9 quiet moves where 35 were allowed.
+
+### Notes
+- Census over 300 pool positions at depth 10: `improving` is true at 66.1% of the nodes where the
+  comparison exists. Tree against v0.45.9: 0/300 identical, 12.8% and 10.2% less time to depth 10
+  on the two pools. Recorded, not a gate (`task.md` rule 1).
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 47.5% against v0.45.9, 55.5% against
+  v0.45.8, 81.5% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
+
 ## [V0.45.9] - 2026-10-09
 
 A position repeated inside the search tree is a draw at its second occurrence. Gated by
