@@ -82,7 +82,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 19 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
-| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**; left: `improving` in the LMR table (21.4), the Reverse Futility depth bound (21.3); the RFP margin with the published step was refused 2026-10-10 | 21 | The stack exists now, so 21.4 is one parameterless change per rule |
+| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**; left: `improving` in the LMR table (21.4), the Reverse Futility depth bound (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | The stack exists now, so 21.4 is one parameterless change per rule |
 | 5 | The Null Move reduction and its verification search | 20 | Parameters, not code — a tuning group, and the gate it pairs with has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
@@ -123,7 +123,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20 |
 | ~~The `improving` flag and the Late Move Pruning growth term~~ | **closed 2026-10-10**: shipped in v0.46.0, SPRT [0, 10] H1 after 4580 games, [0, 5] H1 after 6234, section 21 |
 | `improving` is not used by the Late Move Reduction table | proposal, unmeasured, section 21.4 |
-| `improving` in the Reverse Futility margin, published form `margin * (depth - improving)`: **refused 2026-10-10**, SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4] over 1038 against v0.46.0; code on the local branch `rfp-improving-margin`. A smaller step (margin kept at depth 1) is untried | negative result, section 21.4 |
+| `improving` in the Reverse Futility margin: **refused twice on 2026-10-10** against v0.46.0 - the published whole step (`margin * (depth - improving)`, 0 at depth 1) SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4]; half a step (40/120/200) [0, 10] H0 after 4058 games, -0.9 Elo [-10, +8]. Code on the local branches `rfp-improving-margin` and `rfp-improving-half-step`. The step from depth 2 only and a tuned margin are untried | negative result, section 21.4 |
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
@@ -255,8 +255,8 @@ while the reduction and the verification change what a cut is allowed to conclud
 ## 21. `improving`, and the two rules whose depth bounds keep them from firing
 
 `[Impact: Medium]` `[Complexity: Medium]` — **21.1 and 21.2 shipped in v0.46.0 (2026-10-10).**
-21.3 and the LMR half of 21.4 are open, each its own change and run; the RFP half of 21.4 in its
-published form was refused at the gate on 2026-10-10, see 21.4.
+21.3 and the LMR half of 21.4 are open, each its own change and run; the RFP half of 21.4 was
+refused at the gate twice on 2026-10-10, in its published form and with half the step, see 21.4.
 
 ### 21.1 The engine had no notion of `improving`
 
@@ -372,9 +372,30 @@ the helper `rfp_margin`, a node-level test at ply 3, and `search-diag` counters 
   a stopped run, so not an effect size (rule 7), but the interval excludes zero. No losses on
   time, White 58.14%, design effect 1.03.
 
-What is untried: a smaller step that keeps a margin at depth 1, e.g. half a step
-(`margin * depth - margin / 2 * improving`, 40 at depth 1), or the step applied from depth 2 only.
-The census says most of the new cuts are at depth 1, where the published form leaves no margin.
+**The Reverse Futility half, half a step: refused 2026-10-10.** The margin
+`rfp_margin_per_depth * depth - (rfp_margin_per_depth / 2) * improving` keeps a margin at every
+depth: **40**/120/200 when improving, v0.46.0's 80/160/240 otherwise. The code is on the local
+branch `rfp-improving-half-step` (`3953d74`, on top of the whole step's commit). It also widens
+`test_lmp_base_moves_controls_how_much_is_pruned` to depth 9: the half step flipped that test's
+eight-cell sum by 0.6%, all of it from `SMOTHERED_MATE_FEN` at depth 8, while base 0 still searched
+less in seven of the ten cells. The extension was chosen after that reading and says so.
+
+* **Census** (300 pool positions, depth 10): **17.5%** of the Reverse Futility cuts are new,
+  +22% / +19% / +38% at depths 1 / 2 / 3, against the whole step's 29%.
+* **Tree** against v0.46.0, depth 10: 0 of 300 identical on both pools, **13.2%** and **12.6%**
+  less time. Recorded, not a gate (rule 1).
+* **Gate:** the same run shape. [0, 10] **H0 after 4058 games** (LLR -3.09, stopping score
+  49.85%, -1.0 Elo); with the estimate not positive the run stopped there instead of continuing
+  under [0, 5], which stood undecided at -0.90. Over the 4072 games **-0.9 Elo, paired 95%
+  [-10, +8]** - a stopped run, so not an effect size (rule 7). No losses on time, White 61.65%,
+  design effect 1.00.
+
+**What the two runs say together.** Halving the step took the result from about -22 Elo to about
+zero and the tree saving from 22% to 13%: neither time did the faster tree buy games. Neither run
+gives a reason to expect a gain from a step of this kind. Still untried: the step from depth 2
+only (80/80/160 when improving), and a tuned margin as a new SPSA-registered parameter, which the
+tuner's step-size defect would leave stuck should the value drift near zero (see the open-items
+table). Neither is recommended on this evidence.
 
 ## 23. The History Heuristic
 
