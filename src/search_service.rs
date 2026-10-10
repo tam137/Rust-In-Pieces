@@ -1599,6 +1599,7 @@ impl SearchService {
                     Some(*current_turn) == current_context.counter_move,
                     history_table[crate::model::history_side(white)]
                         [current_turn.from as usize][current_turn.to as usize],
+                    improving,
                 ) > 0;
 
             // The fourth guard: the SEE pruning of bad captures also exempts a checking move.
@@ -1651,18 +1652,27 @@ impl SearchService {
                     config.lmr_history_bad_threshold,
                 );
                 let reduction = Self::lmr_reduction(
-                    config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
+                    config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val, improving,
                 );
 
                 if reduction > 0 {
                     let clamped_reduction = reduction.clamp(1, depth - 2);
                     let reduced_depth = depth - 1 - clamped_reduction;
 
+                    // `task.md` 21.4: whether the extra ply of a node that is not improving got
+                    // past the clamp, i.e. whether this move is searched shallower than before.
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_lmr_reduced(depth, improving,
+                        !improving && clamped_reduction > (reduction - 1).clamp(1, depth - 2));
+
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
                         false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
                     ).1;
+
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_lmr_research(depth, improving, min_max_eval > alpha);
                     // The reduced search failed low, so the move is confirmed uninteresting and
                     // no full-depth re-search is needed.
                     if min_max_eval <= alpha {
@@ -1958,6 +1968,13 @@ impl SearchService {
     /// 11 can ask what the reduction *would* have been for a move that gives check, without
     /// restating the damping terms and letting the two copies drift apart. The arithmetic and
     /// its order are unchanged, so the shipped search tree is bit-identical to v0.35.2.
+    ///
+    /// `task.md` 21.4: at a node that is not improving, a move the rule reduces anyway is reduced
+    /// one ply more. No reduction is created where the damping left none, so the set of reduced
+    /// moves is the one the terms above choose; and the clamp to `depth - 2` in the move loop
+    /// absorbs the extra ply at depth 3. A node with no comparison -- in check, at the first two
+    /// plies, under a grandparent in check -- counts as not improving, as it does for Late Move
+    /// Pruning: it is the same flag.
     #[allow(clippy::too_many_arguments)]
     fn lmr_reduction(
         config: &Config,
@@ -1967,6 +1984,7 @@ impl SearchService {
         is_killer: bool,
         is_counter: bool,
         hist_val: i32,
+        improving: bool,
     ) -> i32 {
         let d_idx = (depth as usize).min(63);
         let m_idx = (turn_counter as usize).min(63);
@@ -1992,6 +2010,11 @@ impl SearchService {
             reduction = reduction.saturating_sub(1);
         } else if hist_val < config.lmr_history_bad_threshold {
             reduction = reduction.saturating_add(1);
+        }
+
+        // `task.md` 21.4: one ply more at a node that is not improving, for a move reduced anyway.
+        if !improving && reduction > 0 {
+            reduction += 1;
         }
 
         reduction
@@ -3508,8 +3531,10 @@ mod tests {
         let base = config.lmr_table[depth as usize][turn_counter as usize] as i32;
         assert!(base >= 2, "the pinned cell must leave room for a rebate, got {}", base);
 
+        // `improving = true` is the arithmetic this test was written against; 21.4 only adds to
+        // the other case.
         let reduction = |hist_val| super::SearchService::lmr_reduction(
-            &config, depth, turn_counter, false, false, false, hist_val,
+            &config, depth, turn_counter, false, false, false, hist_val, true,
         );
 
         assert_eq!(reduction(1), base - 1,
@@ -3522,6 +3547,46 @@ mod tests {
                    "a refuted quiet move reduces one ply more");
         assert_eq!(reduction(-crate::model::MAX_HISTORY), base + 1,
                    "and the penalty is one ply whatever the magnitude");
+    }
+
+    /// `task.md` 21.4, the LMR half. A node that is not improving reduces every move the rule
+    /// reduces anyway one ply more, and creates no reduction where the damping left none.
+    #[test]
+    fn test_lmr_reduces_one_ply_more_when_not_improving() {
+        let config = Config::new();
+        let (mut deepened, mut untouched) = (0, 0);
+
+        for depth in [3, 4, 6, 8, 10, 16] {
+            for turn_counter in [4, 8, 16, 30] {
+                for (is_pv, is_killer, is_counter) in [
+                    (false, false, false), (true, false, false), (false, true, false),
+                    (false, false, true), (true, true, true),
+                ] {
+                    for hist_val in [-1, 0, 1] {
+                        let reduction = |improving| super::SearchService::lmr_reduction(
+                            &config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
+                            improving,
+                        );
+                        let (improving, not_improving) = (reduction(true), reduction(false));
+                        if improving > 0 {
+                            deepened += 1;
+                            assert_eq!(not_improving, improving + 1,
+                                "depth {} move {} pv {} killer {} counter {} history {}: one ply more",
+                                depth, turn_counter, is_pv, is_killer, is_counter, hist_val);
+                        } else {
+                            untouched += 1;
+                            assert_eq!(not_improving, improving,
+                                "depth {} move {} pv {} killer {} counter {} history {}: no new reduction",
+                                depth, turn_counter, is_pv, is_killer, is_counter, hist_val);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Neither branch may pass vacuously.
+        assert!(deepened > 0 && untouched > 0,
+                "the grid must reach both branches ({} deepened, {} untouched)", deepened, untouched);
     }
 
     #[test]
@@ -4206,6 +4271,16 @@ mod tests {
     fn search_node_on_stack(fen: &str, depth: i32, alpha: i16, beta: i16,
         shape: impl Fn(&mut Config), static_eval_stack: &mut [i16; super::MAX_PLY])
         -> (i16, crate::model::Board) {
+        let (score, board, _) = search_node_at_ply(fen, depth, alpha, beta, shape, static_eval_stack, 1);
+        (score, board)
+    }
+
+    /// [`search_node_on_stack`] entered at `ply` instead of 1, so the node has grandparent slots
+    /// the caller can fill and `improving` has something to compare against. Also returns the
+    /// number of nodes the search took.
+    fn search_node_at_ply(fen: &str, depth: i32, alpha: i16, beta: i16,
+        shape: impl Fn(&mut Config), static_eval_stack: &mut [i16; super::MAX_PLY], ply: i32)
+        -> (i16, crate::model::Board, usize) {
         let service = Service::new();
         let mut board = service.fen.set_fen(fen);
         let mut config = Config::new();
@@ -4236,10 +4311,45 @@ mod tests {
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
-            false, false, None, &mut pv, 1, &mut killer_moves, static_eval_stack,
+            false, false, None, &mut pv, ply, &mut killer_moves, static_eval_stack,
             &mut history, &mut counter_moves, &mut crate::model::new_search_buffers(),
         );
-        (score, board)
+        (score, board, stats.calculated_nodes)
+    }
+
+    /// `task.md` 21.4 at a real node: the same position, window and depth, entered at ply 3 with
+    /// only the grandparent's slot changed, below the node's own static evaluation (improving)
+    /// and above it (not improving). Late Move Pruning is switched off, so the Late Move
+    /// Reduction is the only rule that reads the flag: without 21.4 the two trees are identical,
+    /// with it the node reduces its late quiet moves one ply more in the second search. Only the
+    /// node's own flag differs between the runs -- its children compare against slot 2, which
+    /// neither run fills, and its grandchildren against its own slot, which both runs write the
+    /// same. The test asserts that the trees differ and nothing about their sizes: a deeper
+    /// reduction that fails high costs a re-search, so the direction is not a property.
+    #[test]
+    fn test_the_late_move_reduction_reads_improving_at_a_real_node() {
+        let fen = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+        let no_lmp = |c: &mut Config| c.enable_lmp = false;
+
+        let mut probe = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        search_node_at_ply(fen, 6, -30000, 30000, no_lmp, &mut probe, 3);
+        let own = probe[3];
+        assert_ne!(own, super::STATIC_EVAL_UNAVAILABLE, "the node must record a static evaluation");
+
+        let mut improving = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        improving[1] = own - 50;
+        let (_, _, improving_nodes) = search_node_at_ply(fen, 6, -30000, 30000, no_lmp, &mut improving, 3);
+
+        let mut not_improving = [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY];
+        not_improving[1] = own + 50;
+        let (_, _, not_improving_nodes) =
+            search_node_at_ply(fen, 6, -30000, 30000, no_lmp, &mut not_improving, 3);
+
+        assert_eq!((improving[3], not_improving[3]), (own, own),
+                   "both runs must see the same static evaluation at the node");
+        assert_ne!(improving_nodes, not_improving_nodes,
+                   "a node that is not improving must reduce differently ({} nodes either way)",
+                   improving_nodes);
     }
 
     /// `task.md` 21.1. Razoring, the Null Move verification and the singular verification
