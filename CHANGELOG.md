@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.1] - 2026-10-11
+
+The Late Move Reduction reads `improving`. Gated by **SPRT [0, 5]: H1 after 9846 games** at
+1s + 150ms against v0.46.0, with [0, 10] H1 on the same games. Over 9847 games +7.4 Elo, paired
+95% [+2, +13] - a stopped run, not an effect size (`task.md` rule 7). See `task.md` 21.4.
+
+### Changed
+- **Late Move Reduction:** at a node that is not improving, a move the rule reduces anyway is
+  reduced one ply more. No new reductions are created, and the clamp to `depth - 2` absorbs the
+  extra ply at depth 3. A node with no comparison counts as not improving, as for Late Move
+  Pruning.
+
+### Notes
+- Census over 300 pool positions at depth 10: 68% of the reduced moves are at nodes not
+  improving, and 34% of all reductions are now one ply deeper. Tree against v0.46.0: 0/300
+  identical, 14.6% and 12.5% less time to depth 10 on the two pools. Recorded, not a gate
+  (`task.md` rule 1).
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 53.0% against v0.46.0, 46.0% against
+  v0.45.9, 88.0% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
 ## [V0.46.0] - 2026-10-10
 
 The search knows whether the side to move is `improving`, and Late Move Pruning uses it. Gated by
