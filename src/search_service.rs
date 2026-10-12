@@ -189,6 +189,8 @@ impl SearchService {
 
             let mut current_alpha = alpha;
             let mut current_beta = beta;
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_root_pass();
 
             let mut best_eval = if white { i16::MIN } else { i16::MAX };
             let total_root_moves = turns.len as i32;
@@ -227,10 +229,7 @@ impl SearchService {
                 }
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    let calc_time_ms = context.start_time.elapsed().as_millis();
-                    search_result.stats = stats.clone();
-                    search_result.stats.best_turn_nr = turn_counter as i8;
-                    search_result.stats.calc_time_ms = calc_time_ms as usize;
+                    Self::stamp_interrupted_pass(&mut search_result, stats, turn_counter, context.start_time);
                     break;
                 }
 
@@ -262,38 +261,54 @@ impl SearchService {
                 // the node it is entered on, which here is the *opponent* of the side to move at
                 // the root. The root keeps the absolute, White-positive scale that
                 // `SearchResult`, the aspiration window and the UCI layer are written in, so the
-                // conversion happens here and nowhere else.
+                // conversion happens here, in `root_child_window` and in `absolute`, and nowhere
+                // else.
                 //
-                // `saturating_neg` matters: a full window starts at `i16::MIN`, and negating that
-                // overflows. The `i16::MIN + 1` it yields instead is erased by the child's own
-                // Mate Distance Pruning, which clamps the window to `+/-(MATE_SCORE - ply)`
-                // before anything reads it, so the search tree does not move.
-                let (child_alpha, child_beta) = if white {
-                    (current_beta.saturating_neg(), current_alpha.saturating_neg())
-                } else {
-                    (current_alpha, current_beta)
+                // With `root_pvs`, the first move is the pass's one PV node and every later move
+                // only has to show whether it beats the bound already held; a move that does is
+                // searched again as a PV node, with the full window, for its exact score and line.
+                let scout = config.root_pvs && turn_counter > 1;
+                let absolute = |score: i16| if white { score.saturating_neg() } else { score };
+                let completed = |score: i16| {
+                    (!stop_flag.load(std::sync::atomic::Ordering::Relaxed)).then(|| absolute(score))
                 };
 
-                let min_max_result = self.minimax(board, turn, depth - 1,
-                    child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
-                    1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper);
+                let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, scout);
+                let first_eval = completed(self.minimax(board, turn, depth - 1,
+                    child_alpha, child_beta, stats, config, service, &child_context, !scout, false, None, child_pv,
+                    1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper).1);
+                let (scout_eval, mut full_eval) = if scout { (first_eval, None) } else { (None, first_eval) };
 
-                if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    board.undo_move(turn, mi);
-                    let calc_time_ms = context.start_time.elapsed().as_millis();
-                    search_result.stats = stats.clone();
-                    search_result.stats.best_turn_nr = turn_counter as i8;
-                    search_result.stats.calc_time_ms = calc_time_ms as usize;
-                    break;
+                let re_searched = scout_eval
+                    .is_some_and(|bound| Self::root_scout_beats_bound(white, bound, current_alpha, current_beta));
+                #[cfg(feature = "search-diag")]
+                if scout_eval.is_some() {
+                    crate::search_diag::record_root_scout(re_searched);
                 }
+                if re_searched {
+                    let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, false);
+                    full_eval = completed(self.minimax(board, turn, depth - 1,
+                        child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
+                        1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper).1);
+                }
+                // The clock cut the re-search of a move already proven better than the best so far.
+                let re_search_cut = re_searched && full_eval.is_none();
 
-                // Back onto the absolute scale. The child is the opposite colour to the root,
-                // so a White root negates and a Black root does not.
-                let min_max_eval = if white {
-                    min_max_result.1.saturating_neg()
-                } else {
-                    min_max_result.1
+                let Some(min_max_eval) = Self::root_move_score(scout_eval, full_eval) else {
+                    board.undo_move(turn, mi);
+                    Self::stamp_interrupted_pass(&mut search_result, stats, turn_counter, context.start_time);
+                    break;
                 };
+                if re_search_cut {
+                    // Whatever line the cut re-search left behind is unfinished; the move alone
+                    // is what was proven.
+                    child_pv[0] = None;
+                }
+                #[cfg(feature = "search-diag")]
+                if re_searched {
+                    let new_best = if white { min_max_eval > best_eval } else { min_max_eval < best_eval };
+                    crate::search_diag::record_root_research(!re_search_cut, new_best);
+                }
 
                 if white {
                     if min_max_eval > search_result.best_score {
@@ -359,6 +374,20 @@ impl SearchService {
                         }
                     } 
                 }
+
+                if re_search_cut {
+                    Self::stamp_interrupted_pass(&mut search_result, stats, turn_counter, context.start_time);
+                    break;
+                }
+
+                // A pass that failed high against the aspiration window ends here: the
+                // aspiration loop searches it again with a wider window, and every move left
+                // would only be handed an empty one.
+                if config.root_pvs && current_alpha >= current_beta {
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_root_cutoff();
+                    break;
+                }
                 i += 1;
             }
 
@@ -404,7 +433,61 @@ impl SearchService {
         );
         search_result
     }
-    
+
+    /// The window a root move's child is searched with.
+    ///
+    /// The root works on the absolute, White-positive scale and `minimax` is negamax, so a White
+    /// root negates the window for its child and a Black root does not. `scout` marks a later
+    /// root move on the root's Principal Variation Search (`Config::root_pvs`): it only has to
+    /// show whether it beats the bound the root already holds, `current_alpha` for White and
+    /// `current_beta` for Black, and is searched on a null window there.
+    ///
+    /// Saturating throughout: a full window starts at `i16::MIN`, and the bounds can sit at a mate
+    /// score. What saturation leaves outside the mate range, the child's Mate Distance Pruning
+    /// clamps before anything reads it.
+    #[inline(always)]
+    fn root_child_window(white: bool, current_alpha: i16, current_beta: i16, scout: bool) -> (i16, i16) {
+        let (alpha, beta) = match (scout, white) {
+            (false, _) => (current_alpha, current_beta),
+            (true, true) => (current_alpha, current_alpha.saturating_add(1)),
+            (true, false) => (current_beta.saturating_sub(1), current_beta),
+        };
+        if white {
+            (beta.saturating_neg(), alpha.saturating_neg())
+        } else {
+            (alpha, beta)
+        }
+    }
+
+    /// Whether a root move's null-window score beats the bound it was searched at, on the absolute
+    /// scale, so that it has to be searched again with the full window to get its exact score and
+    /// its line. A score at the bound is not better: it ties the move already held.
+    #[inline(always)]
+    fn root_scout_beats_bound(white: bool, score: i16, current_alpha: i16, current_beta: i16) -> bool {
+        if white { score > current_alpha } else { score < current_beta }
+    }
+
+    /// What a root move leaves for the root to record: `full` is the score of its full-window
+    /// search and `scout` of its null-window one, each `None` where that search did not run or
+    /// the clock interrupted it.
+    ///
+    /// A null-window fail-high whose re-search the clock cut short is still kept, with the bound
+    /// it proved: the move is better than the best so far, and R19 (`game_handler.rs`,
+    /// `proven_better_while_interrupted`) exists to play such a move rather than throw it away.
+    /// An interrupted null-window search proved nothing and leaves nothing.
+    #[inline(always)]
+    fn root_move_score(scout: Option<i16>, full: Option<i16>) -> Option<i16> {
+        full.or(scout)
+    }
+
+    /// Stamps the statistics of a root pass the clock ended, at the move it was on.
+    fn stamp_interrupted_pass(search_result: &mut SearchResult, stats: &Stats, turn_counter: i32,
+                              start_time: std::time::Instant) {
+        search_result.stats = stats.clone();
+        search_result.stats.best_turn_nr = turn_counter as i8;
+        search_result.stats.calc_time_ms = start_time.elapsed().as_millis() as usize;
+    }
+
 
     /// Writes `mv` followed by the child's principal variation into `pv`.
     ///
@@ -2022,9 +2105,10 @@ impl SearchService {
 
     /// Classify a fail-hard score against the window this node actually searched.
     ///
-    /// `alpha == beta` is reachable — the root's own window bookkeeping can narrow
-    /// `current_alpha`/`current_beta` onto each other and hand the next root move an empty
-    /// window — and there *both* comparisons are true at once, so their order decides the label.
+    /// `alpha == beta` is reachable with `Config::root_pvs` off — the root's own window
+    /// bookkeeping can narrow `current_alpha`/`current_beta` onto each other and hand the next
+    /// root move an empty window; with it on, a pass whose window closes ends there — and on an
+    /// empty window *both* comparisons are true at once, so their order decides the label.
     /// The pre-negamax search made that decision on the absolute, White-positive scale, which
     /// broke the tie towards `UpperBound` at a White node and towards what is `LowerBound` on
     /// this relative scale at a Black node. Reproducing that split is the one place where the
@@ -2146,9 +2230,13 @@ mod tests {
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();
 
+        // Depth 5. At depth 4 the tree is small enough that, with Principal Variation Search at
+        // the root, the full-window re-search of a root move that beat its null window outweighs
+        // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saves again
+        // (4277 against 5394), and the claim is about the rule.
         service.search.get_moves(
             &mut board,
-            4,
+            5,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -2161,7 +2249,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            4,
+            5,
             true,
             &mut stats_disabled,
             &config_disabled,
@@ -2367,6 +2455,12 @@ mod tests {
     /// number of nodes it took. Fixed-depth searches are deterministic, so the counts
     /// are directly comparable between configurations.
     fn search_nodes(fen: &str, depth: i32, shape: impl Fn(&mut Config)) -> usize {
+        search_nodes_seeded(fen, depth, None, shape)
+    }
+
+    /// `search_nodes` with the previous iteration's score handed in, so the pass runs inside an
+    /// aspiration window the way every iteration from depth 3 on does in play.
+    fn search_nodes_seeded(fen: &str, depth: i32, seed: Option<i16>, shape: impl Fn(&mut Config)) -> usize {
         let service = Service::new();
         let mut board = service.fen.set_fen(fen);
         let mut config = Config::for_tests();
@@ -2375,7 +2469,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board, depth, true, &mut stats, &config, &service,
-            &fresh_engine_state(), std::time::Instant::now(), None, None,
+            &fresh_engine_state(), std::time::Instant::now(), None, seed,
         );
 
         stats.calculated_nodes
@@ -2424,9 +2518,17 @@ mod tests {
     /// inequality and nothing about direction: `test_lmp_changes_the_tree` records why a rule
     /// that prunes more can still walk a larger tree - pruning a move that would have cut turns
     /// a cutting node into a fail-low one, and PVS then re-searches the parent on a wide window.
+    ///
+    /// The pass is seeded, as every iteration from depth 3 on is in play. Unseeded, the only PV
+    /// nodes with a finite window are those of re-searches: the first line from the root has the
+    /// full window, and Null Move Pruning stays off against a `beta` at mate distance. With
+    /// Principal Variation Search at the root there are then too few of them for the Null Move
+    /// guard to reach a single node at depth 7; seeded, it does (76448 against 76486 nodes).
     #[test]
     fn test_each_new_nmp_guard_changes_the_tree() {
-        let ungated = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        // Any finite seed opens an aspiration window; Kiwipete scores -8 at depth 6.
+        const SEED: Option<i16> = Some(0);
+        let ungated = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
             c.use_zobrist = true;
             c.nmp_static_eval_gate = false;
             c.nmp_pv_guard = false;
@@ -2439,7 +2541,7 @@ mod tests {
             ("rfp_pv_guard", (false, false, true)),
         ] {
             let (gate, nmp_pv, rfp_pv) = shape;
-            let gated = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            let gated = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
                 c.use_zobrist = true;
                 c.nmp_static_eval_gate = gate;
                 c.nmp_pv_guard = nmp_pv;
@@ -4588,4 +4690,136 @@ mod tests {
         assert_eq!(board.game_status, crate::model::GameStatus::Normal);
         assert_eq!(search_with_table(&mut board, &table, 5), 700);
     }
+
+    // Principal Variation Search at the root (`Config::root_pvs`).
+    // ---------------------------------------------------------------------------------------
+
+    /// Runs one fixed-depth root pass for the side to move in `fen` and reports the result and
+    /// the searched tree. No seed, so no aspiration window: every root move runs once.
+    fn search_root(fen: &str, depth: i32, shape: impl Fn(&mut Config))
+        -> (crate::model::SearchResult, usize) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let mut config = Config::for_tests();
+        shape(&mut config);
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, depth, white, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+        (result, stats.calculated_nodes)
+    }
+
+    #[test]
+    fn test_the_first_root_move_keeps_the_full_window_in_both_colours() {
+        use super::SearchService;
+
+        // White negates for its Black child, Black hands its White child the window as it is.
+        assert_eq!(SearchService::root_child_window(true, -30, 40, false), (-40, 30));
+        assert_eq!(SearchService::root_child_window(false, -30, 40, false), (-30, 40));
+
+        // The full window of a pass without a seed: `i16::MIN` saturates to `-i16::MAX`.
+        assert_eq!(SearchService::root_child_window(true, i16::MIN, i16::MAX, false),
+                   (-i16::MAX, i16::MAX));
+        assert_eq!(SearchService::root_child_window(false, i16::MIN, i16::MAX, false),
+                   (i16::MIN, i16::MAX));
+    }
+
+    #[test]
+    fn test_a_later_root_move_is_searched_on_a_null_window_at_the_bound_it_has_to_beat() {
+        use super::SearchService;
+        use crate::model::MATE_SCORE;
+
+        // White has to beat `current_alpha`: absolute (10, 11), seen from the Black child.
+        assert_eq!(SearchService::root_child_window(true, 10, 50, true), (-11, -10));
+        // Black has to beat `current_beta`: absolute (19, 20), which is the White child's own.
+        assert_eq!(SearchService::root_child_window(false, -50, 20, true), (19, 20));
+
+        // At a mate score, for the side that holds it.
+        assert_eq!(SearchService::root_child_window(true, MATE_SCORE - 3, i16::MAX, true),
+                   (-(MATE_SCORE - 2), -(MATE_SCORE - 3)));
+        assert_eq!(SearchService::root_child_window(false, i16::MIN, -(MATE_SCORE - 3), true),
+                   (-(MATE_SCORE - 2), -(MATE_SCORE - 3)));
+
+        // At the edges of the type the arithmetic saturates instead of overflowing; the windows
+        // are empty there and the child's Mate Distance Pruning returns at once.
+        assert_eq!(SearchService::root_child_window(true, i16::MAX, i16::MAX, true),
+                   (-i16::MAX, -i16::MAX));
+        assert_eq!(SearchService::root_child_window(true, i16::MIN, i16::MAX, true),
+                   (i16::MAX, i16::MAX));
+        assert_eq!(SearchService::root_child_window(false, i16::MIN, i16::MIN, true),
+                   (i16::MIN, i16::MIN));
+    }
+
+    #[test]
+    fn test_only_a_root_move_that_beats_the_bound_is_searched_again() {
+        use super::SearchService;
+        use crate::model::MATE_SCORE;
+
+        // White, bound `current_alpha` = 10: below, at, above, and beyond `current_beta`.
+        assert!(!SearchService::root_scout_beats_bound(true, 9, 10, 50));
+        assert!(!SearchService::root_scout_beats_bound(true, 10, 10, 50));
+        assert!(SearchService::root_scout_beats_bound(true, 11, 10, 50));
+        assert!(SearchService::root_scout_beats_bound(true, 60, 10, 50),
+                "a fail-high against the aspiration window is searched again too");
+
+        // Black, bound `current_beta` = 20.
+        assert!(!SearchService::root_scout_beats_bound(false, 21, -50, 20));
+        assert!(!SearchService::root_scout_beats_bound(false, 20, -50, 20));
+        assert!(SearchService::root_scout_beats_bound(false, 19, -50, 20));
+        assert!(SearchService::root_scout_beats_bound(false, -60, -50, 20));
+
+        // A shorter mate beats a longer one, for either side.
+        assert!(SearchService::root_scout_beats_bound(true, MATE_SCORE - 3, MATE_SCORE - 5, i16::MAX));
+        assert!(SearchService::root_scout_beats_bound(false, -(MATE_SCORE - 3), i16::MIN, -(MATE_SCORE - 5)));
+    }
+
+    #[test]
+    fn test_a_proven_root_fail_high_survives_an_interrupted_re_search() {
+        use super::SearchService;
+
+        // The first move, or a completed re-search: the full-window score.
+        assert_eq!(SearchService::root_move_score(None, Some(42)), Some(42));
+        assert_eq!(SearchService::root_move_score(Some(17), Some(42)), Some(42));
+        // A null-window search that failed low, or failed high and lost its re-search to the
+        // clock: the bound it proved.
+        assert_eq!(SearchService::root_move_score(Some(17), None), Some(17));
+        // Interrupted before anything was proven.
+        assert_eq!(SearchService::root_move_score(None, None), None);
+    }
+
+    /// Kiwipete, once with White and once with Black to move.
+    const ROOT_PVS_WHITE_FEN: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+    const ROOT_PVS_BLACK_FEN: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq - 0 1";
+
+    #[test]
+    fn test_root_pvs_searches_a_different_tree_in_both_colours() {
+        // Inequality only: a narrower window and more pruning under the later root moves do not
+        // make the direction a property.
+        for fen in [ROOT_PVS_WHITE_FEN, ROOT_PVS_BLACK_FEN] {
+            let (on_result, on) = search_root(fen, 6, |c| c.root_pvs = true);
+            let (off_result, off) = search_root(fen, 6, |c| c.root_pvs = false);
+            assert_ne!(on, off, "root PVS must move the tree for {}", fen);
+            assert!(on_result.variants.first().and_then(|v| v.best_move).is_some(),
+                    "root PVS must return a move for {}", fen);
+            assert!(off_result.variants.first().and_then(|v| v.best_move).is_some());
+        }
+    }
+
+    #[test]
+    fn test_root_pvs_finds_the_same_mate_for_black_at_the_root() {
+        // The mate in three of `test_mate_scores_are_colour_symmetric`, Black to move: a mate is
+        // an exact score, so the null windows and their re-searches must reach the same one.
+        const BLACK_MATES: &str = "1k1r4/pp1b1R2/3q2pp/4p3/2B5/4Q3/PPP2B2/2K5 b - - 0 1";
+        let (on, _) = search_root(BLACK_MATES, 5, |c| c.root_pvs = true);
+        let (off, _) = search_root(BLACK_MATES, 5, |c| c.root_pvs = false);
+
+        assert_eq!(on.get_eval(), off.get_eval(), "the mate score must not depend on root PVS");
+        let parser = crate::uci_parser_service::UciParserService {};
+        assert_eq!("mate 3", parser.format_score(-on.get_eval()));
+        assert_eq!(on.get_best_move_algebraic(), off.get_best_move_algebraic());
+    }
+
 }

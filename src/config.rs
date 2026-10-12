@@ -162,6 +162,15 @@ pub struct Config {
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
+    /// Principal Variation Search at the root: the first root move is searched with the full
+    /// window as a PV node, every later one on a null window at the bound it has to beat and as a
+    /// non-PV node, and only a move that beats it is searched again with the full window. A pass
+    /// that fails high against the aspiration window ends there, since the aspiration loop
+    /// searches it again anyway.
+    ///
+    /// Off, every root move is a PV node searched with the full window, which is the search of
+    /// v0.46.1 node for node.
+    pub root_pvs: bool,
     pub enable_lmr: bool,
     pub enable_nmp: bool,
     pub enable_aspiration: bool,
@@ -209,13 +218,13 @@ pub struct Config {
     /// Null Move Pruning does not speculate on the principal variation (`task.md` 20.2), the way
     /// razoring, Futility Pruning and Late Move Pruning already do not.
     ///
-    /// Ships **disabled**. The guard is not wrong, it is far larger here than in the published
-    /// formulation: `search_service.rs` gives *every* root move `is_pv = true` because the root
-    /// runs no Principal Variation Search of its own, so the guard switches the rule off at every
-    /// root child — the largest subtrees in the search. Measured over 300 positions at depth 10,
-    /// the static-eval gate of 20.1 alone removes 3.0% and 11.0% of the generated moves on the
-    /// two pools; with both PV guards added the same census reads -1.7% and -0.5%, i.e. the
-    /// guards give the whole saving back. Unmeasured in games.
+    /// Ships **disabled**. The guard is not wrong, it was far larger here than in the published
+    /// formulation: until `root_pvs` the root ran no Principal Variation Search of its own and
+    /// gave *every* root move `is_pv = true`, so the guard switched the rule off at every root
+    /// child — the largest subtrees in the search. Measured that way over 300 positions at depth
+    /// 10, the static-eval gate of 20.1 alone removes 3.0% and 11.0% of the generated moves on
+    /// the two pools; with both PV guards added the same census reads -1.7% and -0.5%, i.e. the
+    /// guards give the whole saving back. Not re-measured with `root_pvs`; unmeasured in games.
     pub nmp_pv_guard: bool,
     /// Internal Iterative Reduction (`task.md` 22): a node at `depth >= iir_min_depth` whose
     /// Transposition Table probe yielded no move is searched `iir_reduction` plies shallower.
@@ -511,6 +520,7 @@ impl Config {
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
+            root_pvs: true,
             enable_lmr: true,
             enable_nmp: true,
             enable_aspiration: true,
@@ -975,6 +985,26 @@ mod tests {
         }
     }
 
+    /// Root PVS ships on, and its switch is advertised so that `scripts/measure_tree_size.py
+    /// --cand-options RootPvs=false` can show the refactor reproduces v0.46.1 node for node.
+    #[test]
+    fn test_root_pvs_ships_on_and_its_switch_reaches_the_field() {
+        let defaults = Config::new();
+        assert!(defaults.root_pvs, "the root runs its own Principal Variation Search");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l == "option name RootPvs type check default true"),
+                "RootPvs must be advertised as a check option defaulting to true");
+
+        for spelling in ["RootPvs", "root_pvs", "rootpvs"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.root_pvs, "'{}' must reach the field", spelling);
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.root_pvs, "'{}' must switch the field back on", spelling);
+        }
+    }
+
     #[test]
     fn test_singular_tuning_options_reach_fields_in_all_spellings() {
         for spelling in ["SingularMargin", "singular_margin", "singularmargin"] {
@@ -1143,6 +1173,7 @@ impl Config {
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
             "enableiir" => { self.enable_iir = value.to_lowercase() == "true"; },
+            "rootpvs" => self.root_pvs = value.eq_ignore_ascii_case("true"),
             "iirmindepth" => if let Ok(v) = value.parse::<i32>() { self.iir_min_depth = v; },
             "iirreduction" => if let Ok(v) = value.parse::<i32>() { self.iir_reduction = v; },
             "lmrmovethreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_move_threshold = v; },

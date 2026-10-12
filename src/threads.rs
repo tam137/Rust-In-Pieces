@@ -71,6 +71,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name NmpStaticEvalGate type check default {}", defaults.nmp_static_eval_gate),
         format!("option name NmpPvGuard type check default {}", defaults.nmp_pv_guard),
         format!("option name RfpPvGuard type check default {}", defaults.rfp_pv_guard),
+        format!("option name RootPvs type check default {}", defaults.root_pvs),
         format!("option name EnableIir type check default {}", defaults.enable_iir),
         format!("option name IirMinDepth type spin default {} min 1 max 32", defaults.iir_min_depth),
         format!("option name IirReduction type spin default {} min 0 max 4", defaults.iir_reduction),
