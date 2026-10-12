@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.2] - 2026-10-12
+
+The root runs its own Principal Variation Search. Gated by **SPRT [0, 10]: H1 after 386 games**
+at 1s + 150ms against v0.46.1 (run under [0, 5] with a [0, 10] monitor; [0, 5] undecided at the
+stop). Over 399 games +69 Elo, paired 95% [+41, +97] - a stopped run, not an effect size
+(`task.md` rule 7). See `task.md` section 28.
+
+### Changed
+- **Root search:** the first root move is searched with the full window as the pass's PV node;
+  every later move on a null window at the bound it has to beat, as a non-PV node, and searched
+  again with the full window only when it beats it. Until now every root move was a PV node, so
+  razoring, SEE pruning, Late Move Pruning and Futility Pruning were off on the first line under
+  each of them.
+- **Aspiration:** a root pass that fails high against the aspiration window ends there instead of
+  handing the remaining moves an empty window.
+- **Clock:** a move whose null-window search proved it better, but whose re-search the clock cut,
+  is kept with that bound, so the interrupted-iteration rule (R19) can play it.
+
+### Added
+- UCI option `RootPvs` (`Config::root_pvs`, default on). Off, the search is v0.46.1's node for
+  node: 300/300 identical trees on both pools at depth 10.
+
+### Notes
+- Census over 300 pool positions at depth 10: about 26 null-window root moves per pass, 1.8% to
+  2.1% of them beat the bound; 18% to 20% of the passes end on an aspiration fail-high. Tree
+  against v0.46.1: 0/300 identical, 16.8% and 15.8% less time to depth 10 on the two pools.
+  Recorded, not a gate (`task.md` rule 1).
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 62.0% against v0.46.1, 67.5% against
+  v0.46.0, 85.0% against v0.34.0, no losses on time. A gate, not a measurement.
+
+
 ## [V0.46.1] - 2026-10-11
 
 The Late Move Reduction reads `improving`. Gated by **SPRT [0, 5]: H1 after 9846 games** at

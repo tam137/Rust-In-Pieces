@@ -14,7 +14,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.46.1** on `master` (HCE) since 2026-10-11 — `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before it **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.46.2** on `master` (HCE) since 2026-10-12 — Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before it **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -40,6 +40,12 @@ stack and the Late Move Pruning threshold `(base + depth^2) / (2 - improving)` w
 half of 21.4 followed in **v0.46.1** (2026-10-11): one ply more at a node that is not improving,
 SPRT [0, 5] and [0, 10] H1 after 9846 games, +7.4 Elo [+2, +13] over 9847, a stopped run. The
 Reverse Futility half of 21.4 was refused twice. What is left of the item is 21.3.
+
+**The root runs its own Principal Variation Search since v0.46.2** (2026-10-12, section 28): SPRT
+[0, 10] H1 after 386 games against v0.46.1, +69 Elo [+41, +97] over 399 games, a stopped run and
+not an effect size. It answers the open-items row on one PV node per root move, and it is what
+20.2 and then 21.3 were waiting for: **next, re-measure the tree cost of the `!is_pv` guards of
+20.2 on the pools with root PVS on**, then decide whether they are worth a run.
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -104,7 +110,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Open | Kind |
 | :--- | :--- |
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
-| The root can hand a node an empty `alpha == beta` window | open question |
+| ~~The root can hand a node an empty `alpha == beta` window~~ | **answered 2026-10-12**: it happened once a pass had failed high against the aspiration window; since v0.46.2 such a pass ends there (`RootPvs` on). With `RootPvs` off the old behaviour is kept, section 28 |
 | Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 19 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 19 |
@@ -115,8 +121,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `truncate_bad_moves = 99` truncates an unsorted list during search, so it drops moves in generation order rather than the worst ones | latent defect, same class |
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
-| The root searches **every** root move with `is_pv = true` — it runs no Principal Variation Search of its own, so this engine has one PV node per legal root move where the published formulation has one per iteration. It is why the `!is_pv` guards of 20.2 cost tree where they should be nearly free | defect or design choice, unmeasured, established 2026-09-09, section 20.2 |
-| Whether the `!is_pv` guards of 20.2 are worth Elo despite costing tree — they ship disabled, and pricing them needs its own 6000-game run against v0.43.0, after the root question above | proposal, tree measured, Elo unmeasured, section 20.2 |
+| ~~The root searches **every** root move with `is_pv = true`~~ — one PV node per legal root move where the published formulation has one per iteration | **closed 2026-10-12**: shipped in v0.46.2, SPRT [0, 10] H1 after 386 games against v0.46.1, section 28 |
+| Whether the `!is_pv` guards of 20.2 are worth Elo — they ship disabled. The root question above is answered (v0.46.2); on the seeded Kiwipete unit-test position at depth 7 the NMP and RFP PV guards now move the tree by -0.07% and +0.27%, against -9.4% and +104% with `RootPvs` off. **Next: the pool census at depth 10**, then a run if it is worth one | proposal, tree re-measured on one position only, Elo unmeasured, sections 20.2 and 28 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
@@ -651,3 +657,47 @@ Q, not done: 26 clippy lints, unused dependencies (`chashmap` with RUSTSEC-2022-
 `crossbeam-queue`), the broken legacy scripts `bench.sh`, `benchmark_nps.py`,
 `run_perft_bench.py` and `apply_spsa.py`, and a `#[test]` that sits outside `mod tests` at the end
 of `model.rs`.
+
+## 28. Principal Variation Search at the root, v0.46.2
+
+`get_moves` searched **every** root move with `is_pv = true` and the full current window, so the
+root had one PV node per legal move: under each of them razoring, SEE pruning of bad captures,
+Late Move Pruning and Futility Pruning were off on the first line, and the Late Move Reduction
+reduced one ply less. Once a pass had failed high against the aspiration window, the remaining
+moves got an empty window.
+
+**What v0.46.2 does** (`Config::root_pvs`, UCI `RootPvs`, default on):
+* The first root move is searched as before (full window, PV). Every later one on a null window at
+  the bound it has to beat (`current_alpha` for White, `current_beta` for Black), as a non-PV node;
+  a score strictly better than the bound is searched again with the full window as a PV node -
+  also when it is beyond the aspiration window, as the published root does.
+* A pass whose window has closed (`current_alpha >= current_beta`, both colours) ends there; the
+  aspiration loop searches it again with a wider window.
+* A move whose null-window search proved it better but whose re-search the clock cut is kept with
+  that bound and the move alone as its line, so R19 can play it.
+* Off, the search is v0.46.1's node for node: 300/300 identical trees on both pools at depth 10.
+
+**What was measured** (2026-10-12, host C):
+* Census, 300 pool positions at depth 10 (`search-diag`, protocol only): 26.7 / 26.3 null-window
+  root moves per pass, **2.06% / 1.79%** of them beat the bound; of the re-searches 79% / 86%
+  became the new best; **20.0% / 17.9% of the passes** end on an aspiration fail-high
+  (`openings_wide` / `openings_mixed`).
+* Tree against v0.46.1 at depth 10: 0/300 identical, **-16.8% / -15.8% time** (median ratio
+  1.15 / 1.14). Recorded, not a gate (rule 1).
+* **SPRT** against v0.46.1 at 1s + 150ms, `openings_wide.txt`, concurrency 4, run under [0, 5]
+  with a [0, 10] monitor: **[0, 10] H1 after 386 games** (LLR +3.03), [0, 5] undecided at +1.66.
+  Over 399 games **+69 Elo, paired 95% [+41, +97]** - a stopped run, not an effect size (rule 7).
+  No losses on time, White 55.4%, design effect 1.00.
+* Smoke gauntlet, 1s + 100ms, 100 games per pairing: 62.0% / 67.5% / 85.0% against v0.46.1 /
+  v0.46.0 / v0.34.0, no losses on time.
+
+**Two unit tests re-sampled**, their claims unchanged: `test_dynamic_nmp_verification_search`
+moved from depth 4 to 5 (at depth 4 the root's re-search of a fail-high outweighs what the null
+move saves); `test_each_new_nmp_guard_changes_the_tree` now runs seeded, as every iteration from
+depth 3 does in play - unseeded, the first line from the root has the full window, Null Move
+Pruning stays off against a mated `beta`, and with root PVS the NMP PV guard reached no node at
+depth 7.
+
+**What it unblocks:** the `!is_pv` guards of 20.2 (re-measure their tree cost on the pools), then
+21.3. Not in scope and still open: R23 (table cutoffs at the root's children can hide a
+repetition).
