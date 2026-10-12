@@ -701,3 +701,14 @@ depth 7.
 **What it unblocks:** the `!is_pv` guards of 20.2 (re-measure their tree cost on the pools), then
 21.3. Not in scope and still open: R23 (table cutoffs at the root's children can hide a
 repetition).
+
+**On the NNUE branch: v0.46.2-NNUE** (2026-10-12). Root PVS alone, ported onto v0.45.9-NNUE
+without the `improving` changes of v0.46.0 and v0.46.1, which were refused there; protected
+parameters unchanged. Off-path identity 300/300 on both pools; tree to depth 10 -19.3% / -17.1%;
+null-window fail-highs 1.70% / 1.59%, root cutoffs in 13.0% / 12.0% of passes. **SPRT [0, 10] H1
+after 158 games** against v0.45.9-NNUE (run under [0, 5] with a [0, 10] monitor); over 169 games
++107 Elo, paired 95% [+72, +144] - a stopped run, not an effect size. Smoke gauntlet 60.5% /
+77.5% / 84.5% against v0.45.9- / v0.45.0- / v0.34.0-NNUE. One more test was re-sampled there:
+`test_aspiration_window_is_seeded_from_previous_score` runs with the Transposition Table on, as in
+play - without it every aspiration re-pass starts from scratch, and with root PVS the seeded search
+was the larger one on that branch (22,685 against 21,527 nodes); with the table it saves again.
