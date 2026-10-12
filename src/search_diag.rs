@@ -233,6 +233,24 @@ mod counters {
     /// Of those, the ones at a node that is not improving.
     pub static LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // Principal Variation Search at the root: what do the later root moves do?
+    // ---------------------------------------------------------------------------------------
+
+    /// Root passes: one per iteration, plus one per aspiration re-search.
+    pub static ROOT_PASSES: AtomicU64 = AtomicU64::new(0);
+    /// Root moves searched on a null window.
+    pub static ROOT_SCOUTS: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the ones that beat the bound and are searched again with the full window.
+    pub static ROOT_SCOUT_FAIL_HIGHS: AtomicU64 = AtomicU64::new(0);
+    /// Completed re-searches whose score became the pass's new best.
+    pub static ROOT_RESEARCH_NEW_BEST: AtomicU64 = AtomicU64::new(0);
+    /// Completed re-searches that fell back to or below the best so far.
+    pub static ROOT_RESEARCH_NOT_BEST: AtomicU64 = AtomicU64::new(0);
+    /// Re-searches the clock cut, whose move is kept with its null-window bound.
+    pub static ROOT_RESEARCH_CUT: AtomicU64 = AtomicU64::new(0);
+    /// Root passes ended early because they failed high against the aspiration window.
+    pub static ROOT_CUTOFFS: AtomicU64 = AtomicU64::new(0);
+
     // `task.md` 23.3: what does the Late Move Reduction actually read?
     //
     // `lmr_history_good_threshold` and `lmr_history_bad_threshold` were calibrated against an
@@ -557,6 +575,39 @@ pub fn record_lmr_research(depth: i32, improving: bool, researched: bool) {
     }
 }
 
+/// Records the start of one root pass.
+#[cfg(feature = "search-diag")]
+pub fn record_root_pass() {
+    counters::bump(&counters::ROOT_PASSES);
+}
+
+/// Records one root move searched on a null window, and whether it beat the bound.
+#[cfg(feature = "search-diag")]
+pub fn record_root_scout(failed_high: bool) {
+    counters::bump(&counters::ROOT_SCOUTS);
+    if failed_high {
+        counters::bump(&counters::ROOT_SCOUT_FAIL_HIGHS);
+    }
+}
+
+/// Records how the full-window re-search of a root fail-high ended: cut by the clock, or
+/// completed with a score that did or did not become the pass's new best.
+#[cfg(feature = "search-diag")]
+pub fn record_root_research(completed: bool, new_best: bool) {
+    let counter = match (completed, new_best) {
+        (false, _) => &counters::ROOT_RESEARCH_CUT,
+        (true, true) => &counters::ROOT_RESEARCH_NEW_BEST,
+        (true, false) => &counters::ROOT_RESEARCH_NOT_BEST,
+    };
+    counters::bump(counter);
+}
+
+/// Records a root pass ended early by a fail-high against the aspiration window.
+#[cfg(feature = "search-diag")]
+pub fn record_root_cutoff() {
+    counters::bump(&counters::ROOT_CUTOFFS);
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -715,6 +766,17 @@ pub fn dump() {
             by_depth(&counters::LMP_PRUNED_BY_DEPTH),
             by_depth(&counters::LMP_PRUNED_IMPROVING_BY_DEPTH),
             by_depth(&counters::LMP_PRUNED_OLD_RULE_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGROOT passes={} scouts={} scout_fail_highs={} research_new_best={} \
+             research_not_best={} research_cut={} cutoffs={}",
+            counters::read(&counters::ROOT_PASSES),
+            counters::read(&counters::ROOT_SCOUTS),
+            counters::read(&counters::ROOT_SCOUT_FAIL_HIGHS),
+            counters::read(&counters::ROOT_RESEARCH_NEW_BEST),
+            counters::read(&counters::ROOT_RESEARCH_NOT_BEST),
+            counters::read(&counters::ROOT_RESEARCH_CUT),
+            counters::read(&counters::ROOT_CUTOFFS),
         );
         eprintln!(
             "SEARCHDIAGLMRIMP reduced={} reduced_not_improving={} deeper={} researched={} researched_not_improving={}",
