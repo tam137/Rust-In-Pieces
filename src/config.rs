@@ -162,6 +162,15 @@ pub struct Config {
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
     pub enable_pvs: bool,
+    /// Principal Variation Search at the root: the first root move is searched with the full
+    /// window as a PV node, every later one on a null window at the bound it has to beat and as a
+    /// non-PV node, and only a move that beats it is searched again with the full window. A pass
+    /// that fails high against the aspiration window ends there, since the aspiration loop
+    /// searches it again anyway.
+    ///
+    /// Off, every root move is a PV node searched with the full window, which is the search of
+    /// v0.45.9-NNUE node for node.
+    pub root_pvs: bool,
     pub enable_lmr: bool,
     pub enable_nmp: bool,
     pub enable_aspiration: bool,
@@ -207,11 +216,11 @@ pub struct Config {
     pub nmp_static_eval_gate: bool,
     /// Null Move Pruning does not speculate on the principal variation (`task.md` 20.2).
     ///
-    /// Ships **disabled**. The guard is not wrong, it is far larger here than in the published
-    /// formulation: the root runs no Principal Variation Search of its own and searches every
-    /// root move with `is_pv = true`, so the guard switches the rule off at every root child --
-    /// the largest subtrees in the search. With it on, the tree census reads the gate's whole
-    /// saving back out again. Unmeasured in games.
+    /// Ships **disabled**. The guard is not wrong, it was far larger here than in the published
+    /// formulation: until `root_pvs` the root ran no Principal Variation Search of its own and
+    /// gave *every* root move `is_pv = true`, so the guard switched the rule off at every root
+    /// child -- the largest subtrees in the search. Measured that way, the tree census reads the
+    /// gate's whole saving back out again. Not re-measured with `root_pvs`; unmeasured in games.
     pub nmp_pv_guard: bool,
     pub aspiration_window_initial_delta: i16,
     pub aspiration_window_multiplier: i16,
@@ -480,6 +489,7 @@ impl Config {
             pre_sort_moves: true,
             use_underpromotions: false,
             enable_pvs: true,
+            root_pvs: true,
             enable_lmr: true,
             enable_nmp: true,
             enable_aspiration: true,
@@ -886,6 +896,26 @@ mod tests {
                 "tuning/parameters.json must not offer lmp_max_depth above 4, got: {}", entry);
     }
 
+    /// Root PVS ships on, and its switch is advertised so that `scripts/measure_tree_size.py
+    /// --cand-options RootPvs=false` can show the refactor reproduces v0.45.9-NNUE node for node.
+    #[test]
+    fn test_root_pvs_ships_on_and_its_switch_reaches_the_field() {
+        let defaults = Config::new();
+        assert!(defaults.root_pvs, "the root runs its own Principal Variation Search");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l == "option name RootPvs type check default true"),
+                "RootPvs must be advertised as a check option defaulting to true");
+
+        for spelling in ["RootPvs", "root_pvs", "rootpvs"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.root_pvs, "'{}' must reach the field", spelling);
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.root_pvs, "'{}' must switch the field back on", spelling);
+        }
+    }
+
     #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
@@ -1032,6 +1062,7 @@ impl Config {
             "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
+            "rootpvs" => self.root_pvs = value.eq_ignore_ascii_case("true"),
             "lmrmovethreshold" => if let Ok(v) = value.parse::<i32>() { self.lmr_move_threshold = v; },
             "lmrdivisor" | "lmrdivisorscaled" => if let Ok(v) = value.parse::<i32>() { self.lmr_divisor = v; self.recalculate_lmr_table(); },
             "killermove1rankbonus" => if let Ok(v) = value.parse::<i32>() { self.killer_move_1_rank_bonus = v; },
