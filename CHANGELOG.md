@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.2-NNUE] - 2026-10-12
+
+- Ported master v0.46.2 alone, the root's own Principal Variation Search (`task.md` section 28 on
+  `master`): later root moves on a null window as non-PV nodes, a full-window re-search only for a
+  move that beats the bound, a pass that fails high against the aspiration window ends there.
+  UCI option `RootPvs` (default on); off, the search is v0.45.9-NNUE's node for node (300/300
+  identical trees on both pools at depth 10).
+- **Not on this branch:** master v0.46.0 and v0.46.1 (`improving`, Late Move Pruning, Late Move
+  Reduction) - both ports were refused here on 2026-10-11/12. Every protected NNUE and SPSA
+  parameter is unchanged.
+- `test_aspiration_window_is_seeded_from_previous_score` now runs with the Transposition Table on,
+  as in play: without it every aspiration re-pass starts from scratch, and with root PVS the seeded
+  search was the larger one on this branch.
+- Measured here against v0.45.9-NNUE at 1s + 150ms: **SPRT [0, 10] H1 after about 160 games**
+  (run under [0, 5] with a [0, 10] monitor); over 169 games +107 Elo, paired 95% [+72, +144] - a
+  stopped run, not an effect size. Smoke gauntlet 60.5% / 77.5% / 84.5% against v0.45.9-NNUE /
+  v0.45.0-NNUE / v0.34.0-NNUE. Tree to depth 10: 19.3% / 17.1% less time on the two pools.
+  `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.45.9-NNUE] - 2026-10-09
 
 - Ported master v0.45.1 to v0.45.9, the source review (`task.md` section 27 on `master`): the
