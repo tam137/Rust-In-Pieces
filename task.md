@@ -44,8 +44,9 @@ Reverse Futility half of 21.4 was refused twice. What is left of the item is 21.
 **The root runs its own Principal Variation Search since v0.46.2** (2026-10-12, section 28): SPRT
 [0, 10] H1 after 386 games against v0.46.1, +69 Elo [+41, +97] over 399 games, a stopped run and
 not an effect size. It answers the open-items row on one PV node per root move, and it is what
-20.2 and then 21.3 were waiting for: **next, re-measure the tree cost of the `!is_pv` guards of
-20.2 on the pools with root PVS on**, then decide whether they are worth a run.
+20.2 and then 21.3 were waiting for. **20.2 was re-measured with it and refused on 2026-10-13**:
+the `!is_pv` guards fire on the pools but cost +2.8% / +3.6% time to depth 10 and SPRT [0, 10]
+H0 after 2839 games against v0.46.2, -3.4 Elo [-14, +7]; they stay off. **Next: 21.3.**
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -90,7 +91,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 19 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
-| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**; left: the Reverse Futility depth bound (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | 21.3 is a range change plus a tuning run, after 20.2's `!is_pv` guard (see 21.3) |
+| 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**; left: the Reverse Futility depth bound (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | 21.3 is a range change plus a tuning run; 20.2's `!is_pv` guards, which it waited for, were refused on 2026-10-13 (see 21.3) |
 | 5 | The Null Move reduction and its verification search | 20 | Parameters, not code — a tuning group, and the gate it pairs with has landed |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
@@ -122,7 +123,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Whether mirror-invariant move generation is worth measuring at all | open question, no prior reason to gain |
 | `mm.sh` takes its opening as `opening_lines[r % num_openings]`, so a run at `rounds = 50` only ever sees the **first 50 lines** of the pool, whatever its size | measurement mechanic, established 2026-09-02 |
 | ~~The root searches **every** root move with `is_pv = true`~~ — one PV node per legal root move where the published formulation has one per iteration | **closed 2026-10-12**: shipped in v0.46.2, SPRT [0, 10] H1 after 386 games against v0.46.1, section 28 |
-| Whether the `!is_pv` guards of 20.2 are worth Elo — they ship disabled. The root question above is answered (v0.46.2); on the seeded Kiwipete unit-test position at depth 7 the NMP and RFP PV guards now move the tree by -0.07% and +0.27%, against -9.4% and +104% with `RootPvs` off. **Next: the pool census at depth 10**, then a run if it is worth one | proposal, tree re-measured on one position only, Elo unmeasured, sections 20.2 and 28 |
+| The `!is_pv` guards of 20.2 with root PVS on: **refused 2026-10-13** against v0.46.2. Census at depth 10, 300 positions per pool (`openings_wide` / `openings_mixed`): NMP guard 0 and 1 of 300 trees unchanged, +1.0% / +5.3% generated moves, +2.1% / +4.3% time; RFP guard 57 and 40 unchanged, -0.7% / +3.9%, +1.6% / +1.6%; both +0.7% / +5.3%, +2.8% / +3.6%. Both on: SPRT [0, 10] H0 after 2839 games, -3.4 Elo [-14, +7], [0, 5] undecided at -1.05. They stay off; code on the local branch `pv-guards` | negative result, sections 20 and 28 |
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
@@ -222,7 +223,7 @@ these numbers.
 | **5. Staged `MovePicker`**, 2026-09-03 | Correct, halved the generated moves, still slower. About 2 points of the 4.1 are a toll for the staged control flow being in `minimax` at all, and 2 are the last stage regenerating the entire move list and removing the searched moves with an O(n²) scan | Ceiling, not a bug. A last stage costing *nothing* still lands near -2% against a +5% gate. `master`'s search is v0.39.0's again |
 | **7. En passant** | Ranking it in the capture band made the tree 2.0% and 3.4% bigger on 600 positions and was never played. Generating it in the Quiescence Search shipped in v0.39.1 | One measured negative, one shipped |
 | **8. Singular parameters**, v0.41.1 | `singular_margin` 2 → 0, **+10.7 Elo [+5, +17]**; the axis orders 0 > 1 > 2 > 3 > 6 > 4. `singular_tt_depth_margin` stays 3 and `singular_depth_reduction` stays 0, both measured negative. `margin 1 + tt_depth 2` together read +6.5, worse than either alone — the two act on the same firing rate and do not add | Closed 2026-09-07. Open only: whether 0 wins through the extension or through the multicut, whose `threshold >= beta` is also maximal at 0 |
-| **20.1 / 20.2 NMP**, v0.43.0 | The `static_eval >= beta` gate ships enabled: **-0.5 Elo [-7, +6]** over 6000 games at 3.0%/11.0% fewer generated moves and 34.7% of null searches removed. Both `!is_pv` guards ship **disabled** — they give the whole saving back, because the root marks every root move `is_pv` | Shipped. The root property is in the open list and is its own question |
+| **20.1 / 20.2 NMP**, v0.43.0 | The `static_eval >= beta` gate ships enabled: **-0.5 Elo [-7, +6]** over 6000 games at 3.0%/11.0% fewer generated moves and 34.7% of null searches removed. Both `!is_pv` guards ship **disabled** — they gave the whole saving back, because the root marked every root move `is_pv`; re-measured with root PVS (v0.46.2) and refused again on 2026-10-13, see the open list | Shipped. The root property was answered in v0.46.2, section 28 |
 | **22. Internal Iterative Reduction**, 2026-09-09 | Removes 70.4% / 64.9% of the generated moves and scores **35.5%** against v0.43.0; at `iir_min_depth = 8`, 39.3% / 42.8% and 42.0%. Ships behind `enable_iir`, default `false` | Refused at the gate in four pairings. The cause is the table, not the rule: **41.4% of nodes at depth 4+ have no table move** here. Re-ask only after backlog item 7, starting with that census |
 | **23.1 Persistent tables**, v0.42.0 | Killers, history and counter moves moved into `EngineState`: **+39.4 Elo [+29, +49]** over 2598 games, 5.4% less wall time. The run was stopped by hand at 2598 of 6000 | Shipped. The decay actually shipped is `age` once per *iteration*, not once per `go` — that variant is in the open list |
 | **23.2 Side-indexed history**, v0.44.0 | `[side][from][to]`: **+1.0 Elo [-6, +7]** over 6000 games, tree 1.8% and 5.8% bigger | Shipped as the foundation 23.3 and 23.4 are priced on, not as a gain |
@@ -353,9 +354,10 @@ the lazy evaluation can answer differently. Each re-entry now restores the slot.
 `rfp_max_depth: 3` with `rfp_margin_per_depth: 80` against a published bound of 6 to 9 plies and a
 margin near 90 to 100. At depth 3 the rule demands a 240-centipawn surplus; the same margin at
 depth 6 would demand 480, so widening the bound is less aggressive than it looks. Both parameters
-are SPSA-registered, so this is a range change plus a tuning run rather than new code — but it
-waits for 20.2's `!is_pv` guard, because at depth 6 a PV-node static cut is a different
-proposition than at depth 3. **Not in the 21.1/21.2 build.**
+are SPSA-registered, so this is a range change plus a tuning run rather than new code. It waited
+for 20.2's `!is_pv` guard, because at depth 6 a PV-node static cut is a different proposition than
+at depth 3; that guard was refused on 2026-10-13 (open list), so whether a 21.3 candidate carries
+it is a decision for 21.3's own run. **Not in the 21.1/21.2 build.**
 
 ### 21.4 What `improving` is worth beyond Late Move Pruning
 
@@ -698,8 +700,8 @@ depth 3 does in play - unseeded, the first line from the root has the full windo
 Pruning stays off against a mated `beta`, and with root PVS the NMP PV guard reached no node at
 depth 7.
 
-**What it unblocks:** the `!is_pv` guards of 20.2 (re-measure their tree cost on the pools), then
-21.3. Not in scope and still open: R23 (table cutoffs at the root's children can hide a
+**What it unblocks:** the `!is_pv` guards of 20.2 (re-measured and refused on 2026-10-13, see the
+open list), then 21.3. Not in scope and still open: R23 (table cutoffs at the root's children can hide a
 repetition).
 
 **On the NNUE branch: v0.46.2-NNUE** (2026-10-12). Root PVS alone, ported onto v0.45.9-NNUE
