@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.3] - 2026-10-13
+
+Null Move Pruning searches the null child at the published depth and runs no verification search.
+Gated by **SPRT [0, 10]: H1 after 3308 games** at 1s + 150ms against v0.46.2 (run under [0, 5]
+with a [0, 10] monitor; [0, 5] undecided at the stop). Over 3316 games +11.9 Elo, paired 95%
+[+2, +22] - a stopped run, not an effect size (`task.md` rule 7). See `task.md` section 20.
+
+### Changed
+- **Null child depth:** `nmp_dynamic_divisor` 6 -> 3, so the null child is searched at
+  `depth - (3 + depth / 3)`, the published form (`nmp_reduction` stays 2: this engine subtracts the
+  move's own ply separately). Depth 3 is unchanged; from depth 4 the child is up to two plies
+  shallower.
+- **Verification search off:** a null cut from depth 6 up is no longer re-searched before it is
+  taken. Under v0.46.2's settings it refused 0.06% of the cuts it checked.
+
+### Added
+- UCI option `NmpVerification` (`Config::nmp_verification`, default off; the threshold stays 6).
+  `search_service::nmp_child_depth` holds the child depth; `search-diag` counts verifications and
+  the cuts they refuse.
+
+### Notes
+- Tree against v0.46.2 at depth 10, 300 pool positions: 16.4% and 13.2% less time on the two
+  pools. Recorded, not a gate (`task.md` rule 1). Release defaults are v0.46.2 with
+  `NmpDynamicDivisor=3 NmpVerificationThreshold=99`: 300/300 identical trees on both pools.
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 46.5% against v0.46.2, 68.0% against
+  v0.46.1, 92.5% against v0.34.0, no losses on time. A gate, not a measurement.
+- `test_a_null_move_into_stalemate_does_not_leave_the_node_drawn` moved from depths 5/6 to 7/8,
+  where the null child is still deep enough to generate its moves.
+
+
 ## [V0.46.2] - 2026-10-12
 
 The root runs its own Principal Variation Search. Gated by **SPRT [0, 10]: H1 after 386 games**
