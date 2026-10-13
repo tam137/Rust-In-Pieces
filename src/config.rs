@@ -218,9 +218,9 @@ pub struct Config {
     /// searching this node again at the null child's depth (`task.md` 20).
     ///
     /// The verification exists for zugzwang, where passing is the best move and the null search
-    /// overstates the position. The published pairing runs none: the `static_eval >= beta` gate of
-    /// 20.1 already refuses the nodes where giving a free move away could be what fails high, and
-    /// a position without non-pawn material never reaches the rule.
+    /// overstates the position. The published pairing runs none: a node already at or above
+    /// `beta`, which is all the gate of 20.1 lets through, is not the zugzwang case the
+    /// verification exists to catch, and a side without non-pawn material never reaches the rule.
     pub nmp_verification: bool,
     /// Null Move Pruning only runs where the *static* evaluation is already at or above `beta`
     /// (`task.md` 20.1). The value is computed unconditionally for every node with
