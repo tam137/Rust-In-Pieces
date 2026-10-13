@@ -14,7 +14,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.46.2** on `master` (HCE) since 2026-10-12 — Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before it **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.46.3** on `master` (HCE) since 2026-10-13 — Null Move Pruning at the published depth and without the verification search (section 20), SPRT [0, 10] H1 after 3308 games against v0.46.2. Before it **v0.46.2** (2026-10-12), Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before that **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -46,7 +46,12 @@ Reverse Futility half of 21.4 was refused twice. What is left of the item is 21.
 not an effect size. It answers the open-items row on one PV node per root move, and it is what
 20.2 and then 21.3 were waiting for. **20.2 was re-measured with it and refused on 2026-10-13**:
 the `!is_pv` guards fire on the pools but cost +2.8% / +3.6% time to depth 10 and SPRT [0, 10]
-H0 after 2839 games against v0.46.2, -3.4 Elo [-14, +7]; they stay off. **Next: 21.3.**
+H0 after 2839 games against v0.46.2, -3.4 Elo [-14, +7]; they stay off.
+
+**Null Move Pruning searches the null child at the published depth since v0.46.3** (2026-10-13,
+section 20): `depth - (3 + depth / 3)` and no verification search. SPRT [0, 10] H1 after 3308 games
+against v0.46.2, +11.9 Elo [+2, +22] over 3316 games, a stopped run and not an effect size. What is
+left of backlog item 5 is the published reduction's term in the static evaluation. **Next: 21.3.**
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -92,7 +97,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
 | 4 | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**; left: the Reverse Futility depth bound (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | 21.3 is a range change plus a tuning run; 20.2's `!is_pv` guards, which it waited for, were refused on 2026-10-13 (see 21.3) |
-| 5 | The Null Move reduction and its verification search | 20 | Parameters, not code — a tuning group, and the gate it pairs with has landed |
+| 5 | ~~The Null Move reduction and its verification search~~ **done in v0.46.3**; left: the term in `static_eval - beta` of the published reduction | 20 | The term is code and a new parameter; priced on its own, on top of v0.46.3 |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
 | 8 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
@@ -129,7 +134,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
 | `spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters | defect in the tuner, **measured by reading it** 2026-09-11, blocks 23.4's tuning group |
 | The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
-| The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification | proposal, unmeasured, section 20 |
+| ~~The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification~~ | **closed 2026-10-13**: shipped in v0.46.3, the null child at `depth - (3 + depth / 3)` and no verification, SPRT [0, 10] H1 after 3308 games against v0.46.2, section 20 |
+| The published Null Move reduction also grows with `min((static_eval - beta) / 200, 3)`; this engine has no such term | proposal, unmeasured, section 20 |
+| The null child inherits the parent's `is_pv` (`search_service.rs`, the null search's `minimax` call) although it always searches a null window, so a null search from a PV node runs as a PV node | property, established 2026-10-13, unpriced, section 20 |
 | ~~The `improving` flag and the Late Move Pruning growth term~~ | **closed 2026-10-10**: shipped in v0.46.0, SPRT [0, 10] H1 after 4580 games, [0, 5] H1 after 6234, section 21 |
 | ~~`improving` is not used by the Late Move Reduction table~~ | **closed 2026-10-11**: shipped in v0.46.1, SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0, section 21.4 |
 | `improving` in the Reverse Futility margin: **refused twice on 2026-10-10** against v0.46.0 - the published whole step (`margin * (depth - improving)`, 0 at depth 1) SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4]; half a step (40/120/200) [0, 10] H0 after 4058 games, -0.9 Elo [-10, +8]. Code on the local branches `rfp-improving-margin` and `rfp-improving-half-step`. The step from depth 2 only and a tuned margin are untried | negative result, section 21.4 |
@@ -231,35 +238,58 @@ these numbers.
 
 ## 20. Null Move Pruning: the reduction and its verification search
 
-`[Impact: unknown]` `[Complexity: Low]` `[unmeasured]` — backlog item 5. The gate of 20.1 shipped
-in v0.43.0 and the `!is_pv` guards of 20.2 ship disabled; both are in the closed record above.
-This is what is left of the section.
+**Shipped in v0.46.3 (2026-10-13)**, backlog item 5: the null child at the published depth and no
+verification search. The gate of 20.1 shipped in v0.43.0 and the `!is_pv` guards of 20.2 ship
+disabled; both are in the closed record above. Left: the term in `static_eval - beta` of the
+published reduction, and the null child's `is_pv` (open list).
 
-`nmp_reduction: 2` with `nmp_dynamic_divisor: 6` gives `2 + depth / 6`: **R = 3 at the root depth
-of 9 to 10 this engine reaches at the match time control.** The published adaptive form is
-`3 + depth / 3` plus a capped term in how far the static evaluation exceeds `beta`:
+**This section used to compare two conventions.** It read "R = 3 at the root depth of 9 to 10
+against a published 6 to 7". This engine searches the null child at
+`depth - 1 - (nmp_reduction + depth / nmp_dynamic_divisor)`, so its `reduction` excludes the
+move's own ply; the published `depth - R` includes it. Until v0.46.2 the effective reduction was
+`3 + depth / 6` against the published `3 + depth / 3`, which is `nmp_reduction` 2 with divisor 3
+here, not 3 with 3. Child depth by remaining depth (`search_service::nmp_child_depth`, pinned by
+`test_nmp_child_depth_follows_the_published_form`):
 
-```rust
-let eval_term = ((static_eval - beta) / 200).min(3);
-let reduction = 3 + depth / 3 + eval_term;
-```
+| depth | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| until v0.46.2 (`2`, `/6`) | 0 | 1 | 2 | 2 | 3 | 4 | 5 | 6 |
+| v0.46.3, published (`2`, `/3`) | 0 | 0 | 1 | 1 | 2 | 3 | 3 | 4 |
+| literal `3`, `/3` (not built) | 0 | 0 | 0 | 0 | 1 | 2 | 2 | 3 |
 
-which is R = 6 to 7 at the same depths, before the margin term.
+Depth 3, 57% of the candidates, is unchanged: its child was already the Quiescence Search.
 
-The engine additionally runs a **verification search** at `depth >= nmp_verification_threshold`
-(6), re-searching the node at the reduced depth before taking the cut, which doubles the cost of
-every deep cut. The published pairing is the other way round: the static-eval gate is what makes
-the verification unnecessary, because a node already at or above `beta` is not the zugzwang case
-the verification exists to catch.
+Until v0.46.2 the engine also ran a **verification search** at `depth >= nmp_verification_threshold`
+(6), re-searching the node at the null child's depth before taking the cut. The published pairing
+runs none: a node already at or above `beta`, which is all the gate of 20.1 lets through, is not
+the zugzwang case the verification exists to catch, and a side without non-pawn material never
+reaches the rule. Since v0.46.3 the verification sits behind `Config::nmp_verification` (UCI
+`NmpVerification`), off; the threshold keeps its 6 for when it is on.
 
-The rule is live at the depth of play — rule 6 is satisfied. The census of 2026-09-08 over 40
-positions at depth 10 counted 387,272 candidates by remaining depth
-`3:212964, 4:94121, 5:45153, 6:19002, 7:10073, 8:4096, 9:1863`, with 66.7% of the null searches
-that run producing a cutoff.
+**What was measured** (2026-10-13, host C):
+* **Census** (`search-diag`, 300 pool positions per pool, depth 10, v0.46.2's settings): null-move
+  candidates by remaining depth 3: 57%, 4: 22%, 5: 12%, 6 to 9: 9%. The verification ran 67,193 /
+  61,452 times on `openings_wide` / `openings_mixed` and refused the cut **40 / 34 times (0.06%)**.
+  Null searches that cut: 60.2% / 58.7% before, 61.7% / 59.7% after.
+* **Tree** against v0.46.2, depth 10, 0 of 300 identical everywhere (protocol only, rule 1): the
+  divisor alone **-14.9% / -14.1%** time, the verification off alone -2.6% / **+3.9%**, both
+  **-16.4% / -13.2%** (`openings_wide` / `openings_mixed`). Dropping the verification alone grew the tree on one
+  pool; only together with the deeper reduction does it save work.
+* **Identity:** the release with `NmpDynamicDivisor=6 NmpVerification=true` is v0.46.2, and its
+  defaults are v0.46.2 with `NmpDynamicDivisor=3 NmpVerificationThreshold=99` - 300/300 identical
+  trees on both pools, both checks.
+* **Gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, run under [0, 5] with the
+  [0, 10] monitor. **[0, 10] H1 after 3308 games** (LLR +2.95, +12.3 Elo at the stop); [0, 5]
+  undecided at +1.9. Over the 3316 games that finished **+11.9 Elo, paired 95% [+2, +22]** - a
+  stopped run, not an effect size (rule 7). No losses on time, White 53.1%, design effect 1.00.
+* **Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 46.5% against v0.46.2, 68.0% against
+  v0.46.1, 92.5% against v0.34.0, no losses on time. A gate, not a measurement.
 
-**These are parameters, not code**, so they belong in a tuning group rather than a hand-picked
-default — and they are a different kind of change from the gate: the gate only removes searches,
-while the reduction and the verification change what a cut is allowed to conclude.
+**What is left.** The published reduction also grows with `min((static_eval - beta) / 200, 3)`;
+under the gate of 20.1 that term is never negative here. It is code and a new parameter, so it is
+priced on its own. And the null child takes the parent's `is_pv`: a null search started at a PV
+node runs as a PV node on a null window, without the pruning a PV node forgoes. Both are in the
+open list.
 
 ## 21. `improving`, and the two rules whose depth bounds keep them from firing
 
