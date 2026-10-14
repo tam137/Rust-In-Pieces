@@ -843,6 +843,19 @@ impl SearchService {
             0
         };
 
+        // 0. Reverse Futility Pruning (RFP) / Static Null Move Pruning, ahead of Null Move Pruning
+        // where the published formulation has it (`task.md` 21.3). The order decides no cut -- a
+        // node this rule may cut would be cut behind a failed null search all the same, see
+        // `Config::rfp_before_nmp` -- so ahead of it the rule only spares that null search.
+        if config.rfp_before_nmp
+            && let Some(score) = self.reverse_futility_cut(board, turn, depth, beta, static_eval, is_pv, config)
+        {
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_rfp_cut(depth, is_pv,
+                Self::nmp_would_search(config, skip_null_move, depth, is_pv, static_eval, beta));
+            return (None, score);
+        }
+
         // The candidate population for `task.md` 20.1 and 20.2: every node that reached this
         // rule before the two guards below existed. Compiled out unless `search-diag` is on, so
         // the shipped build re-evaluates nothing.
@@ -968,25 +981,16 @@ impl SearchService {
             }
         }
 
-        // 0.5. Reverse Futility Pruning (RFP) / Static Null Move Pruning
-        if config.enable_rfp
-            && depth > 0
-            && depth <= config.rfp_max_depth
-            && !turn.gives_check
-            // `task.md` 20.2, the same guard as on Null Move Pruning above. Ships disabled.
-            && (!config.rfp_pv_guard || !is_pv)
-            // Every static evaluation clears a mated `beta`; see the same guard on Null Move
-            // Pruning above.
-            && beta.abs() < 20000
-            && self.has_non_pawn_material(board, board.white_to_move)
+        // 0.5. Reverse Futility Pruning behind Null Move Pruning: the order of every release up to
+        // v0.46.3, kept behind `rfp_before_nmp` off. At `depth >= nmp_depth_threshold` this only
+        // ever sees a node whose null search failed or never ran.
+        if !config.rfp_before_nmp
+            && let Some(score) = self.reverse_futility_cut(board, turn, depth, beta, static_eval, is_pv, config)
         {
-            debug_assert!(depth > 0 && !turn.gives_check,
-                "RFP reached a node where `static_eval` is the sentinel 0");
-            let margin = config.rfp_margin_per_depth * depth as i16;
-
-            if static_eval - margin >= beta {
-                return (None, static_eval - margin); // Beta cutoff
-            }
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_rfp_cut(depth, is_pv,
+                Self::nmp_would_search(config, skip_null_move, depth, is_pv, static_eval, beta));
+            return (None, score);
         }
 
         // 0.6. Razoring at depth 1.
@@ -1939,6 +1943,57 @@ impl SearchService {
         );
 
         verdict
+    }
+
+    /// Reverse Futility Pruning (Static Null Move Pruning): the score this node returns when its
+    /// static evaluation clears `beta` by the margin of its depth, or `None` to search it.
+    ///
+    /// The early return bypasses the Transposition Table write, exactly as Null Move Pruning and
+    /// razoring do.
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn reverse_futility_cut(&self, board: &Board, turn: &Turn, depth: i32, beta: i16,
+        static_eval: i16, is_pv: bool, config: &Config) -> Option<i16> {
+        if config.enable_rfp
+            && depth > 0
+            && depth <= config.rfp_max_depth
+            && !turn.gives_check
+            // `task.md` 20.2, the same guard as on Null Move Pruning: this rule returns a score
+            // derived from the static evaluation alone, and on the principal variation that
+            // score is the one that reaches the root.
+            && (!config.rfp_pv_guard || !is_pv)
+            // Every static evaluation clears a mated `beta`; see the same guard on Null Move
+            // Pruning.
+            && beta.abs() < 20000
+            && self.has_non_pawn_material(board, board.white_to_move)
+        {
+            debug_assert!(depth > 0 && !turn.gives_check,
+                "RFP reached a node where `static_eval` is the sentinel 0");
+            let margin = Self::rfp_margin(depth, config);
+            if static_eval - margin >= beta {
+                return Some(static_eval - margin);
+            }
+        }
+        None
+    }
+
+    /// Whether Null Move Pruning would run a null search at this node, for the `search-diag`
+    /// census of `task.md` 21.3: the rule's own conditions apart from the three Reverse Futility
+    /// Pruning shares with it (not in check, a non-mated `beta`, non-pawn material).
+    #[cfg(feature = "search-diag")]
+    fn nmp_would_search(config: &Config, skip_null_move: bool, depth: i32, is_pv: bool,
+        static_eval: i16, beta: i16) -> bool {
+        config.enable_nmp
+            && !skip_null_move
+            && depth >= config.nmp_depth_threshold
+            && (!config.nmp_pv_guard || !is_pv)
+            && (!config.nmp_static_eval_gate || static_eval >= beta)
+    }
+
+    /// The surplus over `beta` Reverse Futility Pruning demands at `depth`, `task.md` 21.3.
+    #[inline(always)]
+    fn rfp_margin(depth: i32, config: &Config) -> i16 {
+        config.rfp_margin_per_depth * depth as i16
     }
 
     /// The Late Move Reduction for one quiet move, before it is clamped against the remaining
@@ -3988,6 +4043,13 @@ mod tests {
     /// and the board the node leaves behind.
     fn search_node(fen: &str, depth: i32, alpha: i16, beta: i16, shape: impl Fn(&mut Config))
         -> (i16, crate::model::Board) {
+        let (score, board, _) = search_node_counted(fen, depth, alpha, beta, shape);
+        (score, board)
+    }
+
+    /// [`search_node`] that also returns the number of nodes the search took.
+    fn search_node_counted(fen: &str, depth: i32, alpha: i16, beta: i16, shape: impl Fn(&mut Config))
+        -> (i16, crate::model::Board, usize) {
         let service = Service::new();
         let mut board = service.fen.set_fen(fen);
         let mut config = Config::new();
@@ -4016,13 +4078,19 @@ mod tests {
         let mut history = [[[0i32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
+        // The node reads its static evaluation from its own accumulator slot, which `get_moves`
+        // fills for a root child before it searches one. Entered directly, the node has to be
+        // handed it the same way, or the network evaluates an empty accumulator.
+        let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY];
+        if config.use_nnue && service.eval.nnue_net.loaded {
+            acc_stack[1] = crate::nnue_service::NNUEService::compute_accumulator(&board, &service.eval.nnue_net);
+        }
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, 1, &mut killer_moves, &mut history, &mut counter_moves,
-            &mut crate::model::new_search_buffers(),
-            &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
+            &mut crate::model::new_search_buffers(), &mut acc_stack,
         );
-        (score, board)
+        (score, board, stats.calculated_nodes)
     }
 
     #[test]
@@ -4030,10 +4098,12 @@ mod tests {
         // White mates with Qb7, but Black to move would be stalemated. The null child generates no
         // move and writes `Draw` onto the shared board, and the node then scored itself 0 because
         // nothing restored the status. At depths 5 and 6 Null Move Pruning reaches the null child
-        // without razoring answering first.
+        // without razoring answering first. Reverse Futility Pruning is off: at its published bound
+        // and ahead of the null move (`task.md` 21.3) it cuts this node on its queen before the null
+        // move is tried.
         let fen = "k7/2K5/1Q6/8/8/8/8/8 w - - 0 1";
         for depth in [5, 6] {
-            let (score, board) = search_node(fen, depth, 0, 1, |_| {});
+            let (score, board) = search_node(fen, depth, 0, 1, |c| c.enable_rfp = false);
             assert!(score > crate::model::MATE_SCORE_THRESHOLD,
                 "depth {depth}: Qb7# must score as a mate, got {score}");
             assert_eq!(board.game_status, crate::model::GameStatus::Normal,
@@ -4053,6 +4123,73 @@ mod tests {
         let (score, _) = search_node(MATED_IN_TWO_FEN, 3, MATED_BETA - 1, MATED_BETA,
             |c| c.enable_nmp = false);
         assert!(score < MATED_BETA, "White is mated in two plies, so the node must fail low, got {score}");
+    }
+
+    /// White is a queen and two rooks against two pawns up, and the queen stands en prise to the
+    /// pawn on d6; `h6` gives the black king air, so `Rb8` is check and not mate. The network
+    /// evaluates the node at 4472, so against a `beta` of 3300 the surplus clears the depth-4
+    /// margin of 320; a null move hands Black `dxe5`, and what is left after the queen (about
+    /// 2540) falls below it, so the null search fails. `master` pins the same property on a
+    /// position without `h6`, where `Rb8` mates - harmless there, because the classical
+    /// evaluation lets the rule cut before any move is searched.
+    const QUEEN_EN_PRISE_FEN: &str = "6k1/5pp1/3p3p/4Q3/8/8/5PPP/RR4K1 w - - 0 1";
+    const QUEEN_EN_PRISE_BETA: i16 = 3300;
+
+    /// `task.md` 21.3: the order of Reverse Futility and Null Move Pruning decides no cut. At a
+    /// node the null search cannot cut, because passing loses the queen, Reverse Futility Pruning
+    /// cuts in both orders and returns the same `static_eval - margin` - not the `beta` a null
+    /// cut would have returned. Ahead of the null move, the node is cut without paying for the
+    /// null search.
+    #[test]
+    fn test_reverse_futility_cuts_a_threatened_node_in_either_order() {
+        let beta = QUEEN_EN_PRISE_BETA;
+        let run = |before: bool| {
+            let (score, _, nodes) = search_node_counted(QUEEN_EN_PRISE_FEN, 4, beta - 1, beta,
+                |c| { c.rfp_max_depth = 8; c.rfp_before_nmp = before; });
+            (score, nodes)
+        };
+        let (score_before, nodes_before) = run(true);
+        let (score_after, nodes_after) = run(false);
+
+        assert!(score_before > beta,
+            "ahead of the null move the node is cut at static_eval - margin above beta, got {score_before}");
+        assert_eq!(score_after, score_before,
+            "behind a failed null search the same rule cuts with the same score (a null cut would return {beta})");
+        assert!(nodes_before < nodes_after,
+            "ahead of the null move the null search is spared ({nodes_before} against {nodes_after} nodes)");
+    }
+
+    /// The margin is `rfp_margin_per_depth * depth`, and the rule stops at `rfp_max_depth`: at
+    /// the shipped 80 and 8 the surplus it demands runs 80, 160, ..., 640.
+    #[test]
+    fn test_reverse_futility_margin_and_bound() {
+        let config = Config::new();
+        let margins: Vec<i16> = (1..=8).map(|d| super::SearchService::rfp_margin(d, &config)).collect();
+        assert_eq!(margins, vec![80, 160, 240, 320, 400, 480, 560, 640]);
+
+        let beta = QUEEN_EN_PRISE_BETA;
+        let cut_at = |bound: i32| {
+            search_node_counted(QUEEN_EN_PRISE_FEN, 4, beta - 1, beta,
+                |c| { c.rfp_max_depth = bound; c.enable_nmp = false; }).2
+        };
+        assert!(cut_at(4) < cut_at(3), "a bound of 4 must cut the depth-4 node a bound of 3 searches");
+    }
+
+    /// Off, the switch is the order every release up to v0.46.3 searched in (the census checks
+    /// that against the v0.46.3 binary, 300 of 300 trees); on, it has to change the tree, or the
+    /// switch is inert. The pass is seeded, as every iteration from depth 3 on is in play.
+    #[test]
+    fn test_the_rfp_before_nmp_switch_changes_the_tree() {
+        const SEED: Option<i16> = Some(0);
+        let off = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
+            c.use_zobrist = true;
+            c.rfp_before_nmp = false;
+        });
+        let on = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
+            c.use_zobrist = true;
+            c.rfp_before_nmp = true;
+        });
+        assert_ne!(off, on, "ahead of the null move the rule must spare null searches ({} nodes either way)", off);
     }
 
     #[test]

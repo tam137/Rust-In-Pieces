@@ -181,6 +181,19 @@ mod counters {
     /// Nodes both guards let through, by the same depth index.
     pub static NMP_SEARCH_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // ---------------------------------------------------------------------------------------
+    // `task.md` 21.3: where Reverse Futility Pruning cuts, and what Null Move Pruning would
+    // have done there. With the rule behind the null move, a cut at a node the null move
+    // applies to follows a null search that failed; with it ahead, it is a null search spared.
+    // ---------------------------------------------------------------------------------------
+
+    /// Reverse Futility cuts, by remaining depth.
+    pub static RFP_CUTS_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of those, cuts at nodes where Null Move Pruning runs a null search, by the same index.
+    pub static RFP_CUTS_NMP_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of all cuts, the ones taken at a PV node.
+    pub static RFP_PV_CUTS: AtomicU64 = AtomicU64::new(0);
+
     // Principal Variation Search at the root: what do the later root moves do?
     // ---------------------------------------------------------------------------------------
 
@@ -466,6 +479,20 @@ pub fn record_root_cutoff() {
     counters::bump(&counters::ROOT_CUTOFFS);
 }
 
+/// Records one Reverse Futility cut, `task.md` 21.3. `nmp_applies` is whether Null Move Pruning
+/// runs a null search at this node.
+#[cfg(feature = "search-diag")]
+pub fn record_rfp_cut(depth: i32, is_pv: bool, nmp_applies: bool) {
+    let bucket = (depth.max(0) as usize).min(31);
+    counters::bump(&counters::RFP_CUTS_BY_DEPTH[bucket]);
+    if nmp_applies {
+        counters::bump(&counters::RFP_CUTS_NMP_BY_DEPTH[bucket]);
+    }
+    if is_pv {
+        counters::bump(&counters::RFP_PV_CUTS);
+    }
+}
+
 /// Records a Null Move Pruning cutoff, taken at the point the rule returns `beta`, i.e. after the
 /// verification search at the depths that run one.
 #[inline(always)]
@@ -579,6 +606,12 @@ pub fn dump() {
             counters::read(&counters::NMP_CUTS),
             by_depth(&counters::NMP_BY_DEPTH),
             by_depth(&counters::NMP_SEARCH_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGRFP cuts_by_depth={} cuts_nmp_by_depth={} pv_cuts={}",
+            by_depth(&counters::RFP_CUTS_BY_DEPTH),
+            by_depth(&counters::RFP_CUTS_NMP_BY_DEPTH),
+            counters::read(&counters::RFP_PV_CUTS),
         );
         let buckets = |table: &[AtomicU64; 32]| -> String {
             table
