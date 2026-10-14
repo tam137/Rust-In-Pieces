@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.4] - 2026-10-14
+
+Reverse Futility Pruning cuts to depth 8 and runs ahead of Null Move Pruning, the published bound
+and the published order. Gated by **SPRT [0, 10]: H1 after 1876 games** at 1s + 150ms against
+v0.46.3 (run under [0, 5] with a [0, 10] monitor; [0, 5] undecided at the stop). Over 1885 games
++17.3 Elo, paired 95% [+5, +30] - a stopped run, not an effect size (`task.md` rule 7). See
+`task.md` section 21.3.
+
+### Changed
+- **Depth bound:** `rfp_max_depth` 3 -> 8. The margin stays 80 per ply, so depth 8 demands a
+  surplus of 640 centipawns over `beta`.
+- **Order:** the rule now runs ahead of Null Move Pruning. The order decides no cut - a node it
+  may cut is cut behind a failed null search as well - so ahead of it the rule only spares that
+  null search. Behind it, the wider bound cut only nodes whose null search had failed.
+
+### Added
+- UCI option `RfpBeforeNmp` (`Config::rfp_before_nmp`, default on); off is v0.46.3's order.
+  `search_service::reverse_futility_cut` holds the rule; `search-diag` counts its cuts by depth.
+
+### Notes
+- Tree against v0.46.3 at depth 10, 300 pool positions: 2.6% and 1.5% less time on the two pools;
+  21% fewer null searches. Recorded, not a gate (`task.md` rule 1). With `RfpBeforeNmp=false` the
+  release defaults are v0.46.3 with `RfpMaxDepth=8`: 300/300 identical trees on both pools.
+- Smoke gauntlet, 100 games per pairing at 1s + 100ms: 53.5% against v0.46.3, 52.5% against
+  v0.46.2, 86.0% against v0.34.0, no losses on time. A gate, not a measurement.
+- `test_a_null_move_into_stalemate_does_not_leave_the_node_drawn` runs with Reverse Futility
+  Pruning off: at depth 7 the rule now cuts the node before the null move is tried.
+
+
+
 ## [V0.46.3] - 2026-10-13
 
 Null Move Pruning searches the null child at the published depth and runs no verification search.
