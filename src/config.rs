@@ -292,7 +292,22 @@ pub struct Config {
     pub lmr_history_good_threshold: i32,
     pub lmr_history_bad_threshold: i32,
     pub rfp_margin_per_depth: i16,
+    /// Reverse Futility Pruning cuts at `depth <= rfp_max_depth`, against a published bound of 6
+    /// to 9 (`task.md` 21.3). The margin grows with the depth, so at 8 the rule demands a surplus
+    /// of 640 centipawns over `beta`; at the root depth of 9 to 10 the match control reaches, 8
+    /// covers every node below the root's children.
     pub rfp_max_depth: i32,
+    /// Reverse Futility Pruning runs ahead of Null Move Pruning, where the published formulation
+    /// has it (`task.md` 21.3).
+    ///
+    /// The order decides no cut. Null Move Pruning tries every node at `depth >=
+    /// nmp_depth_threshold` whose static evaluation is at or above `beta`, and Reverse Futility
+    /// Pruning asks the same conditions plus a surplus of its margin, so a node it may cut is cut
+    /// in either order: by the null search, at `beta`, or by this rule after the null search
+    /// failed, at `static_eval - margin`. Ahead of it, the rule spares the null search at every
+    /// node it would cut anyway. Behind it, a wider `rfp_max_depth` only adds cuts at the nodes
+    /// where the null search has just found a threat, and at those that never run one.
+    pub rfp_before_nmp: bool,
     /// Reverse Futility Pruning does not speculate on the principal variation (`task.md` 20.2).
     /// Ships **disabled**, for the reason given on `nmp_pv_guard`.
     pub rfp_pv_guard: bool,
@@ -610,7 +625,8 @@ impl Config {
             lmr_history_good_threshold: 0,
             lmr_history_bad_threshold: 0,
             rfp_margin_per_depth: 80,
-            rfp_max_depth: 3,
+            rfp_max_depth: 8,
+            rfp_before_nmp: true,
             rfp_pv_guard: false,
             enable_check_extension: false,
             check_extension_max_ply: 64,
@@ -981,6 +997,35 @@ mod tests {
                 "NmpVerification must be advertised as a UCI option");
     }
 
+    /// `task.md` 21.3: the published bound, and the rule in its published place ahead of Null
+    /// Move Pruning. `RfpBeforeNmp` is advertised so that one binary can be surveyed against
+    /// itself in both orders, and against v0.46.3 with the switch off.
+    #[test]
+    fn test_reverse_futility_ships_the_published_bound_ahead_of_the_null_move() {
+        let defaults = Config::new();
+        assert_eq!(defaults.rfp_max_depth, 8, "the published bound is 6 to 9; 8 is the one shipped");
+        assert_eq!(defaults.rfp_margin_per_depth, 80, "21.3 moves the bound, not the margin");
+        assert!(defaults.rfp_before_nmp, "the rule runs ahead of Null Move Pruning");
+        assert!(!defaults.rfp_pv_guard, "the PV guard stays off, refused on 2026-10-13");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l.starts_with("option name RfpBeforeNmp ")),
+                "RfpBeforeNmp must be advertised as a UCI option");
+    }
+
+    #[test]
+    fn test_the_rfp_before_nmp_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["RfpBeforeNmp", "rfp_before_nmp", "rfpbeforenmp"] {
+            for value in [true, false] {
+                let mut config = Config::new();
+                config.rfp_before_nmp = !value;
+                assert_eq!(config.apply_uci_option(spelling, &value.to_string()),
+                           UciOptionEffect::Stored);
+                assert_eq!(config.rfp_before_nmp, value, "'{}' must reach the field", spelling);
+            }
+        }
+    }
+
     #[test]
     fn test_the_nmp_verification_option_reaches_the_field_in_all_spellings() {
         for spelling in ["NmpVerification", "nmp_verification", "nmpverification"] {
@@ -1114,7 +1159,8 @@ mod tests {
         assert_eq!(config.aspiration_window_multiplier, 4);
         assert_eq!(config.aspiration_window_max_delta, 1000);
         assert_eq!(config.rfp_margin_per_depth, 80);
-        assert_eq!(config.rfp_max_depth, 3);
+        assert_eq!(config.rfp_max_depth, 8);
+        assert!(config.rfp_before_nmp);
         assert_eq!(config.lmr_history_good_threshold, 0);
         assert_eq!(config.lmr_history_bad_threshold, 0);
         assert!(!config.enable_check_extension);
@@ -1222,6 +1268,7 @@ impl Config {
             "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
+            "rfpbeforenmp" => self.rfp_before_nmp = value.eq_ignore_ascii_case("true"),
             "enableiir" => { self.enable_iir = value.to_lowercase() == "true"; },
             "rootpvs" => self.root_pvs = value.eq_ignore_ascii_case("true"),
             "iirmindepth" => if let Ok(v) = value.parse::<i32>() { self.iir_min_depth = v; },
