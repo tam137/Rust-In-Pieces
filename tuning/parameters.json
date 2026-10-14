@@ -415,7 +415,7 @@
         "max": 160
     },
     "rfp_max_depth": {
-        "value": 3,
+        "value": 8,
         "min": 0,
         "max": 10
     },
