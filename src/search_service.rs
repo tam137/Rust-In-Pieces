@@ -2031,13 +2031,6 @@ impl SearchService {
             && static_eval_stack[ply_idx] > static_eval_stack[ply_idx - 2]
     }
 
-    /// The depth Null Move Pruning searches the null child at, `task.md` 20.
-    ///
-    /// `depth - 1 - (nmp_reduction + depth / nmp_dynamic_divisor)`, floored at 0, where 0 is the
-    /// Quiescence Search. The move's own ply is subtracted on top of the reduction, so the
-    /// published `depth - R` with `R = 3 + depth / 3` is `nmp_reduction` 2 with a divisor of 3
-    /// here - not 3 with 3, which is one ply beyond it. A divisor of 0 or below falls back to 6,
-    /// the divisor before 20, rather than dividing by zero.
     /// Reverse Futility Pruning (Static Null Move Pruning): the score this node returns when its
     /// static evaluation clears `beta` by the margin of its depth, or `None` to search it.
     ///
@@ -2089,6 +2082,13 @@ impl SearchService {
         config.rfp_margin_per_depth * depth as i16
     }
 
+    /// The depth Null Move Pruning searches the null child at, `task.md` 20.
+    ///
+    /// `depth - 1 - (nmp_reduction + depth / nmp_dynamic_divisor)`, floored at 0, where 0 is the
+    /// Quiescence Search. The move's own ply is subtracted on top of the reduction, so the
+    /// published `depth - R` with `R = 3 + depth / 3` is `nmp_reduction` 2 with a divisor of 3
+    /// here - not 3 with 3, which is one ply beyond it. A divisor of 0 or below falls back to 6,
+    /// the divisor before 20, rather than dividing by zero.
     fn nmp_child_depth(depth: i32, config: &Config) -> i32 {
         let divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
         (depth - 1 - (config.nmp_reduction + depth / divisor)).max(0)
