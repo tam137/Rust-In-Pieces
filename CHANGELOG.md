@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.46.4-NNUE] - 2026-10-14
+
+- Ported master v0.46.4 (`task.md` 21.3 on `master`): Reverse Futility Pruning runs ahead of Null
+  Move Pruning and cuts to depth 8. The order decides no cut - a node the rule may cut is cut
+  behind a failed null search as well - so ahead of it the rule only spares that null search.
+  UCI option `RfpBeforeNmp` (default on); off with `RfpMaxDepth=3`, the search is v0.46.2-NNUE's
+  node for node (300/300 identical trees on both pools at depth 10).
+- **Protected parameter moved, with the owner's approval:** `rfp_max_depth` 3 -> 8. The 3 was the
+  value the one SPSA run over it (on v0.24.2-NNUE) started from and never left. `rfp_margin_per_depth`
+  stays 80; every other protected NNUE and SPSA parameter is unchanged.
+- **Not on this branch:** master v0.46.0, v0.46.1 and v0.46.3 (`improving`, the Null Move child
+  depth and verification).
+- The NNUE test helper `search_node` now hands the node its accumulator, as `get_moves` does; it
+  evaluated an empty one before.
+- Measured here against v0.46.2-NNUE at 1s + 150ms: **SPRT [0, 10] H1 after 2190 games** (run
+  under [0, 5] with a [0, 10] monitor; [0, 5] undecided at the stop); over 2202 games +13.3 Elo,
+  paired 95% [+3, +23] - a stopped run, not an effect size. Smoke gauntlet 62.0% / 64.5% / 88.5%
+  against v0.46.2-NNUE / v0.45.9-NNUE / v0.34.0-NNUE. Tree to depth 10: 3.7% / 5.1% less time
+  on the two pools, 29% fewer null searches. `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.46.2-NNUE] - 2026-10-12
 
 - Ported master v0.46.2 alone, the root's own Principal Variation Search (`task.md` section 28 on
