@@ -42,7 +42,8 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
   - `aspiration_window_initial_delta = 16`.
   - `aspiration_window_multiplier = 5`.
   - `rfp_margin_per_depth = 80`.
-  - `rfp_max_depth = 3`.
+  - `rfp_max_depth = 8` (3 until v0.46.4-NNUE; moved with the owner's approval when master's
+    `task.md` 21.3 was ported, SPRT [0, 10] H1 against v0.46.2-NNUE).
   - `your_turn_bonus = 18`.
 - **Master Additions**: Adopt all new non-conflicting config fields (e.g. `enable_qs_tt`, `lazy_eval_margin_search = 180`, `lazy_eval_margin_qs = 120`, classical term weights, and `set_aggressiveness()` method).
 

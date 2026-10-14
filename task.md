@@ -429,6 +429,15 @@ order). No SPSA run: the tuner cannot resolve a few Elo at 1s + 150ms (section 1
 7 it now cuts that node on its extra queen before the null move is tried. Still open: the margin,
 80 against a published 90 to 100 (open list).
 
+**On the NNUE branch: v0.46.4-NNUE** (2026-10-14). Ported onto v0.46.2-NNUE, where
+`rfp_max_depth` was a protected parameter at 3 - the start value of the one SPSA run over it,
+never left - and moved to 8 with the owner's approval; the margin stays 80. With `RfpBeforeNmp`
+off and the bound at 3 the port is v0.46.2-NNUE node for node (300/300 on both pools). Tree to
+depth 10: 3.7% / 5.1% less time, 29% fewer null searches. SPRT [0, 10] **H1 after 2190 games**
+against v0.46.2-NNUE; over 2202 games +13.3 Elo, paired 95% [+3, +23] - a stopped run, not an
+effect size. Smoke gauntlet 62.0% / 64.5% / 88.5% against v0.46.2- / v0.45.9- / v0.34.0-NNUE.
+The NNUE test helper `search_node` handed the node an empty accumulator until then.
+
 ### 21.4 What `improving` is worth beyond Late Move Pruning
 
 The same flag conventionally scales the Reverse Futility margin and the Late Move Reduction table.
