@@ -58,6 +58,8 @@ left of backlog item 5, the published reduction's term in the static evaluation,
 (2026-10-14, 21.3). SPRT [0, 10] H1 after 1876 games against v0.46.3, +17.3 Elo [+5, +30] over
 1885 games, a stopped run and not an effect size. The order was the finding: behind the null move,
 the wider bound only ever cut nodes whose null search had just failed. Backlog item 4 is done.
+The margin, 80 against a published 90 to 100, was **refused at 90 on 2026-10-15**: SPRT [0, 10] H0
+after 3490 games against v0.46.4, -2.3 Elo [-12, +7] over 3503; 100 costs 6 to 8% more time to depth 10.
 
 **What the rest of the audit is.** The audit of 2026-09-04 produced sections 20 to 26: seven rules
 either absent here or present in a form that cannot fire at the depths this engine plays. Three
@@ -102,7 +104,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~1~~ | ~~The Null Move Pruning static-eval gate, and `!is_pv` on NMP and RFP~~ | 19 | **Done 2026-09-09.** 20.1 shipped, Elo-neutral over 6000 games, 3.0%/11.0% cheaper tree. 20.2 ships disabled: it gives the whole saving back. See 20 |
 | ~~2~~ | ~~Internal Iterative Reduction~~ | 19 | **Refused 2026-09-09.** -70.4% / -64.9% generated moves and 35.5% against v0.43.0; at `iir_min_depth = 8`, -39.3% / -42.8% and 42.0%. Ships `false`. Re-ask after item 7, not before — see 22.3 |
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
-| ~~4~~ | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**, ~~the Reverse Futility depth bound~~ **done in v0.46.4** (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | **Done 2026-10-14.** Left untried: the margin itself (80 against a published 90 to 100), see 21.3 |
+| ~~4~~ | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**, ~~the Reverse Futility depth bound~~ **done in v0.46.4** (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | **Done 2026-10-14.** The margin itself, 80 against a published 90 to 100: 90 refused on 2026-10-15, see 21.3 |
 | ~~5~~ | ~~The Null Move reduction and its verification search~~ **done in v0.46.3**; ~~the term in `static_eval - beta` of the published reduction~~ **refused 2026-10-15** | 20 | **Done.** The term: SPRT [0, 10] H0 after 2834 games against v0.46.4, -3.7 Elo [-14, +7]; code on the local branch `nmp-eval-term`, see 20 |
 | 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
@@ -147,7 +149,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | ~~`improving` is not used by the Late Move Reduction table~~ | **closed 2026-10-11**: shipped in v0.46.1, SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0, section 21.4 |
 | `improving` in the Reverse Futility margin: **refused twice on 2026-10-10** against v0.46.0 - the published whole step (`margin * (depth - improving)`, 0 at depth 1) SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4]; half a step (40/120/200) [0, 10] H0 after 4058 games, -0.9 Elo [-10, +8]. Code on the local branches `rfp-improving-margin` and `rfp-improving-half-step`. The step from depth 2 only and a tuned margin are untried | negative result, section 21.4 |
 | ~~`rfp_max_depth` is 3 against a published 6 to 9~~ | **closed 2026-10-14**: shipped in v0.46.4 with the rule ahead of Null Move Pruning, SPRT [0, 10] H1 after 1876 games against v0.46.3, section 21.3 |
-| `rfp_margin_per_depth` is 80 against a published 90 to 100 | proposal, unmeasured, section 21.3 |
+| `rfp_margin_per_depth` 80 against a published 90 to 100: **refused 2026-10-15** at 90 against v0.46.4. Census at depth 10 against 80, `openings_wide` / `openings_mixed`: 70 -6.3% / -7.2% time, 90 +0.4% / +1.0%, 100 +7.8% / +6.0%, 120 +17.3% / +12.3%; 100 was not played (more than 5% more time on both pools). 90: SPRT [0, 10] H0 after 3490 games, -2.3 Elo [-12, +7] over 3503, [0, 5] undecided at -1.07. Code on the local branch `rfp-margin`. 100 in games, and 70, are untried | negative result, section 21.3 |
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 19 | property, established 2026-09-04 |
@@ -454,8 +456,31 @@ order). No SPSA run: the tuner cannot resolve a few Elo at 1s + 150ms (section 1
   v0.46.2, 86.0% against v0.34.0.
 
 `test_a_null_move_into_stalemate_does_not_leave_the_node_drawn` runs with this rule off: at depth
-7 it now cuts that node on its extra queen before the null move is tried. Still open: the margin,
-80 against a published 90 to 100 (open list).
+7 it now cuts that node on its extra queen before the null move is tried.
+
+**The margin: 90 refused on 2026-10-15.** `rfp_margin_per_depth` has been 80 since v0.28.4, when
+the rule stopped at depth 3, and was never measured; the published margin is 90 to 100 per ply,
+and the pawn is 100 here. Over 98% of the rule's cuts are at depths 1 to 3, so the margin acts on
+the bulk of the tree rather than on a few deep nodes. `RfpMarginPerDepth` was already parsed, so
+the census ran on v0.46.4 itself.
+
+* **Tree** against 80, depth 10, 300 positions (protocol only, rule 1), `openings_wide` /
+  `openings_mixed`: 70 **-6.3% / -7.2%** time, 90 **+0.4% / +1.0%** (-1.0% / -2.6% generated
+  moves), 100 **+7.8% / +6.0%**, 120 +17.3% / +12.3%; 0 of 300 identical everywhere. 100, the
+  value first chosen, exceeded the pre-registered +5% on both pools and was not played; 90 was.
+* **`search-diag`**, 80 -> 90: Reverse Futility cuts -9.2% / -8.4%, about half of that at depth 1;
+  null searches +1.8% / +4.3%, null cuts +3.3% / +6.9% - part of what the rule no longer cuts
+  statically, the null move cuts instead.
+* **Identity:** the candidate with `RfpMarginPerDepth=80` is v0.46.4, 300/300 on both pools.
+* **Gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, run under [0, 5] with the
+  [0, 10] monitor. **[0, 10] H0 after 3490 games** (LLR -3.16, -2.1 Elo at the stop); [0, 5]
+  undecided at -1.07. Over the 3503 games that finished **-2.3 Elo, paired 95% [-12, +7]**; the
+  reading stayed between -4 and +1.3 from 1100 games on. No losses on time, White 54.4%, design
+  effect 1.00.
+
+The margin stays 80. The code is on the local branch `rfp-margin` (default 90, `RfpMarginPerDepth`
+advertised, `tuning/parameters.json` with it). Untried in games: 100, and 70 - the cheaper side,
+6 to 7% less time to depth 10, against the published direction.
 
 **On the NNUE branch: v0.46.4-NNUE** (2026-10-14). Ported onto v0.46.2-NNUE, where
 `rfp_max_depth` was a protected parameter at 3 - the start value of the one SPSA run over it,
