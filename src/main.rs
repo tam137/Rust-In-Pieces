@@ -4,6 +4,9 @@ mod fen_service;
 mod notation_util;
 mod model;
 mod eval_service;
+mod eval_trace;
+#[cfg(feature = "texel")]
+mod texel;
 mod nnue_service;
 mod config;
 mod search_service;
@@ -39,6 +42,15 @@ use model::RIP_COULDN_JOIN_THREAD;
 
 fn main() {
     crate::magic::init();
+
+    #[cfg(feature = "texel")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.len() > 1 && args[1].starts_with("texel-") {
+            crate::texel::run(&args[1..]);
+            return;
+        }
+    }
 
 
 
