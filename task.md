@@ -24,6 +24,14 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 ### The next action
 
+**The evaluation has never been priced, and it is audited now: section 29** (2026-10-16, census and
+Texel error, no code changed). Every term dates from before the rules of this file; king danger
+from piece attacks contributes 0.03 cp on average; `adjust_eval` jumps by up to 200 cp at +/-200;
+the evaluation is a fifth of the search time. Its recommended order, ahead of backlog items 6 to
+10: **E1** the `adjust_eval` step (small, one SPRT), then **E2** a Texel tuner - re-fitted
+material and piece-square tables predict results six times better than any single change, on two
+independent game sets. The rest is in 29.5.
+
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
 short list of findings that were deferred or could not be priced — the review rows of the table
@@ -116,6 +124,10 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | 8 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
 | 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
+| 11 | `adjust_eval`: a step of up to 200 cp at +/-200 | 29.5 E1 | The strongest Texel signal that holds on both sets, and a defect besides; small, one SPRT. Recommended first |
+| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2 | The largest lever any instrument here has shown; after 11, which removes a non-linearity it would have to model |
+| 13 | The king-centre step below phase 60, a no-pawn scale factor, R26, the lazy first visit | 29.5 E3, E4, E6 | Small, each priced on its own; E4 acts in a corner and is priced like R21 |
+| 14 | King safety from piece attacks, with attack maps shared by the evaluation | 29.5 E5, E7 | Absent today; only with 12, or it is one more hand-set term |
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
 exemption, measured 2026-08-28: worth 4.5% of the tree and nothing in games. The staged
@@ -130,7 +142,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | :--- | :--- |
 | The Transposition Table stores an unproven bound at Black nodes on an empty window | defect, measured not to drift a warm table, unpriced |
 | ~~The root can hand a node an empty `alpha == beta` window~~ | **answered 2026-10-12**: it happened once a pass had failed high against the aspiration window; since v0.46.2 such a pass ends there (`RootPvs` on). With `RootPvs` off the old behaviour is kept, section 28 |
-| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit | defect, measured not to drift a warm table, unpriced |
+| Lazy Evaluation compares a `cheap_eval` that is missing the pawn structure on first visit: **16 to 17% of all lazy returns**, and 15 to 18% of the 0.75 to 0.90% of lazy returns that land on the wrong side of the bound (29.3) | defect, measured not to drift a warm table, unpriced; 29.5 E6 |
 | `tt_move` is captured at node entry, and Null Move Pruning and razoring each run a recursive search before generation probes the table again — so the two can disagree about this node's table move | property, not a defect in the eager search; it broke the staged picker, see 19 |
 | The bad-capture pruning decision reads `alpha`, which moves during the node — harmless while every capture is evaluated once, latent for anything that evaluates one twice | latent, only reachable from a staged picker, see 19 |
 | NNUE incremental accumulator, and making `use_nnue` the default — section 6, and not while work is HCE-only on `master` | large item, parked |
@@ -162,7 +174,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
 | The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 | Review leftovers, deferred: R4 `pv_nodes` behind a mutex and a SipHash map at every interior node (0.3% to 2%, 18 call sites), R7 a table move that is a promotion or en passant never gets the table band, R16c a `stop` that arrives before its `go` is lost | deferred, section 27 |
-| Review leftovers, unpriced: R22 the lazy margin does not bound the positional terms (a tuning question), R23 table cutoffs at the root's children can hide a repetition, R25 no quiet queen promotion in the Quiescence Search, R26 the pawn hash caches a blockade by pieces, R27 the null child's counter-move entry and an abort sentinel that looks like a cutoff, R28 two steps in the evaluation, R29 no fifty-move rule and the start position missing from the repetition history, R30 rook and bishop promotions off by default | listed, unmeasured, section 27 |
+| Review leftovers, unpriced: R22 the lazy margin does not bound the positional terms (a tuning question; measured 2026-10-16, 29.3), R23 table cutoffs at the root's children can hide a repetition, R25 no quiet queen promotion in the Quiescence Search, R26 the pawn hash caches a blockade by pieces (measured: 0.23% of hits, 22 cp, 29.3), R27 the null child's counter-move entry and an abort sentinel that looks like a cutoff, R28 two steps in the evaluation (see the end of 29.5), R29 no fifty-move rule and the start position missing from the repetition history, R30 rook and bishop promotions off by default | listed, section 27; R22 and R26 measured in 29 |
+| The evaluation, audited 2026-10-16: king danger 0.03 cp on average, `adjust_eval` a step of up to 200 cp, the positional cap load-bearing (+3716 to +4210 Texel error without it), `king_in_check_malus` and `king_in_double_check_malus` unreachable in play, material and piece-square tables far from the data | audit, section 29; candidates E1 to E8 |
 | R18, the time allocation — a soft limit at 60% of the budget and the budget bounded below the clock — is **not shipped**: SPRT [0, 10] H0 after 9050 games, [0, 5] undecided at 9244, +2.3 Elo [-3, +8]. The code is on the local branch `review/r18-time-management`; the clock bound alone, the 10 ms cliff, is untested | negative result, section 27 |
 
 Also closed and not to be reopened: what v0.36.0, v0.37.0 and v0.37.2 are each worth, and the
@@ -916,3 +929,163 @@ after 158 games** against v0.45.9-NNUE (run under [0, 5] with a [0, 10] monitor)
 `test_aspiration_window_is_seeded_from_previous_score` runs with the Transposition Table on, as in
 play - without it every aspiration re-pass starts from scratch, and with root PVS the seeded search
 was the larger one on that branch (22,685 against 21,527 nodes); with the table it saves again.
+
+## 29. The evaluation: audit of 2026-10-16
+
+`[Impact: High]` `[Complexity: Low to High]` `[measured by census and Texel error, not in games]` —
+asked for by the owner on 2026-10-16: what can be improved in the evaluation, what is useless, what
+is missing, what is slow. **Nothing in the evaluation has been priced under the rules of this
+file.** Every term dates from v0.28 or earlier (August 2026 and before), many of the classical ones
+from v0.27.0 to v0.27.5 within two days, gated on LCT II or a stopping score if at all; the review
+of 27 touched the evaluation for speed only (R8 to R10). **No code was changed.** The instrument is a patched
+scratch copy of v0.46.4 that searches v0.46.4's trees while its `PROBE_*` switches are off (40/40
+identical at depth 9); patch, README and raw output are in
+`<mm>/archive/eval-audit-2026-10-16.tar.xz`. Host C, 2026-10-16, nothing else running.
+
+### 29.1 What the evaluation is
+
+* `EvalService::evaluate` (`src/eval_service.rs`), White-positive. NNUE is off on `master` and the
+  network is never loaded.
+* **Material and piece-square tables** (`src/pst.rs`, incremental in `Board::pst_mg/pst_eg`):
+  P 100, N 300, B 300, R 500, Q 950, **the same in both phases**. The tables are the Chess
+  Programming Wiki's "Simplified Evaluation Function" scaled by 0.8 - one table per piece, a
+  separate endgame table for the king only, none for the pawn.
+* About 90 weights in `Config`, all but `max_eval_mult` reachable by `setoption` (the advertised
+  list is shorter), most of them SPSA-registered. Next to them, constants in code that nothing can
+  tune: the passed-pawn table 10/40/90/180/320/500 in the endgame (a third of it in the
+  middlegame); endgame extras +15 (isolated pawn, bishop pair, rook on the 7th), +10 (backward
+  pawn, open file, doubled rooks), +5 (half-open file); a rook's attacked and defended pawns 15 and
+  8; the king's distance to the centre at 40 per step below phase 60; the opposition below phase 40.
+* After the terms, in this order: the **positional cap** (a positional part beyond 150 keeps
+  `150 + excess / 5`), the opposite-bishop scale (51%), **`adjust_eval`** (29.5, E1), mop-up.
+* **Lazy evaluation**: `cheap_eval` (tables, cached pawn structure, scaling) is returned when it is
+  180 (search) or 120 (Quiescence Search) outside the window, from phase 60 up.
+
+### 29.2 Cost
+
+* **The evaluation is 19.9% / 19.8% of the time to depth 10** (`openings_wide` / `openings_mixed`,
+  300 positions each): every node evaluated twice and the second result discarded, 300/300
+  identical trees, 37.7 s -> 45.2 s and 35.6 s -> 42.7 s. 34.2M / 33.0M calls, 0.22 us each on
+  average; the lazy return answers 43.9% / 44.7% of them.
+* Per call on 1000 positions sampled from those searches (cache-resident, best of 200): a full
+  evaluation **412 ns**, `cheap_eval` 22 ns. Knock-outs: rook, knight, bishop and queen terms
+  **253 ns (61%)**; the pawn structure on a pawn-hash miss +175 ns (hits 94.5% / 93.5%); king
+  terms 44; the queen's attacker scan (`get_attackers_mask_for_see`, a pin test per attacker) 29;
+  passed-pawn detection 22, recomputed at every call and again per rook for every pawn on its file
+  (9 more); dynamic pawn terms 14; positional cap 12; defender scan 8.
+* **Speed is a minor lever.** All of it is a fifth of the search. Computing every piece's attacks
+  once and sharing them (mobility, threats, king ring, defenders, the queen scan), and summing
+  packed `(mg, eg)` with one taper at the end, might take a third off: **5 to 7% of the time to
+  depth**. Worth it only together with the knowledge that needs attack maps (E5).
+
+### 29.3 Census (depth 10, 300 positions per pool, `openings_wide` / `openings_mixed`)
+
+* **King danger from piece attacks is absent.** `danger` sums the king-ring squares a piece attacks
+  times 1/1/2/4 (N/B/R/Q) and is scaled by `weight[attackers - minor defenders] / 100`, weights
+  0/10/50/100/150/200, in integer arithmetic. It fires on 10.1M / 11.3M side-evaluations with a
+  **mean of 0.03 cp and a maximum of 37 / 39 cp**, never above 50. What the evaluation knows about
+  a king is its pawn shield, open files and `undeveloped_king_malus`.
+* **The positional cap fires on 22.6% / 17.2% of full evaluations** and removes 54 / 50 cp each
+  time, 100 to 200 cp in 13% / 12% of the firings. The mean |positional part| is 100 / 89 cp.
+* **Lazy evaluation answers wrongly on 0.90% / 0.75% of its returns** (135K / 110K per pool): the
+  full evaluation lies on the other side of the bound, by 181 / 176 cp on average. **16.3% /
+  17.2% of all lazy returns compare a value without the pawn structure** - no pawn-hash entry,
+  first visit or evicted, the open-list defect - and they are 14.8% / 18.3% of the wrong ones. Over all lazy returns
+  |full - cheap| is 61 / 60 cp on average, above 120 in 11.6% / 10.9%, above 180 in 1.9% / 1.4%.
+* **R26 measured:** 0.23% / 0.24% of pawn-hash hits return a blockade term computed for another
+  piece placement, by 22 cp on average. The blockade is the only piece-dependent term in the entry.
+* **`king_in_check_malus` (135) and `king_in_double_check_malus` (337) are unreachable in play.**
+  The search evaluates a node in check only at the ply ceiling (`MAX_PLY - 1`), and
+  `calc_eval_known_check` skips the attacker scan everywhere else. Both sit in the SPSA group
+  `king_safety`: two dead dimensions.
+* Endgame terms barely occur from these opening pools - opposition 0, mop-up 0, opposite bishops
+  16 / 13, `adjust_eval` on 0.25% / 0.20% of full evaluations. The Texel sets show them.
+
+### 29.4 Texel error: what the evaluation predicts
+
+**An instrument, not a gate** (rule 1). Quiet positions from games - from ply 16, not in check,
+neither the move played nor the one before it a capture or promotion - labelled with the game's
+result; the error is the mean square of `result - 1 / (1 + e^(-k * eval))`, `k` refitted for every
+variant so that a plain rescale scores nothing. **Set A**: all 13,500 games of `<mm>/all.pgn`
+(v0.37.0 to v0.40.0, HCE and NNUE, 1s + 100 or 120 ms), 734,848 positions. **Set B**: the last
+30,000 games of `<mm>/all.pgn.backup` (v0.32 to v0.37, mostly faster controls), every second
+position, 797,681. The shipped evaluation scores 0.09961 / 0.10489 with `k` 0.00319 / 0.00329:
+**a pawn of advantage is worth +7.9 / +8.2 points of expected score**, at a mean |eval| of 502 /
+499 cp. The colour mirror is exact on all 734,848 positions of A.
+
+Error change x 10^6 against the shipped evaluation, A / B, negative predicts better. 101 of the
+118 variants carry the same sign on both sets.
+
+| Change | A | B | Reading |
+| :--- | ---: | ---: | :--- |
+| piece-square deltas fitted per square, 6 x 64 x mg/eg, on held-out games | **-4099** | **-4640** | the largest lever by six times; on the training games -6853 / -5441 |
+| material deltas only, 5 pieces x mg/eg, held-out games | -1432 | -1788 | knight +85 / +133, bishop +139 / +153, rook +55 / +101 (endgame +178 / +146), queen +279 / +271 (middlegame, A / B), pawn near 0: material is light against the positional mass |
+| positional cap off | +4210 | +3716 | **load-bearing**; damping 2 +1403 / +1153, cap 400 +3158 / +2676 |
+| `adjust_eval` off | **-634** | **-776** | continuous, on the excess over 200 only, -455 / -527; `max_eval_mult` 1.5 -375 / -372; on every evaluation +149 / +11 |
+| mobility, all four factors x2 | -418 | -350 | x1.5 -139 / -112, x0 +565 / +504; bishop mobility x2 alone -331 / -265 |
+| bishop pair x2 | -298 | -160 | x1.5 -187 / -120, x0 +596 / +470 |
+| pawn rank bonuses 183/104/47 (every pawn) x0 | -469 | -89 | x2 +867 / +700 |
+| the hard-coded passed-pawn table off | -758 | +228 | **not robust** alone. With the row above and set A's fitted pawn deltas (-150 to -200 in the endgame on ranks 6 and 7): an advanced pawn is paid by the table, the rank bonus and the PST at once, and how to split it is a tuner's question |
+| backward pawn x0 | -283 | -125 | x2 +373 / +231; "backward" here is any pawn with no friendly pawn beside or behind it |
+| king centre, 40 per step below phase 60, off | **-272** | **-378** | ungated +187 / +192: it counts the king's endgame table a second time |
+| **new:** a no-pawn scale factor | **-255** | **-254** | changes 0.6% of the positions: a stronger side without pawns and at most a minor piece ahead scales to 0, 4/64 or 14/64 |
+| king shield x0 | -230 | -170 | x0.5 -166 / -140, x2 +504 / +479 |
+| pawn chain (`pawn_structure`) x2 | -108 | -92 | x0 +118 / +104 |
+| king-ring attack weights x4 | -75 | -70 | x2 -27 / -26: the absent king danger of 29.3 |
+| protected passer x0, connected passers x0 | -60, -50 | -56, -50 | |
+| opposite-bishop scale off | +338 | +209 | keep |
+| opposition, heavy piece on the king's file, bishop trapped at the rim, pawn storm | within 15 | within 15 | no signal either way |
+
+### 29.5 The candidates, in the recommended order
+
+Each changes the tree (class C of 27) unless marked otherwise, and the Texel number of none of them
+is an effect size: a lower error says the static evaluation predicts these engines' results better,
+not that the engine wins more.
+
+* **E1 - `adjust_eval`, a step of up to 200 cp at +/-200.** Below phase 155 an evaluation of 200 or
+  more is multiplied by `255 / (phase + 100)`, at most 2.0. In a pawn ending 199 stays 199 and 200
+  becomes 400; with a rook each, 200 becomes 359. No margin of the search (aspiration 15, Reverse
+  Futility 80 per ply, lazy 120 / 180) expects one centipawn to move a score by 200. It is the
+  strongest Texel signal that holds on both sets. What the multiplier is for - wanting to trade when
+  ahead, since material is the same in both phases - is the risk, so it is priced in games: a UCI
+  spin for the multiplier (100% = off) gives identity at the old value, then one SPRT. Small.
+* **E2 - a Texel tuner.** Material and piece-square tables alone, fitted as deltas on top of the
+  shipped evaluation, cut the held-out error six times as much as any single change, on both sets.
+  SPSA cannot do this - 91 parameters, the step defect of the open list, a few Elo per parameter
+  that 1s + 150ms cannot resolve. A Texel tuner fits hundreds of weights against results in
+  minutes. It needs an evaluation trace (every term reports its feature counts, mg and eg),
+  regularisation, an export into `src/pst.rs` and `src/config.rs`, and a dataset (the instrument
+  extracts 13,500 games in 1.5 s). The cap and `adjust_eval` are not linear: E1 first, and the cap
+  either modelled or tuned with the weights - it cannot simply go (29.4). One SPRT prices the tune.
+  Large; the measured lever is the biggest in this file.
+* **E3 - the king-centre step below phase 60.** 40 per step of distance to the centre, on top of
+  the king's endgame table and `king_trapp_at_baseline_malus`, switched on by the capture that
+  takes the phase below 60. Removing it improves both sets (-272 / -378). Small.
+* **E4 - a no-pawn scale factor (new).** -255 / -254 from 0.6% of the positions. It acts in a
+  corner, so it is priced like R21: a conversion test on pawnless endings from both sides, or an
+  SPRT that is told how rarely it fires. Small.
+* **E5 - king safety.** Absent today (29.3). The published shape - attacker count and weights,
+  attacked ring squares, safe checks, weak ring squares, a discount without the queen, a
+  quadratic danger - only with E2, or it is one more hand-set term. With the attack maps of 29.2.
+  Large.
+* **E6 - two small defects, priced each.** R26: the blockade leaves the cached structure for the
+  dynamic terms (set-wise, `(passers << 8) & enemy pieces`). The lazy first visit: `cheap_eval`
+  computes and stores the pawn structure on a miss, which the full evaluation would pay anyway.
+* **E7 - speed (class A where the value is unchanged).** Passed pawns cached in the pawn entry or
+  found set-wise, the rook loops reading them, `get_game_phase` once per call, the attack maps of
+  29.2. Summing packed `(mg, eg)` and tapering once changes the rounding and is class B.
+* **E8 - dead or silent (class Q / B).** `king_in_check_malus` and `king_in_double_check_malus`
+  (unreachable; at least out of the SPSA group); the opposition bonus (no signal, 1.3% of the
+  positions); `Aggressiveness` (it scales the dead ring weights and the queen-attack terms and moves
+  the cap, which scores +2676 to +3158 at 400); `_knight_moves`; the `print_eval_per_figure`
+  branches in the piece loops; the White and Black twin of every term function, about 950 lines of
+  which half mirror the other half. The NNUE code on `master` stays - the porting procedure
+  diffs against it.
+
+**Weights that `setoption` reaches today** - bishop pair 48 -> 72, mobility x1.5, king shield
+x0.5, backward pawn 11 -> 0, the rank bonuses to 0 - can each be played on the v0.46.4 binary as
+21.3's margin was, at 2,000 to 4,000 games a run. E2 prices them all in one; a series of single runs
+is not recommended.
+
+R28 of 27 is listed as "two steps in the evaluation" and was never written up; the two steps found
+here are E1 and E3, and whether they are the same two is not recorded.
