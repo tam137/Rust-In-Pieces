@@ -158,6 +158,11 @@ pub struct Config {
     pub rooks_doubled_on_seventh: i16,
     pub passed_pawn_blockaded_malus: i16,
     pub candidate_passed_pawn_bonus: i16,
+    /// The passed-pawn bonus by the pawn's rank seen from its own side (index 1 = second rank,
+    /// 6 = seventh). Hard-coded as 10/40/90/180/320/500 in the endgame and a third of that in the
+    /// middlegame until v0.46.4; a table here so that the Texel tuner can fit it (`task.md` 29.5 E2).
+    pub passed_pawn_bonus_mg: [i16; 8],
+    pub passed_pawn_bonus_eg: [i16; 8],
     pub pawn_storm_bonus: i16,
     pub pre_sort_moves: bool,
     pub use_underpromotions: bool,
@@ -543,6 +548,8 @@ impl Config {
             rooks_doubled_on_seventh: 25,
             passed_pawn_blockaded_malus: 15,
             candidate_passed_pawn_bonus: 8,
+            passed_pawn_bonus_mg: [0, 3, 13, 30, 60, 106, 166, 0],
+            passed_pawn_bonus_eg: [0, 10, 40, 90, 180, 320, 500, 0],
             pawn_storm_bonus: 6,
             pre_sort_moves: true,
             use_underpromotions: false,
