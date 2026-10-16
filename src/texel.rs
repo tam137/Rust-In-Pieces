@@ -10,6 +10,13 @@
 //!   (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a report.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
+//! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
+//!   size of the evaluations, the error; at the shipped parameters or at `theta.txt`.
+//! * `texel-lazy <fen file>` - with the compiled parameters, how far `cheap_eval` lies from the
+//!   full evaluation on positions sampled from a search (`fen;alpha;beta` per line), against the
+//!   lazy margins.
+//! * `texel-mirror <fen file>` - every position against its colour mirror: the evaluations must
+//!   be exact negatives.
 //!
 //! The model is the evaluation's own pipeline: the traced sum is tapered, then the positional cap,
 //! the opposite-bishop scale and `adjust_eval` are applied as the engine applies them. Positions a
@@ -26,6 +33,9 @@ pub fn run(args: &[String]) {
         "texel-check" => check(&args[1]),
         "texel-tune" => tune(&args[1..]),
         "texel-export" => export_file(&args[1]),
+        "texel-stats" => stats(&args[1], args.get(2).map(String::as_str)),
+        "texel-lazy" => lazy(&args[1]),
+        "texel-mirror" => mirror(&args[1]),
         other => panic!("unknown texel command {other}"),
     }
 }
@@ -268,12 +278,26 @@ fn gradient(samples: &[Sample], k: f64, pipeline: &Pipeline, theta: &[f64], grad
     }
 }
 
-/// Which parameters move: every scalar, the passed-pawn table on ranks 2 to 7, material without
-/// the king, every table square a piece can stand on.
+/// Scalars that depend on nothing but a piece and its square. The piece-square table expresses
+/// each of them exactly, so fitting both leaves a direction the error cannot see, and the two drift
+/// apart without bound (first run: the rook on the seventh 33 -> 474 against table entries near
+/// -500). They keep their shipped values and the tables carry their part.
+const PIECE_SQUARE_SCALARS: &[et::P] = &[
+    et::P::PawnCentered, et::P::PawnOnLastRankBonus, et::P::PawnOnBeforeLastRankBonus,
+    et::P::PawnOnBeforeBeforeLastRankBonus, et::P::PawnUndevelopedMalus, et::P::KnightOnRimMalus,
+    et::P::KnightCentered, et::P::UndevelopedKnightMalus, et::P::UndevelopedBishopMalus,
+    et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh,
+];
+
+/// Which parameters move: every scalar but the piece-square ones, the passed-pawn table on ranks
+/// 2 to 7, material without the king, every table square a piece can stand on.
 fn trainable() -> Vec<bool> {
     let mut t = vec![false; et::N_PARAMS];
     for v in t.iter_mut().take(et::N_SCALARS) {
         *v = true;
+    }
+    for &p in PIECE_SQUARE_SCALARS {
+        t[p as usize] = false;
     }
     for r in 1..7 {
         t[et::PASSER_MG + r] = true;
@@ -293,17 +317,34 @@ fn trainable() -> Vec<bool> {
     t
 }
 
-/// Keeps every table's mean where it is: a uniform shift of a table is the piece's material.
-fn project_table_means(grad: &mut [f64], trainable: &[bool]) {
+/// The mean of each table over the squares its piece can stand on.
+fn table_means(theta: &[f64], trainable: &[bool]) -> Vec<f64> {
+    let mut means = Vec::with_capacity(12);
     for base in [et::TABLE_MG, et::TABLE_EG] {
         for p in 0..6 {
             let range = base + p * 64..base + p * 64 + 64;
             let n = range.clone().filter(|&i| trainable[i]).count() as f64;
-            let mean = range.clone().filter(|&i| trainable[i]).map(|i| grad[i]).sum::<f64>() / n;
-            for i in range {
+            means.push(range.filter(|&i| trainable[i]).map(|i| theta[i]).sum::<f64>() / n);
+        }
+    }
+    means
+}
+
+/// Keeps every table's mean at `means`: whatever a step added to a table uniformly is the piece's
+/// material and moves there. Material plus table, what the evaluation sums, is unchanged; only
+/// the split the positional cap reads is fixed. The king's material cancels and does not move.
+fn recentre_tables(theta: &mut [f64], trainable: &[bool], means: &[f64]) {
+    let now = table_means(theta, trainable);
+    for (k, (base, material)) in [(et::TABLE_MG, et::MATERIAL_MG), (et::TABLE_EG, et::MATERIAL_EG)].into_iter().enumerate() {
+        for p in 0..6 {
+            let shift = now[k * 6 + p] - means[k * 6 + p];
+            for i in base + p * 64..base + p * 64 + 64 {
                 if trainable[i] {
-                    grad[i] -= mean;
+                    theta[i] -= shift;
                 }
+            }
+            if p < 5 {
+                theta[material + p] += shift;
             }
         }
     }
@@ -551,6 +592,98 @@ fn check(path: &str) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// texel-stats, texel-lazy
+
+fn read_theta(path: &str) -> Vec<f64> {
+    let theta: Vec<f64> = std::fs::read_to_string(path).unwrap().lines().map(|l| l.parse().unwrap()).collect();
+    assert_eq!(theta.len(), et::N_PARAMS, "theta has the wrong length");
+    theta
+}
+
+fn stats(data: &str, theta_path: Option<&str>) {
+    let samples = read_samples(data);
+    let config = hce_config();
+    let pipeline = Pipeline::of(&config);
+    let theta0 = et::theta_of(&config);
+    let theta = theta_path.map(read_theta).unwrap_or_else(|| theta0.clone());
+    let k = fit_k(&samples, &pipeline, &theta0);
+    let test: Vec<&Sample> = samples.iter().filter(|s| s.set == 2).collect();
+    let (mut capped, mut abs_eval, mut abs_positional) = (0usize, 0.0, 0.0);
+    for s in &test {
+        let (mg, eg) = sums(s, &theta);
+        let pre = taper(mg, eg, s.phase as i16) + s.taper_residual as f64;
+        let (mm, me) = material_sums(s, &theta);
+        let positional = pre - taper(mm, me, s.phase as i16);
+        if positional.abs() > 150.0 {
+            capped += 1;
+        }
+        abs_positional += positional.abs();
+        abs_eval += pipeline.eval(s, &theta).0.abs();
+    }
+    let n = test.len() as f64;
+    println!("test positions {}: cap fires {:.1}%, mean |positional| {:.1}, mean |eval| {:.1}, MSE {:.6} (K {k:.6})",
+        test.len(), 100.0 * capped as f64 / n, abs_positional / n, abs_eval / n, mse(&samples, 2, k, &pipeline, &theta));
+}
+
+fn lazy(path: &str) {
+    let service = Service::new();
+    let config = hce_config();
+    let table = crate::pawn_hash::PawnHashTable::new(1 << 16);
+    let mut diffs: Vec<i32> = Vec::new();
+    for line in std::fs::read_to_string(path).unwrap().lines() {
+        let board = service.fen.set_fen(line.split(';').next().unwrap());
+        if crate::eval_service::EvalService::is_insufficient_material(&board) {
+            continue;
+        }
+        let full = service.eval.calc_eval_known_check(&board, &config, &service.move_gen, &table,
+            i16::MIN + 1, i16::MAX - 1, 0, false);
+        let cheap = service.eval.cheap_eval(&board, &config, &table);
+        diffs.push((full as i32 - cheap as i32).abs());
+    }
+    let n = diffs.len() as f64;
+    let share = |t: i32| 100.0 * diffs.iter().filter(|&&d| d > t).count() as f64 / n;
+    println!("{} positions: mean |full - cheap| {:.1} cp, above 120 (QS margin) {:.2}%, above 180 (search margin) {:.2}%",
+        diffs.len(), diffs.iter().map(|&d| d as f64).sum::<f64>() / n, share(120), share(180));
+}
+
+/// The colour mirror of a FEN: ranks reversed, colours and the side to move swapped.
+fn mirror_fen(fen: &str) -> String {
+    let parts: Vec<&str> = fen.split_whitespace().collect();
+    let swap = |c: char| if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() };
+    let ranks: Vec<String> = parts[0].split('/').rev().map(|r| r.chars().map(swap).collect()).collect();
+    let side = if parts[1] == "w" { "b" } else { "w" };
+    let castling: String = if parts[2] == "-" { "-".into() } else {
+        let mut v: Vec<char> = parts[2].chars().map(swap).collect();
+        v.sort_by_key(|c| (c.is_ascii_lowercase(), *c));
+        v.into_iter().collect()
+    };
+    let ep = if parts[3] == "-" { "-".to_string() } else {
+        format!("{}{}", &parts[3][..1], 9 - parts[3][1..2].parse::<u32>().unwrap())
+    };
+    format!("{} {} {} {} {} {}", ranks.join("/"), side, castling, ep, parts.get(4).unwrap_or(&"0"), parts.get(5).unwrap_or(&"1"))
+}
+
+fn mirror(path: &str) {
+    let service = Service::new();
+    let config = hce_config();
+    let (mut n, mut asymmetric) = (0usize, 0usize);
+    for line in std::fs::read_to_string(path).unwrap().lines() {
+        let fen = line.split(';').next().unwrap();
+        let eval = |fen: &str| service.eval.calc_eval_known_check(&service.fen.set_fen(fen), &config, &service.move_gen,
+            &crate::pawn_hash::PawnHashTable::new(16), i16::MIN + 1, i16::MAX - 1, 0, false);
+        let (a, b) = (eval(fen), eval(&mirror_fen(fen)));
+        n += 1;
+        if a != -b {
+            asymmetric += 1;
+            if asymmetric <= 10 {
+                println!("asymmetric: {fen} {a} / {b}");
+            }
+        }
+    }
+    println!("{n} positions, {asymmetric} asymmetric");
+}
+
+// ---------------------------------------------------------------------------------------------
 // texel-tune
 
 fn tune(args: &[String]) {
@@ -582,6 +715,7 @@ fn tune(args: &[String]) {
     log(format!("shipped: train {:.6}, validation {:.6}, test {:.6}", base[0], base[1], base[2]), &mut report);
     let train_n = counts[0] as f64;
     let mask = trainable();
+    let means0 = table_means(&theta0, &mask);
     let chunk = samples.len().div_ceil(threads);
     let mut best: Option<(f64, Vec<f64>, f64)> = None;
     for &lambda in &lambdas {
@@ -607,9 +741,11 @@ fn tune(args: &[String]) {
                 }
             }
             for j in 0..et::N_PARAMS {
-                grad[j] = if mask[j] { grad[j] / train_n + 2.0 * lambda * (theta[j] - theta0[j]) } else { 0.0 };
+                // The penalty holds only the tables: a square few positions reach has almost no
+                // gradient of its own and would otherwise follow Adam's normalised noise.
+                let penalty = if j >= et::TABLE_MG { 2.0 * lambda * (theta[j] - theta0[j]) } else { 0.0 };
+                grad[j] = if mask[j] { grad[j] / train_n + penalty } else { 0.0 };
             }
-            project_table_means(&mut grad, &mask);
             for j in 0..et::N_PARAMS {
                 if !mask[j] { continue; }
                 m1[j] = 0.9 * m1[j] + 0.1 * grad[j];
@@ -618,6 +754,7 @@ fn tune(args: &[String]) {
                 let vh = m2[j] / (1.0 - 0.999f64.powi(epoch as i32));
                 theta[j] -= lr * mh / (vh.sqrt() + 1e-12);
             }
+            recentre_tables(&mut theta, &mask, &means0);
             if epoch % 50 == 0 || epoch == epochs {
                 let val = mse(&samples, 1, k, &pipeline, &theta);
                 if val < best_val.0 {
@@ -750,8 +887,7 @@ pub fn replace_registered_values(text: &str, theta: &[f64]) -> String {
 }
 
 fn export_file(theta_path: &str) {
-    let theta: Vec<f64> = std::fs::read_to_string(theta_path).unwrap().lines().map(|l| l.parse().unwrap()).collect();
-    assert_eq!(theta.len(), et::N_PARAMS, "theta has the wrong length");
+    let theta = read_theta(theta_path);
     let pst = std::fs::read_to_string("src/pst.rs").unwrap();
     std::fs::write("src/pst.rs", replace_block(&pst, &pst_block(&theta))).unwrap();
     let config = std::fs::read_to_string("src/config.rs").unwrap();
@@ -893,6 +1029,36 @@ mod tests {
         assert_eq!(replace_config_defaults(&config, &theta0), config);
         let params = std::fs::read_to_string("tuning/parameters.json").unwrap();
         assert_eq!(replace_registered_values(&params, &theta0), params);
+    }
+
+    /// Re-centring moves a table's uniform shift into material: every square's material plus table
+    /// value, which is what the evaluation sums, stays put, and the table means return to theirs.
+    #[test]
+    fn test_recentring_keeps_what_the_evaluation_sums() {
+        let mask = trainable();
+        let theta0 = et::theta_of(&hce_config());
+        let means0 = table_means(&theta0, &mask);
+        let mut theta = theta0.clone();
+        for (j, v) in theta.iter_mut().enumerate().skip(et::TABLE_MG) {
+            if mask[j] {
+                *v += 7.0 + (j % 13) as f64;
+            }
+        }
+        let sum = |t: &[f64], material: usize, table: usize, p: usize, sq: usize| t[material + p] + t[table + p * 64 + sq];
+        let before: Vec<f64> = (0..5).flat_map(|p| (8..56).map(move |sq| (p, sq)))
+            .map(|(p, sq)| sum(&theta, et::MATERIAL_MG, et::TABLE_MG, p, sq)).collect();
+        recentre_tables(&mut theta, &mask, &means0);
+        let after: Vec<f64> = (0..5).flat_map(|p| (8..56).map(move |sq| (p, sq)))
+            .map(|(p, sq)| sum(&theta, et::MATERIAL_MG, et::TABLE_MG, p, sq)).collect();
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a - b).abs() < 1e-9);
+        }
+        for (a, b) in table_means(&theta, &mask).iter().zip(&means0) {
+            assert!((a - b).abs() < 1e-9);
+        }
+        for &p in PIECE_SQUARE_SCALARS {
+            assert!(!mask[p as usize], "{p:?} is a piece-square term and must stay fixed");
+        }
     }
 
     #[test]
