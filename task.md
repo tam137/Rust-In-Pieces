@@ -30,7 +30,10 @@ from piece attacks contributes 0.03 cp on average; `adjust_eval` jumps by up to 
 the evaluation is a fifth of the search time. Its recommended order, ahead of backlog items 6 to
 10: **E1** the `adjust_eval` step (small, one SPRT), then **E2** a Texel tuner - re-fitted
 material and piece-square tables predict results six times better than any single change, on two
-independent game sets. The rest is in 29.5.
+independent game sets. The rest is in 29.5. **E2 was built and refused on 2026-10-17 (29.6):** the
+tune cut the held-out Texel error by 8200 x 10^-6 and the search needed 58% / 69% more time to
+depth 10; SPRT [0, 10] H0 after 2564 games against v0.46.4, -8.2 Elo [-21, +5] over 2576. The
+tuner is on the local branch `texel-tuner`.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -125,7 +128,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
 | 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 | 11 | `adjust_eval`: a step of up to 200 cp at +/-200 | 29.5 E1 | The strongest Texel signal that holds on both sets, and a defect besides; small, one SPRT. Recommended first |
-| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2 | The largest lever any instrument here has shown; after 11, which removes a non-linearity it would have to model |
+| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6 | **Built, the full re-fit refused 2026-10-17**: SPRT [0, 10] H0 after 2564 games, -8.2 Elo [-21, +5], at 58% / 69% more time to depth 10. The tuner is on the local branch `texel-tuner`; what is left is a re-fit the search can afford, see 29.6 |
 | 13 | The king-centre step below phase 60, a no-pawn scale factor, R26, the lazy first visit | 29.5 E3, E4, E6 | Small, each priced on its own; E4 acts in a corner and is priced like R21 |
 | 14 | King safety from piece attacks, with attack maps shared by the evaluation | 29.5 E5, E7 | Absent today; only with 12, or it is one more hand-set term |
 
@@ -175,6 +178,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 | Review leftovers, deferred: R4 `pv_nodes` behind a mutex and a SipHash map at every interior node (0.3% to 2%, 18 call sites), R7 a table move that is a promotion or en passant never gets the table band, R16c a `stop` that arrives before its `go` is lost | deferred, section 27 |
 | Review leftovers, unpriced: R22 the lazy margin does not bound the positional terms (a tuning question; measured 2026-10-16, 29.3), R23 table cutoffs at the root's children can hide a repetition, R25 no quiet queen promotion in the Quiescence Search, R26 the pawn hash caches a blockade by pieces (measured: 0.23% of hits, 22 cp, 29.3), R27 the null child's counter-move entry and an abort sentinel that looks like a cutoff, R28 two steps in the evaluation (see the end of 29.5), R29 no fifty-move rule and the start position missing from the repetition history, R30 rook and bishop promotions off by default | listed, section 27; R22 and R26 measured in 29 |
+| The Texel re-fit of 29.6, refused 2026-10-17: the held-out error -8200 x 10^-6, the search 58% / 69% slower to depth 10, SPRT [0, 10] H0 after 2564 games against v0.46.4, -8.2 Elo [-21, +5] over 2576. Code on the local branch `texel-tuner` (`cfa9f75` tree-identical tooling, `3d65e7e`, `49e76c2` the values) | negative result, section 29.6 |
 | The evaluation, audited 2026-10-16: king danger 0.03 cp on average, `adjust_eval` a step of up to 200 cp, the positional cap load-bearing (+3716 to +4210 Texel error without it), `king_in_check_malus` and `king_in_double_check_malus` unreachable in play, material and piece-square tables far from the data | audit, section 29; candidates E1 to E8 |
 | R18, the time allocation — a soft limit at 60% of the budget and the budget bounded below the clock — is **not shipped**: SPRT [0, 10] H0 after 9050 games, [0, 5] undecided at 9244, +2.3 Elo [-3, +8]. The code is on the local branch `review/r18-time-management`; the clock bound alone, the 10 ms cliff, is untested | negative result, section 27 |
 
@@ -1089,3 +1093,75 @@ is not recommended.
 
 R28 of 27 is listed as "two steps in the evaluation" and was never written up; the two steps found
 here are E1 and E3, and whether they are the same two is not recorded.
+
+### 29.6 E2 measured: the Texel re-fit, refused on 2026-10-17
+
+**What was built** (local branch `texel-tuner`, three commits on `de74cd1`):
+
+* `cfa9f75`, **tree-identical** (300/300 on both pools at depth 10, time -0.2% / +0.0%): material and
+  piece-square tables become a generated block in `src/pst.rs` with a middlegame and an endgame
+  table for every piece, the positional cap reads its material from that block, the passed-pawn
+  table becomes `Config::passed_pawn_bonus_mg/eg`. Behind the Cargo feature `texel`, compiled out
+  of the release build: `src/eval_trace.rs`, where every term of the evaluation reports the
+  parameter it read and its middlegame and endgame coefficient, and `src/texel.rs` with
+  `texel-extract`, `texel-check`, `texel-tune`, `texel-export`. Tests: the trace rebuilds the
+  evaluation, tracing changes no evaluation, the model follows a changed configuration, the
+  analytic gradient equals finite differences, exporting the shipped parameters changes no file.
+* `3d65e7e`: the tuner holds twelve scalars that depend on nothing but a piece and its square, re-
+  centres each table's mean into its material after every step, and gains `texel-stats`,
+  `texel-lazy` and `texel-mirror`.
+* `49e76c2`: the tuned values, and ten tests re-sampled with their claims unchanged (the six
+  hand-ranged evaluation tests run without the cap, without tempo and without threats, which is
+  not the evaluation the engine plays with).
+
+**The data.** 438,827 games of `<mm>/all.pgn`, `<mm>/all.pgn.backup` and the archived runs, at most
+ten quiet positions each (the filter of 29.4 plus no capture with SEE > 0 for the side to move):
+4,141,547 positions, 225,790 left out because a bare king (mop-up) or insufficient material scores
+them. The SPRT runs of 2026-10-13 to 16 are the test set (187,879 positions). The trace explains
+every unit of the evaluation to 3 cp at worst (0.046% of 60M units above 1 cp, all integer
+rounding), and the model rebuilds the engine's evaluation within 0.31 cp on average, 99.98% of
+positions within 3 cp; the maximum, 202 cp, is the `adjust_eval` step of E1.
+
+**The tune.** `K` fitted once on the shipped evaluation (0.003411) and held, Adam over the full
+batch, the pipeline (cap, opposite-bishop scale, `adjust_eval`) modelled as shipped. The first run
+left every scalar free: test error -8272 x 10^-6, and nonsense - the rook on the seventh 33 -> 474
+against table entries near -500, a king table entry of -1104, the endgame pawn at 23. A term that
+a piece-square table can express exactly leaves a direction the error cannot see, and Adam drifts
+along it; projecting the gradient did not hold the table means either, because Adam rescales each
+parameter. The second run held those twelve scalars, re-centred the tables into material after
+every step and put L2 on the tables only (lambda 1e-10 of 1e-10 / 1e-9 / 1e-8, chosen on
+validation): error train -6143, validation -6063, **test -8200 x 10^-6** (0.10860 -> 0.10040).
+Material, middlegame / endgame: pawn 97 / 63, knight 468 / 247, bishop 494 / 253, rook 706 / 453,
+queen 1530 / 935; no table entry beyond +/-182; the colour mirror exact on 183,712 positions. The
+fit moved what 29.3 and 29.4 said it would: king danger weights 10..200 -> 167..984, the threat
+terms 5..24 -> 54..143, mobility 3/3/2/1 -> 10/10/5/3, the backward and isolated pawn to about 0.
+
+**The census** against v0.46.4 (protocol only, rule 1), depth 10, 300 positions: **+58% / +69%
+time** (`openings_wide` / `openings_mixed`), +69% / +80% generated moves, 0 of 300 identical.
+`cheap_eval` lies more than 180 cp from the full evaluation on 5.8% of positions sampled from a
+search against 1.8% (above 120: 19.8% against 9.1%). Resetting one group by `setoption` at depth 9:
+the old threat weights save 10% of the time, the old mobility 11.5%, the old king danger nothing,
+lazy evaluation off shrinks the tree by 13% and costs 5.5% time. No single group explains it.
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor. **[0, 10] H0 after 2564 games** (LLR -2.945, -8.4 Elo at the stop); [0, 5] undecided at
+-1.18. Over the 2576 games that finished **-8.2 Elo, paired 95% [-21, +5]** - a stopped run, not
+an effect size (rule 7). Draws 11.7% and a pair variance of 0.121 against about 0.08 in the runs
+before: the two evaluations disagree often and decisively. No losses on time, White 50.4%, design
+effect 1.04. The reading was -9.8 after 248 games, -3.5 after 400, -6.2 after 1004, -9.5 after 2002.
+
+**What it says.** The re-fit predicts game results far better, and the search pays more than that
+buys: at a fixed time it reaches well over half a ply less. Rule 1 again, from the evaluation's
+side: a better predictor of results is not a stronger engine when the search was shaped around
+the old evaluation - its margins (aspiration 15, Reverse Futility 80 per ply, lazy 120 / 180), its
+pruning and its lazy shortcut all read a value whose terms are now up to ten times larger. What is
+left of E2 is a re-fit the search can afford, and the tuner makes trying one cheap (extraction
+1.5 minutes, a tune 15 to 25):
+
+* material and tables only (29.5 D1b), the largest lever of 29.4, leaving the threat, mobility and
+  king-danger weights the search is used to;
+* a pre-registered census stop before any game, e.g. no more than 10% more time to depth 10;
+* the lazy margins and `cheap_eval` measured against the new evaluation's spread.
+
+The tree-identical tooling of `cfa9f75` could go to `master` on its own; it changes no tree. The
+code is on the local branch `texel-tuner`.
