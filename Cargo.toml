@@ -16,3 +16,6 @@ rayon = "1.10.0"
 [features]
 # Stage-0 opportunity measurement for `task.md` 1.2.2. Off by default; see `src/search_diag.rs`.
 search-diag = []
+# The Texel tuner (`task.md` 29.5 E2): the evaluation trace and the `texel-*` commands. Off by
+# default; the release build compiles none of it.
+texel = []
