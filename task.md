@@ -131,7 +131,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
 | 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 | 11 | `adjust_eval`: a step of up to 200 cp at +/-200 | 29.5 E1 | The strongest Texel signal that holds on both sets, and a defect besides; small, one SPRT. Recommended first |
-| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6, 29.7 | **Material shipped in v0.47.0 (2026-10-17)**: SPRT [0, 10] H1, +107.2 Elo [+81, +135] over 488 games. The full re-fit was refused (H0, -8.2 Elo, 58% / 69% slower to depth 10) and material plus tables stopped before any game (77% / 81% slower). Left: tables that do not slow the search - smoothed, or added a few squares at a time behind the same time stop |
+| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6, 29.7, 29.8 | **Material shipped in v0.47.0 (2026-10-17)**: SPRT [0, 10] H1, +107.2 Elo [+81, +135] over 488 games. The full re-fit was refused (H0, -8.2 Elo, 58% / 69% slower to depth 10), material plus tables and six smoothed or shrunk table fits stopped before any game (+26% to +86%). The brake is the pawn table (+69% alone); the other tables cost -2% to +16.5% each - their fit is the candidate left (29.8) |
 | 13 | The king-centre step below phase 60, a no-pawn scale factor, R26, the lazy first visit | 29.5 E3, E4, E6 | Small, each priced on its own; E4 acts in a corner and is priced like R21 |
 | 14 | King safety from piece attacks, with attack maps shared by the evaluation | 29.5 E5, E7 | Absent today; only with 12, or it is one more hand-set term |
 
@@ -1215,3 +1215,44 @@ are what the search cannot afford as fitted. Next, each behind the same time sto
 regularised towards smoothness (neighbouring squares), or a few squares at a time; then the
 passed-pawn table; E1 `adjust_eval` with a re-tune. The tuner is in `master` behind the feature
 `texel`.
+
+### 29.8 Smoothed tables: no fit within the time stop (2026-10-17)
+
+The step after 29.7 asked whether the tables' gain survives a constraint, and whether roughness or
+size is what slows the search. Branch `texel-smooth` (local): `texel-tune --smooth` adds the
+squared jumps between king-adjacent squares of every table to the error, every fit of a grid is
+kept, `texel-stats` reports roughness and range, `texel-check` splits its deviations by whether
+`adjust_eval` fired - all behind the feature `texel`, the release build identical to v0.47.0.
+
+**The data** was extracted again with v0.47.0 (same sources and seed). `texel-check` read 99.425%
+of positions within 3 cp against the 99.5% of 26: 99.994% where `adjust_eval` stays idle, 98.2%
+where it fires - it multiplies the integer rounding of the cap and the taper by up to 2, and with
+the v0.47.0 material it fires on 32% of positions. The hooks are unchanged (the unit check reads as
+in 26); rounding, not a missing term.
+
+**Six fits** from v0.47.0, material and tables free, against v0.47.0's held-out error (0.104902;
+its tables: mean roughness 7.1 cp between neighbours, mean range 39 cp), timed to depth 10 against
+v0.47.0 on 100 positions of `openings_wide`:
+
+| Fit | Held-out error x 10^-6 | Roughness | Range | Time to depth 10 |
+| :--- | ---: | ---: | ---: | ---: |
+| smoothness 6e-12 | -3060 | 29.5 | 195 | +85.6% |
+| smoothness 6e-11 | -3040 | 21.2 | 152 | +81.4% |
+| smoothness 6e-10 | -2743 | 10.4 | 84 | +73.0% |
+| L2 1e-9, no smoothness | -2734 | 17.4 | 105 | +72.4% |
+| smoothness 6e-9 | -1929 | 3.2 | 31 | +33.2% |
+| L2 1e-8, no smoothness | -1932 | 9.3 | 56 | +26.1% |
+
+No fit within +10%: no game. **Neither roughness nor size is the brake.** Pairs with the same gain
+cost the same time whatever their roughness and range - the rougher, larger one of each pair is a
+little faster - and the time grows with the gain: what slows the search is where the tables move.
+
+**Which table:** the tables of the smoothness-6e-10 fit for one piece at a time, v0.47.0
+everywhere else - pawn -1022 / **+69.0%**, king -304 / +16.5%, knight -92 / +6.1%, bishop -274 /
++6.0%, queen -302 / +4.0%, rook -288 / -1.8% (held-out error x 10^-6 / time). **The pawn table
+carries almost all of the brake** and the largest single gain; the others cost little each.
+
+**Open, as candidates:** the tables of rook, knight, bishop and queen alone (single-piece gains
+-956 together, single-piece times -2% to +6%), behind the same time stop; why the pawn table slows
+the search - a pawn push that changes the evaluation may turn reduced searches into re-searches -
+measured before anything is built on it. The code is on the local branch `texel-smooth`.
