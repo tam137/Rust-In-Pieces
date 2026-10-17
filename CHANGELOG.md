@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.0] - 2026-10-17
+
+The material values are re-fitted by a Texel tuner on game results; tables and every other weight
+are as shipped. Gated by **SPRT [0, 10]: H1 after 300 games** at 1s + 150ms against v0.46.4; the
+run went on at the owner's request and was stopped by hand at 488 games: +107.2 Elo, paired 95% [+81, +135] - a stopped run, not an effect size
+(`task.md` rule 7). See `task.md` section 29.7.
+
+### Changed
+- **Material** (middlegame / endgame, until v0.46.4 the same in both phases): pawn 98 / 83,
+  knight 464 / 316, bishop 507 / 335, rook 662 / 575, queen 1437 / 1163 (was 100, 300, 300, 500,
+  950). The positional cap measures the rest of the evaluation against this tapered material.
+  `PIECE_EVAL_*`, used by SEE, move ordering and the pruning margins, are unchanged.
+
+### Added
+- `src/pst.rs` holds material and a middlegame and an endgame table for every piece as a block
+  the tuner writes; the passed-pawn table is `Config::passed_pawn_bonus_mg/eg`. Both unchanged in
+  value.
+- Cargo feature `texel` (off by default, compiled out of the release build): an evaluation trace
+  (`src/eval_trace.rs`) and the commands `texel-extract`, `texel-check`, `texel-tune` (with
+  `--free` to choose the parameter groups), `texel-export`, `texel-stats`, `texel-lazy`,
+  `texel-mirror` (`src/texel.rs`).
+
+### Notes
+- Time to depth 10 against v0.46.4: 2.6% and 7.1% less on the two pools. Smoke gauntlet,
+  1s + 100ms, 100 games per pairing: 59.5% / 61.5% / 91.5% against v0.46.4 / v0.46.3 / v0.34.0.
+- Re-fitting the piece-square tables as well, or every weight, made the search 58% to 81% slower
+  to depth 10; the full re-fit was refused (`task.md` 29.6).
+
+
+
 ## [V0.46.4] - 2026-10-14
 
 Reverse Futility Pruning cuts to depth 8 and runs ahead of Null Move Pruning, the published bound
