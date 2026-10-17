@@ -9,7 +9,8 @@
 //! * `texel-tune <data> <out-dir> [--epochs E] [--lr L] [--lambda X...] [--free G,...]` - fits the
 //!   parameters (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a
 //!   report. `--free` names the groups that move - `material`, `tables`, `passers`, `scalars`,
-//!   all four by default; the others keep their shipped values.
+//!   all four by default; the others keep their shipped values. `--tables` names the pieces whose
+//!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default).
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -298,11 +299,13 @@ struct Groups {
     tables: bool,
     passers: bool,
     scalars: bool,
+    /// Whose tables move when `tables` is free, in `WHITE_PAWN..=WHITE_KING` order.
+    table_pieces: [bool; 6],
 }
 
 /// `material,tables,passers,scalars`, any subset, in any order.
 fn parse_groups(list: &str) -> Groups {
-    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false };
+    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, table_pieces: [true; 6] };
     for name in list.split(',') {
         match name.trim() {
             "material" => groups.material = true,
@@ -313,6 +316,17 @@ fn parse_groups(list: &str) -> Groups {
         }
     }
     groups
+}
+
+/// `pawn,rook,knight,bishop,queen,king`, any subset: the pieces whose tables move.
+fn parse_table_pieces(list: &str) -> [bool; 6] {
+    let mut pieces = [false; 6];
+    for name in list.split(',') {
+        let p = ["pawn", "rook", "knight", "bishop", "queen", "king"].iter().position(|&n| n == name.trim())
+            .unwrap_or_else(|| panic!("unknown piece {name}"));
+        pieces[p] = true;
+    }
+    pieces
 }
 
 /// Which parameters move: every scalar but the piece-square ones, the passed-pawn table on ranks
@@ -341,7 +355,7 @@ fn trainable_for(groups: &Groups) -> Vec<bool> {
         }
     }
     if groups.tables {
-        for p in 0..6 {
+        for p in (0..6).filter(|&p| groups.table_pieces[p]) {
             for visual in 0..64 {
                 let pawn_rank_ok = p != 0 || (8..56).contains(&visual);
                 t[et::TABLE_MG + p * 64 + visual] = pawn_rank_ok;
@@ -365,7 +379,8 @@ fn table_means(theta: &[f64], trainable: &[bool]) -> Vec<f64> {
         for p in 0..6 {
             let range = base + p * 64..base + p * 64 + 64;
             let n = range.clone().filter(|&i| trainable[i]).count() as f64;
-            means.push(range.filter(|&i| trainable[i]).map(|i| theta[i]).sum::<f64>() / n);
+            // A held table has no squares to average; its mean is not used.
+            means.push(if n > 0.0 { range.filter(|&i| trainable[i]).map(|i| theta[i]).sum::<f64>() / n } else { 0.0 });
         }
     }
     means
@@ -376,13 +391,16 @@ fn table_means(theta: &[f64], trainable: &[bool]) -> Vec<f64> {
 /// the split the positional cap reads is fixed. The king's material cancels and does not move.
 fn recentre_tables(theta: &mut [f64], trainable: &[bool], means: &[f64]) {
     // With material held there is nowhere to move a shift to, and the tables keep whatever mean
-    // the error gives them; with the tables held there is no shift to move.
-    if !trainable[et::MATERIAL_MG] || !trainable[et::TABLE_MG + 64] {
+    // the error gives them; a held table has no shift to move.
+    if !trainable[et::MATERIAL_MG] {
         return;
     }
     let now = table_means(theta, trainable);
     for (k, (base, material)) in [(et::TABLE_MG, et::MATERIAL_MG), (et::TABLE_EG, et::MATERIAL_EG)].into_iter().enumerate() {
         for p in 0..6 {
+            if !(base + p * 64..base + p * 64 + 64).any(|i| trainable[i]) {
+                continue;
+            }
             let shift = now[k * 6 + p] - means[k * 6 + p];
             for i in base + p * 64..base + p * 64 + 64 {
                 if trainable[i] {
@@ -896,6 +914,7 @@ fn tune(args: &[String]) {
     let (mut epochs, mut lr, mut lambdas, mut threads) = (2000usize, 1.0f64, vec![0.0f64], 4usize);
     let mut groups = parse_groups("material,tables,passers,scalars");
     let mut smooths = vec![0.0f64];
+    let mut table_pieces: Option<[bool; 6]> = None;
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -905,9 +924,13 @@ fn tune(args: &[String]) {
             "--lambda" => { lambdas = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
             "--free" => { groups = parse_groups(&args[i + 1]); i += 1; }
             "--smooth" => { smooths = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
+            "--tables" => { table_pieces = Some(parse_table_pieces(&args[i + 1])); i += 1; }
             other => panic!("unknown option {other}"),
         }
         i += 1;
+    }
+    if let Some(pieces) = table_pieces {
+        groups.table_pieces = pieces;
     }
     let samples = read_samples(data);
     let config = hce_config();
@@ -1341,6 +1364,37 @@ mod tests {
         let plain = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 20, 1.0, 1).0;
         assert!(rough(&smooth) < 0.8 * rough(&theta0), "{} against {}", rough(&smooth), rough(&theta0));
         assert!(rough(&plain) > 0.9 * rough(&theta0), "{} against {}", rough(&plain), rough(&theta0));
+    }
+
+    /// `--tables rook,knight,bishop,queen`: the pawn and king tables stay exactly where they were
+    /// - a held table has no squares to average, so the re-centring must leave it and its
+    /// material alone - while the four named tables move and every value stays finite.
+    #[test]
+    fn test_only_the_named_tables_move() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let theta0 = et::theta_of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let mut groups = parse_groups("material,tables");
+        groups.table_pieces = parse_table_pieces("rook,knight,bishop,queen");
+        let mask = trainable_for(&groups);
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
+        assert!(theta.iter().all(|v| v.is_finite()), "a parameter left the reals");
+        for base in [et::TABLE_MG, et::TABLE_EG] {
+            for held in [0, 5] {
+                let range = base + held * 64..base + held * 64 + 64;
+                assert_eq!(theta[range.clone()], theta0[range], "the table of piece {held} moved");
+            }
+            for free in 1..5 {
+                let range = base + free * 64..base + free * 64 + 64;
+                assert_ne!(theta[range.clone()], theta0[range], "the table of piece {free} did not move");
+            }
+        }
+        assert_eq!(parse_table_pieces("pawn,rook,knight,bishop,queen,king"), [true; 6]);
     }
 
     #[test]
