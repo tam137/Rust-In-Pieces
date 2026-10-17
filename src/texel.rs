@@ -10,7 +10,8 @@
 //!   parameters (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a
 //!   report. `--free` names the groups that move - `material`, `tables`, `passers`, `scalars`,
 //!   all four by default; the others keep their shipped values. `--tables` names the pieces whose
-//!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default).
+//!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default). `--set name=value,...`
+//!   holds scalars at the given values instead of the shipped ones.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -284,12 +285,13 @@ fn gradient(samples: &[Sample], k: f64, pipeline: &Pipeline, theta: &[f64], grad
 /// Scalars that depend on nothing but a piece and its square. The piece-square table expresses
 /// each of them exactly, so fitting both leaves a direction the error cannot see, and the two drift
 /// apart without bound (first run: the rook on the seventh 33 -> 474 against table entries near
-/// -500). They keep their shipped values and the tables carry their part.
+/// -500). They keep their shipped values and the tables carry their part. The king-centre step
+/// adds only a phase threshold to its square and is held with them.
 const PIECE_SQUARE_SCALARS: &[et::P] = &[
     et::P::PawnCentered, et::P::PawnOnLastRankBonus, et::P::PawnOnBeforeLastRankBonus,
     et::P::PawnOnBeforeBeforeLastRankBonus, et::P::PawnUndevelopedMalus, et::P::KnightOnRimMalus,
     et::P::KnightCentered, et::P::UndevelopedKnightMalus, et::P::UndevelopedBishopMalus,
-    et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh,
+    et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh, et::P::KingCentreStep,
 ];
 
 /// The parameter groups `texel-tune --free` can set free; the others keep their shipped values.
@@ -327,6 +329,24 @@ fn parse_table_pieces(list: &str) -> [bool; 6] {
         pieces[p] = true;
     }
     pieces
+}
+
+/// `name=value,...` of scalars by their `Config` field names: the values `--set` holds them at.
+fn parse_sets(list: &str) -> Vec<(usize, f64)> {
+    list.split(',').map(|pair| {
+        let (name, value) = pair.split_once('=').unwrap_or_else(|| panic!("expected name=value, got {pair}"));
+        let j = et::SCALARS.iter().position(|(n, _, _)| *n == name.trim()).unwrap_or_else(|| panic!("unknown scalar {name}"));
+        (j, value.trim().parse().unwrap())
+    }).collect()
+}
+
+/// Starts every set scalar at its value and holds it there: the fit, and the L2 anchor, begin
+/// from the changed vector.
+fn apply_sets(theta: &mut [f64], mask: &mut [bool], sets: &[(usize, f64)]) {
+    for &(j, value) in sets {
+        theta[j] = value;
+        mask[j] = false;
+    }
 }
 
 /// Which parameters move: every scalar but the piece-square ones, the passed-pawn table on ranks
@@ -915,6 +935,7 @@ fn tune(args: &[String]) {
     let mut groups = parse_groups("material,tables,passers,scalars");
     let mut smooths = vec![0.0f64];
     let mut table_pieces: Option<[bool; 6]> = None;
+    let mut sets = Vec::new();
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -925,6 +946,7 @@ fn tune(args: &[String]) {
             "--free" => { groups = parse_groups(&args[i + 1]); i += 1; }
             "--smooth" => { smooths = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
             "--tables" => { table_pieces = Some(parse_table_pieces(&args[i + 1])); i += 1; }
+            "--set" => { sets = parse_sets(&args[i + 1]); i += 1; }
             other => panic!("unknown option {other}"),
         }
         i += 1;
@@ -935,16 +957,23 @@ fn tune(args: &[String]) {
     let samples = read_samples(data);
     let config = hce_config();
     let pipeline = Pipeline::of(&config);
-    let theta0 = et::theta_of(&config);
-    let k = fit_k(&samples, &pipeline, &theta0);
+    let shipped = et::theta_of(&config);
+    let k = fit_k(&samples, &pipeline, &shipped);
     let mut report = String::new();
     let log = |line: String, report: &mut String| { println!("{line}"); report.push_str(&line); report.push('\n'); };
     let counts: Vec<usize> = (0..3).map(|set| samples.iter().filter(|s| s.set == set).count()).collect();
     log(format!("positions: train {}, validation {}, test {}; K = {k:.6}; free {groups:?}", counts[0], counts[1], counts[2]), &mut report);
-    let base: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &theta0)).collect();
+    let base: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &shipped)).collect();
     log(format!("shipped: train {:.6}, validation {:.6}, test {:.6}", base[0], base[1], base[2]), &mut report);
-    let mask = trainable_for(&groups);
-    let shape0 = tables_shape(&theta0);
+    let mut mask = trainable_for(&groups);
+    let mut theta0 = shipped.clone();
+    apply_sets(&mut theta0, &mut mask, &sets);
+    if !sets.is_empty() {
+        let start: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &theta0)).collect();
+        log(format!("start, {} set: train {:.6} ({:+.1}e-6), validation {:.6} ({:+.1}e-6), test {:.6} ({:+.1}e-6)", sets.len(),
+            start[0], (start[0] - base[0]) * 1e6, start[1], (start[1] - base[1]) * 1e6, start[2], (start[2] - base[2]) * 1e6), &mut report);
+    }
+    let shape0 = tables_shape(&shipped);
     log(format!("shipped tables: mean roughness {:.1}, mean range {:.0}", shape0.0, shape0.1), &mut report);
     let mut best: Option<(f64, Vec<f64>, f64)> = None;
     for (&smooth, &lambda) in smooths.iter().flat_map(|s| lambdas.iter().map(move |l| (s, l))) {
@@ -968,16 +997,16 @@ fn tune(args: &[String]) {
         tuned[0], (tuned[0] - base[0]) * 1e6, tuned[1], (tuned[1] - base[1]) * 1e6, tuned[2], (tuned[2] - base[2]) * 1e6), &mut report);
     log(String::new(), &mut report);
     for (j, (name, _, _)) in et::SCALARS.iter().enumerate() {
-        log(format!("{name:<40} {:>6} -> {:>6}", theta0[j], theta[j]), &mut report);
+        log(format!("{name:<40} {:>6} -> {:>6}", shipped[j], theta[j]), &mut report);
     }
     for r in 0..8 {
         log(format!("passed_pawn_bonus rank {}                 mg {:>5} -> {:>5}   eg {:>5} -> {:>5}", r + 1,
-            theta0[et::PASSER_MG + r], theta[et::PASSER_MG + r], theta0[et::PASSER_EG + r], theta[et::PASSER_EG + r]), &mut report);
+            shipped[et::PASSER_MG + r], theta[et::PASSER_MG + r], shipped[et::PASSER_EG + r], theta[et::PASSER_EG + r]), &mut report);
     }
     let names = ["pawn", "rook", "knight", "bishop", "queen", "king"];
     for (p, name) in names.iter().enumerate() {
-        log(format!("material {name:<8}                        mg {:>5} -> {:>5}   eg {:>5} -> {:>5}", theta0[et::MATERIAL_MG + p],
-            theta[et::MATERIAL_MG + p], theta0[et::MATERIAL_EG + p], theta[et::MATERIAL_EG + p]), &mut report);
+        log(format!("material {name:<8}                        mg {:>5} -> {:>5}   eg {:>5} -> {:>5}", shipped[et::MATERIAL_MG + p],
+            theta[et::MATERIAL_MG + p], shipped[et::MATERIAL_EG + p], theta[et::MATERIAL_EG + p]), &mut report);
     }
     std::fs::write(out_dir.join("report.txt"), &report).unwrap();
     std::fs::write(out_dir.join("theta.txt"), theta.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
@@ -1395,6 +1424,77 @@ mod tests {
             }
         }
         assert_eq!(parse_table_pieces("pawn,rook,knight,bishop,queen,king"), [true; 6]);
+    }
+
+    /// The king-centre step is a weight of the trace, not a constant: the model follows a changed
+    /// step the way the engine does, so the tuner can price the step switched off.
+    #[test]
+    fn test_the_model_follows_the_king_centre_step() {
+        let service = Service::new();
+        let base = hce_config();
+        let mut changed = hce_config();
+        changed.king_centre_step = 0;
+        let pipeline = Pipeline::of(&base);
+        let theta_changed = et::theta_of(&changed);
+        let mut moved = 0;
+        for fen in POSITIONS {
+            let board = service.fen.set_fen(fen);
+            let table = crate::pawn_hash::PawnHashTable::new(16);
+            let engine = service.eval.calc_eval_known_check(&board, &changed, &service.move_gen, &table,
+                i16::MIN + 1, i16::MAX - 1, 0, false);
+            let (sample, shipped) = traced(fen);
+            moved += (engine != shipped) as usize;
+            let model = pipeline.eval(&sample, &theta_changed).0;
+            assert!((model - engine as f64).abs() <= 3.0, "{fen}: model {model} against engine {engine}");
+        }
+        assert!(moved >= 2, "the step changed only {moved} of the positions");
+    }
+
+    /// `--set` starts a scalar at its value and holds it there, even with every scalar free, while
+    /// the free parameters move.
+    #[test]
+    fn test_a_set_scalar_starts_and_stays_at_its_value() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let sets = parse_sets("king_centre_step=0, your_turn_bonus=3");
+        assert_eq!(sets, vec![(P::KingCentreStep as usize, 0.0), (P::YourTurnBonus as usize, 3.0)]);
+        let mut mask = trainable_for(&parse_groups("scalars,tables"));
+        let mut theta0 = et::theta_of(&config);
+        apply_sets(&mut theta0, &mut mask, &sets);
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
+        assert_eq!(theta[P::KingCentreStep as usize], 0.0);
+        assert_eq!(theta[P::YourTurnBonus as usize], 3.0);
+        assert_ne!(theta[P::BishopMobilityFactor as usize], theta0[P::BishopMobilityFactor as usize], "a free scalar did not move");
+    }
+
+    /// `--free tables --tables king`: the king's tables move, material and every other table stay
+    /// exactly where they were - the king's mean cancels between the sides, so nothing is re-centred.
+    #[test]
+    fn test_only_the_king_tables_move() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let theta0 = et::theta_of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let mut groups = parse_groups("tables");
+        groups.table_pieces = parse_table_pieces("king");
+        let mask = trainable_for(&groups);
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 1e-10, 0.0, 5, 1.0, 1).0;
+        assert!(theta.iter().all(|v| v.is_finite()), "a parameter left the reals");
+        assert_eq!(theta[..et::TABLE_MG], theta0[..et::TABLE_MG], "a scalar, passer or material moved");
+        for base in [et::TABLE_MG, et::TABLE_EG] {
+            let king = base + 5 * 64..base + 6 * 64;
+            assert_eq!(theta[base..king.start], theta0[base..king.start], "a table other than the king's moved");
+            assert_ne!(theta[king.clone()], theta0[king], "the king's table did not move");
+        }
     }
 
     #[test]

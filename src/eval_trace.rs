@@ -213,6 +213,7 @@ mod imp {
         PassedPawnBlockadedMalus => passed_pawn_blockaded_malus,
         CandidatePassedPawnBonus => candidate_passed_pawn_bonus,
         PawnStormBonus => pawn_storm_bonus,
+        KingCentreStep => king_centre_step,
     }
 
     /// Layout of the parameter vector: scalars, the passed-pawn table (mg, eg), material (mg, eg),
