@@ -14,7 +14,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.46.4** on `master` (HCE) since 2026-10-14 — Reverse Futility Pruning to depth 8 and ahead of Null Move Pruning (21.3), SPRT [0, 10] H1 after 1876 games against v0.46.3. Before it **v0.46.3** (2026-10-13), Null Move Pruning at the published depth and without the verification search (section 20), SPRT [0, 10] H1 after 3308 games against v0.46.2. Before that **v0.46.2** (2026-10-12), Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before that **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.47.0** on `master` (HCE) since 2026-10-17 — the material re-fitted by the Texel tuner (29.7), SPRT [0, 10] H1 against v0.46.4, +107.2 Elo [+81, +135] over 488 games, a run stopped by hand. Before it **v0.46.4** (2026-10-14), Reverse Futility Pruning to depth 8 and ahead of Null Move Pruning (21.3), SPRT [0, 10] H1 after 1876 games against v0.46.3. Before it **v0.46.3** (2026-10-13), Null Move Pruning at the published depth and without the verification search (section 20), SPRT [0, 10] H1 after 3308 games against v0.46.2. Before that **v0.46.2** (2026-10-12), Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before that **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -32,8 +32,11 @@ the evaluation is a fifth of the search time. Its recommended order, ahead of ba
 material and piece-square tables predict results six times better than any single change, on two
 independent game sets. The rest is in 29.5. **E2 was built and refused on 2026-10-17 (29.6):** the
 tune cut the held-out Texel error by 8200 x 10^-6 and the search needed 58% / 69% more time to
-depth 10; SPRT [0, 10] H0 after 2564 games against v0.46.4, -8.2 Elo [-21, +5] over 2576. The
-tuner is on the local branch `texel-tuner`.
+depth 10; SPRT [0, 10] H0 after 2564 games against v0.46.4, -8.2 Elo [-21, +5] over 2576.
+**The material alone shipped in v0.47.0 the same day (29.7):** the tables are what slowed the
+search, the material makes it faster; SPRT [0, 10] H1 against v0.46.4, +107.2 Elo [+81, +135] over
+488 games, a run stopped by hand and not an effect size. Next: tables the search can afford
+(29.7).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -128,7 +131,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
 | 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 | 11 | `adjust_eval`: a step of up to 200 cp at +/-200 | 29.5 E1 | The strongest Texel signal that holds on both sets, and a defect besides; small, one SPRT. Recommended first |
-| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6 | **Built, the full re-fit refused 2026-10-17**: SPRT [0, 10] H0 after 2564 games, -8.2 Elo [-21, +5], at 58% / 69% more time to depth 10. The tuner is on the local branch `texel-tuner`; what is left is a re-fit the search can afford, see 29.6 |
+| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6, 29.7 | **Material shipped in v0.47.0 (2026-10-17)**: SPRT [0, 10] H1, +107.2 Elo [+81, +135] over 488 games. The full re-fit was refused (H0, -8.2 Elo, 58% / 69% slower to depth 10) and material plus tables stopped before any game (77% / 81% slower). Left: tables that do not slow the search - smoothed, or added a few squares at a time behind the same time stop |
 | 13 | The king-centre step below phase 60, a no-pawn scale factor, R26, the lazy first visit | 29.5 E3, E4, E6 | Small, each priced on its own; E4 acts in a corner and is priced like R21 |
 | 14 | King safety from piece attacks, with attack maps shared by the evaluation | 29.5 E5, E7 | Absent today; only with 12, or it is one more hand-set term |
 
@@ -178,6 +181,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 | Review leftovers, deferred: R4 `pv_nodes` behind a mutex and a SipHash map at every interior node (0.3% to 2%, 18 call sites), R7 a table move that is a promotion or en passant never gets the table band, R16c a `stop` that arrives before its `go` is lost | deferred, section 27 |
 | Review leftovers, unpriced: R22 the lazy margin does not bound the positional terms (a tuning question; measured 2026-10-16, 29.3), R23 table cutoffs at the root's children can hide a repetition, R25 no quiet queen promotion in the Quiescence Search, R26 the pawn hash caches a blockade by pieces (measured: 0.23% of hits, 22 cp, 29.3), R27 the null child's counter-move entry and an abort sentinel that looks like a cutoff, R28 two steps in the evaluation (see the end of 29.5), R29 no fifty-move rule and the start position missing from the repetition history, R30 rook and bishop promotions off by default | listed, section 27; R22 and R26 measured in 29 |
+| v0.47.0 ships the Texel material (29.7); the re-fitted piece-square tables made the search 70% slower to depth 10 on their own, the material 5% faster. Smoothing the tables, or a time-aware objective, is untried | open, section 29.7 |
 | The Texel re-fit of 29.6, refused 2026-10-17: the held-out error -8200 x 10^-6, the search 58% / 69% slower to depth 10, SPRT [0, 10] H0 after 2564 games against v0.46.4, -8.2 Elo [-21, +5] over 2576. Code on the local branch `texel-tuner` (`cfa9f75` tree-identical tooling, `3d65e7e`, `49e76c2` the values) | negative result, section 29.6 |
 | The evaluation, audited 2026-10-16: king danger 0.03 cp on average, `adjust_eval` a step of up to 200 cp, the positional cap load-bearing (+3716 to +4210 Texel error without it), `king_in_check_malus` and `king_in_double_check_malus` unreachable in play, material and piece-square tables far from the data | audit, section 29; candidates E1 to E8 |
 | R18, the time allocation — a soft limit at 60% of the budget and the budget bounded below the clock — is **not shipped**: SPRT [0, 10] H0 after 9050 games, [0, 5] undecided at 9244, +2.3 Elo [-3, +8]. The code is on the local branch `review/r18-time-management`; the clock bound alone, the 10 ms cliff, is untested | negative result, section 27 |
@@ -1165,3 +1169,49 @@ left of E2 is a re-fit the search can afford, and the tuner makes trying one che
 
 The tree-identical tooling of `cfa9f75` could go to `master` on its own; it changes no tree. The
 code is on the local branch `texel-tuner`.
+
+### 29.7 The material alone: shipped in v0.47.0 (2026-10-17)
+
+**Material and tables, stopped before any game.** The step after 29.6 re-fitted material and the
+piece-square tables only (`texel-tune --free material,tables`), on the same data: held-out error
+-6773 x 10^-6, material ordered in both phases, no table entry beyond +/-176. The time stop set in
+advance - no game above +10% time to depth 10 on either pool - fired: **+81% / +77%**
+(`openings_wide` / `openings_mixed`), twice the generated moves. Lazy evaluation was not the
+cause this time (`cheap_eval` beyond 180 cp on 2.5% of search positions against 1.8%).
+
+**The diagnosis**, two builds against v0.46.4 at depth 10, 100 positions: the **new material with
+the old tables 4.9% faster**, held-out error -3120; the **new tables with the old material 70.5%
+slower**, -2032. The tables slow the search, not the piece values; 29.6 had blamed the threat,
+mobility and king-danger weights, and the tables carried most of it there too. Fitted square by
+square, the tables differ sharply between neighbours, so most quiet moves move the evaluation -
+an explanation, not yet a measurement.
+
+**The material alone** (`--free material`; the re-centring fixed to run only when tables and
+material are both free, as it divided by zero squares otherwise): held-out error **-4152 x
+10^-6**. Middlegame / endgame: pawn 98 / 83, knight 464 / 316, bishop 507 / 335, rook 662 / 575,
+queen 1437 / 1163, against 100, 300, 300, 500 and 950 in both phases; tables and weights as
+shipped. Time to depth 10 against v0.46.4: **-2.6% / -7.1%**, generated moves -4.4% / -10.5%;
+`cheap_eval` and the positional cap behave as in v0.46.4. Two tests re-sampled, claims unchanged:
+`eval_fig_value_test` follows the material, and the Reverse Futility order test takes `beta` 2500
+(the two rooks are worth more, so up to 2200 the null search itself cuts).
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor. At 216 games (+106 Elo, [0, 10] LLR +2.08) the owner asked for at least 1000 games
+whatever H1 said; the wrapper and the monitor were stopped and a watcher took over that would
+apply the same rules from game 1000. [0, 10] reached H1 at 300 games (LLR +3.06; `sprt.py --trajectory`) and stayed above it. At 488
+games the owner stopped the run ("das ergebnis ist eindeutig"): **+107.2 Elo, paired 95% [+81,
++135]** over 488 games, [0, 10] LLR +4.92 (H1), [0, 5] +2.51 undecided - a stopped run, not an
+effect size (rule 7). Pairs 0-2 / 0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side 11 /
+25 / 85 / 53 / 70; no losses on time, White 55.1%, design effect 1.00. The reading was +113 after
+108 games, +100 after 224, +113 after 398.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 59.5% against v0.46.4, 61.5% against
+v0.46.3, 91.5% against v0.34.0, no losses on time.
+
+**What it says.** One number per piece and phase was worth more than every other evaluation change
+measured in this file, and it needed nothing the search had to pay for. The tables carry the rest
+of the predictive gain (29.6: material and tables together -6773, material alone -4152), and they
+are what the search cannot afford as fitted. Next, each behind the same time stop: tables
+regularised towards smoothness (neighbouring squares), or a few squares at a time; then the
+passed-pawn table; E1 `adjust_eval` with a re-tune. The tuner is in `master` behind the feature
+`texel`.
