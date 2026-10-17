@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.1] - 2026-10-17
+
+The piece-square tables of rook, knight, bishop and queen are re-fitted by the Texel tuner together
+with the material; the pawn and king tables and every other weight are as in v0.47.0. Gated by
+**SPRT [0, 10]: H1 after 848 games** at 1s + 150ms against v0.47.0; at the end of the run, 861
+games: +40.2 Elo, paired 95% [+19, +62] - a stopped run, not an effect size (`task.md` rule 7).
+See `task.md` section 29.9.
+
+### Changed
+- **Tables** of rook, knight, bishop and queen, middlegame and endgame, re-fitted (no entry beyond
+  +/-141 cp). Pawn, king and passed-pawn tables unchanged.
+- **Material** (middlegame / endgame), re-fitted with them and holding the tables' means: pawn
+  116 / 83, knight 543 / 309, bishop 580 / 329, rook 782 / 565, queen 1883 / 972 (v0.47.0: 98 / 83,
+  464 / 316, 507 / 335, 662 / 575, 1437 / 1163). `PIECE_EVAL_*` unchanged.
+- `texel-tune --tables <pieces>` (feature `texel`, not in the release build) names the tables that
+  move.
+
+### Notes
+- Held-out Texel error -1864 x 10^-6 against v0.47.0. Time to depth 10 against v0.47.0: 4.8% and
+  4.0% less on the two pools.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 52.0% / 66.5% / 89.0% against v0.47.0 /
+  v0.46.4 / v0.34.0, no losses on time.
+- Five tests re-sampled with their claims unchanged: fixed evaluation ranges and pairs, and two
+  search-test depths (5 to 7).
+
+
+
 ## [V0.47.0] - 2026-10-17
 
 The material values are re-fitted by a Texel tuner on game results; tables and every other weight
