@@ -375,9 +375,9 @@ fn table_means(theta: &[f64], trainable: &[bool]) -> Vec<f64> {
 /// material and moves there. Material plus table, what the evaluation sums, is unchanged; only
 /// the split the positional cap reads is fixed. The king's material cancels and does not move.
 fn recentre_tables(theta: &mut [f64], trainable: &[bool], means: &[f64]) {
-    // With material held there is nowhere to move a shift to; the tables then keep whatever mean
-    // the error gives them.
-    if !trainable[et::MATERIAL_MG] {
+    // With material held there is nowhere to move a shift to, and the tables keep whatever mean
+    // the error gives them; with the tables held there is no shift to move.
+    if !trainable[et::MATERIAL_MG] || !trainable[et::TABLE_MG + 64] {
         return;
     }
     let now = table_means(theta, trainable);
@@ -1141,6 +1141,29 @@ mod tests {
         }
         assert!((et::MATERIAL_MG..et::N_PARAMS).any(|j| theta[j] != theta0[j]), "nothing free moved");
         assert_eq!(trainable_for(&parse_groups("material,tables,passers,scalars")), trainable());
+    }
+
+    /// `--free material` alone: the tables are held, so their means have nowhere to go and the
+    /// re-centring must leave everything finite and the tables untouched.
+    #[test]
+    fn test_material_alone_moves_only_material() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let theta0 = et::theta_of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let mask = trainable_for(&parse_groups("material"));
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 5, 1.0, 1).0;
+        assert!(theta.iter().all(|v| v.is_finite()), "a parameter left the reals");
+        for j in 0..et::N_PARAMS {
+            if !(et::MATERIAL_MG..et::TABLE_MG).contains(&j) {
+                assert_eq!(theta[j], theta0[j], "parameter {j} moved although only material is free");
+            }
+        }
+        assert!((et::MATERIAL_MG..et::TABLE_MG).any(|j| theta[j] != theta0[j]), "material did not move");
     }
 
     #[test]
