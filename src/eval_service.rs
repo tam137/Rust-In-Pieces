@@ -1490,15 +1490,6 @@ impl EvalService {
             e_eval -= config.king_in_double_check_malus;
         }
 
-        // Graduated Center Proximity in Endgame
-        if game_phase < 60 {
-            let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
-            let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
-            let dist = rank_dist + file_dist;
-            tr!(KingCentreStep, 0, -dist);
-            e_eval -= (dist * config.king_centre_step as i32) as i16;
-        }
-
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
         let file_mask = 0x0101010101010101u64 << file;
@@ -1580,15 +1571,6 @@ impl EvalService {
         } else if in_check > 1 {
             o_eval += config.king_in_double_check_malus;
             e_eval += config.king_in_double_check_malus;
-        }
-
-        // Graduated Center Proximity in Endgame
-        if game_phase < 60 {
-            let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
-            let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
-            let dist = rank_dist + file_dist;
-            tr!(KingCentreStep, 0, dist);
-            e_eval += (dist * config.king_centre_step as i32) as i16;
         }
 
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
@@ -2393,8 +2375,10 @@ mod tests {
 
     #[test]
     fn unequal_position_test() {
-        // Asymmetric King position with pawns on board (Black king centralized on c4 vs White on g3)
-        eval_between("8/p7/8/8/2k5/6K1/P7/8 w - - 0 1", -120, -60);
+        // Asymmetric King position with pawns on board (Black king centralized on c4 vs White on g3).
+        // -112 until the king-centre step went (task.md 29.10), which counted the centre a second
+        // time on top of the king's endgame table; -54 with the re-fitted table alone.
+        eval_between("8/p7/8/8/2k5/6K1/P7/8 w - - 0 1", -90, -30);
     }
 
     #[test]
