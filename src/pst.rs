@@ -14,8 +14,8 @@ pub const PIECE_EVAL_KING: i16 = 10000;
 // except for the king, with the `PIECE_EVAL_*` values as material.
 // BEGIN TEXEL GENERATED - written by `suprah texel-export` (feature `texel`); re-tune, do not edit.
 /// Material per piece in `WHITE_PAWN..=WHITE_KING` order: pawn, rook, knight, bishop, queen, king.
-pub const MATERIAL_MG: [i16; 6] = [100, 500, 300, 300, 950, 10000];
-pub const MATERIAL_EG: [i16; 6] = [100, 500, 300, 300, 950, 10000];
+pub const MATERIAL_MG: [i16; 6] = [98, 662, 464, 507, 1437, 10000];
+pub const MATERIAL_EG: [i16; 6] = [83, 575, 316, 335, 1163, 10000];
 /// Piece-square tables without material, from White's side, rank 8 first (middlegame).
 pub const TABLE_MG: [[i16; 64]; 6] = [
     [ // pawn
