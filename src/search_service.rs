@@ -4651,12 +4651,14 @@ mod tests {
     }
 
     /// White is a queen and two rooks against a pawn up, and the queen stands en prise to the pawn
-    /// on d6. The static evaluation under this window reads 2555, so against a `beta` of 2100 the
-    /// surplus clears the depth-4 margin of 320; a null move hands Black `dxe5`, and what is left
-    /// after the queen falls below it, so the null search fails. At a `beta` of 1300 the null
-    /// search still cut: the queen alone is not the whole surplus.
+    /// on d6. The static evaluation under this window reads 3276 since the Texel material of
+    /// v0.47.0 (2555 before), so against a `beta` of 2500 the surplus clears the depth-4 margin of
+    /// 320; a null move hands Black `dxe5`, and what is left after the queen falls below it, so the
+    /// null search fails. Up to a `beta` of 2200 the null search still cuts - the two rooks are
+    /// worth more than they were, which moved this `beta` up from 2100 - and from 2300 to 2900 it
+    /// fails: the queen alone is not the whole surplus.
     const QUEEN_EN_PRISE_FEN: &str = "6k1/5ppp/3p4/4Q3/8/8/5PPP/RR4K1 w - - 0 1";
-    const QUEEN_EN_PRISE_BETA: i16 = 2100;
+    const QUEEN_EN_PRISE_BETA: i16 = 2500;
 
     /// `task.md` 21.3: the order of Reverse Futility and Null Move Pruning decides no cut. At a
     /// node the null search cannot cut, because passing loses the queen, Reverse Futility Pruning
