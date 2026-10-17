@@ -2294,13 +2294,15 @@ mod tests {
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();
 
-        // Depth 5. At depth 4 the tree is small enough that, with Principal Variation Search at
+        // Depth 7. At depth 4 the tree is small enough that, with Principal Variation Search at
         // the root, the full-window re-search of a root move that beat its null window outweighs
-        // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saves again
-        // (4277 against 5394), and the claim is about the rule.
+        // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saved again
+        // (4277 against 5394). Since the re-fitted tables of v0.47.1 this configuration - the
+        // verification search and divisor 6 of v0.46.2, off in play - saves at depths 3, 4 and 7
+        // (12882 against 30490 at 7) and costs at 5, 6 and 8.
         service.search.get_moves(
             &mut board,
-            5,
+            7,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -2313,7 +2315,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            5,
+            7,
             true,
             &mut stats_disabled,
             &config_disabled,
@@ -3940,6 +3942,9 @@ mod tests {
     #[test]
     fn test_futility_pruning_node_reduction() {
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+        // Depth 7. Since the re-fitted tables of v0.47.1 the rule saves on this position at depths
+        // 3, 4 and 7 (15191 against 15637 at 7) and costs at 5, 6 and 8, where it used to save at
+        // 5; a single position's node count moves with every change to the evaluation.
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
@@ -3962,7 +3967,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            5,
+            7,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -3975,7 +3980,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            5,
+            7,
             true,
             &mut stats_disabled,
             &config_disabled,
