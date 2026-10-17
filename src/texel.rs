@@ -635,6 +635,17 @@ fn check(path: &str) {
     println!("{n} positions: mean |model - engine| {:.3} cp, median {:.2}, 99.5% {:.2}, max {:.2}; within 3 cp {:.3}%",
         diffs.iter().sum::<f64>() / n as f64, diffs[n / 2], diffs[n * 995 / 1000], diffs[n - 1],
         100.0 * within3 as f64 / n as f64);
+    // The engine rounds the cap's excess, the opposite-bishop scale and `adjust_eval` to integers
+    // where the model does not, and `adjust_eval` multiplies whatever was rounded before it by up
+    // to `max_eval_mult`. Split by whether it fired, so that rounding is not read as a wrong hook.
+    for (label, adjusted) in [("adjust_eval idle", false), ("adjust_eval fired", true)] {
+        let part: Vec<f64> = samples.iter()
+            .filter(|s| (s.phase as i16 + 100 < 255 && s.eval.abs() >= 200) == adjusted)
+            .map(|s| (pipeline.eval(s, &theta0).0 - s.eval as f64).abs()).collect();
+        let m = part.len().max(1) as f64;
+        println!("  {label}: {} positions, mean {:.3} cp, within 3 cp {:.3}%", part.len(),
+            part.iter().sum::<f64>() / m, 100.0 * part.iter().filter(|&&d| d <= 3.0).count() as f64 / m);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
