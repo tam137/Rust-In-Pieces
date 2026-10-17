@@ -285,13 +285,12 @@ fn gradient(samples: &[Sample], k: f64, pipeline: &Pipeline, theta: &[f64], grad
 /// Scalars that depend on nothing but a piece and its square. The piece-square table expresses
 /// each of them exactly, so fitting both leaves a direction the error cannot see, and the two drift
 /// apart without bound (first run: the rook on the seventh 33 -> 474 against table entries near
-/// -500). They keep their shipped values and the tables carry their part. The king-centre step
-/// adds only a phase threshold to its square and is held with them.
+/// -500). They keep their shipped values and the tables carry their part.
 const PIECE_SQUARE_SCALARS: &[et::P] = &[
     et::P::PawnCentered, et::P::PawnOnLastRankBonus, et::P::PawnOnBeforeLastRankBonus,
     et::P::PawnOnBeforeBeforeLastRankBonus, et::P::PawnUndevelopedMalus, et::P::KnightOnRimMalus,
     et::P::KnightCentered, et::P::UndevelopedKnightMalus, et::P::UndevelopedBishopMalus,
-    et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh, et::P::KingCentreStep,
+    et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh,
 ];
 
 /// The parameter groups `texel-tune --free` can set free; the others keep their shipped values.
@@ -1426,30 +1425,6 @@ mod tests {
         assert_eq!(parse_table_pieces("pawn,rook,knight,bishop,queen,king"), [true; 6]);
     }
 
-    /// The king-centre step is a weight of the trace, not a constant: the model follows a changed
-    /// step the way the engine does, so the tuner can price the step switched off.
-    #[test]
-    fn test_the_model_follows_the_king_centre_step() {
-        let service = Service::new();
-        let base = hce_config();
-        let mut changed = hce_config();
-        changed.king_centre_step = 0;
-        let pipeline = Pipeline::of(&base);
-        let theta_changed = et::theta_of(&changed);
-        let mut moved = 0;
-        for fen in POSITIONS {
-            let board = service.fen.set_fen(fen);
-            let table = crate::pawn_hash::PawnHashTable::new(16);
-            let engine = service.eval.calc_eval_known_check(&board, &changed, &service.move_gen, &table,
-                i16::MIN + 1, i16::MAX - 1, 0, false);
-            let (sample, shipped) = traced(fen);
-            moved += (engine != shipped) as usize;
-            let model = pipeline.eval(&sample, &theta_changed).0;
-            assert!((model - engine as f64).abs() <= 3.0, "{fen}: model {model} against engine {engine}");
-        }
-        assert!(moved >= 2, "the step changed only {moved} of the positions");
-    }
-
     /// `--set` starts a scalar at its value and holds it there, even with every scalar free, while
     /// the free parameters move.
     #[test]
@@ -1461,13 +1436,13 @@ mod tests {
             s.result = (i % 3) as u8;
             s
         }).collect();
-        let sets = parse_sets("king_centre_step=0, your_turn_bonus=3");
-        assert_eq!(sets, vec![(P::KingCentreStep as usize, 0.0), (P::YourTurnBonus as usize, 3.0)]);
+        let sets = parse_sets("bishop_pair_bonus=0, your_turn_bonus=3");
+        assert_eq!(sets, vec![(P::BishopPairBonus as usize, 0.0), (P::YourTurnBonus as usize, 3.0)]);
         let mut mask = trainable_for(&parse_groups("scalars,tables"));
         let mut theta0 = et::theta_of(&config);
         apply_sets(&mut theta0, &mut mask, &sets);
         let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
-        assert_eq!(theta[P::KingCentreStep as usize], 0.0);
+        assert_eq!(theta[P::BishopPairBonus as usize], 0.0);
         assert_eq!(theta[P::YourTurnBonus as usize], 3.0);
         assert_ne!(theta[P::BishopMobilityFactor as usize], theta0[P::BishopMobilityFactor as usize], "a free scalar did not move");
     }

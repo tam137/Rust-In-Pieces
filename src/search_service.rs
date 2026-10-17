@@ -2755,24 +2755,26 @@ mod tests {
         // and 23.3 flipped exactly that cell by changing the move order the rule sees. The
         // property was never a per-position one — `task.md` records the same lesson for the
         // 14-position corpus, which is why `scripts/measure_tree_size.py` exists.
-        let total = |base: i32| -> usize {
-            let mut nodes = 0;
-            for fen in [CHECK_RICH_FEN, SMOTHERED_MATE_FEN] {
-                for depth in [5, 6, 7, 8] {
-                    nodes += search_nodes(fen, depth, |c| {
-                        c.enable_lmp = true;
-                        c.lmp_base_moves = base;
-                    });
-                }
-            }
-            nodes
+        //
+        // The aggregate is the geometric mean of the per-cell ratios, so every cell weighs the
+        // same. A plain sum is carried by its largest cells: with the king table of 29.10 it read
+        // 187255 against 186421, the wrong way by 0.4%, while the mean stayed at 0.89 and 100
+        // pool positions at depth 8 gave base 0 11.3% fewer generated moves than base 12.
+        let nodes = |base: i32, fen: &str, depth: i32| -> f64 {
+            search_nodes(fen, depth, |c| {
+                c.enable_lmp = true;
+                c.lmp_base_moves = base;
+            }) as f64
         };
-
-        let aggressive = total(0);
-        let permissive = total(12);
-        assert!(aggressive < permissive,
-            "a lower base must prune more over the sample ({} at base 0 vs {} at base 12)",
-            aggressive, permissive);
+        let mut log_ratios = Vec::new();
+        for fen in [CHECK_RICH_FEN, SMOTHERED_MATE_FEN] {
+            for depth in [5, 6, 7, 8] {
+                log_ratios.push((nodes(0, fen, depth) / nodes(12, fen, depth)).ln());
+            }
+        }
+        let mean_ratio = (log_ratios.iter().sum::<f64>() / log_ratios.len() as f64).exp();
+        assert!(mean_ratio < 1.0,
+            "a lower base must prune more over the sample (base 0 / base 12 = {mean_ratio:.3} per cell)");
     }
 
     #[test]

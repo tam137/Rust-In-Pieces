@@ -128,8 +128,6 @@ pub struct Config {
     pub rook_behind_enemy_passed_pawn_mg: i16,
     pub rook_behind_enemy_passed_pawn_eg: i16,
     pub king_trapp_at_baseline_malus: i16,
-    /// Endgame malus per step of the king's distance to the centre, below phase 60.
-    pub king_centre_step: i16,
     pub king_in_check_malus: i16,
     pub king_in_double_check_malus: i16,
     pub rook_on_seventh: i16,
@@ -518,7 +516,6 @@ impl Config {
             rook_behind_enemy_passed_pawn_mg: 10,
             rook_behind_enemy_passed_pawn_eg: 24,
             king_trapp_at_baseline_malus: 71,
-            king_centre_step: 40,
             king_in_check_malus: 135,
             king_in_double_check_malus: 337,
 
@@ -1402,7 +1399,6 @@ impl Config {
             "rookbehindenemypassedpawnmg" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_enemy_passed_pawn_mg = v; },
             "rookbehindenemypassedpawneg" => if let Ok(v) = value.parse::<i16>() { self.rook_behind_enemy_passed_pawn_eg = v; },
             "kingtrappatbaselinemalus" => if let Ok(v) = value.parse::<i16>() { self.king_trapp_at_baseline_malus = v; },
-            "kingcentrestep" => if let Ok(v) = value.parse::<i16>() { self.king_centre_step = v; },
             "kingincheckmalus" => if let Ok(v) = value.parse::<i16>() { self.king_in_check_malus = v; },
             "kingindoublecheckmalus" => if let Ok(v) = value.parse::<i16>() { self.king_in_double_check_malus = v; },
             "pawnattacksopponentfig" => if let Ok(v) = value.parse::<i16>() { self.pawn_attacks_opponent_fig = v; },
