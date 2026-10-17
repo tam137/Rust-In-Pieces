@@ -669,6 +669,16 @@ fn stats(data: &str, theta_path: Option<&str>) {
     let n = test.len() as f64;
     println!("test positions {}: cap fires {:.1}%, mean |positional| {:.1}, mean |eval| {:.1}, MSE {:.6} (K {k:.6})",
         test.len(), 100.0 * capped as f64 / n, abs_positional / n, abs_eval / n, mse(&samples, 2, k, &pipeline, &theta));
+    let names = ["pawn", "rook", "knight", "bishop", "queen", "king"];
+    let mut line = String::from("tables, roughness / range:");
+    for (label, base) in [("mg", et::TABLE_MG), ("eg", et::TABLE_EG)] {
+        for (p, name) in names.iter().enumerate() {
+            let (rough, range) = table_shape(&theta, base, p);
+            line.push_str(&format!(" {label} {name} {rough:.1}/{range:.0};"));
+        }
+    }
+    let (rough, range) = tables_shape(&theta);
+    println!("{line} mean {rough:.1}/{range:.0}");
 }
 
 fn lazy(path: &str) {
@@ -732,13 +742,92 @@ fn mirror(path: &str) {
 // ---------------------------------------------------------------------------------------------
 // texel-tune
 
+/// Every pair of king-adjacent squares of every table and phase, both of them movable under `mask`
+/// - the pawn tables' back ranks take no part, as no pawn stands there.
+fn smoothness_pairs(mask: &[bool]) -> Vec<(usize, usize)> {
+    let mut pairs = Vec::new();
+    for base in [et::TABLE_MG, et::TABLE_EG] {
+        for p in 0..6 {
+            for row in 0..8i32 {
+                for file in 0..8i32 {
+                    for (dr, df) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
+                        let (r2, f2) = (row + dr, file + df);
+                        if !(0..8).contains(&r2) || !(0..8).contains(&f2) {
+                            continue;
+                        }
+                        let i = base + p * 64 + (row * 8 + file) as usize;
+                        let j = base + p * 64 + (r2 * 8 + f2) as usize;
+                        if mask[i] && mask[j] {
+                            pairs.push((i, j));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pairs
+}
+
+/// The sum of squared jumps between the neighbouring squares of `pairs`.
+#[cfg(test)]
+fn smoothness_penalty(theta: &[f64], pairs: &[(usize, usize)]) -> f64 {
+    pairs.iter().map(|&(i, j)| (theta[i] - theta[j]).powi(2)).sum()
+}
+
+/// Adds the gradient of `s * smoothness_penalty` to `grad`.
+fn add_smoothness_gradient(theta: &[f64], pairs: &[(usize, usize)], s: f64, grad: &mut [f64]) {
+    for &(i, j) in pairs {
+        let g = 2.0 * s * (theta[i] - theta[j]);
+        grad[i] += g;
+        grad[j] -= g;
+    }
+}
+
+/// A table's mean jump between king-adjacent squares and its range, over the squares its piece
+/// can stand on: the roughness and the size `task.md` 29.7 measured.
+fn table_shape(theta: &[f64], base: usize, piece: usize) -> (f64, f64) {
+    let rows = if piece == 0 { 1..7 } else { 0..8 };
+    let table = &theta[base + piece * 64..base + piece * 64 + 64];
+    let (mut jumps, mut n) = (0.0, 0usize);
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    for row in rows.clone() {
+        for file in 0..8i32 {
+            let v = table[(row * 8 + file) as usize];
+            lo = lo.min(v);
+            hi = hi.max(v);
+            for (dr, df) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
+                let (r2, f2) = (row + dr, file + df);
+                if rows.contains(&r2) && (0..8).contains(&f2) {
+                    jumps += (v - table[(r2 * 8 + f2) as usize]).abs();
+                    n += 1;
+                }
+            }
+        }
+    }
+    (jumps / n as f64, hi - lo)
+}
+
+/// Mean roughness and mean range over the twelve tables.
+fn tables_shape(theta: &[f64]) -> (f64, f64) {
+    let (mut rough, mut range) = (0.0, 0.0);
+    for base in [et::TABLE_MG, et::TABLE_EG] {
+        for p in 0..6 {
+            let (r, g) = table_shape(theta, base, p);
+            rough += r;
+            range += g;
+        }
+    }
+    (rough / 12.0, range / 12.0)
+}
+
 /// Adam over the full training batch from `theta0`, moving the parameters of `mask` only, with L2
-/// towards `theta0` on the tables. Returns the final vector and the best one on the validation
+/// towards `theta0` on the tables and `smooth` times the squared jumps between neighbouring squares. Returns the final vector and the best one on the validation
 /// set as `(error, vector, epoch)`, checked every 50 epochs and at the end.
 #[allow(clippy::too_many_arguments)]
 fn run_epochs(samples: &[Sample], k: f64, pipeline: &Pipeline, theta0: &[f64], mask: &[bool], lambda: f64,
-              epochs: usize, lr: f64, threads: usize) -> (Vec<f64>, (f64, Vec<f64>, usize)) {
+              smooth: f64, epochs: usize, lr: f64, threads: usize) -> (Vec<f64>, (f64, Vec<f64>, usize)) {
     let train_n = samples.iter().filter(|s| s.set == 0).count() as f64;
+    let pairs = if smooth > 0.0 { smoothness_pairs(mask) } else { Vec::new() };
     let means0 = table_means(theta0, mask);
     let chunk = samples.len().div_ceil(threads).max(1);
     let mut theta = theta0.to_vec();
@@ -768,6 +857,7 @@ fn run_epochs(samples: &[Sample], k: f64, pipeline: &Pipeline, theta0: &[f64], m
             let penalty = if j >= et::TABLE_MG { 2.0 * lambda * (theta[j] - theta0[j]) } else { 0.0 };
             grad[j] = if mask[j] { grad[j] / train_n + penalty } else { 0.0 };
         }
+        add_smoothness_gradient(&theta, &pairs, smooth, &mut grad);
         for j in 0..et::N_PARAMS {
             if !mask[j] { continue; }
             m1[j] = 0.9 * m1[j] + 0.1 * grad[j];
@@ -782,7 +872,7 @@ fn run_epochs(samples: &[Sample], k: f64, pipeline: &Pipeline, theta0: &[f64], m
             if val < best_val.0 {
                 best_val = (val, theta.clone(), epoch);
             }
-            println!("lambda {lambda:e} epoch {epoch}: validation {val:.6} (best {:.6} at {})", best_val.0, best_val.2);
+            println!("smooth {smooth:e} lambda {lambda:e} epoch {epoch}: validation {val:.6} (best {:.6} at {})", best_val.0, best_val.2);
         }
     }
     (theta, best_val)
@@ -794,6 +884,7 @@ fn tune(args: &[String]) {
     std::fs::create_dir_all(out_dir).unwrap();
     let (mut epochs, mut lr, mut lambdas, mut threads) = (2000usize, 1.0f64, vec![0.0f64], 4usize);
     let mut groups = parse_groups("material,tables,passers,scalars");
+    let mut smooths = vec![0.0f64];
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -802,6 +893,7 @@ fn tune(args: &[String]) {
             "--threads" => { threads = args[i + 1].parse().unwrap(); i += 1; }
             "--lambda" => { lambdas = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
             "--free" => { groups = parse_groups(&args[i + 1]); i += 1; }
+            "--smooth" => { smooths = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
             other => panic!("unknown option {other}"),
         }
         i += 1;
@@ -818,12 +910,20 @@ fn tune(args: &[String]) {
     let base: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &theta0)).collect();
     log(format!("shipped: train {:.6}, validation {:.6}, test {:.6}", base[0], base[1], base[2]), &mut report);
     let mask = trainable_for(&groups);
+    let shape0 = tables_shape(&theta0);
+    log(format!("shipped tables: mean roughness {:.1}, mean range {:.0}", shape0.0, shape0.1), &mut report);
     let mut best: Option<(f64, Vec<f64>, f64)> = None;
-    for &lambda in &lambdas {
-        let (_, best_val) = run_epochs(&samples, k, &pipeline, &theta0, &mask, lambda, epochs, lr, threads);
+    for (&smooth, &lambda) in smooths.iter().flat_map(|s| lambdas.iter().map(move |l| (s, l))) {
+        let (_, best_val) = run_epochs(&samples, k, &pipeline, &theta0, &mask, lambda, smooth, epochs, lr, threads);
         let rounded: Vec<f64> = best_val.1.iter().map(|v| v.round()).collect();
         let val = mse(&samples, 1, k, &pipeline, &rounded);
-        log(format!("lambda {lambda:e}: best epoch {}, validation {:.6} (rounded {val:.6})", best_val.2, best_val.0), &mut report);
+        let test = mse(&samples, 2, k, &pipeline, &rounded);
+        let shape = tables_shape(&rounded);
+        // Every fit is kept: the choice between them is made by the search's time, not here.
+        let name = format!("theta_{smooth:e}_{lambda:e}.txt");
+        std::fs::write(out_dir.join(&name), rounded.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+        log(format!("smooth {smooth:e} lambda {lambda:e}: best epoch {}, validation {:.6} (rounded {val:.6}), test {test:.6} ({:+.1}e-6), roughness {:.1}, range {:.0} -> {name}",
+            best_val.2, best_val.0, (test - base[2]) * 1e6, shape.0, shape.1), &mut report);
         if best.as_ref().is_none_or(|b| val < b.0) {
             best = Some((val, rounded, lambda));
         }
@@ -1132,7 +1232,7 @@ mod tests {
             s
         }).collect();
         let mask = trainable_for(&parse_groups("material,tables"));
-        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 5, 1.0, 1).0;
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
         for j in 0..et::TABLE_MG {
             let group_is_free = (et::MATERIAL_MG..et::TABLE_MG).contains(&j);
             if !group_is_free {
@@ -1156,7 +1256,7 @@ mod tests {
             s
         }).collect();
         let mask = trainable_for(&parse_groups("material"));
-        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 5, 1.0, 1).0;
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
         assert!(theta.iter().all(|v| v.is_finite()), "a parameter left the reals");
         for j in 0..et::N_PARAMS {
             if !(et::MATERIAL_MG..et::TABLE_MG).contains(&j) {
@@ -1164,6 +1264,72 @@ mod tests {
             }
         }
         assert!((et::MATERIAL_MG..et::TABLE_MG).any(|j| theta[j] != theta0[j]), "material did not move");
+    }
+
+    /// The smoothness penalty's gradient equals central finite differences of the penalty.
+    #[test]
+    fn test_the_smoothness_gradient_matches_finite_differences() {
+        let mask = trainable_for(&parse_groups("material,tables"));
+        let pairs = smoothness_pairs(&mask);
+        let mut theta = et::theta_of(&hce_config());
+        for (j, v) in theta.iter_mut().enumerate().skip(et::TABLE_MG) {
+            *v += ((j * 37) % 23) as f64 - 11.0;
+        }
+        let s = 1e-3;
+        let mut grad = vec![0.0; et::N_PARAMS];
+        add_smoothness_gradient(&theta, &pairs, s, &mut grad);
+        for j in [et::TABLE_MG + 64 * 2 + 27, et::TABLE_EG + 64 * 5 + 6, et::TABLE_MG + 9, et::TABLE_EG + 64 * 4 + 63] {
+            let h = 0.01;
+            let (mut up, mut down) = (theta.clone(), theta.clone());
+            up[j] += h;
+            down[j] -= h;
+            let numeric = (s * smoothness_penalty(&up, &pairs) - s * smoothness_penalty(&down, &pairs)) / (2.0 * h);
+            assert!((numeric - grad[j]).abs() <= 1e-9 + 1e-6 * numeric.abs(), "parameter {j}: {numeric} against {}", grad[j]);
+        }
+    }
+
+    /// A table without jumps between neighbours feels no penalty and no pull; the pawn table's
+    /// back ranks, where no pawn stands, take no part.
+    #[test]
+    fn test_a_flat_table_feels_no_smoothness() {
+        let mask = trainable_for(&parse_groups("material,tables"));
+        let pairs = smoothness_pairs(&mask);
+        let mut theta = et::theta_of(&hce_config());
+        for p in 0..6 {
+            for sq in 0..64 {
+                theta[et::TABLE_MG + p * 64 + sq] = 10.0 * p as f64;
+                theta[et::TABLE_EG + p * 64 + sq] = -7.0 * p as f64;
+            }
+        }
+        theta[et::TABLE_MG + 3] = 500.0;
+        assert_eq!(smoothness_penalty(&theta, &pairs), 0.0);
+        let mut grad = vec![0.0; et::N_PARAMS];
+        add_smoothness_gradient(&theta, &pairs, 1.0, &mut grad);
+        assert!(grad.iter().all(|&g| g == 0.0));
+        assert!(pairs.iter().all(|&(i, j)| mask[i] && mask[j]));
+    }
+
+    /// A strong penalty smooths a noisy start within a few epochs; without it the same epochs
+    /// leave the roughness about where it was.
+    #[test]
+    fn test_a_strong_smoothness_lowers_the_roughness() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let mut theta0 = et::theta_of(&config);
+        for (j, v) in theta0.iter_mut().enumerate().skip(et::TABLE_MG) {
+            *v += ((j * 37) % 41) as f64 - 20.0;
+        }
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let mask = trainable_for(&parse_groups("material,tables"));
+        let rough = |t: &[f64]| (0..6).map(|p| table_shape(t, et::TABLE_MG, p).0).sum::<f64>();
+        let smooth = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 1e-2, 20, 1.0, 1).0;
+        let plain = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 20, 1.0, 1).0;
+        assert!(rough(&smooth) < 0.8 * rough(&theta0), "{} against {}", rough(&smooth), rough(&theta0));
+        assert!(rough(&plain) > 0.9 * rough(&theta0), "{} against {}", rough(&plain), rough(&theta0));
     }
 
     #[test]
