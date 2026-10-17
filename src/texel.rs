@@ -6,8 +6,10 @@
 //!   game.
 //! * `texel-check <data>` - rebuilds every evaluation from its trace at the shipped parameters and
 //!   compares it with the evaluation the engine computed.
-//! * `texel-tune <data> <out-dir> [--epochs E] [--lr L] [--lambda X...]` - fits the parameters
-//!   (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a report.
+//! * `texel-tune <data> <out-dir> [--epochs E] [--lr L] [--lambda X...] [--free G,...]` - fits the
+//!   parameters (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a
+//!   report. `--free` names the groups that move - `material`, `tables`, `passers`, `scalars`,
+//!   all four by default; the others keep their shipped values.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -289,32 +291,71 @@ const PIECE_SQUARE_SCALARS: &[et::P] = &[
     et::P::UndevelopedKingMalus, et::P::KingTrappAtBaselineMalus, et::P::RookOnSeventh,
 ];
 
+/// The parameter groups `texel-tune --free` can set free; the others keep their shipped values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Groups {
+    material: bool,
+    tables: bool,
+    passers: bool,
+    scalars: bool,
+}
+
+/// `material,tables,passers,scalars`, any subset, in any order.
+fn parse_groups(list: &str) -> Groups {
+    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false };
+    for name in list.split(',') {
+        match name.trim() {
+            "material" => groups.material = true,
+            "tables" => groups.tables = true,
+            "passers" => groups.passers = true,
+            "scalars" => groups.scalars = true,
+            other => panic!("unknown parameter group {other}"),
+        }
+    }
+    groups
+}
+
 /// Which parameters move: every scalar but the piece-square ones, the passed-pawn table on ranks
-/// 2 to 7, material without the king, every table square a piece can stand on.
-fn trainable() -> Vec<bool> {
+/// 2 to 7, material without the king, every table square a piece can stand on - each only if its
+/// group is free.
+fn trainable_for(groups: &Groups) -> Vec<bool> {
     let mut t = vec![false; et::N_PARAMS];
-    for v in t.iter_mut().take(et::N_SCALARS) {
-        *v = true;
+    if groups.scalars {
+        for v in t.iter_mut().take(et::N_SCALARS) {
+            *v = true;
+        }
+        for &p in PIECE_SQUARE_SCALARS {
+            t[p as usize] = false;
+        }
     }
-    for &p in PIECE_SQUARE_SCALARS {
-        t[p as usize] = false;
+    if groups.passers {
+        for r in 1..7 {
+            t[et::PASSER_MG + r] = true;
+            t[et::PASSER_EG + r] = true;
+        }
     }
-    for r in 1..7 {
-        t[et::PASSER_MG + r] = true;
-        t[et::PASSER_EG + r] = true;
+    if groups.material {
+        for p in 0..5 {
+            t[et::MATERIAL_MG + p] = true;
+            t[et::MATERIAL_EG + p] = true;
+        }
     }
-    for p in 0..5 {
-        t[et::MATERIAL_MG + p] = true;
-        t[et::MATERIAL_EG + p] = true;
-    }
-    for p in 0..6 {
-        for visual in 0..64 {
-            let pawn_rank_ok = p != 0 || (8..56).contains(&visual);
-            t[et::TABLE_MG + p * 64 + visual] = pawn_rank_ok;
-            t[et::TABLE_EG + p * 64 + visual] = pawn_rank_ok;
+    if groups.tables {
+        for p in 0..6 {
+            for visual in 0..64 {
+                let pawn_rank_ok = p != 0 || (8..56).contains(&visual);
+                t[et::TABLE_MG + p * 64 + visual] = pawn_rank_ok;
+                t[et::TABLE_EG + p * 64 + visual] = pawn_rank_ok;
+            }
         }
     }
     t
+}
+
+/// Every group free, as step 26 (`task.md` 29.6) tuned.
+#[cfg(test)]
+fn trainable() -> Vec<bool> {
+    trainable_for(&parse_groups("material,tables,passers,scalars"))
 }
 
 /// The mean of each table over the squares its piece can stand on.
@@ -334,6 +375,11 @@ fn table_means(theta: &[f64], trainable: &[bool]) -> Vec<f64> {
 /// material and moves there. Material plus table, what the evaluation sums, is unchanged; only
 /// the split the positional cap reads is fixed. The king's material cancels and does not move.
 fn recentre_tables(theta: &mut [f64], trainable: &[bool], means: &[f64]) {
+    // With material held there is nowhere to move a shift to; the tables then keep whatever mean
+    // the error gives them.
+    if !trainable[et::MATERIAL_MG] {
+        return;
+    }
     let now = table_means(theta, trainable);
     for (k, (base, material)) in [(et::TABLE_MG, et::MATERIAL_MG), (et::TABLE_EG, et::MATERIAL_EG)].into_iter().enumerate() {
         for p in 0..6 {
@@ -686,11 +732,68 @@ fn mirror(path: &str) {
 // ---------------------------------------------------------------------------------------------
 // texel-tune
 
+/// Adam over the full training batch from `theta0`, moving the parameters of `mask` only, with L2
+/// towards `theta0` on the tables. Returns the final vector and the best one on the validation
+/// set as `(error, vector, epoch)`, checked every 50 epochs and at the end.
+#[allow(clippy::too_many_arguments)]
+fn run_epochs(samples: &[Sample], k: f64, pipeline: &Pipeline, theta0: &[f64], mask: &[bool], lambda: f64,
+              epochs: usize, lr: f64, threads: usize) -> (Vec<f64>, (f64, Vec<f64>, usize)) {
+    let train_n = samples.iter().filter(|s| s.set == 0).count() as f64;
+    let means0 = table_means(theta0, mask);
+    let chunk = samples.len().div_ceil(threads).max(1);
+    let mut theta = theta0.to_vec();
+    let (mut m1, mut m2) = (vec![0.0; et::N_PARAMS], vec![0.0; et::N_PARAMS]);
+    let mut best_val = (f64::MAX, theta.clone(), 0usize);
+    for epoch in 1..=epochs {
+        let partials: Vec<Vec<f64>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = samples.chunks(chunk).map(|part| {
+                let theta = &theta;
+                scope.spawn(move || {
+                    let mut g = vec![0.0; et::N_PARAMS];
+                    gradient(part, k, pipeline, theta, &mut g);
+                    g
+                })
+            }).collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let mut grad = vec![0.0; et::N_PARAMS];
+        for part in partials {
+            for (g, p) in grad.iter_mut().zip(part) {
+                *g += p;
+            }
+        }
+        for j in 0..et::N_PARAMS {
+            // The penalty holds only the tables: a square few positions reach has almost no
+            // gradient of its own and would otherwise follow Adam's normalised noise.
+            let penalty = if j >= et::TABLE_MG { 2.0 * lambda * (theta[j] - theta0[j]) } else { 0.0 };
+            grad[j] = if mask[j] { grad[j] / train_n + penalty } else { 0.0 };
+        }
+        for j in 0..et::N_PARAMS {
+            if !mask[j] { continue; }
+            m1[j] = 0.9 * m1[j] + 0.1 * grad[j];
+            m2[j] = 0.999 * m2[j] + 0.001 * grad[j] * grad[j];
+            let mh = m1[j] / (1.0 - 0.9f64.powi(epoch as i32));
+            let vh = m2[j] / (1.0 - 0.999f64.powi(epoch as i32));
+            theta[j] -= lr * mh / (vh.sqrt() + 1e-12);
+        }
+        recentre_tables(&mut theta, mask, &means0);
+        if epoch % 50 == 0 || epoch == epochs {
+            let val = mse(samples, 1, k, pipeline, &theta);
+            if val < best_val.0 {
+                best_val = (val, theta.clone(), epoch);
+            }
+            println!("lambda {lambda:e} epoch {epoch}: validation {val:.6} (best {:.6} at {})", best_val.0, best_val.2);
+        }
+    }
+    (theta, best_val)
+}
+
 fn tune(args: &[String]) {
     let data = &args[0];
     let out_dir = std::path::Path::new(&args[1]);
     std::fs::create_dir_all(out_dir).unwrap();
     let (mut epochs, mut lr, mut lambdas, mut threads) = (2000usize, 1.0f64, vec![0.0f64], 4usize);
+    let mut groups = parse_groups("material,tables,passers,scalars");
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -698,6 +801,7 @@ fn tune(args: &[String]) {
             "--lr" => { lr = args[i + 1].parse().unwrap(); i += 1; }
             "--threads" => { threads = args[i + 1].parse().unwrap(); i += 1; }
             "--lambda" => { lambdas = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
+            "--free" => { groups = parse_groups(&args[i + 1]); i += 1; }
             other => panic!("unknown option {other}"),
         }
         i += 1;
@@ -710,59 +814,13 @@ fn tune(args: &[String]) {
     let mut report = String::new();
     let log = |line: String, report: &mut String| { println!("{line}"); report.push_str(&line); report.push('\n'); };
     let counts: Vec<usize> = (0..3).map(|set| samples.iter().filter(|s| s.set == set).count()).collect();
-    log(format!("positions: train {}, validation {}, test {}; K = {k:.6}", counts[0], counts[1], counts[2]), &mut report);
+    log(format!("positions: train {}, validation {}, test {}; K = {k:.6}; free {groups:?}", counts[0], counts[1], counts[2]), &mut report);
     let base: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &theta0)).collect();
     log(format!("shipped: train {:.6}, validation {:.6}, test {:.6}", base[0], base[1], base[2]), &mut report);
-    let train_n = counts[0] as f64;
-    let mask = trainable();
-    let means0 = table_means(&theta0, &mask);
-    let chunk = samples.len().div_ceil(threads);
+    let mask = trainable_for(&groups);
     let mut best: Option<(f64, Vec<f64>, f64)> = None;
     for &lambda in &lambdas {
-        let mut theta = theta0.clone();
-        let (mut m1, mut m2) = (vec![0.0; et::N_PARAMS], vec![0.0; et::N_PARAMS]);
-        let mut best_val = (f64::MAX, theta.clone(), 0usize);
-        for epoch in 1..=epochs {
-            let partials: Vec<Vec<f64>> = std::thread::scope(|scope| {
-                let handles: Vec<_> = samples.chunks(chunk).map(|part| {
-                    let theta = &theta;
-                    scope.spawn(move || {
-                        let mut g = vec![0.0; et::N_PARAMS];
-                        gradient(part, k, &pipeline, theta, &mut g);
-                        g
-                    })
-                }).collect();
-                handles.into_iter().map(|h| h.join().unwrap()).collect()
-            });
-            let mut grad = vec![0.0; et::N_PARAMS];
-            for part in partials {
-                for (g, p) in grad.iter_mut().zip(part) {
-                    *g += p;
-                }
-            }
-            for j in 0..et::N_PARAMS {
-                // The penalty holds only the tables: a square few positions reach has almost no
-                // gradient of its own and would otherwise follow Adam's normalised noise.
-                let penalty = if j >= et::TABLE_MG { 2.0 * lambda * (theta[j] - theta0[j]) } else { 0.0 };
-                grad[j] = if mask[j] { grad[j] / train_n + penalty } else { 0.0 };
-            }
-            for j in 0..et::N_PARAMS {
-                if !mask[j] { continue; }
-                m1[j] = 0.9 * m1[j] + 0.1 * grad[j];
-                m2[j] = 0.999 * m2[j] + 0.001 * grad[j] * grad[j];
-                let mh = m1[j] / (1.0 - 0.9f64.powi(epoch as i32));
-                let vh = m2[j] / (1.0 - 0.999f64.powi(epoch as i32));
-                theta[j] -= lr * mh / (vh.sqrt() + 1e-12);
-            }
-            recentre_tables(&mut theta, &mask, &means0);
-            if epoch % 50 == 0 || epoch == epochs {
-                let val = mse(&samples, 1, k, &pipeline, &theta);
-                if val < best_val.0 {
-                    best_val = (val, theta.clone(), epoch);
-                }
-                println!("lambda {lambda:e} epoch {epoch}: validation {val:.6} (best {:.6} at {})", best_val.0, best_val.2);
-            }
-        }
+        let (_, best_val) = run_epochs(&samples, k, &pipeline, &theta0, &mask, lambda, epochs, lr, threads);
         let rounded: Vec<f64> = best_val.1.iter().map(|v| v.round()).collect();
         let val = mse(&samples, 1, k, &pipeline, &rounded);
         log(format!("lambda {lambda:e}: best epoch {}, validation {:.6} (rounded {val:.6})", best_val.2, best_val.0), &mut report);
@@ -1059,6 +1117,30 @@ mod tests {
         for &p in PIECE_SQUARE_SCALARS {
             assert!(!mask[p as usize], "{p:?} is a piece-square term and must stay fixed");
         }
+    }
+
+    /// `--free material,tables` moves material and tables and nothing else: a few real epochs
+    /// leave every scalar and the passed-pawn table where they were.
+    #[test]
+    fn test_only_the_freed_groups_move() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let theta0 = et::theta_of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let mask = trainable_for(&parse_groups("material,tables"));
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 5, 1.0, 1).0;
+        for j in 0..et::TABLE_MG {
+            let group_is_free = (et::MATERIAL_MG..et::TABLE_MG).contains(&j);
+            if !group_is_free {
+                assert_eq!(theta[j], theta0[j], "parameter {j} moved although its group is held");
+            }
+        }
+        assert!((et::MATERIAL_MG..et::N_PARAMS).any(|j| theta[j] != theta0[j]), "nothing free moved");
+        assert_eq!(trainable_for(&parse_groups("material,tables,passers,scalars")), trainable());
     }
 
     #[test]
