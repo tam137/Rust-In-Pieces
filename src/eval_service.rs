@@ -1495,8 +1495,8 @@ impl EvalService {
             let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
             let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
             let dist = rank_dist + file_dist;
-            tr_const!(0, -(dist * 40));
-            e_eval -= (dist * 40) as i16;
+            tr!(KingCentreStep, 0, -dist);
+            e_eval -= (dist * config.king_centre_step as i32) as i16;
         }
 
         let white_pawns = board.bitboards[crate::model::WHITE_PAWN];
@@ -1587,8 +1587,8 @@ impl EvalService {
             let rank_dist = if rank < 3 { 3 - rank } else if rank > 4 { rank - 4 } else { 0 };
             let file_dist = if file < 3 { 3 - file } else if file > 4 { file - 4 } else { 0 };
             let dist = rank_dist + file_dist;
-            tr_const!(0, dist * 40);
-            e_eval += (dist * 40) as i16;
+            tr!(KingCentreStep, 0, dist);
+            e_eval += (dist * config.king_centre_step as i32) as i16;
         }
 
         let black_pawns = board.bitboards[crate::model::BLACK_PAWN];
