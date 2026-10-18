@@ -43,8 +43,8 @@ removed: SPRT [0, 10] H1 after 4994 games against v0.47.1, +10.4 Elo [+2, +18] o
 stopped run. **The pawn table was measured on 2026-10-18 (29.11):** no variant within the time
 stop; the brake is spread over the whole tree, not re-searches, lazy evaluation or the rank
 bonuses. **The pruning margins scaled by 1.12 to the new evaluation (29.12)** cost +6.2% / +2.0%
-time, over the owner's +5% rule: no game. Next: the passed-pawn table, E1, or the margins one at a
-time (29.12).
+time, over the owner's +5% rule: no game; **RFP alone at 90 (29.13)** cost +5.1% / +3.5%, over it
+by 0.1 point: no game. Next: the passed-pawn table or E1, unless the owner lets 90 or 85 play (29.13).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1420,3 +1420,25 @@ s = 1.12 is over +5% on `openings_wide`: no game (plan D3a). The census prices t
 whether the wider margins win the time back in accuracy only games can say, and the rule keeps
 them out. Open, each on its own plan: the owner lifting the rule for this one candidate (it is
 within +10%), or the margins one at a time - RFP alone cost +0.4% / +1.0% at 90 on v0.46.4.
+
+### 29.13 The Reverse Futility margin alone, 80 -> 90: over the time stop by 0.1 point, no game (2026-10-18)
+
+29.12 left which margin carries the time. RFP alone, 90 fixed before any measurement (80 x 1.12, the
+old scale's 80), behind the owner's +5% rule. Census, `engines/suprah-0.47.2` against itself with
+`RfpMarginPerDepth`, depth 10, 300 positions per pool (`openings_wide` / `openings_mixed`), time /
+generated moves:
+
+| RFP margin | `openings_wide` | `openings_mixed` |
+| :--- | ---: | ---: |
+| 80 (control) | -0.1% / 0.0%, 300/300 identical | +0.1% / 0.0%, 300/300 identical |
+| 85 | +1.7% / +0.3% | +1.6% / +2.7% |
+| **90** | **+5.1%** / +3.6% | +3.5% / +5.6% |
+| 95 | +5.4% / +2.3% | +8.9% / +15.1% |
+| 100 | +9.2% / +13.2% | +6.5% / +3.7% |
+
+90 is over +5% on `openings_wide` by 0.1 point: no game. The control reads to 0.1%, but between
+different trees the census is coarser - 95 against 100 on `openings_mixed` runs the wrong way by
+11 points of generated moves - so the 0.1 point is a rule, not a measurement. On v0.46.4 the same
+step cost +0.4% / +1.0% (21.3): on the new evaluation RFP cuts far more at 80, which is the
+tightening the scale predicts. Open for the owner: allow 90 at +5.1%, play 85 (+1.7% / +1.6%, half
+the correction), or close the margins.
