@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.3] - 2026-10-18
+
+The Reverse Futility margin goes from 80 to 90 per ply: the evaluation of v0.47 is 1.12x wider than
+the one the margin was set against (Texel `K` 0.003411 -> 0.003038), so 90 is the old 80. Gated by
+**SPRT [0, 10]: H1 after 4138 games** at 1s + 150ms against v0.47.2; at the end of the run, 4152
+games: +10.6 Elo, paired 95% [+2, +19] - a stopped run, not an effect size (`task.md` rule 7).
+See `task.md` section 29.13.
+
+### Changed
+- `rfp_margin_per_depth` 80 -> 90 (`tuning/parameters.json` follows; range unchanged).
+
+### Notes
+- Time to depth 10 against v0.47.2: +5.1% and +3.5% on the two pools - over the +5% rule for
+  margins on one pool by 0.1 point; the owner let this candidate play. Futility and razoring
+  scaled with it cost +6.2% and were not played (`task.md` 29.12).
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 47.0% / 58.0% / 93.5% against v0.47.2 /
+  v0.47.1 / v0.34.0, no losses on time.
+- Three tests that pinned 80 re-sampled to 90 with their claims unchanged.
+
+
+
 ## [V0.47.2] - 2026-10-18
 
 The king's piece-square tables are re-fitted by the Texel tuner and the hard-coded king-centre step

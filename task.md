@@ -14,7 +14,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 
 | | |
 | :--- | :--- |
-| Released | **v0.47.2** on `master` (HCE) since 2026-10-18 — the king tables re-fitted and the king-centre step removed (29.10), SPRT [0, 10] H1 after 4994 games against v0.47.1, +10.4 Elo [+2, +18] over 5005 games, a stopped run. Before it **v0.47.1** (2026-10-17), the tables of rook, knight, bishop and queen re-fitted with the material (29.9), SPRT [0, 10] H1 after 848 games against v0.47.0, +40.2 Elo [+19, +62] over 861 games, a stopped run. Before it **v0.47.0** (2026-10-17), the material re-fitted by the Texel tuner (29.7), SPRT [0, 10] H1 against v0.46.4, +107.2 Elo [+81, +135] over 488 games, a run stopped by hand. Before it **v0.46.4** (2026-10-14), Reverse Futility Pruning to depth 8 and ahead of Null Move Pruning (21.3), SPRT [0, 10] H1 after 1876 games against v0.46.3. Before it **v0.46.3** (2026-10-13), Null Move Pruning at the published depth and without the verification search (section 20), SPRT [0, 10] H1 after 3308 games against v0.46.2. Before that **v0.46.2** (2026-10-12), Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before that **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
+| Released | **v0.47.3** on `master` (HCE) since 2026-10-18 — the Reverse Futility margin 80 -> 90 for the wider evaluation (29.13), SPRT [0, 10] H1 after 4138 games against v0.47.2, +10.6 Elo [+2, +19] over 4152 games, a stopped run. Before it **v0.47.2** (2026-10-18), the king tables re-fitted and the king-centre step removed (29.10), SPRT [0, 10] H1 after 4994 games against v0.47.1, +10.4 Elo [+2, +18] over 5005 games, a stopped run. Before it **v0.47.1** (2026-10-17), the tables of rook, knight, bishop and queen re-fitted with the material (29.9), SPRT [0, 10] H1 after 848 games against v0.47.0, +40.2 Elo [+19, +62] over 861 games, a stopped run. Before it **v0.47.0** (2026-10-17), the material re-fitted by the Texel tuner (29.7), SPRT [0, 10] H1 against v0.46.4, +107.2 Elo [+81, +135] over 488 games, a run stopped by hand. Before it **v0.46.4** (2026-10-14), Reverse Futility Pruning to depth 8 and ahead of Null Move Pruning (21.3), SPRT [0, 10] H1 after 1876 games against v0.46.3. Before it **v0.46.3** (2026-10-13), Null Move Pruning at the published depth and without the verification search (section 20), SPRT [0, 10] H1 after 3308 games against v0.46.2. Before that **v0.46.2** (2026-10-12), Principal Variation Search at the root (section 28), SPRT [0, 10] H1 after 386 games against v0.46.1. Before that **v0.46.1** (2026-10-11), `improving` in the Late Move Reduction (21.4), SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0. Before that **v0.46.0** (2026-10-10), `improving` and the Late Move Pruning threshold of section 21, SPRT [0, 10] H1 after 4580 games and [0, 5] H1 after 6234 against v0.45.9. Before that, **v0.45.9** (2026-10-09), the end of a full source review, section 27: nine releases from v0.45.1, three of them tree-identical speed and robustness work (**22% less time to fixed depth** on identical trees) and five priced in games or positions — R17, R20, R19 and R24 by SPRT [0, 10], R21 by a targeted conversion test. Against v0.45.0, fixed-N 6000 games at 1s + 150ms: **+98.6 Elo, 95% [+92, +106]**. Porting to `feature/nnue-evaluation` is governed by `skills/nnue_porting_and_release_procedure.md` |
 | Throughput | **1.86x** over v0.30.3, from three measured changes on bit-identical search trees, and about **1.24x** more from the review's tree-identical releases v0.45.2 to v0.45.4 (+12.6%, +9.5%, +0.7% on the throughput corpus) |
 | Matchplay resolution | **+/-23 Elo at 500 games**, **+/-13 at 3000**, per pairing — measured on host A. On host C with paired openings: **+/-11 at 2000**, **+/-6.5 at 6000**, the last of these confirmed by v0.39.0's run, which returned [+19, +32] around +25.6 |
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
@@ -44,7 +44,9 @@ stopped run. **The pawn table was measured on 2026-10-18 (29.11):** no variant w
 stop; the brake is spread over the whole tree, not re-searches, lazy evaluation or the rank
 bonuses. **The pruning margins scaled by 1.12 to the new evaluation (29.12)** cost +6.2% / +2.0%
 time, over the owner's +5% rule: no game; **RFP alone at 90 (29.13)** cost +5.1% / +3.5%, over it
-by 0.1 point: no game. Next: the passed-pawn table or E1, unless the owner lets 90 or 85 play (29.13).
+by 0.1 point; **the owner let it play and it shipped in v0.47.3 (29.13)**: SPRT [0, 10] H1 after 4138
+games against v0.47.2, +10.6 Elo [+2, +19] over 4152, a stopped run. Next: futility and razoring one
+at a time the same way, the passed-pawn table, or E1.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -180,7 +182,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | ~~`improving` is not used by the Late Move Reduction table~~ | **closed 2026-10-11**: shipped in v0.46.1, SPRT [0, 5] and [0, 10] H1 after 9846 games against v0.46.0, section 21.4 |
 | `improving` in the Reverse Futility margin: **refused twice on 2026-10-10** against v0.46.0 - the published whole step (`margin * (depth - improving)`, 0 at depth 1) SPRT [0, 10] H0 after 1036 games, -21.8 Elo [-40, -4]; half a step (40/120/200) [0, 10] H0 after 4058 games, -0.9 Elo [-10, +8]. Code on the local branches `rfp-improving-margin` and `rfp-improving-half-step`. The step from depth 2 only and a tuned margin are untried | negative result, section 21.4 |
 | ~~`rfp_max_depth` is 3 against a published 6 to 9~~ | **closed 2026-10-14**: shipped in v0.46.4 with the rule ahead of Null Move Pruning, SPRT [0, 10] H1 after 1876 games against v0.46.3, section 21.3 |
-| `rfp_margin_per_depth` 80 against a published 90 to 100: **refused 2026-10-15** at 90 against v0.46.4. Census at depth 10 against 80, `openings_wide` / `openings_mixed`: 70 -6.3% / -7.2% time, 90 +0.4% / +1.0%, 100 +7.8% / +6.0%, 120 +17.3% / +12.3%; 100 was not played (more than 5% more time on both pools). 90: SPRT [0, 10] H0 after 3490 games, -2.3 Elo [-12, +7] over 3503, [0, 5] undecided at -1.07. Code on the local branch `rfp-margin`. **70 refused 2026-10-16**: census -5.4% / -6.5% time, SPRT [0, 10] H0 after 1424 games, -12.6 Elo [-27, +2] over 1438, code on the local branch `rfp-margin-70`. 100 in games is untried | negative result, section 21.3 |
+| `rfp_margin_per_depth` 80 against a published 90 to 100: **refused 2026-10-15** at 90 against v0.46.4. Census at depth 10 against 80, `openings_wide` / `openings_mixed`: 70 -6.3% / -7.2% time, 90 +0.4% / +1.0%, 100 +7.8% / +6.0%, 120 +17.3% / +12.3%; 100 was not played (more than 5% more time on both pools). 90: SPRT [0, 10] H0 after 3490 games, -2.3 Elo [-12, +7] over 3503, [0, 5] undecided at -1.07. Code on the local branch `rfp-margin`. **70 refused 2026-10-16**: census -5.4% / -6.5% time, SPRT [0, 10] H0 after 1424 games, -12.6 Elo [-27, +2] over 1438, code on the local branch `rfp-margin-70`. 100 in games is untried. All on v0.46.4's scale: **on the 1.12x wider evaluation of v0.47, 90 shipped in v0.47.3** (29.13, SPRT [0, 10] H1, +10.6 Elo [+2, +19]) | negative result on the old scale, section 21.3; superseded by 29.13 |
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 19 | property, established 2026-09-04 |
@@ -1421,7 +1423,7 @@ whether the wider margins win the time back in accuracy only games can say, and 
 them out. Open, each on its own plan: the owner lifting the rule for this one candidate (it is
 within +10%), or the margins one at a time - RFP alone cost +0.4% / +1.0% at 90 on v0.46.4.
 
-### 29.13 The Reverse Futility margin alone, 80 -> 90: over the time stop by 0.1 point, no game (2026-10-18)
+### 29.13 The Reverse Futility margin alone, 80 -> 90: shipped in v0.47.3 (2026-10-18)
 
 29.12 left which margin carries the time. RFP alone, 90 fixed before any measurement (80 x 1.12, the
 old scale's 80), behind the owner's +5% rule. Census, `engines/suprah-0.47.2` against itself with
@@ -1436,9 +1438,27 @@ generated moves:
 | 95 | +5.4% / +2.3% | +8.9% / +15.1% |
 | 100 | +9.2% / +13.2% | +6.5% / +3.7% |
 
-90 is over +5% on `openings_wide` by 0.1 point: no game. The control reads to 0.1%, but between
-different trees the census is coarser - 95 against 100 on `openings_mixed` runs the wrong way by
-11 points of generated moves - so the 0.1 point is a rule, not a measurement. On v0.46.4 the same
-step cost +0.4% / +1.0% (21.3): on the new evaluation RFP cuts far more at 80, which is the
-tightening the scale predicts. Open for the owner: allow 90 at +5.1%, play 85 (+1.7% / +1.6%, half
-the correction), or close the margins.
+90 is over +5% on `openings_wide` by 0.1 point. The control reads to 0.1%, but between different
+trees the census is coarser - 95 against 100 on `openings_mixed` runs the wrong way by 11 points of
+generated moves - so the 0.1 point is a rule, not a measurement. On v0.46.4 the same step cost
++0.4% / +1.0% (21.3): on the new evaluation RFP cuts far more at 80, the tightening the scale
+predicts. **The owner let 90 play** ("90 spielen, leg los"), the +5% rule lifted for this one
+candidate. One commit, `rfp_margin_per_depth` 90 in `Config` and `tuning/parameters.json`; three
+tests that pinned 80 re-sampled to 90 with their claims unchanged; the candidate identical to
+v0.47.2 with `RfpMarginPerDepth=90` (100/100 trees).
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor, against v0.47.2. **[0, 10] H1 after 4138 games** (LLR +3.07, +10.7 Elo), [0, 5] +2.21
+undecided. At the end of the run, 4152 games: **+10.6 Elo, paired 95% [+2, +19]** - a stopped run,
+not an effect size (rule 7). Pairs 0-2 / 0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side
+192 / 447 / 707 / 501 / 228; no losses on time, White 55.4%, design effect 1.07. The reading was +53
+after 118 games, +17 after 956, +13 after 2530 ([0, 10] LLR +2.73), +10 after 3248 (+1.99).
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 47.0% against v0.47.2, 58.0% against
+v0.47.1, 93.5% against v0.34.0, no losses on time. Shipped as **v0.47.3**, the release binary
+identical to the candidate (100/100 trees).
+
+**What it says.** A margin in centipawns is a statement about the evaluation's scale, and five
+evaluation releases had moved that scale by 12%. Put back where the scale says, RFP won its games
+although it cost 3-5% more time to a fixed depth. Futility and razoring are left at 120 + 80 and
+300: scaled together with RFP they cost +6.2% (29.12) and were not played.
