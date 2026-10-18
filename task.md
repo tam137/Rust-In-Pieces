@@ -40,7 +40,9 @@ queen followed in v0.47.1 (29.9):** the pawn table is the brake (29.8), the othe
 search faster; SPRT [0, 10] H1 after 848 games against v0.47.0, +40.2 Elo [+19, +62] over 861, a
 stopped run. **The king tables followed in v0.47.2 (29.10)** with the king-centre step (E3)
 removed: SPRT [0, 10] H1 after 4994 games against v0.47.1, +10.4 Elo [+2, +18] over 5005, a
-stopped run. Next: why the pawn table slows the search, then the passed-pawn table, E1 (29.10).
+stopped run. **The pawn table was measured on 2026-10-18 (29.11):** no variant within the time
+stop; the brake is spread over the whole tree, not re-searches, lazy evaluation or the rank
+bonuses. Next: the passed-pawn table, E1, or the search margins against the new evaluation (29.11).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -135,7 +137,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
 | 10 | NNUE incremental accumulator | 6 | Only worth it once `use_nnue` is the default path, and it is not |
 | 11 | `adjust_eval`: a step of up to 200 cp at +/-200 | 29.5 E1 | The strongest Texel signal that holds on both sets, and a defect besides; small, one SPRT. Recommended first |
-| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6, 29.7, 29.8, 29.9, 29.10 | **Material shipped in v0.47.0 (2026-10-17)**: SPRT [0, 10] H1, +107.2 Elo [+81, +135] over 488 games. The full re-fit was refused (H0, -8.2 Elo, 58% / 69% slower to depth 10), material plus tables and six smoothed or shrunk table fits stopped before any game (+26% to +86%). The brake is the pawn table (+69% alone; 29.8). **The tables of rook, knight, bishop and queen shipped in v0.47.1** (29.9): 4.8% / 4.0% faster to depth 10, SPRT [0, 10] H1 after 848 games, +40.2 Elo [+19, +62] over 861. **The king tables shipped in v0.47.2** (29.10) with the king-centre step removed: +5.2% / +1.8% time, SPRT [0, 10] H1 after 4994 games, +10.4 Elo [+2, +18] over 5005. Left: the pawn table's brake, the passed-pawn table and the weights |
+| 12 | A Texel tuner for material, piece-square tables and the evaluation weights | 29.5 E2, 29.6, 29.7, 29.8, 29.9, 29.10, 29.11 | **Material shipped in v0.47.0 (2026-10-17)**: SPRT [0, 10] H1, +107.2 Elo [+81, +135] over 488 games. The full re-fit was refused (H0, -8.2 Elo, 58% / 69% slower to depth 10), material plus tables and six smoothed or shrunk table fits stopped before any game (+26% to +86%). The brake is the pawn table (+69% alone; 29.8). **The tables of rook, knight, bishop and queen shipped in v0.47.1** (29.9): 4.8% / 4.0% faster to depth 10, SPRT [0, 10] H1 after 848 games, +40.2 Elo [+19, +62] over 861. **The king tables shipped in v0.47.2** (29.10) with the king-centre step removed: +5.2% / +1.8% time, SPRT [0, 10] H1 after 4994 games, +10.4 Elo [+2, +18] over 5005. **The pawn table** (29.11): no variant within the time stop, the brake measured - spread over the tree, growing with how far the table moves. Left: the passed-pawn table and the weights |
 | 13 | A no-pawn scale factor, R26, the lazy first visit | 29.5 E4, E6 | Small, each priced on its own; E4 acts in a corner and is priced like R21. E3, the king-centre step, went with the king tables in v0.47.2 (29.10) |
 | 14 | King safety from piece attacks, with attack maps shared by the evaluation | 29.5 E5, E7 | Absent today; only with 12, or it is one more hand-set term |
 
@@ -1351,3 +1353,43 @@ is fitted: the step off alone gained more than half of what the joint change did
 fitted without it is the one that kept its chess shape. A few percent more time to depth 10 did not
 stop a gain of -615. Next: why the pawn table slows the search (29.8), measured before a fit is
 built on it; then the passed-pawn table and E1 `adjust_eval`.
+
+### 29.11 The pawn table: the brake measured, no variant within the time stop (2026-10-18)
+
+The candidate 29.8 and 29.10 left. Three variants as for the king, plus a measurement of the
+brake: (i) the rank bonuses off (eg 183 / 104 / 47 for every pawn on the 7th / 6th / 5th rank, mg
+half - an advanced pawn is paid by them, the passed-pawn table and the pawn table at once); (ii)
+the pawn tables re-fitted, bonuses kept; (iii) both. Material, other tables, passers and weights
+as v0.47.2. Branch `texel-pawn` (local): `texel-swing` (`5ef64b3`, feature `texel`) measures how far
+one quiet move moves the static evaluation, by the moving piece, with the side to move held. Data
+extracted again with v0.47.2 (same positions and split as 29.8), `K` 0.003038.
+
+| Variant | Held-out error x 10^-6 | Time to depth 10, 100 positions | 300 per pool |
+| :--- | ---: | ---: | ---: |
+| (i) bonuses off | -371 (train -11, validation +4) | -2.8% | +0.4% / -1.8% |
+| (ii) L2 1e-10 / 1e-9 / 1e-8 / 1e-7 | -793 / -667 / -403 / -167 | +47 / +47 / +21 / +4.1% | |
+| (iii) L2 1e-10 / 1e-9 / 1e-8 / 1e-7 | -824 / -789 / -662 / **-535** | +49 / +50 / +25 / **+2.1%** | **+6.2% / +15.4%** |
+
+The largest gain within the screen, (iii) at 1e-7 (validation -365, plausibility passed), went over
+the stop on `openings_mixed`: no game. (i) is time-neutral and over the bar on the test set only -
+on training and validation it is worth nothing, so it was not played without the owner. The two
+fits at 1e-10 failed the plausibility check (in the endgame the 5th rank below the 2nd): without
+the passed-pawn bonus the data value a pawn on ranks 2 to 6 about alike and only the 7th higher.
+
+**The brake**, `search-diag` at depth 10, 300 positions per pool, v0.47.2 against (iii) at 1e-9
+(+50%) and at 1e-7: interior nodes +39% / +48% and +6% / +14% (`openings_wide` / `openings_mixed`);
+every pruning count grows with them (RFP cuts +28%, null-move searches +31%, LMP +40% at 1e-9).
+Per node little moves: the first-move cut 58.2% -> 57.3% / 56.9%, the null-move cut rate down 1.5
+points, `improving` down 1 point, root fail-highs +9%; LMR re-searches stay at 0.8%, lazy
+evaluation misses beyond 180 cp 2.0% -> 2.0% / 1.7%, the cap 36.3% -> 36.8% / 33.4%. A pawn move
+moves the evaluation by 17 cp on average in v0.47.2 (6% beyond 50), by 25 cp (14%) at 1e-9 -
+the fit asks for the centre pawns off d2/e2 (-72 / -70) and onto d5-f5 (+61 to +72) - and by 16 cp
+(6%) at 1e-7, which still costs +14% on `openings_mixed`.
+
+**What it says.** Neither suspicion holds alone. The rank bonuses are not the brake ((i) is
+neutral; (ii) and (iii) cost alike). It is not re-searches, lazy evaluation or the cap. The extra
+work is spread over the whole tree: a point or so less cut efficiency per node, compounded over
+ten plies, and it grows with how far the pawn table moves from the shipped one - as the tables did
+in 29.8. The larger pawn swings fit the slowest fit but not the 1e-7 one. The search's margins were
+tuned against the old evaluation; whether they, rather than the table, are what no longer fits is
+open. Code and tool on `texel-pawn`; `master` unchanged.
