@@ -42,7 +42,9 @@ stopped run. **The king tables followed in v0.47.2 (29.10)** with the king-centr
 removed: SPRT [0, 10] H1 after 4994 games against v0.47.1, +10.4 Elo [+2, +18] over 5005, a
 stopped run. **The pawn table was measured on 2026-10-18 (29.11):** no variant within the time
 stop; the brake is spread over the whole tree, not re-searches, lazy evaluation or the rank
-bonuses. Next: the passed-pawn table, E1, or the search margins against the new evaluation (29.11).
+bonuses. **The pruning margins scaled by 1.12 to the new evaluation (29.12)** cost +6.2% / +2.0%
+time, over the owner's +5% rule: no game. Next: the passed-pawn table, E1, or the margins one at a
+time (29.12).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1393,3 +1395,28 @@ ten plies, and it grows with how far the pawn table moves from the shipped one -
 in 29.8. The larger pawn swings fit the slowest fit but not the 1e-7 one. The search's margins were
 tuned against the old evaluation; whether they, rather than the table, are what no longer fits is
 open. Code and tool on `texel-pawn`; `master` unchanged.
+
+### 29.12 The pruning margins against the new evaluation scale: over the time stop, no game (2026-10-18)
+
+The margins that compare the static evaluation with alpha/beta - `rfp_margin_per_depth` 80,
+`futility_margin_base` 120 and `futility_margin_slope` 80, `razoring_margin` 300 - were set against
+the evaluation up to v0.46.4. The Texel `K` fitted on the same positions and results fell from
+0.003411 (v0.46.4) to 0.003038 (v0.47.2): the evaluation is 1.12x wider, every margin effectively
+12% tighter, and today's RFP 80 is the old scale's ~71, next to the 70 that lost in 21.3. The plan
+scaled the four by one factor and fixed s = 1.12 for the game before any measurement, behind the
+owner's +5% time rule for margins (2026-10-15).
+
+Census, `engines/suprah-0.47.2` against itself with the four values by `setoption`, depth 10, 300
+positions per pool (`openings_wide` / `openings_mixed`), time and generated moves:
+
+| s | RFP / futility / razoring | Time | Generated moves |
+| :--- | :--- | ---: | ---: |
+| 1.0 (control) | 80 / 120 + 80 / 300 | 0.0% / +0.1%, 300/300 identical | 0.0% / 0.0% |
+| 0.9 | 72 / 108 + 72 / 270 | -3.4% / -2.2% | -5.7% / -1.2% |
+| **1.12** | 90 / 134 + 90 / 336 | **+6.2%** / +2.0% | +6.7% / +2.7% |
+| 1.25 | 100 / 150 + 100 / 375 | +8.4% / +8.6% | +10.9% / +8.3% |
+
+s = 1.12 is over +5% on `openings_wide`: no game (plan D3a). The census prices time, not strength;
+whether the wider margins win the time back in accuracy only games can say, and the rule keeps
+them out. Open, each on its own plan: the owner lifting the rule for this one candidate (it is
+within +10%), or the margins one at a time - RFP alone cost +0.4% / +1.0% at 90 on v0.46.4.
