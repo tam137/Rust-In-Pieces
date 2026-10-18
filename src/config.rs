@@ -631,7 +631,7 @@ impl Config {
             aspiration_window_max_delta: 1000,
             lmr_history_good_threshold: 0,
             lmr_history_bad_threshold: 0,
-            rfp_margin_per_depth: 80,
+            rfp_margin_per_depth: 90,
             rfp_max_depth: 8,
             rfp_before_nmp: true,
             rfp_pv_guard: false,
@@ -1011,7 +1011,7 @@ mod tests {
     fn test_reverse_futility_ships_the_published_bound_ahead_of_the_null_move() {
         let defaults = Config::new();
         assert_eq!(defaults.rfp_max_depth, 8, "the published bound is 6 to 9; 8 is the one shipped");
-        assert_eq!(defaults.rfp_margin_per_depth, 80, "21.3 moves the bound, not the margin");
+        assert_eq!(defaults.rfp_margin_per_depth, 90, "29.13: 90 is the old scale's 80 on the evaluation of v0.47");
         assert!(defaults.rfp_before_nmp, "the rule runs ahead of Null Move Pruning");
         assert!(!defaults.rfp_pv_guard, "the PV guard stays off, refused on 2026-10-13");
 
@@ -1165,7 +1165,7 @@ mod tests {
         assert_eq!(config.aspiration_window_initial_delta, 15);
         assert_eq!(config.aspiration_window_multiplier, 4);
         assert_eq!(config.aspiration_window_max_delta, 1000);
-        assert_eq!(config.rfp_margin_per_depth, 80);
+        assert_eq!(config.rfp_margin_per_depth, 90);
         assert_eq!(config.rfp_max_depth, 8);
         assert!(config.rfp_before_nmp);
         assert_eq!(config.lmr_history_good_threshold, 0);

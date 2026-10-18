@@ -4693,12 +4693,12 @@ mod tests {
     }
 
     /// The margin is `rfp_margin_per_depth * depth`, and the rule stops at `rfp_max_depth`: at
-    /// the shipped 80 and 8 the surplus it demands runs 80, 160, ..., 640.
+    /// the shipped 90 and 8 the surplus it demands runs 90, 180, ..., 720.
     #[test]
     fn test_reverse_futility_margin_and_bound() {
         let config = Config::new();
         let margins: Vec<i16> = (1..=8).map(|d| super::SearchService::rfp_margin(d, &config)).collect();
-        assert_eq!(margins, vec![80, 160, 240, 320, 400, 480, 560, 640]);
+        assert_eq!(margins, vec![90, 180, 270, 360, 450, 540, 630, 720]);
 
         let beta = QUEEN_EN_PRISE_BETA;
         let cut_at = |bound: i32| {
