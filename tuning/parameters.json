@@ -410,7 +410,7 @@
         "max": 0
     },
     "rfp_margin_per_depth": {
-        "value": 80,
+        "value": 90,
         "min": 40,
         "max": 160
     },
