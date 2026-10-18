@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.2] - 2026-10-18
+
+The king's piece-square tables are re-fitted by the Texel tuner and the hard-coded king-centre step
+is removed; material, every other table and every weight are as in v0.47.1. Gated by **SPRT
+[0, 10]: H1 after 4994 games** at 1s + 150ms against v0.47.1; at the end of the run, 5005 games:
++10.4 Elo, paired 95% [+2, +18] - a stopped run, not an effect size (`task.md` rule 7). See
+`task.md` section 29.10.
+
+### Changed
+- **King tables**, middlegame and endgame, re-fitted (no entry beyond +/-143). In the endgame the
+  centre is now worth about 75 cp over the corners instead of about 310, and the advanced ranks
+  score; castled squares stay ahead of e1 in the middlegame.
+
+### Removed
+- The **king-centre step**: 40 cp per step of the king's distance to the centre below phase 60 (up
+  to 240 cp, `task.md` 29.5 E3). It counted centralisation a second time on top of the endgame
+  table, and the capture that took the phase below 60 moved the evaluation by up to about 185 cp.
+
+### Added
+- `texel-tune --set name=value,...` (feature `texel`, not in the release build) holds scalars at
+  given values.
+
+### Notes
+- Held-out Texel error against v0.47.1: -615 x 10^-6 (the step off alone -373, the king table with
+  the step kept -443). Time to depth 10 against v0.47.1: +5.2% and +1.8% on the two pools.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 61.0% / 57.0% / 93.5% against v0.47.1 /
+  v0.47.0 / v0.34.0, no losses on time.
+- Two tests re-sampled with their claims unchanged: `unequal_position_test` (a range) and the
+  LMP-base test, which now compares the geometric mean of its per-cell node ratios.
+
+
+
 ## [V0.47.1] - 2026-10-17
 
 The piece-square tables of rook, knight, bishop and queen are re-fitted by the Texel tuner together
