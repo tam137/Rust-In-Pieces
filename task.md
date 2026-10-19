@@ -1514,3 +1514,23 @@ v0.46.4-NNUE.
 56, 58, 57, 58, 62, 70, 81, 105 / 64. Error with one common K: training -396, validation -361, **test
 +242** x 10^-6. The phase-dependent scale holds on the older games and not on the October test
 games: it belongs to the data, not to the net. Stopped at the pre-set bar; no code, no game.
+
+### 29.16 NNUE: the output layer re-fitted by Texel - no gain on the test set, no game (2026-10-19)
+
+Matt-Magie step 37, option B. With the feature transformer held, the output layer (per output
+bucket 512 weights on `clamp(acc, 0, 255)^2` and a bias; 4,104 values) is linear - a Texel fit
+proper. Tool on the NNUE repository's local branch `nnue-output-fit` (`da61d55`, feature
+`nnue-texel`, release build identical to v0.46.4-NNUE): features of the 4,141,547 positions of 29.14
+(2.1 GB, 10 s), Adam from the shipped layer with K held at 0.001967, weights held within +/-127 (the
+engine's i32 sum), export byte-identical for the shipped layer; four tests, two of which were shown
+to fail on injected faults.
+
+| L2 towards the shipped layer | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| 1e-8, 1e-7, 1e-6, 1e-5 (alike) | -2186 x 10^-6 | -1945 | **+170** |
+
+Twenty epochs already read -1417 / -1371 / **+276**: from the first steps the fit improves the older
+games and worsens the October test games, as the per-bucket rescale of 29.15 did. The bar (a test
+gain of at least 200 together with a validation gain) failed: no game. The net predicts the newest
+games best as it is; fitted to this data - mostly HCE games of older versions - it moves towards
+them. A fit of the net would need positions from its own recent games, many more of them.
