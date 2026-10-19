@@ -1497,3 +1497,20 @@ Options (Matt-Magie plan step 34): **A** the margins to the net's scale (futilit
 never set on it); **E** the net's output calibrated per output bucket (8 factors, the phase-dependent
 scale above); **B** the output layer re-fitted (4,104 weights, linear on fixed features); C HCE
 corrections (no signal in the blend); D training the net (not with 4M positions and no GPU).
+
+### 29.15 NNUE: futility and razoring to the net's scale refused, the output calibration stopped at the fit (2026-10-19)
+
+**Margins (Matt-Magie step 35).** On the NNUE branch futility (120 + 80) and razoring (300) are HCE
+values; the net is 1.73x wider (29.14). Census on v0.46.4-NNUE by `setoption`, depth 10, 300
+positions per pool: s = 1.0 control 300/300 identical; 1.25 +1.0% / +0.4% time; 1.5 +3.5% / +1.4%;
+1.73 +4.8% / +3.1% - within the owner's +5% rule, so 1.73 played: futility 208 + 138, razoring 519
+(local branch `nnue-margins`, `2709631`, in the NNUE repository). SPRT against v0.46.4-NNUE, 1s +
+150ms, `openings_wide.txt`: **[0, 10] H0** after about 920 games (LLR -2.98, -14.4 Elo); 931 games:
+**-14.2 Elo, paired 95% [-30, +2]**, 52% draws, no losses on time. The scale is right; the net does not
+need the wider margins - it plays better with the tighter, cheaper search. The branch stays at
+v0.46.4-NNUE.
+
+**Output calibration (option E, step 36).** Eight factors per output bucket, f_b = K_b / 0.001967:
+56, 58, 57, 58, 62, 70, 81, 105 / 64. Error with one common K: training -396, validation -361, **test
++242** x 10^-6. The phase-dependent scale holds on the older games and not on the October test
+games: it belongs to the data, not to the net. Stopped at the pre-set bar; no code, no game.
