@@ -46,7 +46,10 @@ bonuses. **The pruning margins scaled by 1.12 to the new evaluation (29.12)** co
 time, over the owner's +5% rule: no game; **RFP alone at 90 (29.13)** cost +5.1% / +3.5%, over it
 by 0.1 point; **the owner let it play and it shipped in v0.47.3 (29.13)**: SPRT [0, 10] H1 after 4138
 games against v0.47.2, +10.6 Elo [+2, +19] over 4152, a stopped run. Next: futility and razoring one
-at a time the same way, the passed-pawn table, or E1.
+at a time the same way, the passed-pawn table, or E1. **Futility alone at 134 + 90 (29.17)** cost
+almost nothing (+0.3% / +0.2%) and was **refused**: SPRT [0, 10] H0 after 1424 games against
+v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80; next razoring alone, the
+passed-pawn table, or E1.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1534,3 +1537,34 @@ games and worsens the October test games, as the per-bucket rescale of 29.15 did
 gain of at least 200 together with a validation gain) failed: no game. The net predicts the newest
 games best as it is; fitted to this data - mostly HCE games of older versions - it moves towards
 them. A fit of the net would need positions from its own recent games, many more of them.
+
+### 29.17 The futility margins alone, 120 + 80 -> 134 + 90: refused by SPRT H0 (2026-10-19)
+
+Matt-Magie step 38, after 29.13: futility alone, scaled by 1.12 (fixed before any measurement),
+behind the owner's +5% rule. Census, `engines/suprah-0.47.3` against itself with
+`FutilityMarginBase` / `FutilityMarginSlope`, depth 10, 300 positions per pool, time / generated
+moves:
+
+| s | futility | `openings_wide` | `openings_mixed` |
+| :--- | :--- | ---: | ---: |
+| 1.00 (control) | 120 + 80 | +0.5% / 0.0%, 300/300 identical | -0.1% / 0.0%, 300/300 identical |
+| **1.12** | **134 + 90** | **+0.3%** / -0.1%, 232/300 identical | **+0.2%** / +0.4%, 265/300 identical |
+| 1.25 | 150 + 100 | +0.1% / 0.0%, 220/300 identical | +0.4% / +0.4%, 248/300 identical |
+
+Unlike RFP, futility is nearly free in time and leaves most trees to depth 10 unchanged. One commit
+on the local branch `futility-scale` (`5256679`), the two defaults in `Config`; futility is not in
+`tuning/parameters.json` and no test pinned 120 / 80; tests 269 (286 with `texel`). The candidate
+`0.47.4-rc` identical to v0.47.3 with 134 / 90 (100/100 trees).
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor, against v0.47.3. **[0, 10] H0 after 1424 games** (LLR -3.00, -9.8 Elo), [0, 5] -1.25
+undecided; the monitor stopped the run on H0 with a non-positive estimate. At the end, 1438 games:
+**-8.9 Elo, paired 95% [-23, +5]** - a stopped run, not an effect size (rule 7). Pairs 0-2 /
+0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side 69 / 172 / 262 / 159 / 57; no losses on
+time, White 53.4%. The reading was +22 after 64 games, -0.6 after 546, -8.1 after 906.
+
+**What it says.** The scale argument that carried RFP (29.13) does not carry futility: wider
+futility margins prune fewer quiet moves near the leaves, and the games did not want that. Futility
+stays at 120 + 80; `master` unchanged, the branch kept as evidence. As on NNUE (29.15), the scale
+alone does not set a margin - the games do.
+
