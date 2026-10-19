@@ -1462,3 +1462,38 @@ identical to the candidate (100/100 trees).
 evaluation releases had moved that scale by 12%. Put back where the scale says, RFP won its games
 although it cost 3-5% more time to a fixed depth. Futility and razoring are left at 120 + 80 and
 300: scaled together with RFP they cost +6.2% (29.12) and were not played.
+
+### 29.14 The NNUE net measured with the Texel tools (2026-10-19)
+
+The owner asked what Texel tuning could do for the NNUE branch (v0.46.4-NNUE). There the evaluation
+is the net alone - after the insufficient-material guard its output is returned with no HCE term -
+and the search margins are master's HCE values (RFP 80 x depth, futility 120 + 80 x depth, razoring
+300; "margins in HCE units" was review item N4). The net: 768 inputs x 10 king buckets -> 256 per
+side, SCReLU, -> 8 output buckets by piece count, `NNUE_SCALE` 400.
+
+`texel-extract --fens` (`5c2ff87`, feature `texel`, release build identical to v0.47.3) wrote the
+4,141,547 positions of the data set as `fen;result;set;eval`; a scratch copy of the NNUE branch (not
+committed) evaluated them with the embedded net in 13 s. K fitted on the training set, as the tuner:
+
+| | K | MSE train | validation | test |
+| :--- | ---: | ---: | ---: | ---: |
+| HCE v0.47.3 | 0.003042 | 0.104031 | 0.103732 | 0.102579 |
+| NNUE v0.46.4 | **0.001967** | 0.096076 | 0.095701 | **0.088225** |
+
+The net predicts the results far better: -14,350 x 10^-6 on the test set (games of 2026-10-13 to
+16, after the net's date of 2026-08-04), where every HCE re-fit here gained 600 to 4,000. Its scale
+is 1.55x HCE v0.47.3 and **1.73x the HCE of v0.46.4** the margins were set against - and it varies
+with the phase: per output bucket the net's K runs 0.00173-0.00190 over buckets 0-4 (2 to 21
+pieces), 0.00215 / 0.00250 / 0.00324 over buckets 5-7 (22 to 33), so the opening's scale is about
+HCE's and the middlegame's nearly twice it. A logit blend of net and HCE is best at 100% net (test
+MSE 0.088207 against 0.089439 at a quarter HCE): HCE terms on top of the net have no signal here.
+
+Strength, for orientation: v0.46.4-NNUE against v0.47.3, 1s + 150ms, `openings_wide.txt`, stopped
+by the owner's word at 290 of 400 games ("dass sie besser ist als HCE ist klar"): 95.5%, +271 =12 -7,
+paired +530 Elo [+462, +638]; no losses on time. Every NNUE change is gated against its NNUE
+predecessor, not against HCE.
+
+Options (Matt-Magie plan step 34): **A** the margins to the net's scale (futility and razoring were
+never set on it); **E** the net's output calibrated per output bucket (8 factors, the phase-dependent
+scale above); **B** the output layer re-fitted (4,104 weights, linear on fixed features); C HCE
+corrections (no signal in the blend); D training the net (not with 4M positions and no GPU).
