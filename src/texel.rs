@@ -1,9 +1,9 @@
 //! The Texel tuner of the hand-crafted evaluation (`task.md` 29.5 E2), feature `texel`.
 //!
-//! * `texel-extract <out> [--per-game N] [--seed S] <pgn>... [--test <pgn>...]` - quiet positions
-//!   from finished games, each traced by the evaluation, into a binary data set. Games from the
-//!   files after `--test` form the test set; the rest are split into training and validation by
-//!   game.
+//! * `texel-extract <out> [--per-game N] [--seed S] [--fens F] <pgn>... [--test <pgn>...]` - quiet
+//!   positions from finished games, each traced by the evaluation, into a binary data set. Games
+//!   from the files after `--test` form the test set; the rest are split into training and
+//!   validation by game. `--fens` also writes `fen;result;set;eval` per sample, in order.
 //! * `texel-check <data>` - rebuilds every evaluation from its trace at the shipped parameters and
 //!   compares it with the evaluation the engine computed.
 //! * `texel-tune <data> <out-dir> [--epochs E] [--lr L] [--lambda X...] [--free G,...]` - fits the
@@ -593,12 +593,14 @@ fn extract(args: &[String]) {
     use rand::{SeedableRng, seq::SliceRandom};
     let out = &args[0];
     let (mut per_game, mut seed, mut test_mode) = (10usize, 20261016u64, false);
+    let mut fens_out: Option<String> = None;
     let mut files: Vec<(String, bool)> = Vec::new();
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--per-game" => { per_game = args[i + 1].parse().unwrap(); i += 1; }
             "--seed" => { seed = args[i + 1].parse().unwrap(); i += 1; }
+            "--fens" => { fens_out = Some(args[i + 1].clone()); i += 1; }
             "--test" => test_mode = true,
             path => files.push((path.to_string(), test_mode)),
         }
@@ -609,6 +611,7 @@ fn extract(args: &[String]) {
     let theta0 = et::theta_of(&config);
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut samples: Vec<Sample> = Vec::new();
+    let mut fen_lines: Vec<String> = Vec::new();
     let (mut games, mut rejected, mut excluded) = (0usize, 0usize, 0usize);
     let mut worst_unit = 0.0f64;
     let mut units_over_one = 0usize;
@@ -640,6 +643,7 @@ fn extract(args: &[String]) {
                 let Some(mut sample) = trace_position(&service, &config, &theta0, &board) else { excluded += 1; continue };
                 sample.result = result;
                 sample.set = if *is_test { 2 } else if games % 10 == 0 { 1 } else { 0 };
+                fen_lines.push(format!("{fen};{};{};{}", sample.result, sample.set, sample.eval));
                 samples.push(sample);
             }
         }
@@ -650,6 +654,9 @@ fn extract(args: &[String]) {
     w.write_all(&(samples.len() as u64).to_le_bytes()).unwrap();
     for s in &samples {
         write_sample(&mut w, s).unwrap();
+    }
+    if let Some(path) = fens_out {
+        std::fs::write(path, fen_lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
     }
     let by_set = |k: u8| samples.iter().filter(|s| s.set == k).count();
     println!("games {games} (rejected {rejected}), positions {} (train {}, validation {}, test {}), excluded {excluded}",
@@ -1469,6 +1476,45 @@ mod tests {
             let king = base + 5 * 64..base + 6 * 64;
             assert_eq!(theta[base..king.start], theta0[base..king.start], "a table other than the king's moved");
             assert_ne!(theta[king.clone()], theta0[king], "the king's table did not move");
+        }
+    }
+
+    /// `texel-extract --fens` writes one `fen;result;set;eval` line per sample, in the samples'
+    /// order, so another evaluation (the NNUE branch's) can be measured on exactly these positions:
+    /// the lines match the data set one for one, and each FEN evaluates to the engine's value.
+    #[test]
+    fn test_the_fens_file_matches_the_samples() {
+        const GAME: &str = r#"[Event "Suprah-Tournament"]
+[Site "local"]
+[Date "2026.09.03"]
+[Round "3/600"]
+[White "Rust-In-Pieces V0.39.1"]
+[Black "Rust-In-Pieces V0.38.1"]
+[Result "1/2-1/2"]
+[Termination "Draw"]
+[TimeControl "1/100"]
+[Time "13:13:58"]
+1. Ng1f3 d7d5 2. d2d4 c7c6 3. c2c4 e7e6 4. g2g3 Bf8d6 5. Bf1g2 f7f5 6. c4c5 Bd6c7 7. 0-0 Ng8e7 8. Nb1c3 0-0 9. Bc1f4 Bc7f4 10. g3f4 b7b6 11. Qd1d2 Nb8d7 12. b2b4 Nd7f6 13. a2a4 Nf6e4 14. Qd2e3 Ne7g6 15. Rf1c1 b6c5 16. b4c5 Bc8a6 17. Nf3e5 Ng6e5 18. f4e5 f5f4 19. Qe3h3 Rf8f5 20. Nc3e4 d5e4 21. Bg2e4 Rf5g5 22. Kg1f1 Kg8f7 23. Rc1d1 Ra8b8 24. Be4c6 Rg5g6 25. Bc6b5 Qd8g5 26. e2e4 Ba6b7 27. Bb5d3 Bb7c6 28. Bd3c2 Rb8b2 29. Qh3c3 Qg5g2 30. Kf1e1 Qg2e4 31. Ke1d2 Rb2c2 32. Qc3c2 Qe4d4 33. Qc2d3 Qd4b2 34. Qd3c2 Qb2d4 35. Qc2d3 Qd4b2 36. Qd3c2 Qb2d4 1/2-1/2
+"#;
+        let dir = std::env::temp_dir().join(format!("texel-fens-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (pgn, data, fens) = (dir.join("g.pgn"), dir.join("g.bin"), dir.join("g.fens"));
+        std::fs::write(&pgn, GAME).unwrap();
+        let arg = |p: &std::path::Path| p.to_str().unwrap().to_string();
+        extract(&[arg(&data), "--fens".into(), arg(&fens), arg(&pgn)]);
+        let samples = read_samples(&arg(&data));
+        let lines: Vec<String> = std::fs::read_to_string(&fens).unwrap().lines().map(String::from).collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!samples.is_empty(), "the game gave no samples");
+        assert_eq!(lines.len(), samples.len());
+        let service = Service::new();
+        let config = hce_config();
+        for (line, s) in lines.iter().zip(&samples) {
+            let f: Vec<&str> = line.split(';').collect();
+            assert_eq!((f[1].parse::<u8>().unwrap(), f[2].parse::<u8>().unwrap(), f[3].parse::<i16>().unwrap()), (s.result, s.set, s.eval), "{line}");
+            let eval = service.eval.calc_eval_known_check(&service.fen.set_fen(f[0]), &config, &service.move_gen,
+                &crate::pawn_hash::PawnHashTable::new(16), i16::MIN + 1, i16::MAX - 1, 0, false);
+            assert_eq!(eval, s.eval, "{line}");
         }
     }
 
