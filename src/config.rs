@@ -431,7 +431,7 @@ impl Config {
             min_thinking_time: 2,
             game_loop: 3,
             smp_thread_eval_noise: 0,
-            max_eval_mult: 2.0,
+            max_eval_mult: 1.0,
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
             positional_cap_damping: 5,

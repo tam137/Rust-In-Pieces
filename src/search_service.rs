@@ -3402,15 +3402,16 @@ mod tests {
         // Suprah's Quiescence Search generates captures only and never a quiet checking move, and
         // `Nf7#` is quiet. The rule then returns the fail-low it was given.
         //
-        // The margin is not the lever: the loss is identical at 200, 300, 500, 900 and 1500,
-        // because a queen deficit exceeds all of them. Depth is the lever, and one more iteration
-        // is enough - the test above shows the mate coming back at depth 6, 7 and 8, where the
-        // mating node is no longer at depth 1.
+        // The margin is not the lever: the loss is identical at 200, 300, 500, 900 and 1200,
+        // because a queen deficit exceeds all of them (1500 until `adjust_eval` was switched off,
+        // which doubled the deficit in this phase; the mate now survives from 1300 on). Depth is
+        // the lever, and one more iteration is enough - the test above shows the mate coming back
+        // at depth 6, 7 and 8, where the mating node is no longer at depth 1.
         //
         // If razoring is ever wanted at depth >= 2, this is the defect that has to be fixed
         // first, and the fix is in the Quiescence Search rather than in razoring: it would have
         // to generate checking moves at its first ply.
-        for margin in [200, 300, 500, 900, 1500] {
+        for margin in [200, 300, 500, 900, 1200] {
             assert!(search_smothered_mate_razored(5, margin) < 30000,
                 "the depth-5 loss is a pinned known limitation; if it no longer reproduces at \
                  margin {}, the Quiescence Search changed and this test should be deleted rather \
@@ -4658,14 +4659,13 @@ mod tests {
     }
 
     /// White is a queen and two rooks against a pawn up, and the queen stands en prise to the pawn
-    /// on d6. The static evaluation under this window reads 3276 since the Texel material of
-    /// v0.47.0 (2555 before), so against a `beta` of 2500 the surplus clears the depth-4 margin of
-    /// 320; a null move hands Black `dxe5`, and what is left after the queen falls below it, so the
-    /// null search fails. Up to a `beta` of 2200 the null search still cuts - the two rooks are
-    /// worth more than they were, which moved this `beta` up from 2100 - and from 2300 to 2900 it
-    /// fails: the queen alone is not the whole surplus.
+    /// on d6. The static evaluation under this window reads 2457 since `adjust_eval` was switched
+    /// off (3276 with it, 2555 before the Texel material of v0.47.0), so against a `beta` of 1900
+    /// the surplus clears the depth-4 margin of 360 - the depth-4 cut holds up to a `beta` of
+    /// 2000; a null move hands Black `dxe5`, and what is left after the queen falls is below
+    /// `beta`, so the null search fails.
     const QUEEN_EN_PRISE_FEN: &str = "6k1/5ppp/3p4/4Q3/8/8/5PPP/RR4K1 w - - 0 1";
-    const QUEEN_EN_PRISE_BETA: i16 = 2500;
+    const QUEEN_EN_PRISE_BETA: i16 = 1900;
 
     /// `task.md` 21.3: the order of Reverse Futility and Null Move Pruning decides no cut. At a
     /// node the null search cannot cut, because passing loses the queen, Reverse Futility Pruning
