@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.4] - 2026-10-20
+
+`adjust_eval` is switched off: below phase 155 it multiplied an evaluation of +/-200 or more by up
+to 2.0 and left 199 alone - a step of up to 200 cp that no search margin expects. Gated by
+**SPRT [0, 10]: H1 after 7610 games** at 1s + 150ms against v0.47.3; at the end of the run, 7622
+games: +7.9 Elo, paired 95% [+2, +14] - a stopped run, not an effect size (`task.md` rule 7).
+See `task.md` section 29.18.
+
+### Changed
+- `max_eval_mult` 2.0 -> 1.0, bit-identical to `adjust_eval` never firing; the function stays.
+
+### Notes
+- Texel error on the v0.47.3 data: -403 / -395 / -437 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.47.3: -0.2% and -0.8% on the two pools.
+- Four tests re-sampled with their claims unchanged (the evaluation of a bare king, the
+  queen-en-prise RFP position, the razoring margins of the smothered mate).
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 56.5% / 50.5% / 91.5% against v0.47.3 /
+  v0.47.2 / v0.34.0, no losses on time.
+
 ## [V0.47.3] - 2026-10-18
 
 The Reverse Futility margin goes from 80 to 90 per ply: the evaluation of v0.47 is 1.12x wider than
