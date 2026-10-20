@@ -52,7 +52,7 @@ v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80. **E1, `adjust
 v0.47.4 (29.18):** SPRT [0, 10] H1 after 7610 games against v0.47.3, +7.9 Elo [+2, +14] over 7622,
 a stopped run. **The material re-fitted without it shipped in v0.47.5 (29.19):** SPRT [0, 10] H1
 after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. Next: the
-passed-pawn table, or razoring alone, on the new scale.
+search margins x0.822 for the scale of v0.47.5, one at a time (29.20), then the passed-pawn table.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1648,4 +1648,22 @@ identical to the candidate (100/100 trees).
 **What it says.** Removing a pipeline step changes what the fitted weights should be; 29.18 and
 29.19 together are the step and its re-fit. The scale of v0.47.5 is no longer the one the margins of
 29.13 and 29.17 were judged on - in the middlegame the evaluation is narrower, in the endgame wider.
+
+### 29.20 The search margins on the scale of v0.47.5, one at a time (2026-10-20)
+
+Matt-Magie step 41. Texel K on the v0.47.3 data: v0.47.3 0.003038 (where RFP 90 won and futility
+x1.12 lost), v0.47.5 0.003695 - the same chance of winning at 0.822 times the centipawns, so every
+margin is about 22% wider than where it was judged. Factor 0.822 fixed before any game; futility,
+then RFP, then razoring, each its own SPRT against the then current release. Narrower margins prune
+more, so the +5% time rule does not bind; the census is recorded only.
+
+**Futility, 120 + 80 -> 99 + 66: refused.** Census on `suprah-0.47.5` by setoption, depth 10, 300
+per pool, time / generated moves: control 300/300 identical on both; 99 + 66 -1.9% / -3.0%
+(`openings_wide`), -0.9% / -0.6% (`openings_mixed`); 84 + 56 -2.3% / -3.7%, +1.6% / +4.1%. Branch
+`futility-0822` (`dc83703`), candidate identical to the census build (100/100). SPRT against v0.47.5:
+**[0, 10] H0 after 2682 games** (LLR -3.05, -4.0 Elo), [0, 5] -1.11 undecided; at the end, 2696
+games: **-4.0 Elo, paired 95% [-15, +7]** - a stopped run, not an effect size. Pairs 0-2 / 0.5-1.5
+/ 1-1 / 1.5-0.5 / 2-0 from the candidate's side 154 / 295 / 468 / 290 / 141; no losses on time,
+White 52.7%. The reading was +19.8 after 756 games, +6.8 after 1232, +2.8 after 1834. Futility stays
+at 120 + 80: with 29.17 (x1.12, -8.9 Elo) both directions have lost - the margin sits where it is.
 
