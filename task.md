@@ -50,8 +50,9 @@ at a time the same way, the passed-pawn table, or E1. **Futility alone at 134 + 
 almost nothing (+0.3% / +0.2%) and was **refused**: SPRT [0, 10] H0 after 1424 games against
 v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80. **E1, `adjust_eval` off, shipped in
 v0.47.4 (29.18):** SPRT [0, 10] H1 after 7610 games against v0.47.3, +7.9 Elo [+2, +14] over 7622,
-a stopped run. Next: a material re-fit without `adjust_eval` (the fits of v0.47.0 to v0.47.2 had it
-in the model), the passed-pawn table, or razoring alone.
+a stopped run. **The material re-fitted without it shipped in v0.47.5 (29.19):** SPRT [0, 10] H1
+after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. Next: the
+passed-pawn table, or razoring alone, on the new scale.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1604,4 +1605,47 @@ identical to the candidate (100/100 trees).
 **What it says.** The step was a defect against every search margin, and the wish it served -
 trade when ahead - did not need it, or not at this price. The fits of v0.47.0 to v0.47.2 learned
 material and tables with the step in the model; a re-fit without it is the next candidate.
+
+### 29.19 The material re-fitted without `adjust_eval`: shipped in v0.47.5 (2026-10-20)
+
+Matt-Magie step 40, after 29.18. The material of v0.47.4 came from fits that modelled `adjust_eval`.
+`texel-tune --free material` on the v0.47.3 data (K 0.003790, fitted on v0.47.4 and held; best epoch
+750 of 1000): -419 / -440 / **-785** x 10^-6 train / validation / test.
+
+| mg / eg | pawn | knight | bishop | rook | queen |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| v0.47.4 | 116 / 83 | 543 / 309 | 580 / 329 | 782 / 565 | 1883 / 972 |
+| **re-fit** | **78 / 123** | **408 / 438** | **433 / 462** | **562 / 776** | **1390 / 1413** |
+
+Not only the endgame rose: the middlegame fell by a quarter. Without the step K grew by 25%, and
+against it the middlegame material was too large - so the scale moved against the tables, the
+weights and the search margins, all held. Ordered in both phases; `texel-mirror` 0 asymmetric;
+`texel-stats` mean |eval| 271.8 -> 297.2, cap rate unchanged (36.3%); `texel-lazy` 9.24% / 2.00%
+above 120 / 180 (9.25% / 2.00%). Time to depth 10, 300 per pool: **+4.9%** / +6.7% (`openings_wide`),
+**+3.5%** / +2.6% (`openings_mixed`), time / generated moves; control 300/300.
+
+**Tests.** `eval_fig_value_test`: ranges moved with the values. The check-extension min-depth and
+budget tests inverted at depth 7 with Late Move Pruning on (39,363 nodes unlimited against 53,563 and
+49,038) - the inversion 21.2 recorded for their sibling; with LMP off, as the sibling, every claim
+holds again on the new and the old material (scan of depth 6 to 8). The mop-up edge-push test read
+the whole evaluation with the White king fixed on b1: centre and semi-centre were 667 and 668 on
+v0.47.4 (+10 edge push against -15 proximity, the tables deciding) and tied at 843. With the
+owner's choice it was rebuilt: the mop-up bonus alone (with minus without, as the proximity test),
+the White king two squares away in every position, 95 / 105 / 135 / 155 exactly; it passes on both
+materials and fails with `mopup_center_weight` 0.
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor, against v0.47.4. **[0, 10] H1 after 2944 games** (LLR +3.14, +13.2 Elo), [0, 5] +2.02
+undecided. At the end, 2956 games: **+13.1 Elo, paired 95% [+3, +23]** - a stopped run, not an effect
+size (rule 7). Pairs 0-2 / 0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side 136 / 303 / 532 /
+328 / 179; no losses on time, White 54.5%. The reading was -3.7 after 742 games, +7.9 after 1234,
++12.9 after 2228, +11.1 after 2512.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 47.5% against v0.47.4, 55.0% against
+v0.47.3, 92.0% against v0.34.0, no losses on time. Shipped as **v0.47.5**, the release binary
+identical to the candidate (100/100 trees).
+
+**What it says.** Removing a pipeline step changes what the fitted weights should be; 29.18 and
+29.19 together are the step and its re-fit. The scale of v0.47.5 is no longer the one the margins of
+29.13 and 29.17 were judged on - in the middlegame the evaluation is narrower, in the endgame wider.
 
