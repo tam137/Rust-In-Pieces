@@ -48,8 +48,10 @@ by 0.1 point; **the owner let it play and it shipped in v0.47.3 (29.13)**: SPRT 
 games against v0.47.2, +10.6 Elo [+2, +19] over 4152, a stopped run. Next: futility and razoring one
 at a time the same way, the passed-pawn table, or E1. **Futility alone at 134 + 90 (29.17)** cost
 almost nothing (+0.3% / +0.2%) and was **refused**: SPRT [0, 10] H0 after 1424 games against
-v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80; next razoring alone, the
-passed-pawn table, or E1.
+v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80. **E1, `adjust_eval` off, shipped in
+v0.47.4 (29.18):** SPRT [0, 10] H1 after 7610 games against v0.47.3, +7.9 Elo [+2, +14] over 7622,
+a stopped run. Next: a material re-fit without `adjust_eval` (the fits of v0.47.0 to v0.47.2 had it
+in the model), the passed-pawn table, or razoring alone.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1567,4 +1569,39 @@ time, White 53.4%. The reading was +22 after 64 games, -0.6 after 546, -8.1 afte
 futility margins prune fewer quiet moves near the leaves, and the games did not want that. Futility
 stays at 120 + 80; `master` unchanged, the branch kept as evidence. As on NNUE (29.15), the scale
 alone does not set a margin - the games do.
+
+### 29.18 E1, `adjust_eval` off: shipped in v0.47.4 (2026-10-20)
+
+Matt-Magie step 39. `adjust_eval` multiplied an evaluation of +/-200 or more below phase 155 by
+`255 / (phase + 100)`, at most `max_eval_mult` 2.0: in a pawn ending 199 stayed 199 and 200 became
+400. One commit, `max_eval_mult` 2.0 -> 1.0 - `min(mult, 1.0)` is 1.0 and `x * 1.0` is exact, so it
+is bit-identical to never firing; the function stays, the way back is one constant.
+
+**Before games.** Texel on the v0.47.3 data (`texel-tune --epochs 0`, K refitted per pipeline):
+-403 / -395 / **-437** x 10^-6 train / validation / test (K 0.003038 -> 0.003790), the audit's
+signal (29.4, on v0.46.4: -634 / -776) holding after the re-fits. Time to depth 10, 300 positions
+per pool: **-0.2%** / -0.5% (`openings_wide`) and **-0.8%** / -0.9% (`openings_mixed`), time /
+generated moves; the control v0.47.3 against itself 300/300 identical on both.
+
+**Tests.** Four tests pinned numbers the step had made, each re-sampled with its claim unchanged:
+the bare-king material test (5034 -> 4482, its range moved by the same offset); the queen-en-prise
+position of the two RFP tests (static evaluation 3276 -> 2457, `beta` 2500 -> 1900, the depth-4 cut
+holding to 2000 by scan); the razoring loss of the smothered mate at depth 5, now 200 to 1200 (the
+mate survives from 1300 on, where with the step it was lost to 2000 - the queen deficit is no longer
+doubled; the Quiescence Search is unchanged).
+
+**The gate:** SPRT at 1s + 150ms on `openings_wide.txt`, concurrency 4, [0, 5] with the [0, 10]
+monitor, against v0.47.3. **[0, 10] H1 after 7610 games** (LLR +2.97, +7.9 Elo), [0, 5] +2.75
+undecided. At the end, 7622 games: **+7.9 Elo, paired 95% [+2, +14]** - a stopped run, not an effect
+size (rule 7). Pairs 0-2 / 0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side 355 / 820 / 1341
+/ 886 / 409; no losses on time, White 54.2%. The reading was -48 after 94 games, -6 after 670, -4
+after 1890 ([0, 10] LLR -2.26), +1.8 after 4408.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 56.5% against v0.47.3, 50.5% against
+v0.47.2, 91.5% against v0.34.0, no losses on time. Shipped as **v0.47.4**, the release binary
+identical to the candidate (100/100 trees).
+
+**What it says.** The step was a defect against every search margin, and the wish it served -
+trade when ahead - did not need it, or not at this price. The fits of v0.47.0 to v0.47.2 learned
+material and tables with the step in the model; a re-fit without it is the next candidate.
 
