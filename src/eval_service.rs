@@ -2318,24 +2318,25 @@ mod tests {
 
     #[test]
     fn eval_fig_value_test() {
-        // The ranges follow the material of the Texel re-fits (v0.47.0 and v0.47.1, `task.md` 29):
-        // pawn 116, knight 543, bishop 580, rook 782, queen 1883 in the middlegame since v0.47.1,
-        // against 100, 300, 300, 500 and 950 until v0.46.4.
+        // The ranges follow the material of the Texel re-fits (`task.md` 29): pawn 78, knight 408,
+        // bishop 433, rook 562, queen 1390 in the middlegame since the re-fit without
+        // `adjust_eval` (29.19), 116, 543, 580, 782 and 1883 from v0.47.1, against 100, 300, 300,
+        // 500 and 950 until v0.46.4. Each range keeps its place around the evaluation it reads.
         // Figure values test for white
-        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 80, 190);
-        eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 520, 760);
-        eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1050, 1400);
-        eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1450, 1850);
-        eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 2600, 3200);
-        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 4050, 4950);
+        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 40, 150);
+        eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 360, 600);
+        eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 790, 1140);
+        eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1110, 1510);
+        eval_between("3qkb2/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1", 2220, 2820);
+        eval_between("4k3/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQha - 0 1", 4010, 4910);
 
         // Figure values test for black
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1", -250, 50);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKB1R b KQkq - 0 1", -800, -580);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RN1QKB1R b KQkq - 0 1", -1400, -1050);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1850, -1450);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -3200, -2600);
-        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -4950, -4050);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1", -210, 90);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPPP1PP/RNBQKB1R b KQkq - 0 1", -640, -420);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RN1QKB1R b KQkq - 0 1", -1140, -790);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/R2QKB1R b KQkq - 0 1", -1510, -1110);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/3QKB2 b - - 0 1", -2820, -2220);
+        eval_between("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/4K3 b kq - 0 1", -4910, -4010);
     }
 
     #[test]
@@ -2866,6 +2867,13 @@ mod tests {
 
     #[test]
     fn test_endgame_mopup_edge_push_monotonic_gradient() {
+        // The edge push alone: the White king stands two squares from the Black king in every
+        // position and the rook stays on h1, so the proximity term is the same (5 x 15) and only
+        // the distance of the Black king from the centre moves the bonus, 10 per step. Measured
+        // as the mop-up bonus (with minus without), as the proximity test below does: on the
+        // whole evaluation the king tables took part, and with the White king fixed on b1 the
+        // proximity term cancelled the push - centre and semi-centre read 667 and 668 on v0.47.4
+        // and tied after the material re-fit of `task.md` 29.19.
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
         let movegen = &Service::new().move_gen;
@@ -2874,38 +2882,28 @@ mod tests {
         config.enable_endgame_mopup = true;
         let pawn_table = crate::pawn_hash::PawnHashTable::new(16);
 
-        // Black King at different positions with White King at b1 and Rook at b2:
-        // 1. Center (d4: rank 3, file 3 -> center dist = 0+0 = 0)
-        let board_center = fen_service.set_fen("8/8/8/8/3k4/8/1R6/1K6 w - - 0 1");
-        let eval_center = eval_service.calc_eval(&board_center, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+        let get_mopup_bonus = |fen: &str| -> i16 {
+            let board = fen_service.set_fen(fen);
+            let eval_with = eval_service.calc_eval(&board, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            let mut config_no_mop = config.clone();
+            config_no_mop.enable_endgame_mopup = false;
+            let eval_without = eval_service.calc_eval(&board, &config_no_mop, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+            eval_with - eval_without
+        };
 
-        // 2. Semi-Center (c5: rank 4, file 2 -> center dist = 0+1 = 1)
-        let board_semi = fen_service.set_fen("8/8/8/2k5/8/8/1R6/1K6 w - - 0 1");
-        let eval_semi = eval_service.calc_eval(&board_semi, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
+        // Centre distance as the rule counts it (the farther of the two central ranks and files):
+        // d4 1 + 1 = 2, c5 1 + 2 = 3, c8 4 + 2 = 6, a8 4 + 4 = 8.
+        let mop_center = get_mopup_bonus("8/8/8/8/3k4/8/3K4/7R w - - 0 1");
+        let mop_semi = get_mopup_bonus("8/8/8/2k5/8/2K5/8/7R w - - 0 1");
+        let mop_edge = get_mopup_bonus("2k5/8/2K5/8/8/8/8/7R w - - 0 1");
+        let mop_corner = get_mopup_bonus("k7/8/K7/8/8/8/8/7R w - - 0 1");
 
-        // 3. Edge (c8: rank 7, file 2 -> center dist = 3+1 = 4)
-        let board_edge = fen_service.set_fen("2k5/8/8/8/8/8/1R6/1K6 w - - 0 1");
-        let eval_edge = eval_service.calc_eval(&board_edge, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
-
-        // 4. Corner (a8: rank 7, file 0 -> center dist = 3+3 = 6)
-        let board_corner = fen_service.set_fen("k7/8/8/8/8/8/1R6/1K6 w - - 0 1");
-        let eval_corner = eval_service.calc_eval(&board_corner, &config, movegen, &pawn_table, i16::MIN, i16::MAX, 180);
-
-        assert!(
-            eval_center < eval_semi,
-            "Semi-center king position should evaluate higher than pure center (center={}, semi={})",
-            eval_center, eval_semi
-        );
-        assert!(
-            eval_semi < eval_edge,
-            "Edge king position should evaluate higher than semi-center (semi={}, edge={})",
-            eval_semi, eval_edge
-        );
-        assert!(
-            eval_edge < eval_corner,
-            "Corner king position should evaluate higher than edge (edge={}, corner={})",
-            eval_edge, eval_corner
-        );
+        assert_eq!(mop_center, 2 * 10 + 5 * 15, "centre d4");
+        assert_eq!(mop_semi, 3 * 10 + 5 * 15, "semi-centre c5");
+        assert_eq!(mop_edge, 6 * 10 + 5 * 15, "edge c8");
+        assert_eq!(mop_corner, 8 * 10 + 5 * 15, "corner a8");
+        assert!(mop_center < mop_semi && mop_semi < mop_edge && mop_edge < mop_corner,
+            "the bonus must grow towards the corner ({mop_center}, {mop_semi}, {mop_edge}, {mop_corner})");
     }
 
     #[test]

@@ -3477,12 +3477,23 @@ mod tests {
     fn test_check_extension_min_depth_restricts_the_tree() {
         // The counterpart to the frontier restriction: extensions are granted only deep in
         // the tree, where the Quiescence Search cannot resolve the forcing line itself.
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        //
+        // Late Move Pruning is off for the reason the frontier test above gives. With it on, the
+        // material of the re-fit without `adjust_eval` (`task.md` 29.19) inverts this position at
+        // depth 7: 39,363 nodes unlimited against 53,563 deep only and 49,038 with extensions off.
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.enable_lmp = false;
+        });
         let deep_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.enable_check_extension = true;
             c.check_extension_min_depth = 4;
+            c.enable_lmp = false;
         });
-        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = false);
+        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = false;
+            c.enable_lmp = false;
+        });
 
         assert!(deep_only < unlimited,
             "restricting extensions to deep nodes must shrink the tree ({} vs {})",
@@ -3507,10 +3518,15 @@ mod tests {
 
     #[test]
     fn test_extension_budget_restricts_the_tree() {
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_check_extension = true);
+        // Late Move Pruning off as in the two tests above (`task.md` 29.19).
+        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_check_extension = true;
+            c.enable_lmp = false;
+        });
         let budgeted = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.enable_check_extension = true;
             c.check_extension_budget_divisor = 8;
+            c.enable_lmp = false;
         });
 
         assert!(budgeted < unlimited,
