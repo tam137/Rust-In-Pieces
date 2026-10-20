@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.5] - 2026-10-20
+
+The material is re-fitted by Texel without `adjust_eval`, which v0.47.4 switched off: the fits of
+v0.47.0 to v0.47.2 had learned it against a doubling in the endgame. The endgame values rise by
+about 40%, the middlegame values fall by about 25% (Texel `K` 0.003038 -> 0.003790 without the
+step). Gated by **SPRT [0, 10]: H1 after 2944 games** at 1s + 150ms against v0.47.4; at the end of
+the run, 2956 games: +13.1 Elo, paired 95% [+3, +23] - a stopped run, not an effect size
+(`task.md` rule 7). See `task.md` section 29.19.
+
+### Changed
+- Material mg / eg (`src/pst.rs`): pawn 78 / 123, knight 408 / 438, bishop 433 / 462, rook 562 /
+  776, queen 1390 / 1413 (were 116 / 83, 543 / 309, 580 / 329, 782 / 565, 1883 / 972).
+
+### Notes
+- Texel error on the v0.47.3 data: -419 / -440 / -785 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.47.4: +4.9% and +3.5% on the two pools; lazy-evaluation distance
+  unchanged.
+- Four tests re-sampled: the material ranges; two check-extension tree tests with Late Move Pruning
+  off, as their sibling; the mop-up edge-push test now measures the mop-up bonus alone.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 47.5% / 55.0% / 92.0% against v0.47.4 /
+  v0.47.3 / v0.34.0, no losses on time.
+
 ## [V0.47.4] - 2026-10-20
 
 `adjust_eval` is switched off: below phase 155 it multiplied an evaluation of +/-200 or more by up
