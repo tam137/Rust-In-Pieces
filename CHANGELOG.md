@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.6] - 2026-10-21
+
+The passed-pawn table is re-fitted by Texel for the first time; it was hand-set under four fitted
+layers of material and tables. The middlegame values fall sharply (negative on ranks 2 to 4 - the
+pawn table and the rank bonuses already pay an advanced pawn), the endgame values fall from rank 5
+on. **2006 games at 1s + 150ms against v0.47.5, run to a fixed 2000 on the
+owner's word: +22.5 Elo, paired 95% [+10, +35]**; SPRT [0, 10] H1 (LLR +4.58), [0, 5] +2.61. See
+`task.md` section 29.21.
+
+### Changed
+- `passed_pawn_bonus_mg` ranks 2-7: 3 / 13 / 30 / 60 / 106 / 166 -> -11 / -22 / -15 / 3 / 24 / 72.
+- `passed_pawn_bonus_eg` ranks 2-7: 10 / 40 / 90 / 180 / 320 / 500 -> 34 / 28 / 97 / 116 / 235 / 450.
+
+### Notes
+- Texel error on the v0.47.3 data: -139 / -128 / -422 x 10^-6 (train / validation / test); the
+  positional cap fires on 33.1% of the test positions instead of 36.3%.
+- Time to depth 10 against v0.47.5: +0.4% and +0.8% on the two pools; no test changed.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 57.5% / 53.5% / 91.0% against v0.47.5 /
+  v0.47.4 / v0.34.0, no losses on time.
+
 ## [V0.47.5] - 2026-10-20
 
 The material is re-fitted by Texel without `adjust_eval`, which v0.47.4 switched off: the fits of
