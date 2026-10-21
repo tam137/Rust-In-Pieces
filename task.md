@@ -56,8 +56,9 @@ margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Tex
 (29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. The pawn
 rank bonuses re-fitted stopped at the Texel bar (29.22), no game. A new Texel data set from the
 games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. **They shipped in
-v0.47.7 (29.24):** +14.2 Elo [+3, +25] over 2494 games against v0.47.6, a stopped run. Next: the
-king-safety group by Texel (Matt-Magie step 46), then threats.
+v0.47.7 (29.24):** +14.2 Elo [+3, +25] over 2494 games against v0.47.6, a stopped run. The existing
+king-safety group re-fitted stopped at the bar (29.25), no game. Next: threats, or new king-safety
+features (stage B).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1791,4 +1792,25 @@ candidate (100/100 trees).
 **What it says.** The new data set paid at once: on the old one this probe was not measured, and the
 gain on the games of the current engine was real in play. A busier evaluation cost up to 10% time to
 depth and still won - the time stop is a guard, not a verdict.
+
+### 29.25 King safety, stage A - the existing king group re-fitted: stopped at the bar, no game (2026-10-21)
+
+Matt-Magie step 46, stage A, on v0.47.7. Sixteen scalars free (the five king-danger weights, six
+shield values, open / half-open king file, the heavy piece on it, rook and bishop attacking the
+king), the other 63 held at their v0.47.7 values, `data0476.bin`, K 0.003713.
+
+| epochs | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| 1000 (best = last) | -127 | -77 | -218 |
+| 3000 (one re-run, fixed beforehand; best = last) | -132 | **-89** | -237 |
+
+The bar is test >= 200 and validation >= 100: missed on validation both times, no census and no game.
+What the fit wants: the king-danger weights 10 / 50 / 100 / 150 / 200 -> 206 / 397 / **1697 / 2474 /
+2398** at 3000 epochs (903 / 1019 / 992 at 1000) - still climbing with almost no gain, the mark of a
+rare feature with tiny units: `danger` sums ring squares x 1/1/2/4 (29.3, mean 0.03 cp), so the
+weights grow to make it say anything. The open king file 37 -> 88, half-open 20 -> 41, the heavy piece
+on it 15 -> 54; the pawn shield shrinks (37 -> 8, kingside 37 -> 18, queenside 25 -> 4). **What it
+says:** the data want king danger, but this feature cannot carry it - its unit is the problem, not
+its weights. That is stage B: attack units with safe checks and weak ring squares, built at weight 0
+and fitted on traces of their own.
 
