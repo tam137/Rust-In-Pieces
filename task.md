@@ -51,8 +51,10 @@ almost nothing (+0.3% / +0.2%) and was **refused**: SPRT [0, 10] H0 after 1424 g
 v0.47.3, -8.9 Elo [-23, +5] over 1438. Futility stays at 120 + 80. **E1, `adjust_eval` off, shipped in
 v0.47.4 (29.18):** SPRT [0, 10] H1 after 7610 games against v0.47.3, +7.9 Elo [+2, +14] over 7622,
 a stopped run. **The material re-fitted without it shipped in v0.47.5 (29.19):** SPRT [0, 10] H1
-after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. Next: the
-search margins x0.822 for the scale of v0.47.5, one at a time (29.20), then the passed-pawn table.
+after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. The search
+margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Texel shipped in v0.47.6
+(29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. Next: the
+tables and material re-measured on v0.47.6 (probe 1 of 29.21), or the rank bonuses.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1677,4 +1679,41 @@ H0 after 8634 games with +2.3 Elo** - above 0, so [0, 5] decided by the rule; st
 effect size. Pairs 519 / 1229 / 1902 / 1206 / 552; no losses on time, White 54.1%. The reading was
 +25 after 488 games, +17 after 1040, +6.6 after 4358, +3.0 after 7244. RFP stays at 90: on the
 scale of v0.47.5, 74 searches 5-8% faster and plays the same. Razoring was not played.
+
+### 29.21 The passed-pawn table re-fitted by Texel: shipped in v0.47.6 (2026-10-21)
+
+Matt-Magie step 42. After 29.20 two Texel probes on v0.47.5 (no code, no games; K 0.003695, 1000
+epochs): material + the tables of rook, knight, bishop, queen and king -135 / -130 / -318 x 10^-6
+(tables rougher, range 168 -> 217); **the passed-pawn table alone -139 / -128 / -422**, 12 values,
+never fitted before. Played as fitted:
+
+| ranks 2-7 | mg | eg |
+| :--- | :--- | :--- |
+| v0.47.5 (hand-set) | 3 / 13 / 30 / 60 / 106 / 166 | 10 / 40 / 90 / 180 / 320 / 500 |
+| **re-fit** | **-11 / -22 / -15 / 3 / 24 / 72** | **34 / 28 / 97 / 116 / 235 / 450** |
+
+The middlegame values fall and turn negative on ranks 2 to 4: an advanced pawn is already paid by
+the pawn table and the rank bonuses (the double count 29.4 named), and the fit takes it back here.
+`texel-export` changed the two lines only; `texel-mirror` 0 asymmetric; `texel-stats` test
+0.101544 -> 0.101048, the positional cap firing on 33.1% instead of 36.3%, mean |positional| 161.7
+-> 144.7; `texel-lazy` 2.00% -> 1.73% above 180. Time to depth 10, 300 per pool: **+0.4%** / +2.2%
+(`openings_wide`), **+0.8%** / +0.5% (`openings_mixed`); control 300/300. No test changed (269 / 286).
+Branch `passers-refit` (`ec6db9f`).
+
+**The run.** SPRT against v0.47.5 at 1s + 150ms, `openings_wide.txt`, concurrency 4. At 822 games
+(+30.5 Elo, [0, 10] LLR +2.80) the owner asked for 2000 games regardless of a verdict: the monitor
+and the [0, 5] wrapper were killed, the tournament ran on and a watcher stopped it at 2006 games.
+**+22.5 Elo, paired 95% [+10, +35]** over 2006 games - a fixed-length reading, not a stopped one;
+[0, 10] H1 (LLR +4.58, first crossed near 900 games), [0, 5] +2.61. Pairs 0-2 / 0.5-1.5 / 1-1 /
+1.5-0.5 / 2-0 from the candidate's side 88 / 185 / 363 / 243 / 124; no losses on time, White 54.5%.
+The reading was +28.3 after 492 games, +30.5 after 822, +25.5 after 1662.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 57.5% against v0.47.5, 53.5% against
+v0.47.4, 91.0% against v0.34.0, no losses on time. Shipped as **v0.47.6**, the release binary
+identical to the candidate (100/100 trees).
+
+**What it says.** The largest gain since v0.47.0 came from the one evaluation table nobody had
+fitted, at no cost in time. The pawn's value is now split between the table, the rank bonuses and
+the passer table by data rather than by hand; the rank bonuses (183 / 104 / 47) are the next
+candidate of the same kind.
 
