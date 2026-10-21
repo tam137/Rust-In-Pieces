@@ -35,7 +35,7 @@
         "max": 42
     },
     "bishop_pair_bonus": {
-        "value": 48,
+        "value": 51,
         "min": 24,
         "max": 96
     },
@@ -235,17 +235,17 @@
         "max": 22
     },
     "knight_mobility_factor": {
-        "value": 3,
+        "value": 7,
         "min": 0,
         "max": 10
     },
     "bishop_mobility_factor": {
-        "value": 3,
+        "value": 7,
         "min": 0,
         "max": 10
     },
     "rook_mobility_factor": {
-        "value": 2,
+        "value": 4,
         "min": 0,
         "max": 10
     },

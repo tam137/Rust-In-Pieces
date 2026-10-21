@@ -2321,9 +2321,11 @@ mod tests {
         // The ranges follow the material of the Texel re-fits (`task.md` 29): pawn 78, knight 408,
         // bishop 433, rook 562, queen 1390 in the middlegame since the re-fit without
         // `adjust_eval` (29.19), 116, 543, 580, 782 and 1883 from v0.47.1, against 100, 300, 300,
-        // 500 and 950 until v0.46.4. Each range keeps its place around the evaluation it reads.
+        // 500 and 950 until v0.46.4. Each range keeps its place around the evaluation it reads; the
+        // pawn range moved again with the mobility of `task.md` 29.24 (66 -> 39: a missing e-pawn
+        // opens Black's bishop and queen).
         // Figure values test for white
-        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 40, 150);
+        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 10, 120);
         eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 360, 600);
         eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 790, 1140);
         eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1110, 1510);
