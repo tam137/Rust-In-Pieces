@@ -55,8 +55,9 @@ after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. 
 margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Texel shipped in v0.47.6
 (29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. The pawn
 rank bonuses re-fitted stopped at the Texel bar (29.22), no game. A new Texel data set from the
-games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. Next: that, behind
-the time stop.
+games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. **They shipped in
+v0.47.7 (29.24):** +14.2 Elo [+3, +25] over 2494 games against v0.47.6, a stopped run. Next: the
+king-safety group by Texel (Matt-Magie step 46), then threats.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1758,4 +1759,36 @@ The passed-pawn table (29.21) and the rank bonuses (29.22) are done: nothing lef
 29.6 saw mobility x3 among the terms that slowed the search. Probe 3 passes the bar on all three sets
 for the first time, but the pawn table slowed the search in 29.11 at every strength tried. Probe 7
 shows the scalars still hold most of the error, and 29.6 that taking them all costs 58-69% time.
+
+### 29.24 The bishop pair and mobility re-fitted by Texel: shipped in v0.47.7 (2026-10-21)
+
+Matt-Magie step 45, probe 6 of 29.23. `bishop_pair_bonus` 48 -> 51, mobility knight / bishop / rook /
+queen 3 / 3 / 2 / 1 -> **7 / 7 / 4 / 3**; -135 / -145 / -400 x 10^-6 on `data0476`. Census by setoption
+on `suprah-0.47.6`, depth 10, 300 per pool, time / generated moves: control 300/300 identical on
+both; **fitted +4.0% / +1.7% (`openings_wide`), +9.9% / +14.8% (`openings_mixed`)**; half-way (5 / 5 / 3
+/ 2) +5.0% / +4.5%, +3.7% / +6.4%. The fitted values held the +10% rule by 0.1 point - a rule, not a
+measurement (as 29.13 missed +5% by 0.1) - so they played, as fixed beforehand. `texel-mirror` 0
+asymmetric; the cap fires on 37.2% instead of 34.4% of the test positions; lazy distance above 120 /
+180 cp 8.95% / 1.73% -> 10.43% / 1.86%: a busier evaluation, as expected.
+
+Tests: the pawn range of `eval_fig_value_test` (66 -> 39, a missing e-pawn opens Black's bishop and
+queen) and three single-position node counts each moved to the next depth at which their claim holds
+(null-move verification 7 -> 8, check extension 4 -> 5, QS table 5 -> 6). **Found on the way:**
+`get_moves` leaves the halfmove clock of the board it was given changed (`... 2 3` -> `... 0 3`), so a
+test that runs two searches on one board measures the second on another position - the order
+dependence seen in 29.20. Not fixed. Commit `966ece0`.
+
+**The gate:** SPRT against v0.47.6 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. **[0, 10] H1 after 2482 games** (LLR +3.02, +14.4 Elo), [0, 5] +1.88 undecided. At the
+end, 2494 games: **+14.2 Elo, paired 95% [+3, +25]** - a stopped run, not an effect size. Pairs 0-2 /
+0.5-1.5 / 1-1 / 1.5-0.5 / 2-0 from the candidate's side 115 / 256 / 440 / 284 / 152; no losses on time,
+White 53.8%. The reading was +36 after 310 games, +14.6 after 594, +15.3 after 1204, +13.3 after 1724.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 50.0% against v0.47.6, 54.5% against v0.47.5,
+95.5% against v0.34.0, no losses on time. Shipped as **v0.47.7**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** The new data set paid at once: on the old one this probe was not measured, and the
+gain on the games of the current engine was real in play. A busier evaluation cost up to 10% time to
+depth and still won - the time stop is a guard, not a verdict.
 
