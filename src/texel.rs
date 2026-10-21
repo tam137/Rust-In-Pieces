@@ -9,7 +9,8 @@
 //! * `texel-tune <data> <out-dir> [--epochs E] [--lr L] [--lambda X...] [--free G,...]` - fits the
 //!   parameters (Adam, full batch, `K` fixed on the shipped evaluation), writes `theta.txt` and a
 //!   report. `--free` names the groups that move - `material`, `tables`, `passers`, `scalars`,
-//!   all four by default; the others keep their shipped values. `--tables` names the pieces whose
+//!   all four by default, and `rank_bonus` (the three pawn rank bonuses, which `scalars` holds);
+//!   the others keep their shipped values. `--tables` names the pieces whose
 //!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default). `--set name=value,...`
 //!   holds scalars at the given values instead of the shipped ones.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
@@ -300,19 +301,22 @@ struct Groups {
     tables: bool,
     passers: bool,
     scalars: bool,
+    /// The three pawn rank bonuses, which `scalars` holds with the other piece-square scalars.
+    rank_bonus: bool,
     /// Whose tables move when `tables` is free, in `WHITE_PAWN..=WHITE_KING` order.
     table_pieces: [bool; 6],
 }
 
-/// `material,tables,passers,scalars`, any subset, in any order.
+/// `material,tables,passers,scalars,rank_bonus`, any subset, in any order.
 fn parse_groups(list: &str) -> Groups {
-    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, table_pieces: [true; 6] };
+    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, rank_bonus: false, table_pieces: [true; 6] };
     for name in list.split(',') {
         match name.trim() {
             "material" => groups.material = true,
             "tables" => groups.tables = true,
             "passers" => groups.passers = true,
             "scalars" => groups.scalars = true,
+            "rank_bonus" => groups.rank_bonus = true,
             other => panic!("unknown parameter group {other}"),
         }
     }
@@ -359,6 +363,11 @@ fn trainable_for(groups: &Groups) -> Vec<bool> {
         }
         for &p in PIECE_SQUARE_SCALARS {
             t[p as usize] = false;
+        }
+    }
+    if groups.rank_bonus {
+        for p in [et::P::PawnOnLastRankBonus, et::P::PawnOnBeforeLastRankBonus, et::P::PawnOnBeforeBeforeLastRankBonus] {
+            t[p as usize] = true;
         }
     }
     if groups.passers {
@@ -1310,6 +1319,32 @@ mod tests {
         }
         assert!((et::MATERIAL_MG..et::N_PARAMS).any(|j| theta[j] != theta0[j]), "nothing free moved");
         assert_eq!(trainable_for(&parse_groups("material,tables,passers,scalars")), trainable());
+    }
+
+    /// `--free rank_bonus` frees the three pawn rank bonuses, which `scalars` holds with the other
+    /// piece-square scalars: with the tables held they have no table to trade against, and nothing
+    /// else may move.
+    #[test]
+    fn test_rank_bonus_alone_moves_only_the_three_bonuses() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let theta0 = et::theta_of(&config);
+        let samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let bonuses = [et::P::PawnOnLastRankBonus as usize, et::P::PawnOnBeforeLastRankBonus as usize,
+            et::P::PawnOnBeforeBeforeLastRankBonus as usize];
+        let mask = trainable_for(&parse_groups("rank_bonus"));
+        for (j, &free) in mask.iter().enumerate() {
+            assert_eq!(free, bonuses.contains(&j), "parameter {j}: free {free}");
+        }
+        let theta = run_epochs(&samples, 0.004, &pipeline, &theta0, &mask, 0.0, 0.0, 5, 1.0, 1).0;
+        for j in (0..et::N_PARAMS).filter(|j| !bonuses.contains(j)) {
+            assert_eq!(theta[j], theta0[j], "parameter {j} moved although only the rank bonuses are free");
+        }
+        assert!(bonuses.iter().any(|&j| theta[j] != theta0[j]), "no rank bonus moved");
     }
 
     /// `--free material` alone: the tables are held, so their means have nowhere to go and the
