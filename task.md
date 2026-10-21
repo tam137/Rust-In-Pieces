@@ -53,8 +53,9 @@ v0.47.4 (29.18):** SPRT [0, 10] H1 after 7610 games against v0.47.3, +7.9 Elo [+
 a stopped run. **The material re-fitted without it shipped in v0.47.5 (29.19):** SPRT [0, 10] H1
 after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. The search
 margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Texel shipped in v0.47.6
-(29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. Next: the
-tables and material re-measured on v0.47.6 (probe 1 of 29.21), or the rank bonuses.
+(29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. The pawn
+rank bonuses re-fitted stopped at the Texel bar (29.22), no game. Next: the tables and material
+re-measured on v0.47.6 (probe 1 of 29.21).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1716,4 +1717,18 @@ identical to the candidate (100/100 trees).
 fitted, at no cost in time. The pawn's value is now split between the table, the rank bonuses and
 the passer table by data rather than by hand; the rank bonuses (183 / 104 / 47) are the next
 candidate of the same kind.
+
+### 29.22 The pawn rank bonuses re-fitted by Texel: stopped at the bar, no game (2026-10-21)
+
+Matt-Magie step 43. The rank bonuses (183 / 104 / 47 in the endgame on ranks 7 / 6 / 5, half in the
+middlegame, every pawn) were the last hand-set layer of the three that pay an advanced pawn. The
+tuner holds them with the other piece-square scalars even under `--free scalars` (they would trade
+against the tables), so `--free scalars` with every other scalar held by `--set` moved nothing. A
+new group `--free rank_bonus` frees exactly the three (feature `texel`, release build identical to
+v0.47.6; test `test_rank_bonus_alone_moves_only_the_three_bonuses`, red first; branch
+`rank-bonus-refit`, `3694d34`). The fit on v0.47.6 (K 0.003730, best epoch 50 of 1000):
+183 / 104 / 47 -> 151 / 66 / 39, **-22 / -14 / -100 x 10^-6** train / validation / test - below the
+bar of 200 on the test set, no census and no game. After 29.21 the passer table already took back
+most of the double count; what is left in the bonuses is small, as 29.11 found for "bonuses off"
+(-11 / +4 / -371 on v0.47.2).
 
