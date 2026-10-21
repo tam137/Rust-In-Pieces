@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.7] - 2026-10-21
+
+The bishop pair and the four mobility factors are re-fitted by Texel on a data set whose test games
+are those of v0.47.3-v0.47.6 (`task.md` 29.23). Gated by **SPRT [0, 10]: H1 after 2482 games** at
+1s + 150ms against v0.47.6; at the end of the run, 2494 games: +14.2 Elo, paired 95% [+3, +25] - a
+stopped run, not an effect size (`task.md` rule 7). See `task.md` section 29.24.
+
+### Changed
+- `bishop_pair_bonus` 48 -> 51.
+- Mobility factors knight / bishop / rook / queen 3 / 3 / 2 / 1 -> 7 / 7 / 4 / 3 (`tuning/parameters.json`
+  follows for the first four; the queen factor is not an SPSA parameter).
+
+### Notes
+- Texel error on `data0476`: -135 / -145 / -400 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.47.6: +4.0% and +9.9% on the two pools (the +10% rule held by 0.1).
+- Four tests re-sampled: the pawn range of the material test, and three single-position node counts
+  moved one depth on.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 50.0% / 54.5% / 95.5% against v0.47.6 /
+  v0.47.5 / v0.34.0, no losses on time.
+
 ## [V0.47.6] - 2026-10-21
 
 The passed-pawn table is re-fitted by Texel for the first time; it was hand-set under four fitted
