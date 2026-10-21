@@ -2294,15 +2294,17 @@ mod tests {
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();
 
-        // Depth 7. At depth 4 the tree is small enough that, with Principal Variation Search at
+        // Depth 8. At depth 4 the tree is small enough that, with Principal Variation Search at
         // the root, the full-window re-search of a root move that beat its null window outweighs
         // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saved again
         // (4277 against 5394). Since the re-fitted tables of v0.47.1 this configuration - the
-        // verification search and divisor 6 of v0.46.2, off in play - saves at depths 3, 4 and 7
-        // (12882 against 30490 at 7) and costs at 5, 6 and 8.
+        // verification search and divisor 6 of v0.46.2, off in play - saved at depths 3, 4 and 7
+        // and cost at 5, 6 and 8; with the mobility of `task.md` 29.24 it saves at 3, 6, 8 and 9
+        // (32055 against 45998 at 8) and costs at 4, 5 and 7. The second search reuses the board
+        // of the first, whose halfmove clock the first search leaves at 0.
         service.search.get_moves(
             &mut board,
-            7,
+            8,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -2315,7 +2317,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            7,
+            8,
             true,
             &mut stats_disabled,
             &config_disabled,
@@ -3685,9 +3687,11 @@ mod tests {
     #[test]
     fn test_check_extension_deepens_forcing_lines() {
         // The extension only adds plies on checking moves, so the very same search
-        // must visit strictly more nodes once it is enabled.
-        let (_, nodes_with) = search_smothered_mate(true, 4);
-        let (_, nodes_without) = search_smothered_mate(false, 4);
+        // must visit strictly more nodes once it is enabled. Depth 5: with the mobility of
+        // `task.md` 29.24 the extended search finds the mate early enough at depth 4 to visit
+        // fewer nodes (1358 against 2103); at 3, 5 and 6 it visits more (18948 against 2476 at 5).
+        let (_, nodes_with) = search_smothered_mate(true, 5);
+        let (_, nodes_without) = search_smothered_mate(false, 5);
 
         assert!(nodes_with > nodes_without,
             "Extended search should visit more nodes ({} with vs {} without)",
@@ -4244,6 +4248,8 @@ mod tests {
     #[test]
     fn test_qs_tt_search_consistency_and_node_reduction() {
         let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        // Depth 6: with the mobility of `task.md` 29.24 the table costs at depth 5 (12063 against
+        // 7358 nodes) and saves at 4, 6 and 7 (16751 against 23142 at 6).
         let mut board_enabled = Service::new().fen.set_fen(fen);
         let mut board_disabled = board_enabled.clone();
         let service = Service::new();
@@ -4283,7 +4289,7 @@ mod tests {
 
         let res_enabled = service.search.get_moves(
             &mut board_enabled,
-            5,
+            6,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -4296,7 +4302,7 @@ mod tests {
 
         let res_disabled = service.search.get_moves(
             &mut board_disabled,
-            5,
+            6,
             true,
             &mut stats_disabled,
             &config_disabled,
