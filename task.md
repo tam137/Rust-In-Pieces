@@ -54,8 +54,9 @@ a stopped run. **The material re-fitted without it shipped in v0.47.5 (29.19):**
 after 2944 games against v0.47.4, +13.1 Elo [+3, +23] over 2956, a stopped run. The search
 margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Texel shipped in v0.47.6
 (29.21):** +22.5 Elo [+10, +35] over 2006 games against v0.47.5, run to a fixed 2000. The pawn
-rank bonuses re-fitted stopped at the Texel bar (29.22), no game. Next: the tables and material
-re-measured on v0.47.6 (probe 1 of 29.21).
+rank bonuses re-fitted stopped at the Texel bar (29.22), no game. A new Texel data set from the
+games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. Next: that, behind
+the time stop.
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1731,4 +1732,30 @@ v0.47.6; test `test_rank_bonus_alone_moves_only_the_three_bonuses`, red first; b
 bar of 200 on the test set, no census and no game. After 29.21 the passer table already took back
 most of the double count; what is left in the bonuses is small, as 29.11 found for "bonuses off"
 (-11 / +4 / -371 on v0.47.2).
+
+### 29.23 A Texel data set from the games of v0.47.x, seven probes (2026-10-21)
+
+Matt-Magie step 44, analysis only. Every fit since 29.6 used a data set whose test games were
+v0.46.x SPRT runs. `data0476.bin`: training / validation from the old sources plus the old test set
+and the runs of v0.47.0-v0.47.3 (13,146 games); **test = the runs of v0.47.3-v0.47.6** (27,004 games,
+252,376 positions). 478,977 games, 4,516,779 positions; `texel-check` 100% within 3 cp (mean 0.20).
+On it v0.47.6 reads 0.103021 / 0.102812 / 0.099825 (K 0.003799). Each probe 1000 epochs, the rest
+held; error change x 10^-6, train / validation / test:
+
+| probe | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| 1 material | -19 | +1 | -213 |
+| 2 material + tables of rook, knight, bishop, queen, king (L2 1e-10) | -164 | -163 | -241 |
+| 3 the pawn table alone (L2 1e-7) | -401 | -376 | -308 |
+| 4 the passed-pawn table | -5 | +1 | -11 |
+| 5 the rank bonuses | -30 | -24 | -70 |
+| **6 bishop pair + the four mobility factors** | **-135** | **-145** | **-400** |
+| 7 every scalar | -1138 | -950 | -1738 |
+
+The passed-pawn table (29.21) and the rank bonuses (29.22) are done: nothing left on new games. Probe
+6 is the best per value: bishop pair 48 -> 51, mobility knight / bishop / rook / queen 3 / 3 / 2 / 1 ->
+**7 / 7 / 4 / 3**. Mobility is counted whatever its weight, so the cost is the tree, not the term;
+29.6 saw mobility x3 among the terms that slowed the search. Probe 3 passes the bar on all three sets
+for the first time, but the pawn table slowed the search in 29.11 at every strength tried. Probe 7
+shows the scalars still hold most of the error, and 29.6 that taking them all costs 58-69% time.
 
