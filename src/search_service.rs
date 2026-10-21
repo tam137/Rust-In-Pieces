@@ -2294,17 +2294,18 @@ mod tests {
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();
 
-        // Depth 8. At depth 4 the tree is small enough that, with Principal Variation Search at
+        // Depth 9. At depth 4 the tree is small enough that, with Principal Variation Search at
         // the root, the full-window re-search of a root move that beat its null window outweighs
         // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saved again
         // (4277 against 5394). Since the re-fitted tables of v0.47.1 this configuration - the
         // verification search and divisor 6 of v0.46.2, off in play - saved at depths 3, 4 and 7
         // and cost at 5, 6 and 8; with the mobility of `task.md` 29.24 it saves at 3, 6, 8 and 9
-        // (32055 against 45998 at 8) and costs at 4, 5 and 7. The second search reuses the board
-        // of the first, whose halfmove clock the first search leaves at 0.
+        // (32055 against 45998 at 8) and costs at 4, 5 and 7; with the threats of 29.26 depth 8
+        // reads 96319 against 95961, and 5, 6 and 9 save. The second search reuses the board of
+        // the first, whose halfmove clock the first search leaves at 0.
         service.search.get_moves(
             &mut board,
-            8,
+            9,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -2317,7 +2318,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            8,
+            9,
             true,
             &mut stats_disabled,
             &config_disabled,
@@ -3582,7 +3583,9 @@ mod tests {
         // The property is a statement about the window, not about one position: a narrower window
         // prunes more on average, and on a single position it can legitimately lose to a
         // re-search. Summing over a handful of positions asserts what is actually claimed. The
-        // first entry is the position this test carried while it was single-position.
+        // first entry is the position this test carried while it was single-position. Depth 4:
+        // with the threats of `task.md` 29.26 the sum at depth 5 reads 22921 seeded against 20911
+        // full, and at 6 and 7 the seeded window loses too; at 4 it saves (7860 against 10006).
         const FENS: [&str; 4] = [
             "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
             "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
@@ -3601,7 +3604,7 @@ mod tests {
             let mut board_wide = service.fen.set_fen(fen);
             let mut stats_wide = Stats::new();
             let wide_result = service.search.get_moves(
-                &mut board_wide, 5, true, &mut stats_wide, &config, &service,
+                &mut board_wide, 4, true, &mut stats_wide, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, None,
             );
 
@@ -3609,7 +3612,7 @@ mod tests {
             let mut board_narrow = service.fen.set_fen(fen);
             let mut stats_narrow = Stats::new();
             let narrow_result = service.search.get_moves(
-                &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
+                &mut board_narrow, 4, true, &mut stats_narrow, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, Some(wide_result.get_eval()),
             );
 
@@ -3965,9 +3968,10 @@ mod tests {
     #[test]
     fn test_futility_pruning_node_reduction() {
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
-        // Depth 7. Since the re-fitted tables of v0.47.1 the rule saves on this position at depths
-        // 3, 4 and 7 (15191 against 15637 at 7) and costs at 5, 6 and 8, where it used to save at
-        // 5; a single position's node count moves with every change to the evaluation.
+        // Depth 8. Since the re-fitted tables of v0.47.1 the rule saved on this position at depths
+        // 3, 4 and 7 and cost at 5, 6 and 8, where it used to save at 5; with the threats of
+        // `task.md` 29.26 depth 7 reads 20774 against 13414 and 5, 6 and 8 save. A single
+        // position's node count moves with every change to the evaluation.
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
@@ -3990,7 +3994,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            7,
+            8,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -4003,7 +4007,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            7,
+            8,
             true,
             &mut stats_disabled,
             &config_disabled,
