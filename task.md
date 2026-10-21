@@ -1667,3 +1667,14 @@ games: **-4.0 Elo, paired 95% [-15, +7]** - a stopped run, not an effect size. P
 White 52.7%. The reading was +19.8 after 756 games, +6.8 after 1232, +2.8 after 1834. Futility stays
 at 120 + 80: with 29.17 (x1.12, -8.9 Elo) both directions have lost - the margin sits where it is.
 
+**RFP, 90 -> 74: not shipped, the run stopped by the owner.** Census on `suprah-0.47.5`: control
+300/300 identical on both pools; 74 -5.1% / -4.9% (`openings_wide`), -7.8% / -13.0% (`openings_mixed`)
+time / generated moves; 65 -9.4% / -10.8%. Branch `rfp-0822` (`ab4ef7b`; six tests re-sampled - three
+pinned 90, three single-position node counts moved from depth 7 to 8, where every claim holds),
+candidate identical to the census build and to the commit (100/100). SPRT against v0.47.5: **[0, 10]
+H0 after 8634 games with +2.3 Elo** - above 0, so [0, 5] decided by the rule; stopped by the owner at
+10,816 games with [0, 5] at LLR -0.81: **+1.4 Elo, paired 95% [-4, +6]** - a stopped run, not an
+effect size. Pairs 519 / 1229 / 1902 / 1206 / 552; no losses on time, White 54.1%. The reading was
++25 after 488 games, +17 after 1040, +6.6 after 4358, +3.0 after 7244. RFP stays at 90: on the
+scale of v0.47.5, 74 searches 5-8% faster and plays the same. Razoring was not played.
+
