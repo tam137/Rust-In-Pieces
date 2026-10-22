@@ -114,7 +114,9 @@ def _constrained_mle(pdf, target):
             right = middle
     x = 0.5 * (left + right)
 
-    return [(value, weight / (1.0 + x * (value - target))) for value, weight in pdf]
+    # An outcome never observed keeps weight 0. The bound on `x` covers only the observed
+    # support, so such an outcome may sit on the pole of the formula (a 0/0, 2026-10-22).
+    return [(value, weight / (1.0 + x * (value - target)) if weight > 0.0 else 0.0) for value, weight in pdf]
 
 
 def log_likelihood_ratio(counts, elo0, elo1):
