@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.9] - 2026-10-22
+
+The lazy-evaluation margins go from 180 / 120 to 200 / 140 (search / Quiescence Search): with the
+mobility of v0.47.7 and the threats of v0.47.8, neither in `cheap_eval`, the lazy return answered
+wrongly about 1.5 times as often; the new margins bring that back to the rate of v0.47.6. Gated by
+**SPRT [0, 10]: H1 after 3106 games** at 1s + 150ms against v0.47.8; at the end of the run, 3122
+games: +12.5 Elo, paired 95% [+3, +22] - a stopped run, not an effect size (`task.md` rule 7). See
+`task.md` section 29.27.
+
+### Changed
+- `lazy_eval_margin_search` 180 -> 200, `lazy_eval_margin_qs` 120 -> 140 (`tuning/parameters.json`
+  follows).
+
+### Added
+- `texel-lazy --margins S,Q` counts lazy returns and wrong ones on the sampled search windows
+  (feature `texel` only).
+
+### Notes
+- Wrong lazy returns on `samples_openings_wide` / `_mixed`, search / QS margin: v0.47.6 0.111 / 0.095%
+  and 0.660 / 0.542%; v0.47.8 0.172 / 0.124% and 0.922 / 0.740%; v0.47.9 0.090 / 0.055% and 0.519 /
+  0.403%.
+- Time to depth 10 against v0.47.8: +4.3% and +2.6%. The pawn-threat term in `cheap_eval` with
+  200 / 130 met the same rate at +8.6% / +1.4% and was not taken.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 50.0% / 55.5% / 92.0% against v0.47.8 /
+  v0.47.7 / v0.34.0, no losses on time.
+
 ## [V0.47.8] - 2026-10-22
 
 The thirteen threat values are re-fitted by Texel on `data0476` (test games of v0.47.3-v0.47.6). The
