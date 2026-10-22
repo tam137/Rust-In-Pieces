@@ -91,6 +91,49 @@ const BLACK_PASSED_PAWN_MASKS: [u64; 64] = {
     masks
 };
 
+/// The squares each side attacks, built once per evaluation from the attack sets the piece terms
+/// compute anyway: `by[side][piece]` per piece type (`WHITE_PAWN..=WHITE_KING` indexing, side 0
+/// White, 1 Black), `all[side]` their union, `two[side]` the squares attacked at least twice.
+/// Pseudo-attacks: pins are ignored and sliders stop at the first piece, as the mobility terms
+/// count them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AttackMaps {
+    pub by: [[u64; 6]; 2],
+    pub all: [u64; 2],
+    pub two: [u64; 2],
+}
+
+impl AttackMaps {
+    /// The maps after the pawns: a square two pawns attack is attacked twice.
+    #[inline(always)]
+    fn new(white_pawns: u64, black_pawns: u64, white_pawn_attacks: u64, black_pawn_attacks: u64) -> Self {
+        const FILE_A: u64 = 0x0101010101010101;
+        const FILE_H: u64 = 0x8080808080808080;
+        let white_double = ((white_pawns & !FILE_A) << 7) & ((white_pawns & !FILE_H) << 9);
+        let black_double = ((black_pawns & !FILE_H) >> 7) & ((black_pawns & !FILE_A) >> 9);
+        let mut maps = AttackMaps::default();
+        maps.by[0][crate::model::WHITE_PAWN] = white_pawn_attacks;
+        maps.by[1][crate::model::WHITE_PAWN] = black_pawn_attacks;
+        maps.all = [white_pawn_attacks, black_pawn_attacks];
+        maps.two = [white_double, black_double];
+        maps
+    }
+
+    /// Adds the attack set of one piece of `side`; `piece` is its type as a White index.
+    #[inline(always)]
+    fn add(&mut self, side: usize, piece: usize, attacks: u64) {
+        self.two[side] |= self.all[side] & attacks;
+        self.all[side] |= attacks;
+        self.by[side][piece] |= attacks;
+    }
+}
+
+/// The attack maps of the last full evaluation on this thread, for the tests.
+#[cfg(test)]
+thread_local! {
+    static LAST_MAPS: std::cell::Cell<AttackMaps> = std::cell::Cell::new(AttackMaps::default());
+}
+
 pub struct EvalService {
     _knight_moves: [i16; 8],
     pub nnue_net: crate::nnue_service::NNUENetwork,
@@ -278,45 +321,55 @@ impl EvalService {
         let mut black_attackers = 0;
         let mut white_king_danger = 0;
         let mut black_king_danger = 0;
+        // Minor pieces that attack their own king's ring: the defenders the king danger subtracts.
+        let mut white_defenders = 0;
+        let mut black_defenders = 0;
+        let mut maps = AttackMaps::new(white_pawns, black_pawns, white_pawn_attacks, black_pawn_attacks);
 
         let mut temp_w_rook = board.bitboards[crate::model::WHITE_ROOK];
         while temp_w_rook != 0 {
             let sq = temp_w_rook.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_rook(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.white_rook(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t11,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
             white_king_danger += danger;
+            maps.add(0, crate::model::WHITE_ROOK, attacks);
             temp_w_rook &= temp_w_rook - 1;
         }
         let mut temp_w_knight = board.bitboards[crate::model::WHITE_KNIGHT];
         while temp_w_knight != 0 {
             let sq = temp_w_knight.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.white_knight(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t12,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
             white_king_danger += danger;
+            maps.add(0, crate::model::WHITE_KNIGHT, attacks);
+            if attacks & white_king_ring != 0 { white_defenders += 1; }
             temp_w_knight &= temp_w_knight - 1;
         }
         let mut temp_w_bishop = board.bitboards[crate::model::WHITE_BISHOP];
         while temp_w_bishop != 0 {
             let sq = temp_w_bishop.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.white_bishop(sq, board, config, game_phase, movegen, black_king_ring, white_true_outposts, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t13,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
             white_king_danger += danger;
+            maps.add(0, crate::model::WHITE_BISHOP, attacks);
+            if attacks & white_king_ring != 0 { white_defenders += 1; }
             temp_w_bishop &= temp_w_bishop - 1;
         }
         let mut temp_w_queen = board.bitboards[crate::model::WHITE_QUEEN];
         while temp_w_queen != 0 {
             let sq = temp_w_queen.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.white_queen(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.white_queen(sq, board, config, game_phase, movegen, black_king_ring, black_pawn_attacks, board.white_pieces);
             if config.print_eval_per_figure { println!("{},\t14,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             white_attackers += attackers;
             white_king_danger += danger;
+            maps.add(0, crate::model::WHITE_QUEEN, attacks);
             temp_w_queen &= temp_w_queen - 1;
         }
         let mut temp_w_king = board.bitboards[crate::model::WHITE_KING];
@@ -326,47 +379,54 @@ impl EvalService {
                 count_both_kings || (in_check && board.white_to_move));
             if config.print_eval_per_figure { println!("{},\t15,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
+            maps.add(0, crate::model::WHITE_KING, movegen.get_king_attacks(sq as usize));
             temp_w_king &= temp_w_king - 1;
         }
 
         let mut temp_b_rook = board.bitboards[crate::model::BLACK_ROOK];
         while temp_b_rook != 0 {
             let sq = temp_b_rook.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_rook(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.black_rook(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t21,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
             black_king_danger += danger;
+            maps.add(1, crate::model::WHITE_ROOK, attacks);
             temp_b_rook &= temp_b_rook - 1;
         }
         let mut temp_b_knight = board.bitboards[crate::model::BLACK_KNIGHT];
         while temp_b_knight != 0 {
             let sq = temp_b_knight.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.black_knight(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t22,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
             black_king_danger += danger;
+            maps.add(1, crate::model::WHITE_KNIGHT, attacks);
+            if attacks & black_king_ring != 0 { black_defenders += 1; }
             temp_b_knight &= temp_b_knight - 1;
         }
         let mut temp_b_bishop = board.bitboards[crate::model::BLACK_BISHOP];
         while temp_b_bishop != 0 {
             let sq = temp_b_bishop.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.black_bishop(sq, board, config, game_phase, movegen, white_king_ring, black_true_outposts, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t23,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
             black_king_danger += danger;
+            maps.add(1, crate::model::WHITE_BISHOP, attacks);
+            if attacks & black_king_ring != 0 { black_defenders += 1; }
             temp_b_bishop &= temp_b_bishop - 1;
         }
         let mut temp_b_queen = board.bitboards[crate::model::BLACK_QUEEN];
         while temp_b_queen != 0 {
             let sq = temp_b_queen.trailing_zeros() as u8;
-            let (eval_for_piece, attackers, danger) = self.black_queen(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
+            let (eval_for_piece, attackers, danger, attacks) = self.black_queen(sq, board, config, game_phase, movegen, white_king_ring, white_pawn_attacks, board.black_pieces);
             if config.print_eval_per_figure { println!("{},\t24,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
             black_attackers += attackers;
             black_king_danger += danger;
+            maps.add(1, crate::model::WHITE_QUEEN, attacks);
             temp_b_queen &= temp_b_queen - 1;
         }
         let mut temp_b_king = board.bitboards[crate::model::BLACK_KING];
@@ -376,8 +436,12 @@ impl EvalService {
                 count_both_kings || (in_check && !board.white_to_move));
             if config.print_eval_per_figure { println!("{},\t25,\t{}", sq, eval_for_piece); }
             eval += eval_for_piece;
+            maps.add(1, crate::model::WHITE_KING, movegen.get_king_attacks(sq as usize));
             temp_b_king &= temp_b_king - 1;
         }
+
+        #[cfg(test)]
+        LAST_MAPS.with(|m| m.set(maps));
 
         // Apply King Danger Weights (Task 1.4)
         let danger_weights = [
@@ -388,37 +452,6 @@ impl EvalService {
             config.king_danger_weight_4,
             config.king_danger_weight_5,
         ];
-        
-        let mut white_defenders = 0;
-        let mut black_defenders = 0;
-        
-        if white_attackers > 0 || black_attackers > 0 {
-            let mut temp = board.bitboards[crate::model::WHITE_KNIGHT];
-            while temp != 0 {
-                let sq = temp.trailing_zeros() as usize;
-                if (movegen.get_knight_attacks(sq) & white_king_ring) != 0 { white_defenders += 1; }
-                temp &= temp - 1;
-            }
-            let mut temp = board.bitboards[crate::model::WHITE_BISHOP];
-            while temp != 0 {
-                let sq = temp.trailing_zeros() as usize;
-                if (movegen.get_bishop_attacks(sq, board.occupied) & white_king_ring) != 0 { white_defenders += 1; }
-                temp &= temp - 1;
-            }
-            
-            let mut temp = board.bitboards[crate::model::BLACK_KNIGHT];
-            while temp != 0 {
-                let sq = temp.trailing_zeros() as usize;
-                if (movegen.get_knight_attacks(sq) & black_king_ring) != 0 { black_defenders += 1; }
-                temp &= temp - 1;
-            }
-            let mut temp = board.bitboards[crate::model::BLACK_BISHOP];
-            while temp != 0 {
-                let sq = temp.trailing_zeros() as usize;
-                if (movegen.get_bishop_attacks(sq, board.occupied) & black_king_ring) != 0 { black_defenders += 1; }
-                temp &= temp - 1;
-            }
-        }
 
         if white_attackers > 0 {
             let effective_attackers = (white_attackers as i16 - (black_defenders as i16 * config.king_ring_defender_value)).max(0) as usize;
@@ -833,7 +866,7 @@ impl EvalService {
         (o_eval, e_eval)
     }
 
-    fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn white_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let rank = sq / 8;
@@ -963,10 +996,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_rook;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn black_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn black_rook(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let rank = sq / 8;
@@ -1096,10 +1129,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_rook;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn white_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1177,10 +1210,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_knight;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn black_knight(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1256,10 +1289,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_knight;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn white_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1325,10 +1358,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_bishop;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn black_bishop(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, friendly_true_outposts: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
         let sq = sq as i32;
@@ -1394,10 +1427,10 @@ impl EvalService {
         let danger = attacks_on_ring * config.king_ring_attack_bishop;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn white_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
@@ -1423,10 +1456,10 @@ impl EvalService {
         e_eval += mobility * config.queen_mobility_factor;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
 
-    fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16) {
+    fn black_queen(&self, sq: u8, board: &Board, config: &Config, game_phase: i16, movegen: &MoveGenService, opp_king_ring: u64, opp_pawn_attacks: u64, friendly_pieces: u64) -> (i16, u8, i16, u64) {
         let mut o_eval = 0;
         let mut e_eval = 0;
 
@@ -1452,7 +1485,7 @@ impl EvalService {
         e_eval -= mobility * config.queen_mobility_factor;
 
         let eval = self.calculate_weighted_eval(o_eval, e_eval, game_phase);
-        (eval, attackers, danger)
+        (eval, attackers, danger, attacks)
     }
  
     /// `may_be_attacked` false is a promise that the White king is not in check, which spares
@@ -2526,6 +2559,43 @@ mod tests {
         }
     }
 
+    /// The attack maps `evaluate` builds against a per-square reference: for every square, the
+    /// pieces of each side that attack it by `get_attackers_mask`. Positions with pawn double
+    /// attacks, batteries, a queen, both kings in contact and pieces on the rim.
+    #[test]
+    fn test_attack_maps_match_the_attackers_of_every_square() {
+        let service = Service::new();
+        let config = Config::new();
+        for fen in [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r1bq1rk1/pp2bppp/2n1pn2/2pp4/2PP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 8",
+            "2r3k1/1q3ppp/p2p4/1p1Pp3/1P2P1Q1/P2B4/5PPP/2R3K1 b - - 0 25",
+            "8/8/3k4/3P4/3K4/8/8/8 w - - 0 1",
+            "N6r/1p1k1ppp/2np4/b1p1p3/4P3/2P2N2/PP1P1PPP/R1B1KB1R b KQ - 0 12",
+            "rnb1k1n1/pp4p1/2p3Nr/3p3p/q7/1RP3P1/3NPPBP/3QK2R w Kq - 3 19",
+        ] {
+            let board = service.fen.set_fen(fen);
+            service.eval.calc_eval(&board, &config, &service.move_gen, &crate::pawn_hash::PawnHashTable::new(16),
+                i16::MIN + 1, i16::MAX - 1, 0);
+            let maps = super::LAST_MAPS.with(|m| m.get());
+            for side in 0..2 {
+                let offset = if side == 0 { 0 } else { 6 };
+                for sq in 0..64u8 {
+                    // `get_attackers_mask(board, white, ..)` returns the attackers of the side
+                    // that is not `white`.
+                    let attackers = service.move_gen.get_attackers_mask(&board, side == 1, sq, board.occupied);
+                    let bit = 1u64 << sq;
+                    assert_eq!(maps.all[side] & bit != 0, attackers != 0, "{fen}: side {side} attacks square {sq}");
+                    assert_eq!(maps.two[side] & bit != 0, attackers.count_ones() >= 2, "{fen}: side {side} attacks square {sq} twice");
+                    for piece in 0..6 {
+                        assert_eq!(maps.by[side][piece] & bit != 0, attackers & board.bitboards[offset + piece] != 0,
+                            "{fen}: side {side} piece {piece} attacks square {sq}");
+                    }
+                }
+            }
+        }
+    }
+
     fn equal_eval(fen: &str) {
         let fen_service = Service::new().fen;
         let eval_service = Service::new().eval;
@@ -3028,12 +3098,12 @@ mod tests {
         // Position A: White Knight on d4 with free squares (Black pawns on a7/h7 far away)
         let board_free_knight = fen_service.set_fen("7k/p6p/8/8/3N4/8/8/K7 w - - 0 1");
         let free_pawn_attacks = super::EvalService::get_black_pawn_attacks(board_free_knight.bitboards[crate::model::BLACK_PAWN]);
-        let (free_knight_eval, _, _) = eval_service.white_knight(27, &board_free_knight, &config, 100, movegen, 0, 0, free_pawn_attacks, board_free_knight.white_pieces);
+        let (free_knight_eval, _, _, _) = eval_service.white_knight(27, &board_free_knight, &config, 100, movegen, 0, 0, free_pawn_attacks, board_free_knight.white_pieces);
 
         // Position B: Black pawns on c6 and e6 control knight landing squares - restricting safe mobility
         let board_guarded = fen_service.set_fen("7k/8/2p1p3/8/3N4/8/8/K7 w - - 0 1");
         let guarded_pawn_attacks = super::EvalService::get_black_pawn_attacks(board_guarded.bitboards[crate::model::BLACK_PAWN]);
-        let (guarded_knight_eval, _, _) = eval_service.white_knight(27, &board_guarded, &config, 100, movegen, 0, 0, guarded_pawn_attacks, board_guarded.white_pieces);
+        let (guarded_knight_eval, _, _, _) = eval_service.white_knight(27, &board_guarded, &config, 100, movegen, 0, 0, guarded_pawn_attacks, board_guarded.white_pieces);
 
         assert!(
             free_knight_eval > guarded_knight_eval,
@@ -3052,11 +3122,11 @@ mod tests {
 
         // Position A: White Rook on d4 on open board
         let board_open_rook = fen_service.set_fen("7k/8/8/8/3R4/8/8/K7 w - - 0 1");
-        let (open_rook_eval, _, _) = eval_service.white_rook(27, &board_open_rook, &config, 100, movegen, 0, 0, board_open_rook.white_pieces);
+        let (open_rook_eval, _, _, _) = eval_service.white_rook(27, &board_open_rook, &config, 100, movegen, 0, 0, board_open_rook.white_pieces);
 
         // Position B: White Rook on d4 hemmed in by friendly pawns on d3, d5, c4, e4
         let board_blocked_rook = fen_service.set_fen("7k/8/8/3P4/2PRP3/3P4/8/K7 w - - 0 1");
-        let (blocked_rook_eval, _, _) = eval_service.white_rook(27, &board_blocked_rook, &config, 100, movegen, 0, 0, board_blocked_rook.white_pieces);
+        let (blocked_rook_eval, _, _, _) = eval_service.white_rook(27, &board_blocked_rook, &config, 100, movegen, 0, 0, board_blocked_rook.white_pieces);
 
         assert!(
             open_rook_eval > blocked_rook_eval,
@@ -3076,8 +3146,8 @@ mod tests {
         let board_open_queen = fen_service.set_fen("7k/8/8/8/3Q4/8/8/K7 w - - 0 1");
         let board_trapped_queen = fen_service.set_fen("7k/8/8/8/8/8/1PP5/KPQ5 w - - 0 1");
 
-        let (open_q_eval, _, _) = eval_service.white_queen(27, &board_open_queen, &config, 128, movegen, 0, 0, board_open_queen.white_pieces);
-        let (trapped_q_eval, _, _) = eval_service.white_queen(2, &board_trapped_queen, &config, 128, movegen, 0, 0, board_trapped_queen.white_pieces);
+        let (open_q_eval, _, _, _) = eval_service.white_queen(27, &board_open_queen, &config, 128, movegen, 0, 0, board_open_queen.white_pieces);
+        let (trapped_q_eval, _, _, _) = eval_service.white_queen(2, &board_trapped_queen, &config, 128, movegen, 0, 0, board_trapped_queen.white_pieces);
 
         assert!(
             open_q_eval > trapped_q_eval,
@@ -3221,11 +3291,11 @@ mod tests {
 
         // Position A: White Rook on e1 on open e-file facing Black Queen on e8
         let board_aligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/4R1K1 w - - 0 1");
-        let (eval_aligned_q, _, _) = eval_service.white_rook(4, &board_aligned_q, &config, 150, movegen, 0, 0, board_aligned_q.white_pieces);
+        let (eval_aligned_q, _, _, _) = eval_service.white_rook(4, &board_aligned_q, &config, 150, movegen, 0, 0, board_aligned_q.white_pieces);
 
         // Position B: White Rook on d1 on open d-file with Black Queen on e8 (not aligned)
         let board_unaligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/3R2K1 w - - 0 1");
-        let (eval_unaligned_q, _, _) = eval_service.white_rook(3, &board_unaligned_q, &config, 150, movegen, 0, 0, board_unaligned_q.white_pieces);
+        let (eval_unaligned_q, _, _, _) = eval_service.white_rook(3, &board_unaligned_q, &config, 150, movegen, 0, 0, board_unaligned_q.white_pieces);
 
         assert!(
             eval_aligned_q > eval_unaligned_q,
@@ -3267,11 +3337,11 @@ mod tests {
 
         // Position A: White Bishop on b2 on open diagonal targeting Black King on g7 (aligned)
         let board_aligned_k = fen_service.set_fen("8/6k1/8/8/8/8/1B6/7K w - - 0 1");
-        let (eval_aligned_k, _, _) = eval_service.white_bishop(9, &board_aligned_k, &config, 150, movegen, 0, 0, 0, board_aligned_k.white_pieces);
+        let (eval_aligned_k, _, _, _) = eval_service.white_bishop(9, &board_aligned_k, &config, 150, movegen, 0, 0, 0, board_aligned_k.white_pieces);
 
         // Position B: White Bishop on b2 with Black King on h7 (not on b2 diagonal)
         let board_unaligned_k = fen_service.set_fen("8/7k/8/8/8/8/1B6/7K w - - 0 1");
-        let (eval_unaligned_k, _, _) = eval_service.white_bishop(9, &board_unaligned_k, &config, 150, movegen, 0, 0, 0, board_unaligned_k.white_pieces);
+        let (eval_unaligned_k, _, _, _) = eval_service.white_bishop(9, &board_unaligned_k, &config, 150, movegen, 0, 0, 0, board_unaligned_k.white_pieces);
 
         assert!(
             eval_aligned_k > eval_unaligned_k,
@@ -3290,11 +3360,11 @@ mod tests {
 
         // Position A: White Rook on a7 with Black King cut off on e8 (8th rank)
         let board_cutoff = fen_service.set_fen("4k3/R7/8/8/8/8/8/4K3 w - - 0 1");
-        let (eval_cutoff, _, _) = eval_service.white_rook(48, &board_cutoff, &config, 150, movegen, 0, 0, board_cutoff.white_pieces);
+        let (eval_cutoff, _, _, _) = eval_service.white_rook(48, &board_cutoff, &config, 150, movegen, 0, 0, board_cutoff.white_pieces);
 
         // Position B: White Rook on a7 with Black King active on e6 (6th rank, not trapped on 8th)
         let board_nocutoff = fen_service.set_fen("8/R7/4k3/8/8/8/8/4K3 w - - 0 1");
-        let (eval_nocutoff, _, _) = eval_service.white_rook(48, &board_nocutoff, &config, 150, movegen, 0, 0, board_nocutoff.white_pieces);
+        let (eval_nocutoff, _, _, _) = eval_service.white_rook(48, &board_nocutoff, &config, 150, movegen, 0, 0, board_nocutoff.white_pieces);
 
         assert!(
             eval_cutoff > eval_nocutoff,
