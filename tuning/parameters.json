@@ -380,12 +380,12 @@
         "max": 400
     },
     "lazy_eval_margin_search": {
-        "value": 180,
+        "value": 200,
         "min": 50,
         "max": 400
     },
     "lazy_eval_margin_qs": {
-        "value": 120,
+        "value": 140,
         "min": 30,
         "max": 300
     },
