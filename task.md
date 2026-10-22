@@ -57,8 +57,10 @@ margins x0.822 (29.20) shipped nothing. **The passed-pawn table re-fitted by Tex
 rank bonuses re-fitted stopped at the Texel bar (29.22), no game. A new Texel data set from the
 games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. **They shipped in
 v0.47.7 (29.24):** +14.2 Elo [+3, +25] over 2494 games against v0.47.6, a stopped run. The existing
-king-safety group re-fitted stopped at the bar (29.25), no game. Next: threats, or new king-safety
-features (stage B).
+king-safety group re-fitted stopped at the bar (29.25), no game. **The threat values re-fitted
+shipped in v0.47.8 (29.26):** +13.6 Elo [+3, +24] over 2980 games against v0.47.7. Next: the threats
+in `cheap_eval` (the lazy distance doubled), or new king-safety and threat features on shared attack
+maps (stage B).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1813,4 +1815,40 @@ on it 15 -> 54; the pawn shield shrinks (37 -> 8, kingside 37 -> 18, queenside 2
 says:** the data want king danger, but this feature cannot carry it - its unit is the problem, not
 its weights. That is stage B: attack units with safe checks and weak ring squares, built at weight 0
 and fitted on traces of their own.
+
+### 29.26 Threats, stage A - the thirteen threat values re-fitted by Texel: shipped in v0.47.8 (2026-10-22)
+
+Matt-Magie step 47. The thirteen hand-set threat bonuses (pawn attacks a piece, knight on bishop /
+rook, minor on rook / queen, rook on queen, rook and bishop on the queen's line, queen attacked, with
+their tempo variants), the other 66 scalars held at v0.47.7, `data0476.bin`, 3000 epochs (best 200).
+**-191 / -192 / -188 x 10^-6** train / validation / test: the most even split of any fit, but the test
+gain 12 below the bar of 200; **the owner lifted the bar for this candidate** ("b, leg los").
+
+Fitted: pawn attacks a piece 35 -> **113**; knight attacks bishop 5 -> **61**, rook 16 -> **119**
+(tempo 9 -> 1, 13 kept); minor attacks rook 13 -> **105**, queen 24 -> **63**; rook attacks queen 20 ->
+**114**; rook on the queen's file 10 -> 25, bishop on its diagonal 10 -> 31; queen attacked 53 -> **8**
+(tempo 29 -> 6) - the single threats take over what the attacker scan said. Census by setoption on
+`suprah-0.47.7`, depth 10, 300 per pool: control 300/300 identical; fitted **+6.1% / +5.4%**
+(`openings_wide`), **+1.3% / -1.3%** (`openings_mixed`) time / generated moves; half-way +3.2% / -0.2%.
+`texel-mirror` 0 asymmetric; cap 37.2% -> 37.5%; **lazy distance above 120 / 180 cp 10.43% / 1.86% ->
+14.11% / 3.07%** - the threats are not in `cheap_eval`.
+
+Tests: three single-position node counts re-sampled by running the real test at each depth -
+futility 7 -> 8, null-move verification 8 -> 9, the aspiration sum 5 -> 4 (at 5, 6 and 7 the seeded
+window lost). **Found:** a `Service` carries state between searches - the same position and
+configuration count differently depending on what ran before in it; with the halfmove clock of 29.24
+the second source of order dependence in these tests. Not investigated. Commit `099d578`.
+
+**The gate:** SPRT against v0.47.7 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. **[0, 10] H1 after 2968 games** (LLR +3.05, +13.1 Elo), [0, 5] +2.10 undecided. At the
+end, 2980 games: **+13.6 Elo, paired 95% [+3, +24]** - a stopped run, not an effect size. Pairs 142 /
+309 / 515 / 338 / 186; no losses on time, White 53.5%. The reading was +10.2 after 2410 games.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 55.0% against v0.47.7, 51.0% against v0.47.6,
+87.5% against v0.34.0, no losses on time. Shipped as **v0.47.8**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** Common features with a sound unit fit well and won in play; the bar missed by 12
+was a bar, not a measurement. The price is a lazy evaluation that is wrong twice as often - the next
+lever is to give `cheap_eval` the threats or a margin that knows them.
 
