@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.11] - 2026-10-22
+
+Threats on the attack maps of v0.47.10, fitted by Texel together with the thirteen older threat
+values: hanging pieces, a minor attacked by a pawn, a rook by a pawn or minor, the queen by anything
+lesser, and the pieces a safe pawn push would attack - each counted per victim, mg and eg. Gated by
+**SPRT [0, 10]: H1 after about 3110 games** at 1s + 150ms against v0.47.10; at the end of the run,
+3114 games: +12.9 Elo, paired 95% [+3, +23] - a stopped run, not an effect size (`task.md` rule 7).
+See `task.md` section 29.29.
+
+### Changed
+- `threat_hanging`, `threat_lesser_on_minor`, `threat_lesser_on_rook`, `threat_lesser_on_queen`,
+  `threat_safe_pawn_push` (mg / eg) from 0 to 24 / 73, 175 / 161, 210 / 38, -45 / 23, 33 / 29.
+- The older pairs re-fitted with them; they overlap the new per-victim counts, and several turn
+  negative (pawn attacks piece 113 -> -82, minor attacks rook 105 -> -131, queen attacked 8 -> 221).
+- UCI ranges of `ThreatMinorAttacksRook`, `ThreatMinorAttacksQueen`, `ThreatRookAttacksQueen`
+  widened to -500..500 (their defaults are now negative).
+
+### Notes
+- Texel on `data0479` against v0.47.10 (x 10^-6, train / validation / test): -265 / -240 / -265.
+- Time to depth 10 against v0.47.10: -7.5% and +7.8%. Lazy margins unchanged (wrong returns stay
+  under the target of 29.27).
+
 ## [V0.47.10] - 2026-10-22
 
 King safety on attack maps, Ethereal's form, fitted by Texel: per king a weighted sum of the

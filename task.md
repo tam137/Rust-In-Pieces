@@ -1947,3 +1947,44 @@ candidate (100/100 trees).
 **What it says.** The unit was the problem, as 29.25 read it: with features that count what an attack
 is made of, and a penalty that grows faster than the attack, the same data that refused stage A pay for
 the extra time several times over. Next: the threats on the same maps (B2), started from here.
+
+### 29.29 Threats on the attack maps, stage B2: shipped in v0.47.11 (2026-10-22)
+
+Matt-Magie step 49, B2, on v0.47.10. The threat features built at weight 0 in 29.28 - hanging pieces
+(attacked by us, not defended), a minor attacked by a pawn, a rook by a pawn or minor, the queen by a
+pawn, minor or rook, and the pieces our pawns would attack after a safe push (one or two squares,
+the target not attacked by an enemy pawn, and defended by us or not attacked at all) - each counted per
+victim, mg and eg, read off the attack maps.
+
+**The fit** on `data0479.bin` with the build of v0.47.10 (king safety outside the cap): the ten new
+weights from 0, the thirteen older threat values free with them, everything else held; 3000 epochs,
+best at 2900. Error change x 10^-6 against v0.47.10: **-265 / -240 / -265** (train / validation /
+test) - over the bar, and even across the three sets. New weights (mg / eg): hanging 24 / 73, lesser
+on minor 175 / 161, on rook 210 / 38, on queen -45 / 23, safe pawn push 33 / 29. The older pairs count
+per attacker and overlap the per-victim terms, so the fit redistributes: pawn attacks piece 113 -> -82,
+knight attacks rook 119 -> -124, minor attacks rook 105 -> -131 and queen 63 -> -117, rook attacks
+queen 114 -> -67, queen attacked 8 -> 221 (tempo 6 -> 9), knight attacks bishop 61 -> 58, rook on the
+queen's file 25 -> 27, bishop on its diagonal 31 -> 45. The net of each threat stays positive; the
+differences carry what the data tell apart (one victim attacked twice, a queen attacked by anything).
+
+`texel-mirror` 0 asymmetric. `texel-lazy` at 210 / 140: wrong returns 0.085 / 0.065% (search) and
+0.579 / 0.463% (QS), under the target of 29.27 - margins unchanged. Time to depth 10 against v0.47.10,
+300 per pool: **-7.5% / +7.8%** (`wide` faster). Three advertised UCI ranges widened to -500..500, their
+defaults now negative. Four tests re-sampled with the same statement: the advanced-knight pair (a
+knight on f5 in the opening is kicked by e4 or g4 with tempo; the new positions with d5 / h5 against
+d4 / h4 allow no safe push), the rook's alignment with the queen as an x-ray through knights on d5 /
+e5, the aspiration sum at depth 5 instead of 4, futility at 8 instead of 9; `9a15414`.
+
+**The gate:** SPRT against v0.47.10 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. **[0, 10] H1 after about 3110 games** (LLR +2.95), [0, 5] +2.04 undecided. At the end,
+3114 games: **+12.9 Elo, paired 95% [+3, +23]** - a stopped run, not an effect size. Pairs 154 / 316 /
+538 / 358 / 191; no losses on time. The reading was -45 after 116 games, +1.3 after 1092, +11.2 after
+2394.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 53.0% against v0.47.10, 51.0% against v0.47.9,
+91.5% against v0.34.0, no losses on time. Shipped as **v0.47.11**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** On top of king safety the threats were smaller than the fit of the older pairs
+(29.26) had been, as expected when both read the same maps; counted per victim they still paid. Stage
+B of the evaluation audit (29.2: "attack maps worth it only together with E5") is closed.
