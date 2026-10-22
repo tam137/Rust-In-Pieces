@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.10] - 2026-10-22
+
+King safety on attack maps, Ethereal's form, fitted by Texel: per king a weighted sum of the
+attackers by type, the ring squares they hit, the weak ring squares, the safe checks by type, a
+discount without the enemy queen and a constant; its square (middlegame) or its value (endgame) is
+the penalty, added after the positional cap. It replaces the bucketed king danger (weights 0). Gated
+by **SPRT [0, 10]: H1 after about 570 games** at 1s + 150ms against v0.47.9; at the end of the run,
+575 games: +50.6 Elo, paired 95% [+27, +74] - a stopped run, not an effect size (`task.md` rule 7).
+See `task.md` section 29.28.
+
+### Added
+- Attack maps per side, built once per evaluation (`AttackMaps`: by piece type, all, twice).
+- King safety (`king_safety_*_mg/_eg`, 24 weights, UCI options) and `king_safety_outside_cap`.
+- Threats on the attack maps (`threat_hanging`, `threat_lesser_on_minor/_rook/_queen`,
+  `threat_safe_pawn_push`, mg / eg) at weight 0, for the next step.
+- Texel: a non-linear king-safety unit in trace and model, data format `TEXEL002`, `--start`,
+  `--free-scalars`, `--seed-safety`, `--safety-outside-cap`, groups `king_safety` and `threats_new`.
+
+### Changed
+- `king_danger_weight_1..5` 0; eleven king values re-fitted with it (open / half-open king file 73 /
+  36, heavy piece on it 63, pawn shield 5 / 15 / -2, piece shield 13 / -30 / 14, rook and bishop
+  aiming at the king 30 / 13).
+- `lazy_eval_margin_search` 200 -> 210 (wrong lazy returns back under the rate of v0.47.6).
+
+### Fixed
+- `scripts/sprt.py`: an unobserved pair outcome on the pole of the constrained fit divided by zero
+  and stopped a run after eight games.
+
+### Notes
+- Texel on `data0479` against v0.47.9 (x 10^-6, validation / test): -642 / -874 outside the cap,
+  -485 / -570 under it.
+- Time to depth 10 against v0.47.9: +7.1% and +5.1%; the new terms alone cost about 4% at weight 0.
+
 ## [V0.47.9] - 2026-10-22
 
 The lazy-evaluation margins go from 180 / 120 to 200 / 140 (search / Quiescence Search): with the

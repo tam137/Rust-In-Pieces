@@ -1891,3 +1891,59 @@ candidate (100/100 trees).
 that `cheap_eval` does not carry moves it. Measured on wrong returns rather than on the distance
 alone, the fix was two constants, and it paid more than the time it cost.
 
+
+### 29.28 King safety on attack maps, stage B: shipped in v0.47.10 (2026-10-22)
+
+Matt-Magie step 49, B1. Stage A (29.25) showed the data want king danger but the old feature - ring
+squares x 1/1/2/4 into five buckets - could not carry it. Stage B builds what that feature lacked:
+
+* **Attack maps** (`494f1d3`, tree-identical, time to depth 10 within noise): per side and piece type,
+  their union, and the squares attacked at least twice, from the attack sets the piece terms already
+  compute; the defender scan of the ring is folded into the piece loops. Test: the maps against
+  `get_attackers_mask` on every square of six positions.
+* **A non-linear unit in the Texel tuner** (`37fdc67`): per king `u_mg`, `u_eg` are weighted sums of
+  its features; the penalty is `max(u_mg, 0)^2 / 720` and `max(u_eg, 0) / 20` (Ethereal's form), under
+  or outside the positional cap. Gradient tested against a central difference, both cap modes; two
+  injected faults turn it red. Data format `TEXEL002` (the new scalars move the parameter indices, so
+  `TEXEL001` sets do not read any more).
+* **The features at weight 0** (`86a9fcd`, tree-identical, +3.6 to +4.0% time): attackers on the ring
+  by type, ring hits scaled to nine squares, weak ring squares (attacked by them, defended at most once
+  and only by king or queen), safe checks by type, no enemy queen, a constant; gate as Ethereal's
+  (attackers > 1 - enemy queens). Also the threats on the maps for step B2 (hanging, lesser attacker on
+  minor / rook / queen, safe pawn push). Tests on constructed positions, trace and model with non-zero
+  weights (under and outside the cap), colour symmetry.
+
+**The fit** on `data0479.bin` (the games of `data0476`, traced by this build; `texel-check` 100% within
+3 cp): the 24 weights started at Ethereal's values (a quadratic term has no gradient at 0), the eleven
+other king values free, the bucket danger held at 0, everything else at v0.47.9; 3000 epochs. Error
+change x 10^-6, train / validation / test:
+
+| | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| Ethereal's values, under the cap | -239 | -281 | -416 |
+| Ethereal's values, outside the cap | -332 | -391 | -676 |
+| fitted, under the cap | -469 | -485 | -570 |
+| **fitted, outside the cap** | **-644** | **-642** | **-874** |
+
+Outside the cap won by 157 on validation (rule fixed beforehand: tie below 50 means under). The pawn
+shield gives way (central 37 -> 5), the open king file grows (37 -> 73), the heavy piece on it 15 -> 63.
+`texel-mirror` 0 of 183,712 asymmetric. Lazy evaluation: at 200 / 140 the search margin missed the
+target of 29.27 on `wide` (0.130%), so by the same rule **210** (0.090 / 0.068%), QS stays 140. Time to
+depth 10 against v0.47.9, 300 per pool: **+7.1% / +5.1%** (bar +10%). Six tests re-sampled with the
+same statement (three node-count depths, the pawn range of the figure-value test, the bishop alignment
+position, the feature-test helper); `99b2a1b`.
+
+**The gate:** SPRT against v0.47.9 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. The first start stopped after 8 games on a `sprt.py` error - a pair outcome never
+observed sat on the pole of the constrained fit, 0/0 (fixed with a regression test, `06d6dbb`; the 8
+games not counted). Restarted: **[0, 10] H1 after about 570 games** (LLR +3.11). At the end, 575 games:
+**+50.6 Elo, paired 95% [+27, +74]** - a stopped run, not an effect size. Pairs 22 / 47 / 89 / 84 / 45;
+no losses on time.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 51.5% against v0.47.9, 54.5% against v0.47.8,
+93.5% against v0.34.0, no losses on time. Shipped as **v0.47.10**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** The unit was the problem, as 29.25 read it: with features that count what an attack
+is made of, and a penalty that grows faster than the attack, the same data that refused stage A pay for
+the extra time several times over. Next: the threats on the same maps (B2), started from here.
