@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::model::Board;
 use crate::move_gen_service::MoveGenService;
-use crate::eval_trace::{tr, tr_const, tr_direct, tr_mark, tr_param, tr_pst, tr_unit};
+use crate::eval_trace::{tr, tr_const, tr_direct, tr_mark, tr_param, tr_pst, tr_safety, tr_unit};
 
 
 const ADJACENT_FILES_MASK: [u64; 8] = [
@@ -125,6 +125,27 @@ impl AttackMaps {
         self.two[side] |= self.all[side] & attacks;
         self.all[side] |= attacks;
         self.by[side][piece] |= attacks;
+    }
+}
+
+/// What one side's pieces aim at the enemy king's ring: attackers per type (knight, bishop, rook,
+/// queen), and the ring squares they hit, counted once per attacker.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RingAttack {
+    pub by_type: [i32; 4],
+    pub count: i32,
+    pub hits: i32,
+}
+
+impl RingAttack {
+    /// One piece of type `slot` with `on_ring` its attacks on the ring.
+    #[inline(always)]
+    fn add(&mut self, slot: usize, on_ring: u64) {
+        if on_ring != 0 {
+            self.by_type[slot] += 1;
+            self.count += 1;
+            self.hits += on_ring.count_ones() as i32;
+        }
     }
 }
 
@@ -325,6 +346,9 @@ impl EvalService {
         let mut white_defenders = 0;
         let mut black_defenders = 0;
         let mut maps = AttackMaps::new(white_pawns, black_pawns, white_pawn_attacks, black_pawn_attacks);
+        // What each side's pieces aim at the enemy king's ring, for the king safety.
+        let mut white_on_ring = RingAttack::default();
+        let mut black_on_ring = RingAttack::default();
 
         let mut temp_w_rook = board.bitboards[crate::model::WHITE_ROOK];
         while temp_w_rook != 0 {
@@ -335,6 +359,7 @@ impl EvalService {
             white_attackers += attackers;
             white_king_danger += danger;
             maps.add(0, crate::model::WHITE_ROOK, attacks);
+            white_on_ring.add(2, attacks & black_king_ring);
             temp_w_rook &= temp_w_rook - 1;
         }
         let mut temp_w_knight = board.bitboards[crate::model::WHITE_KNIGHT];
@@ -346,6 +371,7 @@ impl EvalService {
             white_attackers += attackers;
             white_king_danger += danger;
             maps.add(0, crate::model::WHITE_KNIGHT, attacks);
+            white_on_ring.add(0, attacks & black_king_ring);
             if attacks & white_king_ring != 0 { white_defenders += 1; }
             temp_w_knight &= temp_w_knight - 1;
         }
@@ -358,6 +384,7 @@ impl EvalService {
             white_attackers += attackers;
             white_king_danger += danger;
             maps.add(0, crate::model::WHITE_BISHOP, attacks);
+            white_on_ring.add(1, attacks & black_king_ring);
             if attacks & white_king_ring != 0 { white_defenders += 1; }
             temp_w_bishop &= temp_w_bishop - 1;
         }
@@ -370,6 +397,7 @@ impl EvalService {
             white_attackers += attackers;
             white_king_danger += danger;
             maps.add(0, crate::model::WHITE_QUEEN, attacks);
+            white_on_ring.add(3, attacks & black_king_ring);
             temp_w_queen &= temp_w_queen - 1;
         }
         let mut temp_w_king = board.bitboards[crate::model::WHITE_KING];
@@ -392,6 +420,7 @@ impl EvalService {
             black_attackers += attackers;
             black_king_danger += danger;
             maps.add(1, crate::model::WHITE_ROOK, attacks);
+            black_on_ring.add(2, attacks & white_king_ring);
             temp_b_rook &= temp_b_rook - 1;
         }
         let mut temp_b_knight = board.bitboards[crate::model::BLACK_KNIGHT];
@@ -403,6 +432,7 @@ impl EvalService {
             black_attackers += attackers;
             black_king_danger += danger;
             maps.add(1, crate::model::WHITE_KNIGHT, attacks);
+            black_on_ring.add(0, attacks & white_king_ring);
             if attacks & black_king_ring != 0 { black_defenders += 1; }
             temp_b_knight &= temp_b_knight - 1;
         }
@@ -415,6 +445,7 @@ impl EvalService {
             black_attackers += attackers;
             black_king_danger += danger;
             maps.add(1, crate::model::WHITE_BISHOP, attacks);
+            black_on_ring.add(1, attacks & white_king_ring);
             if attacks & black_king_ring != 0 { black_defenders += 1; }
             temp_b_bishop &= temp_b_bishop - 1;
         }
@@ -427,6 +458,7 @@ impl EvalService {
             black_attackers += attackers;
             black_king_danger += danger;
             maps.add(1, crate::model::WHITE_QUEEN, attacks);
+            black_on_ring.add(3, attacks & white_king_ring);
             temp_b_queen &= temp_b_queen - 1;
         }
         let mut temp_b_king = board.bitboards[crate::model::BLACK_KING];
@@ -469,6 +501,14 @@ impl EvalService {
             tr_direct!(-danger);
             eval -= danger;
         }
+
+        let white_king_safety = self.king_safety(board, config, movegen, &maps, 0, white_king_sq, white_king_ring, &black_on_ring);
+        let black_king_safety = self.king_safety(board, config, movegen, &maps, 1, black_king_sq, black_king_ring, &white_on_ring);
+        let king_safety = self.calculate_weighted_eval(black_king_safety.0 - white_king_safety.0,
+            black_king_safety.1 - white_king_safety.1, game_phase);
+        eval += king_safety;
+
+        eval += self.threats(board, config, &maps, game_phase);
 
         // Connected passed pawns bonus
         let mut white_connected_passed_pawns = 0;
@@ -555,7 +595,8 @@ impl EvalService {
         tr_mark!(pre_cap, eval);
         if config.enable_positional_cap {
             let material_eval = Self::tapered_material(board, game_phase);
-            let positional_eval = eval - material_eval;
+            let outside = if config.king_safety_outside_cap { king_safety } else { 0 };
+            let positional_eval = eval - material_eval - outside;
 
             let cap = match config.aggressiveness {
                 crate::config::Aggressiveness::Normal => 150,
@@ -572,7 +613,7 @@ impl EvalService {
                 let sign = if positional_eval >= 0 { 1 } else { -1 };
                 sign * (cap + capped_excess)
             };
-            eval = material_eval + capped_positional;
+            eval = material_eval + capped_positional + outside;
         }
 
         if Self::is_opposite_colored_bishops_endgame(board) {
@@ -1655,6 +1696,137 @@ impl EvalService {
         (eval, 0, 0)
     }
 
+    /// The king-safety penalty `(mg, eg)` of the king of `us` (0 White, 1 Black), positive is bad
+    /// for `us`. Ethereal's form: a weighted sum `u` of the attackers by type, the ring squares
+    /// they hit (scaled to a ring of nine), the weak ring squares, the safe checks by type, a
+    /// discount without the enemy queen and a constant; `u^2 / 720` in the middlegame and `u / 20`
+    /// in the endgame, each only where positive. It reads only when the enemy has more than one
+    /// piece on the ring, or one beside its queen.
+    #[allow(clippy::too_many_arguments)]
+    fn king_safety(&self, board: &Board, config: &Config, movegen: &MoveGenService, maps: &AttackMaps, us: usize,
+        king_sq: u8, ring: u64, attack: &RingAttack) -> (i16, i16) {
+        use crate::model::{BLACK_QUEEN, WHITE_BISHOP, WHITE_KING, WHITE_KNIGHT, WHITE_QUEEN, WHITE_ROOK};
+        let them = 1 - us;
+        let has_queen = board.bitboards[if them == 0 { WHITE_QUEEN } else { BLACK_QUEEN }] != 0;
+        if attack.count <= 1 - has_queen as i32 {
+            return (0, 0);
+        }
+        let their_pieces = if them == 0 { board.white_pieces } else { board.black_pieces };
+        // Attacked by them, defended at most once by us and then only by the king or the queen.
+        let weak = maps.all[them] & !maps.two[us] & (!maps.all[us] | maps.by[us][WHITE_QUEEN] | maps.by[us][WHITE_KING]);
+        let safe = !their_pieces & (!maps.all[us] | (weak & maps.two[them]));
+        let knight_checks = movegen.get_knight_attacks(king_sq as usize);
+        let bishop_checks = movegen.get_bishop_attacks(king_sq as usize, board.occupied);
+        let rook_checks = movegen.get_rook_attacks(king_sq as usize, board.occupied);
+        let features: [i32; 12] = [
+            attack.by_type[0],
+            attack.by_type[1],
+            attack.by_type[2],
+            attack.by_type[3],
+            0, // the ring hits, scaled below
+            (weak & ring).count_ones() as i32,
+            !has_queen as i32,
+            (knight_checks & safe & maps.by[them][WHITE_KNIGHT]).count_ones() as i32,
+            (bishop_checks & safe & maps.by[them][WHITE_BISHOP]).count_ones() as i32,
+            (rook_checks & safe & maps.by[them][WHITE_ROOK]).count_ones() as i32,
+            ((bishop_checks | rook_checks) & safe & maps.by[them][WHITE_QUEEN]).count_ones() as i32,
+            1,
+        ];
+        let weights = [
+            (config.king_safety_knight_attacker_mg, config.king_safety_knight_attacker_eg),
+            (config.king_safety_bishop_attacker_mg, config.king_safety_bishop_attacker_eg),
+            (config.king_safety_rook_attacker_mg, config.king_safety_rook_attacker_eg),
+            (config.king_safety_queen_attacker_mg, config.king_safety_queen_attacker_eg),
+            (config.king_safety_ring_attacks_mg, config.king_safety_ring_attacks_eg),
+            (config.king_safety_weak_squares_mg, config.king_safety_weak_squares_eg),
+            (config.king_safety_no_queen_mg, config.king_safety_no_queen_eg),
+            (config.king_safety_safe_knight_check_mg, config.king_safety_safe_knight_check_eg),
+            (config.king_safety_safe_bishop_check_mg, config.king_safety_safe_bishop_check_eg),
+            (config.king_safety_safe_rook_check_mg, config.king_safety_safe_rook_check_eg),
+            (config.king_safety_safe_queen_check_mg, config.king_safety_safe_queen_check_eg),
+            (config.king_safety_adjustment_mg, config.king_safety_adjustment_eg),
+        ];
+        let area = ring.count_ones() as i32;
+        let (mut u_mg, mut u_eg) = (0i32, 0i32);
+        for (i, (&f, &(w_mg, w_eg))) in features.iter().zip(weights.iter()).enumerate() {
+            if i == 4 {
+                u_mg += w_mg as i32 * 9 * attack.hits / area;
+                u_eg += w_eg as i32 * 9 * attack.hits / area;
+                tr_safety!(us, crate::eval_trace::KING_SAFETY[4].0 as usize, crate::eval_trace::KING_SAFETY[4].1 as usize,
+                    9.0 * attack.hits as f64 / area as f64);
+            } else if f != 0 {
+                u_mg += w_mg as i32 * f;
+                u_eg += w_eg as i32 * f;
+                tr_safety!(us, crate::eval_trace::KING_SAFETY[i].0 as usize, crate::eval_trace::KING_SAFETY[i].1 as usize, f);
+            }
+        }
+        let (m, e) = (u_mg.max(0), u_eg.max(0));
+        let mg = (m * m / crate::eval_trace::SAFETY_MG_DIVISOR).min(i16::MAX as i32 / 4);
+        let eg = (e / crate::eval_trace::SAFETY_EG_DIVISOR).min(i16::MAX as i32 / 4);
+        (mg as i16, eg as i16)
+    }
+
+    /// Threats on the attack maps, White-positive and tapered: enemy pieces we attack and they
+    /// do not defend (hanging), minors attacked by our pawns, rooks by our pawns or minors, the
+    /// queen by anything lesser, and the pieces our pawns would attack after a safe push. Kings
+    /// and pawns are never victims. Counted per victim, which the older per-attacker pairs are not.
+    fn threats(&self, board: &Board, config: &Config, maps: &AttackMaps, game_phase: i16) -> i16 {
+        let w = Self::threat_features(board, maps, 0);
+        let b = Self::threat_features(board, maps, 1);
+        let weights = [
+            (config.threat_hanging_mg, config.threat_hanging_eg),
+            (config.threat_lesser_on_minor_mg, config.threat_lesser_on_minor_eg),
+            (config.threat_lesser_on_rook_mg, config.threat_lesser_on_rook_eg),
+            (config.threat_lesser_on_queen_mg, config.threat_lesser_on_queen_eg),
+            (config.threat_safe_pawn_push_mg, config.threat_safe_pawn_push_eg),
+        ];
+        let (mut mg, mut eg) = (0i16, 0i16);
+        for (i, &(w_mg, w_eg)) in weights.iter().enumerate() {
+            let diff = w[i] - b[i];
+            if diff != 0 {
+                tr_param!(crate::eval_trace::THREATS[i].0 as usize, diff, 0);
+                tr_param!(crate::eval_trace::THREATS[i].1 as usize, 0, diff);
+                mg += diff * w_mg;
+                eg += diff * w_eg;
+            }
+        }
+        self.calculate_weighted_eval(mg, eg, game_phase)
+    }
+
+    /// The threat counts of `us` (0 White, 1 Black) in the order of [`Self::threats`].
+    #[inline(always)]
+    pub(crate) fn threat_features(board: &Board, maps: &AttackMaps, us: usize) -> [i16; 5] {
+        use crate::model::{WHITE_BISHOP, WHITE_KNIGHT, WHITE_PAWN, WHITE_QUEEN, WHITE_ROOK};
+        let them = 1 - us;
+        let off = if them == 0 { 0 } else { 6 };
+        let bb = &board.bitboards;
+        let (minors, rooks, queens) = (bb[off + WHITE_KNIGHT] | bb[off + WHITE_BISHOP], bb[off + WHITE_ROOK], bb[off + WHITE_QUEEN]);
+        let pieces = minors | rooks | queens;
+        let by = &maps.by[us];
+        let hanging = pieces & maps.all[us] & !maps.all[them];
+        let on_minor = minors & by[WHITE_PAWN];
+        let on_rook = rooks & (by[WHITE_PAWN] | by[WHITE_KNIGHT] | by[WHITE_BISHOP]);
+        let on_queen = queens & (by[WHITE_PAWN] | by[WHITE_KNIGHT] | by[WHITE_BISHOP] | by[WHITE_ROOK]);
+        let empty = !board.occupied;
+        let our_pawns = bb[if us == 0 { WHITE_PAWN } else { crate::model::BLACK_PAWN }];
+        let pushes = if us == 0 {
+            let one = (our_pawns << 8) & empty;
+            one | (((one & 0x0000_0000_00FF_0000) << 8) & empty)
+        } else {
+            let one = (our_pawns >> 8) & empty;
+            one | (((one & 0x0000_FF00_0000_0000) >> 8) & empty)
+        };
+        let safe_pushes = pushes & !maps.by[them][WHITE_PAWN] & (maps.all[us] | !maps.all[them]);
+        let push_attacks = if us == 0 { Self::get_white_pawn_attacks(safe_pushes) } else { Self::get_black_pawn_attacks(safe_pushes) };
+        [
+            hanging.count_ones() as i16,
+            on_minor.count_ones() as i16,
+            on_rook.count_ones() as i16,
+            on_queen.count_ones() as i16,
+            (push_attacks & pieces).count_ones() as i16,
+        ]
+    }
+
     fn calculate_weighted_eval(&self, o_eval: i16, e_eval: i16, game_phase: i16) -> i16 {
         let o_eval = o_eval as i32;
         let e_eval = e_eval as i32;
@@ -2594,6 +2766,112 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The king-safety feature `index` of the king of `us` in `fen`, read through the endgame
+    /// penalty: with only that feature's endgame weight at 20, `u_eg / 20` is the feature itself
+    /// (the ring hits scaled to nine squares, rounded down). `None` when the gate does not open.
+    fn king_safety_feature(fen: &str, us: usize, index: usize) -> Option<i16> {
+        let service = Service::new();
+        let board = service.fen.set_fen(fen);
+        let mut config = Config::new();
+        let set = |c: &mut Config, i: usize, v: i16| match i {
+            0 => c.king_safety_knight_attacker_eg = v,
+            1 => c.king_safety_bishop_attacker_eg = v,
+            2 => c.king_safety_rook_attacker_eg = v,
+            3 => c.king_safety_queen_attacker_eg = v,
+            4 => c.king_safety_ring_attacks_eg = v,
+            5 => c.king_safety_weak_squares_eg = v,
+            6 => c.king_safety_no_queen_eg = v,
+            7 => c.king_safety_safe_knight_check_eg = v,
+            8 => c.king_safety_safe_bishop_check_eg = v,
+            9 => c.king_safety_safe_rook_check_eg = v,
+            10 => c.king_safety_safe_queen_check_eg = v,
+            _ => c.king_safety_adjustment_eg = v,
+        };
+        set(&mut config, index, 20);
+        service.eval.calc_eval(&board, &config, &service.move_gen, &crate::pawn_hash::PawnHashTable::new(16),
+            i16::MIN + 1, i16::MAX - 1, 0);
+        let maps = super::LAST_MAPS.with(|m| m.get());
+        let king_sq = board.bitboards[if us == 0 { crate::model::WHITE_KING } else { crate::model::BLACK_KING }].trailing_zeros() as u8;
+        let ring = service.eval.get_king_ring(king_sq);
+        let mut attack = super::RingAttack::default();
+        let off = if us == 0 { 6 } else { 0 };
+        for (slot, piece) in [crate::model::WHITE_KNIGHT, crate::model::WHITE_BISHOP, crate::model::WHITE_ROOK, crate::model::WHITE_QUEEN].into_iter().enumerate() {
+            let mut b = board.bitboards[off + piece];
+            while b != 0 {
+                let sq = b.trailing_zeros() as usize;
+                let attacks = match piece {
+                    crate::model::WHITE_KNIGHT => service.move_gen.get_knight_attacks(sq),
+                    crate::model::WHITE_BISHOP => service.move_gen.get_bishop_attacks(sq, board.occupied),
+                    crate::model::WHITE_ROOK => service.move_gen.get_rook_attacks(sq, board.occupied),
+                    _ => service.move_gen.get_bishop_attacks(sq, board.occupied) | service.move_gen.get_rook_attacks(sq, board.occupied),
+                };
+                attack.add(slot, attacks & ring);
+                b &= b - 1;
+            }
+        }
+        // The adjustment alone says whether the gate opened: it is 1 whenever it does.
+        let mut gate = Config::new();
+        gate.king_safety_adjustment_eg = 20;
+        if service.eval.king_safety(&board, &gate, &service.move_gen, &maps, us, king_sq, ring, &attack).1 == 0 {
+            return None;
+        }
+        let (_, eg) = service.eval.king_safety(&board, &config, &service.move_gen, &maps, us, king_sq, ring, &attack);
+        Some(eg)
+    }
+
+    /// A rook check from d1 is safe until a White rook covers the first rank; the queen on h4
+    /// opens the gate on its own and makes f2 and h2 weak (defended by the king alone).
+    #[test]
+    fn test_king_safety_features_count_what_they_name() {
+        let attacked = "3r2k1/5ppp/8/8/7q/8/5PPP/6K1 w - - 0 1";
+        let covered = "3r2k1/5ppp/8/8/7q/8/5PPP/R5K1 w - - 0 1";
+        assert_eq!(king_safety_feature(attacked, 0, 9), Some(1), "safe rook check from d1");
+        assert_eq!(king_safety_feature(covered, 0, 9), Some(0), "d1 covered by the rook on a1");
+        assert_eq!(king_safety_feature(attacked, 0, 3), Some(1), "one queen on the ring");
+        assert_eq!(king_safety_feature(attacked, 0, 2), Some(0), "the rook does not reach the ring");
+        assert_eq!(king_safety_feature(attacked, 0, 5), Some(2), "f2 and h2 weak");
+        assert_eq!(king_safety_feature(attacked, 0, 4), Some(3), "two ring squares of five: 9 * 2 / 5");
+        assert_eq!(king_safety_feature(attacked, 0, 6), Some(0), "the enemy has a queen");
+        assert_eq!(king_safety_feature(attacked, 0, 11), Some(1), "the adjustment is one");
+        // Without the queen one attacker does not open the gate, two do.
+        assert_eq!(king_safety_feature("3r2k1/5ppp/8/8/8/8/5PPP/6K1 w - - 0 1", 0, 11), None, "no attacker");
+        assert_eq!(king_safety_feature("6k1/5ppp/8/8/8/5n2/5PPP/6K1 w - - 0 1", 0, 11), None, "one knight alone");
+        let two = "6k1/5ppp/8/8/8/5n2/5PPP/4r1K1 w - - 0 1";
+        assert_eq!(king_safety_feature(two, 0, 6), Some(1), "no enemy queen");
+        assert_eq!(king_safety_feature(two, 0, 0), Some(1), "one knight on the ring");
+        assert_eq!(king_safety_feature(two, 0, 2), Some(1), "one rook on the ring");
+        // A knight on e5 reaches f3, one of the knight-check squares of g1 (e2, f3, h3); the pawn
+        // on g2 covers it.
+        let knight = "6k1/5ppp/8/4n3/7q/8/5P1P/6K1 w - - 0 1";
+        assert_eq!(king_safety_feature(knight, 0, 7), Some(1), "safe knight check from f3");
+        let knight_covered = "6k1/5ppp/8/4n3/7q/8/5PPP/6K1 w - - 0 1";
+        assert_eq!(king_safety_feature(knight_covered, 0, 7), Some(0), "f3 covered by the pawn on g2");
+        // The same from Black's side: the colour mirror of the first position.
+        assert_eq!(king_safety_feature("6k1/5ppp/8/7Q/8/8/5PPP/3R2K1 b - - 0 1", 1, 9), Some(1), "safe rook check from d8");
+        assert_eq!(king_safety_feature("6k1/5ppp/8/7Q/8/8/5PPP/3R2K1 b - - 0 1", 1, 5), Some(2), "f7 and h7 weak");
+    }
+
+    /// The threat counts of each side on constructed positions.
+    #[test]
+    fn test_threat_features_count_what_they_name() {
+        let features = |fen: &str, us: usize| -> [i16; 5] {
+            let service = Service::new();
+            let board = service.fen.set_fen(fen);
+            service.eval.calc_eval(&board, &Config::new(), &service.move_gen, &crate::pawn_hash::PawnHashTable::new(16),
+                i16::MIN + 1, i16::MAX - 1, 0);
+            super::EvalService::threat_features(&board, &super::LAST_MAPS.with(|m| m.get()), us)
+        };
+        // [hanging, lesser on minor, lesser on rook, lesser on queen, safe pawn push]
+        assert_eq!(features("4k3/8/3p4/4N3/8/8/8/4K3 w - - 0 1", 1), [1, 1, 0, 0, 0], "a knight on e5 hit by a pawn, undefended");
+        assert_eq!(features("4k3/8/3p4/4N3/3P4/8/8/4K3 w - - 0 1", 1), [0, 1, 0, 0, 0], "defended by d4: not hanging");
+        assert_eq!(features("4k3/8/8/1b6/8/3R4/8/4K3 w - - 0 1", 1), [1, 0, 1, 0, 0], "a bishop on a rook");
+        assert_eq!(features("4k3/8/8/8/2n5/8/3Q4/4K3 w - - 0 1", 1), [0, 0, 0, 1, 0], "a knight on the queen, the king defends d2");
+        assert_eq!(features("4k3/8/5n2/8/4P3/8/8/4K3 w - - 0 1", 0), [0, 0, 0, 0, 1], "e4-e5 hits the knight on f6");
+        assert_eq!(features("4k3/8/3p1n2/8/4P3/8/8/4K3 w - - 0 1", 0), [0, 0, 0, 0, 0], "e5 attacked by the pawn on d6: not safe");
+        assert_eq!(features("4k3/8/5n2/8/8/8/4P3/4K3 w - - 0 1", 0), [0, 0, 0, 0, 0], "e2-e4 hits nothing; a double push is not a threat on f5");
+        assert_eq!(features("4k3/8/8/5n2/8/8/4P3/4K3 w - - 0 1", 0), [0, 0, 0, 0, 1], "e2-e4 hits the knight on f5");
     }
 
     fn equal_eval(fen: &str) {
