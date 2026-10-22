@@ -252,6 +252,10 @@ pub struct AtomicEntry {
 #[derive(Debug)]
 pub struct ZobristTable {
     pub table: Vec<AtomicEntry>,
+    /// The search generation each slot was last written in; only in the `search-diag` build,
+    /// which measures the table and is never timed (Matt-Magie step 50).
+    #[cfg(feature = "search-diag")]
+    written: Vec<std::sync::atomic::AtomicU64>,
 }
 
 impl ZobristTable {
@@ -268,7 +272,30 @@ impl ZobristTable {
                 data: std::sync::atomic::AtomicU64::new(default_data),
             });
         }
-        Self { table }
+        Self {
+            table,
+            #[cfg(feature = "search-diag")]
+            written: (0..capacity.max(1)).map(|_| std::sync::atomic::AtomicU64::new(0)).collect(),
+        }
+    }
+
+    /// Over every `step`-th slot: how many are empty, and how many hold an entry written this
+    /// search, one, two, or three and more searches ago (`search-diag` only).
+    #[cfg(feature = "search-diag")]
+    pub fn diag_occupancy(&self, generation: u64, step: usize) -> (u64, [u64; 4]) {
+        let (mut empty, mut by_age) = (0u64, [0u64; 4]);
+        for i in (0..self.table.len()).step_by(step.max(1)) {
+            let slot = &self.table[i];
+            let entry = TranspositionEntry::unpack(slot.key.load(std::sync::atomic::Ordering::Relaxed),
+                slot.data.load(std::sync::atomic::Ordering::Relaxed));
+            if entry.depth == -1 {
+                empty += 1;
+            } else {
+                let age = generation.saturating_sub(self.written[i].load(std::sync::atomic::Ordering::Relaxed));
+                by_age[age.min(3) as usize] += 1;
+            }
+        }
+        (empty, by_age)
     }
 
     /// Maps a Zobrist key onto a slot without a hardware division.
@@ -331,7 +358,8 @@ impl ZobristTable {
     }
 
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
-        let slot = &self.table[self.slot_index(hash)];
+        let index = self.slot_index(hash);
+        let slot = &self.table[index];
 
         let key1 = slot.key.load(std::sync::atomic::Ordering::Relaxed);
         let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
@@ -351,6 +379,23 @@ impl ZobristTable {
         } else {
             !(entry.depth <= 0 && existing.depth >= 1)
         };
+
+        #[cfg(feature = "search-diag")]
+        {
+            let generation = crate::search_diag::generation();
+            let outcome = match (existing.depth == -1, existing.key == hash, should_replace) {
+                (true, _, _) => 0,
+                (false, true, true) => 1,
+                (false, true, false) => 2,
+                (false, false, true) => 3,
+                (false, false, false) => 4,
+            };
+            let age = generation.saturating_sub(self.written[index].load(std::sync::atomic::Ordering::Relaxed));
+            crate::search_diag::record_tt_store(outcome, age, existing.depth > entry.depth);
+            if should_replace {
+                self.written[index].store(generation, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
 
         if should_replace {
             // A node that fails low has no best move of its own - a fail-hard all-node ends with

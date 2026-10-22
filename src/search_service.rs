@@ -427,6 +427,7 @@ impl SearchService {
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
         board.search_root_len = usize::MAX;
         crate::search_diag::dump();
+        crate::search_diag::dump_order_tt(context.zobrist_table);
         crate::search_diag::dump_tree(
             search_result.stats.calculated_nodes,
             search_result.stats.eval_nodes,
@@ -760,11 +761,18 @@ impl SearchService {
         // cutoff demands. Guarded by the feature flag so the shipped search pays one bool test
         // and not the de-normalisation.
         let mut tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)> = None;
+        #[cfg(feature = "search-diag")]
+        let mut diag_tt_hit = false;
 
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
             if board.cached_hash == 0 {
                 board.cached_hash = crate::zobrist::gen_hash(board);
+            }
+            #[cfg(feature = "search-diag")]
+            {
+                diag_tt_hit = context.zobrist_table.get_entry(board.cached_hash).is_some();
+                crate::search_diag::record_tt_probe(false, diag_tt_hit);
             }
             if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                 tt_move = entry.decompress_move(board);
@@ -836,6 +844,8 @@ impl SearchService {
         // way in and the score on the way out. That single negation is what lets Reverse
         // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
         let static_eval = if depth > 0 && !turn.gives_check {
+            #[cfg(feature = "search-diag")]
+            crate::search_diag::record_static_eval(false, diag_tt_hit);
             let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
             let absolute = service.eval.calc_eval_known_check(
                 board, config, &service.move_gen, &service.pawn_table,
@@ -1131,10 +1141,17 @@ impl SearchService {
 
             let mut tt_move = None;
 
+            #[cfg(feature = "search-diag")]
+            let mut diag_qs_hit = false;
             // 1. Transposition Table Lookup in Quiescence Search
             if config.use_zobrist && config.enable_qs_tt {
                 if board.cached_hash == 0 {
                     board.cached_hash = crate::zobrist::gen_hash(board);
+                }
+                #[cfg(feature = "search-diag")]
+                {
+                    diag_qs_hit = context.zobrist_table.get_entry(board.cached_hash).is_some();
+                    crate::search_diag::record_tt_probe(true, diag_qs_hit);
                 }
                 if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                     tt_move = entry.decompress_move(board);
@@ -1194,6 +1211,8 @@ impl SearchService {
             let mut best_move: Option<Turn> = None;
 
             if !in_check {
+                #[cfg(feature = "search-diag")]
+                crate::search_diag::record_static_eval(true, diag_qs_hit);
                 let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
                 stand_pat = Self::relative_score(white, service.eval.calc_eval_known_check(
                     board, config, &service.move_gen, &service.pawn_table,
@@ -1818,7 +1837,25 @@ impl SearchService {
             }
             if beta <= alpha {
                 #[cfg(feature = "search-diag")]
-                crate::search_diag::record_cutoff(turn_counter, diag_first_rank, diag_first_class);
+                {
+                    crate::search_diag::record_cutoff(turn_counter, diag_first_rank, diag_first_class);
+                    let class = if current_turn.rank >= crate::search_diag::RANK_STAGE0_FLOOR {
+                        crate::search_diag::MoveClass::PvOrTt
+                    } else if current_turn.capture != 0 {
+                        crate::search_diag::MoveClass::Capture
+                    } else if current_turn.gives_check {
+                        crate::search_diag::MoveClass::QuietCheck
+                    } else if Some(*current_turn) == current_context.killer_moves[0]
+                        || Some(*current_turn) == current_context.killer_moves[1]
+                        || Some(*current_turn) == current_context.counter_move
+                    {
+                        crate::search_diag::MoveClass::KillerOrCounter
+                    } else {
+                        crate::search_diag::MoveClass::Quiet
+                    };
+                    crate::search_diag::record_any_cutoff(turn_counter, depth, class,
+                        diag_first_rank >= crate::search_diag::RANK_STAGE0_FLOOR);
+                }
                 if depth > 0 && current_turn.capture == 0 {
                     // Killer Move storage
                     if Some(*current_turn) != killer_moves[ply_idx][0] {
