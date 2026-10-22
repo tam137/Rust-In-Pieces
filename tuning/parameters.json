@@ -155,8 +155,8 @@
         "max": 116
     },
     "pawn_attacks_opponent_fig": {
-        "value": 113,
-        "min": 17,
+        "value": -82,
+        "min": -82,
         "max": 226
     },
     "pawn_attacks_opponent_fig_with_tempo": {
@@ -165,27 +165,27 @@
         "max": 36
     },
     "queen_in_attack": {
-        "value": 8,
+        "value": 221,
         "min": 4,
-        "max": 106
+        "max": 221
     },
     "queen_in_attack_with_tempo": {
-        "value": 6,
+        "value": 9,
         "min": 3,
         "max": 58
     },
     "knight_attacks_bishop": {
-        "value": 61,
+        "value": 58,
         "min": 0,
         "max": 122
     },
     "knight_attacks_rook": {
-        "value": 119,
-        "min": 8,
+        "value": -124,
+        "min": -124,
         "max": 238
     },
     "knight_attacks_bishop_tempo": {
-        "value": 1,
+        "value": 3,
         "min": 0,
         "max": 18
     },
@@ -270,18 +270,18 @@
         "max": 10.0
     },
     "threat_minor_attacks_rook": {
-        "value": 105,
-        "min": 6,
+        "value": -131,
+        "min": -131,
         "max": 210.0
     },
     "threat_minor_attacks_queen": {
-        "value": 63,
-        "min": 12,
+        "value": -117,
+        "min": -117,
         "max": 126.0
     },
     "threat_rook_attacks_queen": {
-        "value": 114,
-        "min": 10,
+        "value": -67,
+        "min": -67,
         "max": 228.0
     },
     "lmr_divisor": {

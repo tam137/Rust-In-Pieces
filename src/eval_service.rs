@@ -2578,9 +2578,12 @@ mod tests {
 
     #[test]
     fn position_unequel_test() {
-        // position unequel
-        eval_between("rnbqkb1r/pppppppp/8/5n2/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1", -50, -10);
-        eval_between("rnbqkb1r/pppppppp/5n2/8/5N2/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1", 10, 50);
+        // position unequel: a knight on its fourth rank against one on its third, all else
+        // symmetric. Since the safe pawn push of step 49 B2 a knight on f5 in the opening is kicked by
+        // e4 or g4 with tempo (-23 -> +9), so the pawns on d5 / h5 against d4 / h4 make those pushes
+        // unsafe for both sides; the advanced knight reads -9 / +9 against 0 for the symmetric pair.
+        eval_between("rnbqkb1r/ppp1ppp1/8/3p1n1p/3P3P/5N2/PPP1PPP1/RNBQKB1R w KQkq - 0 1", -50, -1);
+        eval_between("rnbqkb1r/ppp1ppp1/5n2/3p3p/3P1N1P/8/PPP1PPP1/RNBQKB1R w KQkq - 0 1", 1, 50);
         eval_between("1k6/8/8/4P3/8/4p3/8/1K6 w - - 0 1", -700, -100);
         eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -200, -10);
         eval_between("1k6/3p4/8/4P3/8/4p3/3P4/1K6 w - - 0 1", -200, -10);
@@ -3586,12 +3589,16 @@ mod tests {
         let mut config = Config::new();
         config.use_nnue = false;
 
-        // Position A: White Rook on e1 on open e-file facing Black Queen on e8
-        let board_aligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/4R1K1 w - - 0 1");
+        // Position A: White Rook on e1 on open e-file facing Black Queen on e8 through a knight on
+        // e5 (an x-ray: the bonus reads the file, not the attack). Knights on d5 and e5 in both
+        // positions give both rooks the same mobility. Since the threats of step 49 B2 a direct
+        // rook-on-queen attack is worth -67 in the rook's own term (the queen's attacked term and the
+        // per-victim threats carry it), which hid the alignment bonus when the file was empty.
+        let board_aligned_q = fen_service.set_fen("4q2k/8/8/3nn3/8/8/8/4R1K1 w - - 0 1");
         let (eval_aligned_q, _, _, _) = eval_service.white_rook(4, &board_aligned_q, &config, 150, movegen, 0, 0, board_aligned_q.white_pieces);
 
         // Position B: White Rook on d1 on open d-file with Black Queen on e8 (not aligned)
-        let board_unaligned_q = fen_service.set_fen("4q2k/8/8/8/8/8/8/3R2K1 w - - 0 1");
+        let board_unaligned_q = fen_service.set_fen("4q2k/8/8/3nn3/8/8/8/3R2K1 w - - 0 1");
         let (eval_unaligned_q, _, _, _) = eval_service.white_rook(3, &board_unaligned_q, &config, 150, movegen, 0, 0, board_unaligned_q.white_pieces);
 
         assert!(
