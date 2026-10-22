@@ -1237,7 +1237,7 @@ impl SearchService {
                                 depth: 0,
                                 entry_type: crate::zobrist::TranspositionType::LowerBound,
                                 best_move: 0,
-                                padding: [0; 2],
+                                static_eval: crate::zobrist::NO_STATIC_EVAL,
                             },
                         );
                     }
@@ -1360,7 +1360,7 @@ impl SearchService {
                         depth: 0,
                         entry_type,
                         best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
-                        padding: [0; 2],
+                        static_eval: crate::zobrist::NO_STATIC_EVAL,
                     },
                 );
             }
@@ -1928,7 +1928,7 @@ impl SearchService {
                     depth: depth as i8,
                     entry_type,
                     best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
-                    padding: [0; 2],
+                    static_eval: crate::zobrist::NO_STATIC_EVAL,
                 },
             );
         }
@@ -4183,7 +4183,7 @@ mod tests {
             depth: 0,
             entry_type: crate::zobrist::TranspositionType::Exact,
             best_move: 0,
-            padding: [0; 2],
+            static_eval: crate::zobrist::NO_STATIC_EVAL,
         };
         table.insert_entry(board.cached_hash, test_entry);
 
@@ -4923,7 +4923,7 @@ mod tests {
             depth: 20,
             entry_type: crate::zobrist::TranspositionType::Exact,
             best_move: 0,
-            padding: [0; 2],
+            static_eval: crate::zobrist::NO_STATIC_EVAL,
         });
         (game.board, table)
     }
