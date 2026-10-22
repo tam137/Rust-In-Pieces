@@ -1720,9 +1720,35 @@ impl EvalService {
     /// Every term but the king distance is the same constant for each pawn that qualifies, so it
     /// is a population count over a set instead of a call per pawn; `i16` addition wraps the same
     /// way in either order, which keeps the sums identical to the per-pawn form.
+    /// How many enemy pieces other than pawns, the king included, a pawn of each side attacks.
+    /// Set-wise, so `cheap_eval` can afford it too.
+    #[inline(always)]
+    fn pawn_threat_counts(board: &Board) -> (i16, i16) {
+        use crate::model::*;
+        const FILE_A: u64 = 0x0101010101010101;
+        const FILE_H: u64 = 0x8080808080808080;
+        let bb = &board.bitboards;
+        let black_pieces = bb[BLACK_ROOK] | bb[BLACK_KNIGHT] | bb[BLACK_BISHOP] | bb[BLACK_QUEEN] | bb[BLACK_KING];
+        let white_pieces = bb[WHITE_ROOK] | bb[WHITE_KNIGHT] | bb[WHITE_BISHOP] | bb[WHITE_QUEEN] | bb[WHITE_KING];
+        let w_attacks = ((((black_pieces >> 9) & !FILE_H) | ((black_pieces >> 7) & !FILE_A)) & bb[WHITE_PAWN]).count_ones() as i16;
+        let b_attacks = ((((white_pieces << 9) & !FILE_A) | ((white_pieces << 7) & !FILE_H)) & bb[BLACK_PAWN]).count_ones() as i16;
+        (w_attacks, b_attacks)
+    }
+
+    /// The pawn-threat term as `(mg, eg)`: the middlegame weight plus the tempo for the side to
+    /// move, half the weight in the endgame. One formula for the full evaluation and `cheap_eval`.
+    #[inline(always)]
+    fn pawn_threat_scores(board: &Board, config: &Config, w_attacks: i16, b_attacks: i16) -> (i16, i16) {
+        let tempo = config.pawn_attacks_opponent_fig_with_tempo;
+        let mg = w_attacks * (config.pawn_attacks_opponent_fig + if board.white_to_move { tempo } else { 0 })
+            - b_attacks * (config.pawn_attacks_opponent_fig + if !board.white_to_move { tempo } else { 0 });
+        let eg = (w_attacks - b_attacks) * (config.pawn_attacks_opponent_fig / 2);
+        (mg, eg)
+    }
+
     fn pawn_dynamic_scores(board: &Board, config: &Config, white_passed: u64, black_passed: u64) -> (i16, i16) {
-        use crate::model::{WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, WHITE_KING,
-            BLACK_PAWN, BLACK_KNIGHT, BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN, BLACK_KING};
+        use crate::model::{WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_KING,
+            BLACK_PAWN, BLACK_KNIGHT, BLACK_BISHOP, BLACK_KING};
         const FILE_A: u64 = 0x0101010101010101;
         const FILE_H: u64 = 0x8080808080808080;
         let bb = &board.bitboards;
@@ -1746,16 +1772,12 @@ impl EvalService {
         eg += (w_bishops.count_ones() as i16 - b_bishops.count_ones() as i16) * config.pawn_defends_bishop;
 
         // A pawn attacking an enemy piece other than a pawn, the king included.
-        let black_pieces = bb[BLACK_ROOK] | bb[BLACK_KNIGHT] | bb[BLACK_BISHOP] | bb[BLACK_QUEEN] | bb[BLACK_KING];
-        let white_pieces = bb[WHITE_ROOK] | bb[WHITE_KNIGHT] | bb[WHITE_BISHOP] | bb[WHITE_QUEEN] | bb[WHITE_KING];
-        let w_attacks = ((((black_pieces >> 9) & !FILE_H) | ((black_pieces >> 7) & !FILE_A)) & wp).count_ones() as i16;
-        let b_attacks = ((((white_pieces << 9) & !FILE_A) | ((white_pieces << 7) & !FILE_H)) & bp).count_ones() as i16;
-        let tempo = config.pawn_attacks_opponent_fig_with_tempo;
+        let (w_attacks, b_attacks) = Self::pawn_threat_counts(board);
         tr!(PawnAttacksOpponentFig, w_attacks - b_attacks, (w_attacks - b_attacks) as f64 / 2.0);
         tr!(PawnAttacksOpponentFigWithTempo, if board.white_to_move { w_attacks } else { -b_attacks }, 0);
-        mg += w_attacks * (config.pawn_attacks_opponent_fig + if board.white_to_move { tempo } else { 0 });
-        mg -= b_attacks * (config.pawn_attacks_opponent_fig + if !board.white_to_move { tempo } else { 0 });
-        eg += (w_attacks - b_attacks) * (config.pawn_attacks_opponent_fig / 2);
+        let (threat_mg, threat_eg) = Self::pawn_threat_scores(board, config, w_attacks, b_attacks);
+        mg += threat_mg;
+        eg += threat_eg;
 
         // The king distance of each passed pawn.
         let white_king_sq = bb[WHITE_KING].trailing_zeros() as u8;
