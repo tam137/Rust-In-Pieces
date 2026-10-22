@@ -329,6 +329,11 @@ mod counters {
     pub static EVAL_MAIN_TT_HIT: AtomicU64 = AtomicU64::new(0);
     pub static EVAL_QS: AtomicU64 = AtomicU64::new(0);
     pub static EVAL_QS_TT_HIT: AtomicU64 = AtomicU64::new(0);
+    /// Of the static evaluations, those served from the entry instead of computed (Matt-Magie
+    /// step 51), and those whose fresh full evaluation differed from the served one.
+    pub static EVAL_MAIN_SERVED: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_QS_SERVED: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_SERVED_MISMATCH: AtomicU64 = AtomicU64::new(0);
     /// Stores by outcome: 0 empty slot, 1 same key replaced, 2 same key refused, 3 another key
     /// evicted, 4 another key kept (a Quiescence store refused against a main-search entry).
     pub static STORE: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
@@ -443,6 +448,20 @@ pub fn record_static_eval(qs: bool, tt_hit: bool) {
     }
 }
 
+/// Records one static evaluation served from the entry: `qs` for the stand pat, `matches` when
+/// the fresh full evaluation equals it.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_served_static_eval(qs: bool, matches: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(if qs { &counters::EVAL_QS_SERVED } else { &counters::EVAL_MAIN_SERVED });
+        if !matches {
+            counters::bump(&counters::EVAL_SERVED_MISMATCH);
+        }
+    }
+}
+
 /// The current search generation, for the table's shadow ages.
 #[inline(always)]
 #[allow(dead_code)]
@@ -495,12 +514,14 @@ pub fn dump_order_tt(table: &crate::zobrist::ZobristTable) {
         let (empty, by_age) = table.diag_occupancy(generation, 64);
         eprintln!(
             "SEARCHDIAGTT probe_main={} hit_main={} probe_qs={} hit_qs={} eval_main={} eval_main_hit={} \
-             eval_qs={} eval_qs_hit={} store={} evict_deeper={} evict_age={} evict_deeper_age={} \
-             sample_empty={} sample_age={}",
+             eval_qs={} eval_qs_hit={} served_main={} served_qs={} served_mismatch={} store={} \
+             evict_deeper={} evict_age={} evict_deeper_age={} sample_empty={} sample_age={}",
             counters::read(&counters::TT_PROBE_MAIN), counters::read(&counters::TT_HIT_MAIN),
             counters::read(&counters::TT_PROBE_QS), counters::read(&counters::TT_HIT_QS),
             counters::read(&counters::EVAL_MAIN), counters::read(&counters::EVAL_MAIN_TT_HIT),
             counters::read(&counters::EVAL_QS), counters::read(&counters::EVAL_QS_TT_HIT),
+            counters::read(&counters::EVAL_MAIN_SERVED), counters::read(&counters::EVAL_QS_SERVED),
+            counters::read(&counters::EVAL_SERVED_MISMATCH),
             list(&counters::STORE), counters::read(&counters::EVICT_DEEPER),
             list(&counters::EVICT_AGE), list(&counters::EVICT_DEEPER_AGE),
             empty, by_age.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
