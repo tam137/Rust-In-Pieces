@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.47.8] - 2026-10-22
+
+The thirteen threat values are re-fitted by Texel on `data0476` (test games of v0.47.3-v0.47.6). The
+fit missed the test bar by 12 x 10^-6 and the owner lifted it for this candidate. Gated by **SPRT
+[0, 10]: H1 after 2968 games** at 1s + 150ms against v0.47.7; at the end of the run, 2980 games:
++13.6 Elo, paired 95% [+3, +24] - a stopped run, not an effect size (`task.md` rule 7). See
+`task.md` section 29.26.
+
+### Changed
+- Pawn attacks a piece 35 -> 113; knight attacks bishop / rook 5 / 16 -> 61 / 119 (tempo 9 / 13 -> 1 /
+  13); minor attacks rook / queen 13 / 24 -> 105 / 63; rook attacks queen 20 -> 114; rook on the queen's
+  file / bishop on its diagonal 10 / 10 -> 25 / 31; queen attacked 53 -> 8 (tempo 29 -> 6).
+- `tuning/parameters.json` follows for eleven of them, ranges widened where the values fell outside.
+
+### Notes
+- Texel error on `data0476`: -191 / -192 / -188 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.47.7: +6.1% and +1.3% on the two pools. Lazy evaluation is wrong more
+  often (above 180 cp 1.86% -> 3.07%): the threats are not in `cheap_eval`.
+- Three single-position node-count tests re-sampled at another depth.
+- Smoke gauntlet, 1s + 100ms, 100 games per pairing: 55.0% / 51.0% / 87.5% against v0.47.7 / v0.47.6 /
+  v0.34.0, no losses on time.
+
 ## [V0.47.7] - 2026-10-21
 
 The bishop pair and the four mobility factors are re-fitted by Texel on a data set whose test games
