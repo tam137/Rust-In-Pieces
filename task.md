@@ -808,7 +808,7 @@ lockless contract must survive per entry, not per cluster: invalidate the key, w
 restore the key is what makes a torn read detectable. This is the rewrite, and it subsumes the
 layout 25.3 needs.
 
-**25.3 The entry caches no static evaluation.** It holds the *search score* only, so every revisit
+**25.3 The entry caches no static evaluation** - *shipped in v0.48.0, see 30.1.* It holds the *search score* only, so every revisit
 recomputes `calc_eval` from scratch (`search_service.rs:666`) although a position's static
 evaluation never changes. The published entry carries the raw static evaluation beside the score
 with a sentinel for "not stored". It touches an open-list item: *"Lazy Evaluation compares a
@@ -2028,3 +2028,48 @@ The games are 1s + 150ms with `Hash=64`, the match conditions.
   91-100% from remaining depth 9. What is left sits near the horizon (79-88% at depth 1-4), where the
   second move cuts in 7-12%. Captures make half of all cutoffs, so a capture history is the obvious
   candidate; continuation history (24) stays blocked by the absolute SPSA step (23.4).
+
+### 30.1 The static evaluation in the Transposition Table entry: shipped in v0.48.0 (2026-10-22)
+
+Matt-Magie step 51, `task.md` 25.3, on v0.47.11. The entry carries the position's full static
+evaluation, White-positive, in the 16 data bits that were padding (`static_eval`, sentinel
+`i16::MIN`); a store of the same position without one keeps it, as R20 keeps the move. The main
+search and the Quiescence Search take it from the probe they already make and skip `calc_eval`;
+otherwise the value they compute is stored with the node's entry - only when it is a full
+evaluation (`calc_eval_known_check_full`), never a lazy return. A served value is used where the
+window would have allowed a lazy return too. The entry itself first, tree-identical (100/100 on both
+pools, `3d5471a`); the search (`3b088d6`). Tests red first: the stored value is the full one at either
+colour, a lazy stand pat is never stored, a stored value is read instead of computed.
+
+`search-diag` counts the served evaluations and computes a fresh one beside each
+(`scripts/measure_order_tt.py` reports both). Depth 10, 300 positions, `wide` / `mixed`:
+
+| | served, main / QS / all | time to depth 10 vs v0.47.11 | fresh differs |
+| :--- | ---: | ---: | ---: |
+| (i) at the node's own stores | 20.5 / 1.4 / **8.4%**, 20.4 / 1.5 / **8.3%** | **-1.9% / -2.2%** | 39 / 23 |
+| (ii) also evaluation-only entries at RFP, NMP, razoring | 25.4 / 1.7 / 10.4%, 25.0 / 1.7 / 10.2% | -2.8% / -3.2% | 45 / 34 |
+
+(ii) against (i) directly: 0.0% / -1.0%, not faster on both pools, so (i) by the rule fixed
+beforehand; (ii) stays on the local branch `tt-static-eval-ii` (`8bc490a`).
+
+**The mismatches are not this change's.** With the pawn cache bypassed in a scratch build, both
+pools give 0. The passed-pawn blockade malus (`passed_pawn_blockaded_malus`) reads the enemy pieces
+but is cached with the pawn structure under the pawn key, so a position's evaluation depends on which
+position filled the cache entry first (7 cp mg, 15 cp eg per blockaded passer) - in v0.47.11 as much
+as here. The owner shipped (i) and moved the fix to its own step (30.2).
+
+**The gate:** SPRT against v0.47.11 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. **[0, 10] H1 after 1306 games** (LLR +3.00), [0, 5] +1.73 undecided. At the end,
+1318 games: **+21.9 Elo, paired 95% [+7, +37]** - a stopped run, not an effect size. Pairs 47 / 141 /
+236 / 152 / 83; no losses on time, White 52.8%. The reading was -8 after 220 games, +15 after 620,
++22 after 990.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 51.0% against v0.47.11, 58.5% against v0.47.10,
+91.5% against v0.34.0, no losses on time. Shipped as **v0.48.0**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** Two percent of time to depth bought more than two percent usually does at this
+control; the served value also replaces lazy returns with exact evaluations where the window allowed
+one, which the census cannot price. The check that every served value equals a fresh one is what
+found a defect older than the change - the cache that holds the evaluation is only as good as the
+evaluation being a function of the position.

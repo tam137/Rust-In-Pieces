@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.0] - 2026-10-22
+
+The Transposition Table entry caches the position's full static evaluation, so a revisited position
+is not evaluated again. Gated by **SPRT [0, 10]: H1 after 1306 games** at 1s + 150ms against
+v0.47.11; at the end of the run, 1318 games: +21.9 Elo, paired 95% [+7, +37] - a stopped run, not an
+effect size (`task.md` rule 7). See `task.md` section 30.1.
+
+### Added
+- `TranspositionEntry::static_eval` in the 16 padding bits of the data word (sentinel `i16::MIN`);
+  the entry stays 16 bytes. A same-key store without one keeps the stored value.
+- Main search and Quiescence Search use the stored value instead of `calc_eval`; only full
+  evaluations are stored, never a lazy return (`EvalService::calc_eval_known_check_full`).
+- `search-diag`: served evaluations and fresh-vs-served mismatches, reported by
+  `scripts/measure_order_tt.py`.
+
+### Notes
+- About 8% of all evaluations are served from the entry; time to depth 10 against v0.47.11 -1.9% /
+  -2.2%.
+- Known limitation, fixed separately: the passed-pawn blockade malus is cached under the pawn key
+  though it reads the pieces, so the evaluation is path-dependent (`task.md` 30.1, 30.2).
+
+
+
 ## [V0.47.11] - 2026-10-22
 
 Threats on the attack maps of v0.47.10, fitted by Texel together with the thirteen older threat
