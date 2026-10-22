@@ -14,7 +14,9 @@
 //!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default). `--set name=value,...`
 //!   holds scalars at the given values instead of the shipped ones; `--start name=value,...`
 //!   starts them there and lets them move; `--free-scalars name,...` frees the named scalars on
-//!   top of the groups; `--safety-outside-cap` models king safety after the positional cap.
+//!   top of the groups; `--safety-outside-cap` models king safety after the positional cap;
+//!   `--seed-safety` starts the king-safety weights at Ethereal's. Groups `king_safety` and
+//!   `threats_new` free the weights of the new king safety and of the threats on the attack maps.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -358,13 +360,18 @@ struct Groups {
     scalars: bool,
     /// The three pawn rank bonuses, which `scalars` holds with the other piece-square scalars.
     rank_bonus: bool,
+    /// The king-safety weights (`eval_trace::KING_SAFETY`), which `scalars` holds too.
+    king_safety: bool,
+    /// The threats on the attack maps (`eval_trace::THREATS`), which `scalars` holds too.
+    threats_new: bool,
     /// Whose tables move when `tables` is free, in `WHITE_PAWN..=WHITE_KING` order.
     table_pieces: [bool; 6],
 }
 
 /// `material,tables,passers,scalars,rank_bonus`, any subset, in any order.
 fn parse_groups(list: &str) -> Groups {
-    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, rank_bonus: false, table_pieces: [true; 6] };
+    let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, rank_bonus: false,
+        king_safety: false, threats_new: false, table_pieces: [true; 6] };
     for name in list.split(',') {
         match name.trim() {
             "material" => groups.material = true,
@@ -372,6 +379,8 @@ fn parse_groups(list: &str) -> Groups {
             "passers" => groups.passers = true,
             "scalars" => groups.scalars = true,
             "rank_bonus" => groups.rank_bonus = true,
+            "king_safety" => groups.king_safety = true,
+            "threats_new" => groups.threats_new = true,
             other => panic!("unknown parameter group {other}"),
         }
     }
@@ -396,6 +405,24 @@ fn parse_sets(list: &str) -> Vec<(usize, f64)> {
         let j = et::SCALARS.iter().position(|(n, _, _)| *n == name.trim()).unwrap_or_else(|| panic!("unknown scalar {name}"));
         (j, value.trim().parse().unwrap())
     }).collect()
+}
+
+/// Ethereal's king-safety weights (`evaluate.c`, `S(mg, eg)`), in the order of
+/// `eval_trace::KING_SAFETY`: where `--seed-safety` starts the fit, since a quadratic term at
+/// weight 0 has no gradient. Ethereal's pawn is near ours (82 / 144 against 78 / 123).
+pub const SAFETY_SEEDS: [(i16, i16); 12] = [
+    (48, 41), (24, 35), (36, 8), (30, 6), // attackers: knight, bishop, rook, queen
+    (45, 34),                              // ring hits, scaled to nine squares
+    (42, 41),                              // weak ring squares
+    (-237, -259),                          // no enemy queen
+    (112, 117), (59, 59), (90, 98), (93, 83), // safe checks: knight, bishop, rook, queen
+    (-74, -26),                            // adjustment
+];
+
+/// `--start` pairs for [`SAFETY_SEEDS`].
+fn safety_seed_starts() -> Vec<(usize, f64)> {
+    et::KING_SAFETY.iter().zip(SAFETY_SEEDS.iter())
+        .flat_map(|(&(mg, eg), &(vm, ve))| [(mg as usize, vm as f64), (eg as usize, ve as f64)]).collect()
 }
 
 /// `name,...` of scalars by their `Config` field names.
@@ -432,6 +459,14 @@ fn trainable_for(groups: &Groups) -> Vec<bool> {
         }
         for &p in PIECE_SQUARE_SCALARS {
             t[p as usize] = false;
+        }
+    }
+    for (free, pairs) in [(groups.king_safety, &et::KING_SAFETY[..]), (groups.threats_new, &et::THREATS[..])] {
+        if free {
+            for &(mg, eg) in pairs {
+                t[mg as usize] = true;
+                t[eg as usize] = true;
+            }
         }
     }
     if groups.rank_bonus {
@@ -1094,6 +1129,7 @@ fn tune(args: &[String]) {
             "--start" => { starts = parse_sets(&args[i + 1]); i += 1; }
             "--free-scalars" => { free_scalars = parse_scalar_names(&args[i + 1]); i += 1; }
             "--safety-outside-cap" => safety_outside_cap = true,
+            "--seed-safety" => starts.extend(safety_seed_starts()),
             other => panic!("unknown option {other}"),
         }
         i += 1;
@@ -1752,6 +1788,89 @@ mod tests {
                 assert!((numeric - analytic).abs() <= 1e-6 + 1e-4 * numeric.abs(),
                     "outside {outside}, parameter {j}: analytic {analytic} against numeric {numeric}");
                 assert!(numeric.abs() > 1e-9 || j == mg_b, "parameter {j} has no gradient to compare");
+            }
+        }
+    }
+
+    /// Positions where king safety and the threats on the attack maps fire.
+    const ATTACK_POSITIONS: &[&str] = &[
+        "3r2k1/5ppp/8/8/7q/8/5PPP/6K1 w - - 0 1",
+        "r1b2rk1/pp3ppp/2n5/3qN3/3P4/3B4/PP3PPP/R2Q1RK1 b - - 0 15",
+        "r4rk1/1b2qppp/p3p3/1p1nP1N1/3P4/P1NQ4/1P3PPP/R4RK1 w - - 0 18",
+        "2kr3r/ppp2ppp/2n5/4q3/2B1P1b1/2N5/PPP2PPP/R2Q1RK1 w - - 0 12",
+        "6k1/5ppp/8/4n3/7q/8/5P1P/6K1 w - - 0 1",
+        "4k3/8/3p4/4N3/8/8/8/4K3 w - - 0 1",
+    ];
+
+    /// The engine's configuration with the king safety at its seeds and every threat at 15 / 10.
+    fn seeded_config(outside: bool) -> Config {
+        let mut config = hce_config();
+        for (&(mg, eg), &(vm, ve)) in et::KING_SAFETY.iter().zip(SAFETY_SEEDS.iter()) {
+            (et::SCALARS[mg as usize].2)(&mut config, vm);
+            (et::SCALARS[eg as usize].2)(&mut config, ve);
+        }
+        for &(mg, eg) in &et::THREATS {
+            (et::SCALARS[mg as usize].2)(&mut config, 15);
+            (et::SCALARS[eg as usize].2)(&mut config, 10);
+        }
+        config.king_safety_outside_cap = outside;
+        config
+    }
+
+    /// With the new weights away from 0 the trace still explains every unit to rounding, and the
+    /// model, the non-linear king safety included, rebuilds the engine's evaluation, under the
+    /// positional cap and outside it.
+    #[test]
+    fn test_the_trace_rebuilds_king_safety_and_threats() {
+        let service = Service::new();
+        for outside in [false, true] {
+            let config = seeded_config(outside);
+            let theta0 = et::theta_of(&config);
+            let pipeline = Pipeline::of(&config);
+            let mut fired = 0;
+            for fen in POSITIONS.iter().chain(ATTACK_POSITIONS) {
+                let board = service.fen.set_fen(fen);
+                et::begin(&theta0);
+                let eval = service.eval.calc_eval_known_check(&board, &config, &service.move_gen,
+                    &crate::pawn_hash::PawnHashTable::new(16), i16::MIN + 1, i16::MAX - 1, 0, false);
+                for u in et::finish().units {
+                    assert!((u.actual.0 - u.predicted.0).abs() <= 1.0 && (u.actual.1 - u.predicted.1).abs() <= 1.0,
+                        "{fen}: a unit the hooks do not explain: {u:?}");
+                }
+                let sample = trace_position(&service, &config, &theta0, &board).expect("excluded");
+                if !sample.safety.is_empty() {
+                    fired += 1;
+                }
+                let model = pipeline.eval(&sample, &theta0).0;
+                assert!((model - eval as f64).abs() <= 3.0, "outside {outside}, {fen}: model {model} against engine {eval}");
+            }
+            assert!(fired >= 4, "king safety fired in only {fired} positions");
+        }
+    }
+
+    /// `--free king_safety` and `--free threats_new` free their weights and nothing else.
+    #[test]
+    fn test_the_new_groups_free_only_their_weights() {
+        for (group, pairs) in [("king_safety", &et::KING_SAFETY[..]), ("threats_new", &et::THREATS[..])] {
+            let mask = trainable_for(&parse_groups(group));
+            let free: Vec<usize> = (0..et::N_PARAMS).filter(|&i| mask[i]).collect();
+            let mut expected: Vec<usize> = pairs.iter().flat_map(|&(m, e)| [m as usize, e as usize]).collect();
+            expected.sort();
+            assert_eq!(free, expected, "{group}");
+        }
+        assert_eq!(safety_seed_starts().len(), 24);
+    }
+
+    /// Every evaluation with the new weights away from 0 is the exact negative of its colour mirror.
+    #[test]
+    fn test_king_safety_and_threats_are_colour_symmetric() {
+        let service = Service::new();
+        for outside in [false, true] {
+            let config = seeded_config(outside);
+            for fen in POSITIONS.iter().chain(ATTACK_POSITIONS) {
+                let eval = |f: &str| service.eval.calc_eval_known_check(&service.fen.set_fen(f), &config, &service.move_gen,
+                    &crate::pawn_hash::PawnHashTable::new(16), i16::MIN + 1, i16::MAX - 1, 0, false);
+                assert_eq!(eval(fen), -eval(&mirror_fen(fen)), "outside {outside}, {fen}");
             }
         }
     }
