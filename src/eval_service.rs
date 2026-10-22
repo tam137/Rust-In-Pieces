@@ -2556,9 +2556,11 @@ mod tests {
         // `adjust_eval` (29.19), 116, 543, 580, 782 and 1883 from v0.47.1, against 100, 300, 300,
         // 500 and 950 until v0.46.4. Each range keeps its place around the evaluation it reads; the
         // pawn range moved again with the mobility of `task.md` 29.24 (66 -> 39: a missing e-pawn
-        // opens Black's bishop and queen).
+        // opens Black's bishop and queen), and again with the king safety of step 49 (39 -> 7: the
+        // central pawn shield, worth White's e2 against Black's empty e7, fell from 37 to 5 when the
+        // new king safety took over its part).
         // Figure values test for white
-        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 10, 120);
+        eval_between("rnbqkbnr/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1, 120);
         eval_between("rnbqkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 360, 600);
         eval_between("rn1qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 790, 1140);
         eval_between("r2qkb1r/pppp1ppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1110, 1510);
@@ -2774,7 +2776,6 @@ mod tests {
     fn king_safety_feature(fen: &str, us: usize, index: usize) -> Option<i16> {
         let service = Service::new();
         let board = service.fen.set_fen(fen);
-        let mut config = Config::new();
         let set = |c: &mut Config, i: usize, v: i16| match i {
             0 => c.king_safety_knight_attacker_eg = v,
             1 => c.king_safety_bishop_attacker_eg = v,
@@ -2789,6 +2790,24 @@ mod tests {
             10 => c.king_safety_safe_queen_check_eg = v,
             _ => c.king_safety_adjustment_eg = v,
         };
+        // Every king-safety weight at 0 but the one asked for.
+        let mut zero = Config::new();
+        for i in 0..12 {
+            set(&mut zero, i, 0);
+        }
+        zero.king_safety_knight_attacker_mg = 0;
+        zero.king_safety_bishop_attacker_mg = 0;
+        zero.king_safety_rook_attacker_mg = 0;
+        zero.king_safety_queen_attacker_mg = 0;
+        zero.king_safety_ring_attacks_mg = 0;
+        zero.king_safety_weak_squares_mg = 0;
+        zero.king_safety_no_queen_mg = 0;
+        zero.king_safety_safe_knight_check_mg = 0;
+        zero.king_safety_safe_bishop_check_mg = 0;
+        zero.king_safety_safe_rook_check_mg = 0;
+        zero.king_safety_safe_queen_check_mg = 0;
+        zero.king_safety_adjustment_mg = 0;
+        let mut config = zero.clone();
         set(&mut config, index, 20);
         service.eval.calc_eval(&board, &config, &service.move_gen, &crate::pawn_hash::PawnHashTable::new(16),
             i16::MIN + 1, i16::MAX - 1, 0);
@@ -2812,7 +2831,7 @@ mod tests {
             }
         }
         // The adjustment alone says whether the gate opened: it is 1 whenever it does.
-        let mut gate = Config::new();
+        let mut gate = zero;
         gate.king_safety_adjustment_eg = 20;
         if service.eval.king_safety(&board, &gate, &service.move_gen, &maps, us, king_sq, ring, &attack).1 == 0 {
             return None;
@@ -3613,8 +3632,10 @@ mod tests {
         let mut config = Config::new();
         config.use_nnue = false;
 
-        // Position A: White Bishop on b2 on open diagonal targeting Black King on g7 (aligned)
-        let board_aligned_k = fen_service.set_fen("8/6k1/8/8/8/8/1B6/7K w - - 0 1");
+        // Position A: White Bishop on b2 on open diagonal targeting Black King on h8 (aligned). The
+        // king stands at the end of the diagonal, so the bishop's mobility is that of position B;
+        // on g7 it took one square away, which cancelled the bonus once it was fitted to 13.
+        let board_aligned_k = fen_service.set_fen("7k/8/8/8/8/8/1B6/7K w - - 0 1");
         let (eval_aligned_k, _, _, _) = eval_service.white_bishop(9, &board_aligned_k, &config, 150, movegen, 0, 0, 0, board_aligned_k.white_pieces);
 
         // Position B: White Bishop on b2 with Black King on h7 (not on b2 diagonal)
