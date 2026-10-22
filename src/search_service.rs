@@ -763,6 +763,10 @@ impl SearchService {
         let mut tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)> = None;
         #[cfg(feature = "search-diag")]
         let mut diag_tt_hit = false;
+        // The full static evaluation of this position, White-positive, as soon as one is known -
+        // from the entry, or computed here without a lazy return - and [`NO_STATIC_EVAL`]
+        // until then. Every store of this node carries it (`task.md` 25.3).
+        let mut node_static_eval = crate::zobrist::NO_STATIC_EVAL;
 
         // Transposition Table Lookup
         if depth > 0 && config.use_zobrist {
@@ -776,6 +780,7 @@ impl SearchService {
             }
             if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                 tt_move = entry.decompress_move(board);
+                node_static_eval = entry.static_eval;
                 if config.enable_singular_extensions {
                     let mut candidate_eval = entry.eval;
                     if candidate_eval > 30000 {
@@ -843,13 +848,27 @@ impl SearchService {
         // Evaluation is absolute and this search is negamax, so the window is converted on the
         // way in and the score on the way out. That single negation is what lets Reverse
         // Futility Pruning, razoring and Futility Pruning below each be one branch instead of two.
+        //
+        // A position's static evaluation never changes, so one the entry carries is used as it is.
+        // It is the full value, and therefore also where the window would have allowed a lazy
+        // return: the two differ only in how far off a cut the bound is.
         let static_eval = if depth > 0 && !turn.gives_check {
             #[cfg(feature = "search-diag")]
             crate::search_diag::record_static_eval(false, diag_tt_hit);
-            let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-            let absolute = service.eval.calc_eval_known_check(
-                board, config, &service.move_gen, &service.pawn_table,
-                abs_alpha, abs_beta, config.lazy_eval_margin_search, false);
+            let absolute = if node_static_eval != crate::zobrist::NO_STATIC_EVAL {
+                #[cfg(feature = "search-diag")]
+                Self::diag_check_served_static_eval(false, node_static_eval, board, config, service);
+                node_static_eval
+            } else {
+                let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+                let (absolute, full) = service.eval.calc_eval_known_check_full(
+                    board, config, &service.move_gen, &service.pawn_table,
+                    abs_alpha, abs_beta, config.lazy_eval_margin_search, false);
+                if full {
+                    node_static_eval = absolute;
+                }
+                absolute
+            };
             Self::relative_score(white, absolute)
         } else {
             0
@@ -1155,6 +1174,9 @@ impl SearchService {
                 }
                 if let Some(entry) = context.zobrist_table.get_entry(board.cached_hash) {
                     tt_move = entry.decompress_move(board);
+                    if entry.static_eval != crate::zobrist::NO_STATIC_EVAL {
+                        node_static_eval = entry.static_eval;
+                    }
                     if entry.depth >= 0 {
                         let mut entry_eval = entry.eval;
                         // De-normalize mate score
@@ -1213,10 +1235,22 @@ impl SearchService {
             if !in_check {
                 #[cfg(feature = "search-diag")]
                 crate::search_diag::record_static_eval(true, diag_qs_hit);
-                let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
-                stand_pat = Self::relative_score(white, service.eval.calc_eval_known_check(
-                    board, config, &service.move_gen, &service.pawn_table,
-                    abs_alpha, abs_beta, config.lazy_eval_margin_qs, false));
+                // From the entry when it carries the evaluation, as in the main search above.
+                let absolute = if node_static_eval != crate::zobrist::NO_STATIC_EVAL {
+                    #[cfg(feature = "search-diag")]
+                    Self::diag_check_served_static_eval(true, node_static_eval, board, config, service);
+                    node_static_eval
+                } else {
+                    let (abs_alpha, abs_beta) = Self::absolute_window(white, alpha, beta);
+                    let (absolute, full) = service.eval.calc_eval_known_check_full(
+                        board, config, &service.move_gen, &service.pawn_table,
+                        abs_alpha, abs_beta, config.lazy_eval_margin_qs, false);
+                    if full {
+                        node_static_eval = absolute;
+                    }
+                    absolute
+                };
+                stand_pat = Self::relative_score(white, absolute);
                 eval = stand_pat;
 
                 // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can
@@ -1237,7 +1271,7 @@ impl SearchService {
                                 depth: 0,
                                 entry_type: crate::zobrist::TranspositionType::LowerBound,
                                 best_move: 0,
-                                static_eval: crate::zobrist::NO_STATIC_EVAL,
+                                static_eval: node_static_eval,
                             },
                         );
                     }
@@ -1360,7 +1394,7 @@ impl SearchService {
                         depth: 0,
                         entry_type,
                         best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
-                        static_eval: crate::zobrist::NO_STATIC_EVAL,
+                        static_eval: node_static_eval,
                     },
                 );
             }
@@ -1928,7 +1962,7 @@ impl SearchService {
                     depth: depth as i8,
                     entry_type,
                     best_move: crate::zobrist::TranspositionEntry::compress_move(best_move),
-                    static_eval: crate::zobrist::NO_STATIC_EVAL,
+                    static_eval: node_static_eval,
                 },
             );
         }
@@ -2236,6 +2270,16 @@ impl SearchService {
         } else {
             TranspositionType::Exact
         }
+    }
+
+    /// `search-diag` only: counts a static evaluation served from the Transposition Table and
+    /// computes the full one beside it, so a stored value that is not the position's own shows up
+    /// as a mismatch (the gate of Matt-Magie step 51 is zero of them).
+    #[cfg(feature = "search-diag")]
+    fn diag_check_served_static_eval(qs: bool, served: i16, board: &Board, config: &Config, service: &Service) {
+        let fresh = service.eval.calc_eval_known_check(board, config, &service.move_gen,
+            &service.pawn_table, -i16::MAX, i16::MAX, 0, false);
+        crate::search_diag::record_served_static_eval(qs, served == fresh);
     }
 
     /// The window this node is searching, restated on the absolute, White-positive scale that
@@ -4929,6 +4973,13 @@ mod tests {
     }
 
     fn search_with_table(board: &mut crate::model::Board, table: &ZobristTable, depth: i32) -> i16 {
+        search_window_with_table(board, table, depth, -30_000, 30_000)
+    }
+
+    /// One non-PV node at ply 1 on a caller-owned table, over the window `alpha`..`beta` relative
+    /// to the side to move.
+    fn search_window_with_table(board: &mut crate::model::Board, table: &ZobristTable, depth: i32,
+        alpha: i16, beta: i16) -> i16 {
         let service = Service::new();
         let mut config = Config::new();
         config.pre_sort_moves = false;
@@ -4954,7 +5005,7 @@ mod tests {
         let mut counter_moves = [[None; 64]; 64];
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         service.search.minimax(
-            board, &no_move, depth, -30_000, 30_000, &mut stats, &config, &service, &context,
+            board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, 1, &mut killer_moves,
             &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut history, &mut counter_moves,
             &mut crate::model::new_search_buffers(),
@@ -4980,6 +5031,95 @@ mod tests {
         let (mut board, table) = repeated_position_with_a_stale_entry("g1f3 g8f6 f3g1 f6g8 g1f3");
         assert_eq!(board.game_status, crate::model::GameStatus::Normal);
         assert_eq!(search_with_table(&mut board, &table, 5), 700);
+    }
+
+    // The static evaluation in the Transposition Table entry (`task.md` 25.3, Matt-Magie step 51).
+    // ---------------------------------------------------------------------------------------
+
+    /// A quiet middlegame, once with White and once with Black to move, so a sign error between
+    /// the absolute evaluation in the entry and the relative one of the search cannot hide.
+    const STATIC_EVAL_FENS: [&str; 2] = [
+        "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R w KQkq - 0 4",
+        "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4",
+    ];
+
+    /// The full static evaluation of `board`, White-positive: open window, so no lazy return.
+    fn full_static_eval(board: &crate::model::Board) -> i16 {
+        let service = Service::new();
+        service.eval.calc_eval_known_check(board, &Config::new(), &service.move_gen,
+            &service.pawn_table, -i16::MAX, i16::MAX, 0, false)
+    }
+
+    fn stored_static_eval(table: &ZobristTable, board: &crate::model::Board) -> i16 {
+        table.get_entry(crate::zobrist::gen_hash(board)).expect("the node stores an entry").static_eval
+    }
+
+    #[test]
+    fn a_node_stores_its_full_static_evaluation_white_positive() {
+        let service = Service::new();
+        for fen in STATIC_EVAL_FENS {
+            for depth in [0, 1, 3] {
+                let mut board = service.fen.set_fen(fen);
+                let table = ZobristTable::with_capacity(100_000);
+                search_with_table(&mut board, &table, depth);
+                assert_eq!(stored_static_eval(&table, &board), full_static_eval(&board),
+                    "{fen}, depth {depth}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_lazy_stand_pat_is_never_stored() {
+        let service = Service::new();
+        let config = Config::new();
+        for fen in STATIC_EVAL_FENS {
+            let mut board = service.fen.set_fen(fen);
+            // A window a thousand centipawns below the position: the stand pat returns lazily
+            // and is stored as a lower bound.
+            let (alpha, beta) = (-1001, -1000);
+            let (abs_alpha, abs_beta) = super::SearchService::absolute_window(board.white_to_move, alpha, beta);
+            let lazy = service.eval.calc_eval_known_check(&board, &config, &service.move_gen,
+                &service.pawn_table, abs_alpha, abs_beta, config.lazy_eval_margin_qs, false);
+            assert_ne!(lazy, full_static_eval(&board), "{fen}: the fixture needs a lazy return");
+            let table = ZobristTable::with_capacity(100_000);
+            search_window_with_table(&mut board, &table, 0, alpha, beta);
+            let entry = table.get_entry(crate::zobrist::gen_hash(&board)).expect("the stand pat stores");
+            assert_eq!(entry.entry_type, crate::zobrist::TranspositionType::LowerBound);
+            assert_eq!(entry.static_eval, crate::zobrist::NO_STATIC_EVAL, "{fen}: a lazy value was stored");
+        }
+    }
+
+    #[test]
+    fn a_stored_static_evaluation_is_read_instead_of_computed() {
+        let service = Service::new();
+        for fen in STATIC_EVAL_FENS {
+            for depth in [0, 1] {
+                // Unaided, the node fails low against a window 100 centipawns above the side to
+                // move...
+                let mut board = service.fen.set_fen(fen);
+                let white = board.white_to_move;
+                let relative = |absolute: i16| if white { absolute } else { -absolute };
+                let (alpha, beta) = (relative(full_static_eval(&board)) + 100, relative(full_static_eval(&board)) + 101);
+                let unaided = search_window_with_table(&mut board, &ZobristTable::with_capacity(100_000), depth, alpha, beta);
+                assert!(unaided <= alpha, "{fen}, depth {depth}: the fixture must fail low, got {unaided}");
+
+                // ... and fails high once the entry claims the side to move is 900 up. The entry
+                // is too shallow to cut and its bound is no bound at all; only its evaluation
+                // can change the answer.
+                let hash = crate::zobrist::gen_hash(&board);
+                let table = ZobristTable::with_capacity(100_000);
+                table.insert_entry(hash, crate::zobrist::TranspositionEntry {
+                    key: hash,
+                    eval: if depth == 0 { 30_000 } else { 0 },
+                    depth: if depth == 0 { 0 } else { -2 },
+                    entry_type: crate::zobrist::TranspositionType::UpperBound,
+                    best_move: 0,
+                    static_eval: relative(900),
+                });
+                let served = search_window_with_table(&mut board, &table, depth, alpha, beta);
+                assert!(served >= beta, "{fen}, depth {depth}: the stored evaluation was not read, got {served}");
+            }
+        }
     }
 
     // Principal Variation Search at the root (`Config::root_pvs`).
