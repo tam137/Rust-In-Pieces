@@ -1649,6 +1649,12 @@ impl EvalService {
     /// return Value of 255 means early game and values towards 0 means endgamephase
     /// a middle value like 128 respects early and late game evaluation in the same weight
     /// All with 6 or less pieces is considered pure endgame
+    /// The game phase 0..=255 the evaluation tapers with (`texel-lazy` reads it for the lazy test).
+    #[cfg(feature = "texel")]
+    pub fn game_phase(&self, board: &Board) -> u32 {
+        self.get_game_phase(board)
+    }
+
     fn get_game_phase(&self, board: &Board) -> u32 {
         let knights = (board.bitboards[crate::model::WHITE_KNIGHT] | board.bitboards[crate::model::BLACK_KNIGHT]).count_ones();
         let bishops = (board.bitboards[crate::model::WHITE_BISHOP] | board.bitboards[crate::model::BLACK_BISHOP]).count_ones();

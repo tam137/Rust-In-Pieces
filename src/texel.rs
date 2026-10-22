@@ -17,9 +17,10 @@
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
 //!   size of the evaluations, the error; at the shipped parameters or at `theta.txt`.
-//! * `texel-lazy <fen file>` - with the compiled parameters, how far `cheap_eval` lies from the
-//!   full evaluation on positions sampled from a search (`fen;alpha;beta` per line), against the
-//!   lazy margins.
+//! * `texel-lazy <fen file> [--margins S,Q]` - with the compiled parameters, how far `cheap_eval`
+//!   lies from the full evaluation on positions sampled from a search (`fen;alpha;beta` per line),
+//!   and, at the search and QS margins (the shipped ones by default), how often the lazy test
+//!   returns and how often it returns wrong - the full evaluation on the other side of the bound.
 //! * `texel-mirror <fen file>` - every position against its colour mirror: the evaluations must
 //!   be exact negatives.
 //!
@@ -39,7 +40,7 @@ pub fn run(args: &[String]) {
         "texel-tune" => tune(&args[1..]),
         "texel-export" => export_file(&args[1]),
         "texel-stats" => stats(&args[1], args.get(2).map(String::as_str)),
-        "texel-lazy" => lazy(&args[1]),
+        "texel-lazy" => lazy(&args[1..]),
         "texel-mirror" => mirror(&args[1]),
         other => panic!("unknown texel command {other}"),
     }
@@ -745,13 +746,35 @@ fn stats(data: &str, theta_path: Option<&str>) {
     println!("{line} mean {rough:.1}/{range:.0}");
 }
 
-fn lazy(path: &str) {
+/// What the lazy test of `evaluate` does at one node: `None` when it does not return, `Some(wrong)`
+/// when it returns the cheap value - wrong when the full evaluation lies on the other side of the
+/// bound it was compared with. Bounds within 2000 of the `i16` ends count as open, as there.
+fn lazy_return(cheap: i32, full: i32, alpha: i32, beta: i32, margin: i32) -> Option<bool> {
+    if alpha > i16::MIN as i32 + 2000 && cheap + margin <= alpha {
+        return Some(full > alpha);
+    }
+    if beta < i16::MAX as i32 - 2000 && cheap - margin >= beta {
+        return Some(full < beta);
+    }
+    None
+}
+
+fn lazy(args: &[String]) {
+    let path = &args[0];
     let service = Service::new();
     let config = hce_config();
+    let mut margins = (config.lazy_eval_margin_search as i32, config.lazy_eval_margin_qs as i32);
+    if let Some(k) = args.iter().position(|a| a == "--margins") {
+        let (s, q) = args[k + 1].split_once(',').expect("--margins S,Q");
+        margins = (s.parse().unwrap(), q.parse().unwrap());
+    }
     let table = crate::pawn_hash::PawnHashTable::new(1 << 16);
     let mut diffs: Vec<i32> = Vec::new();
+    // Per margin (search, QS): positions where the lazy test applies, returns, wrong returns.
+    let mut counts = [(0usize, 0usize, 0usize); 2];
     for line in std::fs::read_to_string(path).unwrap().lines() {
-        let board = service.fen.set_fen(line.split(';').next().unwrap());
+        let mut fields = line.split(';');
+        let board = service.fen.set_fen(fields.next().unwrap());
         if crate::eval_service::EvalService::is_insufficient_material(&board) {
             continue;
         }
@@ -759,11 +782,31 @@ fn lazy(path: &str) {
             i16::MIN + 1, i16::MAX - 1, 0, false);
         let cheap = service.eval.cheap_eval(&board, &config, &table);
         diffs.push((full as i32 - cheap as i32).abs());
+        let window = (fields.next().and_then(|a| a.parse::<i32>().ok()), fields.next().and_then(|b| b.parse::<i32>().ok()));
+        if let (Some(alpha), Some(beta)) = window {
+            if service.move_gen.is_in_check(&board) || service.eval.game_phase(&board) < config.lazy_eval_min_game_phase {
+                continue;
+            }
+            for (c, margin) in counts.iter_mut().zip([margins.0, margins.1]) {
+                c.0 += 1;
+                if let Some(wrong) = lazy_return(cheap as i32, full as i32, alpha, beta, margin) {
+                    c.1 += 1;
+                    c.2 += wrong as usize;
+                }
+            }
+        }
     }
     let n = diffs.len() as f64;
     let share = |t: i32| 100.0 * diffs.iter().filter(|&&d| d > t).count() as f64 / n;
     println!("{} positions: mean |full - cheap| {:.1} cp, above 120 (QS margin) {:.2}%, above 180 (search margin) {:.2}%",
         diffs.len(), diffs.iter().map(|&d| d as f64).sum::<f64>() / n, share(120), share(180));
+    for ((tested, returns, wrong), (label, margin)) in counts.iter().zip([("search", margins.0), ("QS", margins.1)]) {
+        if *tested > 0 {
+            println!("{label} margin {margin}: {tested} windowed positions, lazy returns {:.2}%, wrong {:.3}% of positions ({:.2}% of returns)",
+                100.0 * *returns as f64 / *tested as f64, 100.0 * *wrong as f64 / *tested as f64,
+                if *returns > 0 { 100.0 * *wrong as f64 / *returns as f64 } else { 0.0 });
+        }
+    }
 }
 
 /// The colour mirror of a FEN: ranks reversed, colours and the side to move swapped.
@@ -1319,6 +1362,23 @@ mod tests {
         }
         assert!((et::MATERIAL_MG..et::N_PARAMS).any(|j| theta[j] != theta0[j]), "nothing free moved");
         assert_eq!(trainable_for(&parse_groups("material,tables,passers,scalars")), trainable());
+    }
+
+    /// `lazy_return` answers what the lazy test of `evaluate` does at a node: it returns only when
+    /// the cheap value is a margin outside the window, and that return is wrong when the full
+    /// evaluation lies on the other side of the bound it was compared with. An open bound never
+    /// returns.
+    #[test]
+    fn test_lazy_return_counts_what_evaluate_does() {
+        let open_low = i16::MIN as i32 + 1;
+        let open_high = i16::MAX as i32 - 1;
+        assert_eq!(lazy_return(-300, -250, 0, 1, 180), Some(false), "fails low, and so does the full value");
+        assert_eq!(lazy_return(-300, 20, 0, 1, 180), Some(true), "fails low, but the full value is above alpha");
+        assert_eq!(lazy_return(-150, 20, 0, 1, 180), None, "inside the margin: the full evaluation runs");
+        assert_eq!(lazy_return(300, -5, 0, 1, 180), Some(true), "fails high, but the full value is below beta");
+        assert_eq!(lazy_return(300, 250, 0, 1, 180), Some(false), "fails high, and so does the full value");
+        assert_eq!(lazy_return(-30000, 0, open_low, open_high, 180), None, "both bounds open");
+        assert_eq!(lazy_return(-180, 5, 0, 1, 180), Some(true), "cheap + margin == alpha returns, as in evaluate");
     }
 
     /// `--free rank_bonus` frees the three pawn rank bonuses, which `scalars` holds with the other
