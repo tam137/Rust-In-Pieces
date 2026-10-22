@@ -48,6 +48,17 @@ class ConstrainedMle(unittest.TestCase):
             self.assertAlmostEqual(before, after, places=9)
 
 
+    def test_an_unobserved_outcome_on_the_pole_of_the_fit_has_weight_zero(self):
+        # Three 0.5-1.5 pairs and one 1.5-0.5 (a real run, 2026-10-22): `x = -2` solves the
+        # constraint for target 0.5, which puts the pole `1 + x * (1.0 - 0.5) = 0` on the unseen
+        # 2-0 outcome. It was divided by and stopped the run after eight games.
+        pdf = [(0.0, 0.0), (0.25, 0.75), (0.5, 0.0), (0.75, 0.25), (1.0, 0.0)]
+        fitted = sprt._constrained_mle(pdf, 0.5)
+        self.assertIsNotNone(fitted)
+        self.assertEqual([weight for value, weight in fitted if value in (0.0, 0.5, 1.0)], [0.0, 0.0, 0.0])
+        self.assertAlmostEqual(sum(value * weight for value, weight in fitted), 0.5, places=9)
+        self.assertIsNotNone(sprt.log_likelihood_ratio([0, 3, 0, 1, 0], 0.0, 5.0))
+
 class LogLikelihoodRatio(unittest.TestCase):
     def test_evidence_for_a_gain_drives_the_ratio_up(self):
         # 60% over 400 pairs is far beyond +10 Elo and must accept H1.
