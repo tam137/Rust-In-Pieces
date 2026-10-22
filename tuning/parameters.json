@@ -195,12 +195,12 @@
         "max": 26
     },
     "king_pawn_shield": {
-        "value": 37,
-        "min": 18,
+        "value": 5,
+        "min": 5,
         "max": 74
     },
     "king_piece_shield": {
-        "value": 17,
+        "value": 13,
         "min": 8,
         "max": 34
     },
@@ -255,12 +255,12 @@
         "max": 10
     },
     "king_open_file_malus": {
-        "value": 37,
+        "value": 73,
         "min": 18,
         "max": 74.0
     },
     "king_half_open_file_malus": {
-        "value": 20,
+        "value": 36,
         "min": 10,
         "max": 40.0
     },
@@ -290,22 +290,22 @@
         "max": 370
     },
     "king_pawn_shield_kingside": {
-        "value": 37,
-        "min": 18,
+        "value": 15,
+        "min": 15,
         "max": 74
     },
     "king_pawn_shield_queenside": {
-        "value": 25,
-        "min": 12,
+        "value": -2,
+        "min": -2,
         "max": 50
     },
     "king_piece_shield_kingside": {
-        "value": 15,
-        "min": 7,
+        "value": -30,
+        "min": -30,
         "max": 30
     },
     "king_piece_shield_queenside": {
-        "value": 10,
+        "value": 14,
         "min": 0,
         "max": 20
     },
@@ -355,32 +355,32 @@
         "max": 48
     },
     "king_danger_weight_1": {
-        "value": 10,
+        "value": 0,
         "min": 0,
         "max": 20
     },
     "king_danger_weight_2": {
-        "value": 50,
-        "min": 25,
+        "value": 0,
+        "min": 0,
         "max": 100
     },
     "king_danger_weight_3": {
-        "value": 100,
-        "min": 50,
+        "value": 0,
+        "min": 0,
         "max": 200
     },
     "king_danger_weight_4": {
-        "value": 150,
-        "min": 75,
+        "value": 0,
+        "min": 0,
         "max": 300
     },
     "king_danger_weight_5": {
-        "value": 200,
-        "min": 100,
+        "value": 0,
+        "min": 0,
         "max": 400
     },
     "lazy_eval_margin_search": {
-        "value": 200,
+        "value": 210,
         "min": 50,
         "max": 400
     },

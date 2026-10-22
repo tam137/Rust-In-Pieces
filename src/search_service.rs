@@ -2294,18 +2294,20 @@ mod tests {
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();
 
-        // Depth 9. At depth 4 the tree is small enough that, with Principal Variation Search at
+        // Depth 10. At depth 4 the tree is small enough that, with Principal Variation Search at
         // the root, the full-window re-search of a root move that beat its null window outweighs
         // what the null move saves (3937 against 3851 nodes); from depth 5 the rule saved again
         // (4277 against 5394). Since the re-fitted tables of v0.47.1 this configuration - the
         // verification search and divisor 6 of v0.46.2, off in play - saved at depths 3, 4 and 7
         // and cost at 5, 6 and 8; with the mobility of `task.md` 29.24 it saves at 3, 6, 8 and 9
         // (32055 against 45998 at 8) and costs at 4, 5 and 7; with the threats of 29.26 depth 8
-        // reads 96319 against 95961, and 5, 6 and 9 save. The second search reuses the board of
-        // the first, whose halfmove clock the first search leaves at 0.
+        // reads 96319 against 95961, and 5, 6 and 9 save. With the king safety of step 49 depth 9
+        // reads 232219 against 114781 (8 costs too); 5, 6, 7 and 10 save (210919 against 319475
+        // at 10). The second search reuses the board of the first, whose halfmove clock the first
+        // search leaves at 0.
         service.search.get_moves(
             &mut board,
-            9,
+            10,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -2318,7 +2320,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            9,
+            10,
             true,
             &mut stats_disabled,
             &config_disabled,
@@ -3484,16 +3486,19 @@ mod tests {
         // Late Move Pruning is off for the reason the frontier test above gives. With it on, the
         // material of the re-fit without `adjust_eval` (`task.md` 29.19) inverts this position at
         // depth 7: 39,363 nodes unlimited against 53,563 deep only and 49,038 with extensions off.
-        let unlimited = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        // Depth 9 since the king safety of step 49: at 7 the deep extensions fell below the tree
+        // without extensions (56,352 against 63,446); both statements hold at 6 and 9 (279,046
+        // deep only against 303,845 unlimited and 190,399 off).
+        let unlimited = search_nodes(CHECK_RICH_FEN, 9, |c| {
             c.enable_check_extension = true;
             c.enable_lmp = false;
         });
-        let deep_only = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        let deep_only = search_nodes(CHECK_RICH_FEN, 9, |c| {
             c.enable_check_extension = true;
             c.check_extension_min_depth = 4;
             c.enable_lmp = false;
         });
-        let disabled = search_nodes(CHECK_RICH_FEN, 7, |c| {
+        let disabled = search_nodes(CHECK_RICH_FEN, 9, |c| {
             c.enable_check_extension = false;
             c.enable_lmp = false;
         });
@@ -4253,8 +4258,10 @@ mod tests {
     #[test]
     fn test_qs_tt_search_consistency_and_node_reduction() {
         let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
-        // Depth 6: with the mobility of `task.md` 29.24 the table costs at depth 5 (12063 against
-        // 7358 nodes) and saves at 4, 6 and 7 (16751 against 23142 at 6).
+        // Depth 7: with the mobility of `task.md` 29.24 the table costs at depth 5 (12063 against
+        // 7358 nodes) and saves at 4, 6 and 7 (16751 against 23142 at 6); with the king safety of
+        // step 49 it costs at 6 (16838 against 16572) and saves at 4, 5, 7 and 8 (26579 against
+        // 50314 at 7).
         let mut board_enabled = Service::new().fen.set_fen(fen);
         let mut board_disabled = board_enabled.clone();
         let service = Service::new();
@@ -4294,7 +4301,7 @@ mod tests {
 
         let res_enabled = service.search.get_moves(
             &mut board_enabled,
-            6,
+            7,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -4307,7 +4314,7 @@ mod tests {
 
         let res_disabled = service.search.get_moves(
             &mut board_disabled,
-            6,
+            7,
             true,
             &mut stats_disabled,
             &config_disabled,
