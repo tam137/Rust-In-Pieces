@@ -12,7 +12,9 @@
 //!   all four by default, and `rank_bonus` (the three pawn rank bonuses, which `scalars` holds);
 //!   the others keep their shipped values. `--tables` names the pieces whose
 //!   tables move (`pawn,rook,knight,bishop,queen,king`, all by default). `--set name=value,...`
-//!   holds scalars at the given values instead of the shipped ones.
+//!   holds scalars at the given values instead of the shipped ones; `--start name=value,...`
+//!   starts them there and lets them move; `--free-scalars name,...` frees the named scalars on
+//!   top of the groups; `--safety-outside-cap` models king safety after the positional cap.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -25,7 +27,9 @@
 //!   be exact negatives.
 //!
 //! The model is the evaluation's own pipeline: the traced sum is tapered, then the positional cap,
-//! the opposite-bishop scale and `adjust_eval` are applied as the engine applies them. Positions a
+//! the opposite-bishop scale and `adjust_eval` are applied as the engine applies them. King safety
+//! is the one non-linear unit: per king, `-max(u_mg, 0)^2 / 720` and `-max(u_eg, 0) / 20` of the
+//! weighted sums of its features, under the cap or outside it as `king_safety_outside_cap` says. Positions a
 //! mop-up or insufficient material would score are not extracted.
 use crate::config::{Aggressiveness, Config};
 use crate::eval_trace as et;
@@ -72,6 +76,8 @@ pub struct Sample {
     pub constant: (f32, f32),
     pub pieces: Vec<(u16, i8)>,
     pub terms: Vec<(u16, f32, f32)>,
+    /// The king-safety features, `(king, mg index, eg index, value)`; see `eval_trace::tr_safety`.
+    pub safety: Vec<(u8, u16, u16, f32)>,
 }
 
 impl Sample {
@@ -104,6 +110,7 @@ pub fn trace_position(service: &Service, config: &Config, theta0: &[f64], board:
         constant: (trace.constant.0 as f32, trace.constant.1 as f32),
         pieces: trace.pieces.clone(),
         terms: trace.terms.iter().map(|&(i, m, e)| (i as u16, m as f32, e as f32)).collect(),
+        safety: trace.safety.iter().map(|&(k, m, e, v)| (k, m, e, v as f32)).collect(),
     };
     let (mg, eg) = sums(&sample, theta0);
     sample.taper_residual = (pre_cap as f64 - taper(mg, eg, phase)) as f32;
@@ -147,10 +154,36 @@ fn taper(mg: f64, eg: f64, phase: i16) -> f64 {
     (mg * phase as f64 + eg * (256 - phase) as f64) / 256.0
 }
 
-/// The untapered middlegame and endgame sums of a sample at `theta`.
+/// The king-safety per king at `theta`: `(u_mg, u_eg)` for White's king and Black's.
+#[inline(always)]
+fn safety_units(s: &Sample, theta: &[f64]) -> [(f64, f64); 2] {
+    let mut u = [(0.0, 0.0); 2];
+    for &(king, mg, eg, value) in &s.safety {
+        u[king as usize].0 += theta[mg as usize] * value as f64;
+        u[king as usize].1 += theta[eg as usize] * value as f64;
+    }
+    u
+}
+
+/// The untapered king-safety sums of a sample at `theta`, White-positive.
+#[inline(always)]
+fn safety_sums(s: &Sample, theta: &[f64]) -> (f64, f64) {
+    if s.safety.is_empty() {
+        return (0.0, 0.0);
+    }
+    let u = safety_units(s, theta);
+    let (wm, we) = et::safety_penalty(u[0].0, u[0].1);
+    let (bm, be) = et::safety_penalty(u[1].0, u[1].1);
+    (bm - wm, be - we)
+}
+
+/// The untapered middlegame and endgame sums of a sample at `theta`, king safety included.
 #[inline(always)]
 fn sums(s: &Sample, theta: &[f64]) -> (f64, f64) {
     let (mut mg, mut eg) = (s.constant.0 as f64, s.constant.1 as f64);
+    let (sm, se) = safety_sums(s, theta);
+    mg += sm;
+    eg += se;
     for &(i, cm, ce) in &s.terms {
         mg += theta[i as usize] * cm as f64;
         eg += theta[i as usize] * ce as f64;
@@ -182,6 +215,8 @@ fn material_sums(s: &Sample, theta: &[f64]) -> (f64, f64) {
 #[derive(Clone, Copy)]
 pub struct Pipeline {
     cap: Option<(f64, f64)>,
+    /// King safety passes the positional cap untouched: the cap compresses the rest.
+    safety_outside_cap: bool,
     opposite_bishops_scale: f64,
     max_mult: f64,
 }
@@ -196,13 +231,15 @@ impl Pipeline {
         let damping = if config.positional_cap_damping > 0 { config.positional_cap_damping as f64 } else { 1.0 };
         Pipeline {
             cap: if config.enable_positional_cap { Some((cap, damping)) } else { None },
+            safety_outside_cap: config.king_safety_outside_cap,
             opposite_bishops_scale: config.opposite_bishops_draw_scale as f64 / 100.0,
             max_mult: config.max_eval_mult as f64,
         }
     }
 
     /// The evaluation at `theta`, and its derivatives with respect to the tapered sum and to the
-    /// tapered material.
+    /// tapered material. The tapered king safety moves the evaluation by `d_pre` under the cap and
+    /// by `d_pre + d_mat` outside it.
     #[inline(always)]
     fn eval(&self, s: &Sample, theta: &[f64]) -> (f64, f64, f64) {
         let phase = s.phase as i16;
@@ -213,9 +250,15 @@ impl Pipeline {
         if let Some((cap, damping)) = self.cap {
             let (mm, me) = material_sums(s, theta);
             let material = taper(mm, me, phase);
-            let positional = pre - material;
+            let outside = if self.safety_outside_cap {
+                let (sm, se) = safety_sums(s, theta);
+                taper(sm, se, phase)
+            } else {
+                0.0
+            };
+            let positional = pre - material - outside;
             if positional.abs() > cap {
-                eval = material + positional.signum() * (cap + (positional.abs() - cap) / damping);
+                eval = material + positional.signum() * (cap + (positional.abs() - cap) / damping) + outside;
                 d_pre = 1.0 / damping;
                 d_mat = 1.0 - 1.0 / damping;
             }
@@ -271,6 +314,17 @@ fn gradient(samples: &[Sample], k: f64, pipeline: &Pipeline, theta: &[f64], grad
         let a = g * d_pre;
         for &(i, cm, ce) in &s.terms {
             grad[i as usize] += a * (cm as f64 * w_mg + ce as f64 * w_eg);
+        }
+        if !s.safety.is_empty() {
+            let through = g * if pipeline.safety_outside_cap { d_pre + d_mat } else { d_pre };
+            let u = safety_units(s, theta);
+            for &(king, mg, eg, value) in &s.safety {
+                let (sign, (u_mg, u_eg)) = if king == 0 { (-1.0, u[0]) } else { (1.0, u[1]) };
+                let d_mg = 2.0 * u_mg.max(0.0) / et::SAFETY_MG_DIVISOR as f64;
+                let d_eg = if u_eg > 0.0 { 1.0 / et::SAFETY_EG_DIVISOR as f64 } else { 0.0 };
+                grad[mg as usize] += through * sign * d_mg * w_mg * value as f64;
+                grad[eg as usize] += through * sign * d_eg * w_eg * value as f64;
+            }
         }
         let b = g * d_mat;
         for &(code, sign) in &s.pieces {
@@ -342,6 +396,20 @@ fn parse_sets(list: &str) -> Vec<(usize, f64)> {
         let j = et::SCALARS.iter().position(|(n, _, _)| *n == name.trim()).unwrap_or_else(|| panic!("unknown scalar {name}"));
         (j, value.trim().parse().unwrap())
     }).collect()
+}
+
+/// `name,...` of scalars by their `Config` field names.
+fn parse_scalar_names(list: &str) -> Vec<usize> {
+    list.split(',').map(|name| et::SCALARS.iter().position(|(n, _, _)| *n == name.trim())
+        .unwrap_or_else(|| panic!("unknown scalar {name}"))).collect()
+}
+
+/// Starts scalars at the given values without holding them: a quadratic term at weight 0 has no
+/// gradient, so its fit must begin elsewhere. The L2 anchor is the started vector.
+fn apply_starts(theta: &mut [f64], starts: &[(usize, f64)]) {
+    for &(j, value) in starts {
+        theta[j] = value;
+    }
 }
 
 /// Starts every set scalar at its value and holds it there: the fit, and the L2 anchor, begin
@@ -452,7 +520,7 @@ fn write_sample(w: &mut impl Write, s: &Sample) -> std::io::Result<()> {
     w.write_all(&s.taper_residual.to_le_bytes())?;
     w.write_all(&s.constant.0.to_le_bytes())?;
     w.write_all(&s.constant.1.to_le_bytes())?;
-    w.write_all(&[s.pieces.len() as u8, s.terms.len() as u8])?;
+    w.write_all(&[s.pieces.len() as u8, s.terms.len() as u8, s.safety.len() as u8])?;
     for &(code, sign) in &s.pieces {
         w.write_all(&code.to_le_bytes())?;
         w.write_all(&[sign as u8])?;
@@ -461,6 +529,12 @@ fn write_sample(w: &mut impl Write, s: &Sample) -> std::io::Result<()> {
         w.write_all(&i.to_le_bytes())?;
         w.write_all(&m.to_le_bytes())?;
         w.write_all(&e.to_le_bytes())?;
+    }
+    for &(king, mg, eg, value) in &s.safety {
+        w.write_all(&[king])?;
+        w.write_all(&mg.to_le_bytes())?;
+        w.write_all(&eg.to_le_bytes())?;
+        w.write_all(&value.to_le_bytes())?;
     }
     Ok(())
 }
@@ -471,7 +545,9 @@ pub fn read_samples(path: &str) -> Vec<Sample> {
     let mut at = 0usize;
     let mut take = |n: usize| { let s = &bytes[at..at + n]; at += n; s.to_vec() };
     let magic = take(8);
-    assert_eq!(&magic, b"TEXEL001", "not a texel data set");
+    // TEXEL002 adds the king-safety features. A TEXEL001 set indexes the parameters of an older
+    // layout and cannot be read against this one.
+    assert_eq!(&magic, b"TEXEL002", "not a texel data set of this parameter layout");
     let count = u64::from_le_bytes(take(8).try_into().unwrap()) as usize;
     let mut samples = Vec::with_capacity(count);
     let f32_of = |b: Vec<u8>| f32::from_le_bytes(b.try_into().unwrap());
@@ -480,7 +556,7 @@ pub fn read_samples(path: &str) -> Vec<Sample> {
         let eval = i16::from_le_bytes(take(2).try_into().unwrap());
         let taper_residual = f32_of(take(4));
         let constant = (f32_of(take(4)), f32_of(take(4)));
-        let n = take(2);
+        let n = take(3);
         let mut pieces = Vec::with_capacity(n[0] as usize);
         for _ in 0..n[0] {
             let code = u16::from_le_bytes(take(2).try_into().unwrap());
@@ -491,8 +567,15 @@ pub fn read_samples(path: &str) -> Vec<Sample> {
             let i = u16::from_le_bytes(take(2).try_into().unwrap());
             terms.push((i, f32_of(take(4)), f32_of(take(4))));
         }
+        let mut safety = Vec::with_capacity(n[2] as usize);
+        for _ in 0..n[2] {
+            let king = take(1)[0];
+            let mg = u16::from_le_bytes(take(2).try_into().unwrap());
+            let eg = u16::from_le_bytes(take(2).try_into().unwrap());
+            safety.push((king, mg, eg, f32_of(take(4))));
+        }
         samples.push(Sample { result: h[0], set: h[1], phase: h[2], opposite_bishops: h[3] != 0, eval,
-            taper_residual, constant, pieces, terms });
+            taper_residual, constant, pieces, terms, safety });
     }
     samples
 }
@@ -660,7 +743,7 @@ fn extract(args: &[String]) {
         eprintln!("{path}: {games} games so far, {} positions", samples.len());
     }
     let mut w = BufWriter::new(std::fs::File::create(out).unwrap());
-    w.write_all(b"TEXEL001").unwrap();
+    w.write_all(b"TEXEL002").unwrap();
     w.write_all(&(samples.len() as u64).to_le_bytes()).unwrap();
     for s in &samples {
         write_sample(&mut w, s).unwrap();
@@ -994,6 +1077,9 @@ fn tune(args: &[String]) {
     let mut smooths = vec![0.0f64];
     let mut table_pieces: Option<[bool; 6]> = None;
     let mut sets = Vec::new();
+    let mut starts = Vec::new();
+    let mut free_scalars = Vec::new();
+    let mut safety_outside_cap = false;
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
@@ -1005,6 +1091,9 @@ fn tune(args: &[String]) {
             "--smooth" => { smooths = args[i + 1].split(',').map(|x| x.parse().unwrap()).collect(); i += 1; }
             "--tables" => { table_pieces = Some(parse_table_pieces(&args[i + 1])); i += 1; }
             "--set" => { sets = parse_sets(&args[i + 1]); i += 1; }
+            "--start" => { starts = parse_sets(&args[i + 1]); i += 1; }
+            "--free-scalars" => { free_scalars = parse_scalar_names(&args[i + 1]); i += 1; }
+            "--safety-outside-cap" => safety_outside_cap = true,
             other => panic!("unknown option {other}"),
         }
         i += 1;
@@ -1013,7 +1102,8 @@ fn tune(args: &[String]) {
         groups.table_pieces = pieces;
     }
     let samples = read_samples(data);
-    let config = hce_config();
+    let mut config = hce_config();
+    config.king_safety_outside_cap |= safety_outside_cap;
     let pipeline = Pipeline::of(&config);
     let shipped = et::theta_of(&config);
     let k = fit_k(&samples, &pipeline, &shipped);
@@ -1024,12 +1114,17 @@ fn tune(args: &[String]) {
     let base: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &shipped)).collect();
     log(format!("shipped: train {:.6}, validation {:.6}, test {:.6}", base[0], base[1], base[2]), &mut report);
     let mut mask = trainable_for(&groups);
+    for &j in &free_scalars {
+        mask[j] = true;
+    }
     let mut theta0 = shipped.clone();
     apply_sets(&mut theta0, &mut mask, &sets);
-    if !sets.is_empty() {
+    apply_starts(&mut theta0, &starts);
+    log(format!("king safety {} the positional cap", if pipeline.safety_outside_cap { "outside" } else { "under" }), &mut report);
+    if !sets.is_empty() || !starts.is_empty() {
         let start: Vec<f64> = (0..3).map(|set| mse(&samples, set, k, &pipeline, &theta0)).collect();
-        log(format!("start, {} set: train {:.6} ({:+.1}e-6), validation {:.6} ({:+.1}e-6), test {:.6} ({:+.1}e-6)", sets.len(),
-            start[0], (start[0] - base[0]) * 1e6, start[1], (start[1] - base[1]) * 1e6, start[2], (start[2] - base[2]) * 1e6), &mut report);
+        log(format!("start, {} set, {} started: train {:.6} ({:+.1}e-6), validation {:.6} ({:+.1}e-6), test {:.6} ({:+.1}e-6)", sets.len(),
+            starts.len(), start[0], (start[0] - base[0]) * 1e6, start[1], (start[1] - base[1]) * 1e6, start[2], (start[2] - base[2]) * 1e6), &mut report);
     }
     let shape0 = tables_shape(&shipped);
     log(format!("shipped tables: mean roughness {:.1}, mean range {:.0}", shape0.0, shape0.1), &mut report);
@@ -1613,13 +1708,62 @@ mod tests {
         }
     }
 
+    /// The gradient of the king-safety unit against a central difference of the training error,
+    /// under and outside the positional cap, with the cap firing and idle, for weights on both
+    /// sides of the hinge `max(u, 0)`.
+    #[test]
+    fn test_the_safety_gradient_matches_a_numeric_derivative() {
+        let config = hce_config();
+        let (mg_a, eg_a, mg_b, eg_b) = (et::P::KingDangerWeight1 as u16, et::P::KingDangerWeight2 as u16,
+            et::P::KingDangerWeight3 as u16, et::P::KingDangerWeight4 as u16);
+        let mut samples: Vec<Sample> = POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        samples[0].safety = vec![(0, mg_a, eg_a, 3.0), (0, mg_b, eg_b, 2.0), (1, mg_a, eg_a, 1.0)];
+        samples[3].safety = vec![(1, mg_a, eg_a, 4.0), (1, mg_b, eg_b, 2.5)];
+        samples[7].safety = vec![(0, mg_a, eg_a, 5.0), (1, mg_b, eg_b, 6.0)];
+        // A large positional term so the cap fires on sample 7.
+        samples[7].constant.0 += 400.0;
+        let mut theta = et::theta_of(&config);
+        theta[mg_a as usize] = 60.0;
+        theta[eg_a as usize] = 30.0;
+        theta[mg_b as usize] = -20.0;
+        theta[eg_b as usize] = 45.0;
+        let k = 0.0037;
+        for outside in [false, true] {
+            let mut config = hce_config();
+            config.king_safety_outside_cap = outside;
+            let pipeline = Pipeline::of(&config);
+            let mut grad = vec![0.0; et::N_PARAMS];
+            gradient(&samples, k, &pipeline, &theta, &mut grad);
+            let error = |t: &[f64]| -> f64 {
+                samples.iter().filter(|s| s.set == 0)
+                    .map(|s| { let d = s.label() - sigmoid(k, pipeline.eval(s, t).0); d * d }).sum()
+            };
+            for j in [mg_a, eg_a, mg_b, eg_b] {
+                let h = 1e-3;
+                let (mut up, mut down) = (theta.clone(), theta.clone());
+                up[j as usize] += h;
+                down[j as usize] -= h;
+                let numeric = (error(&up) - error(&down)) / (2.0 * h);
+                let analytic = grad[j as usize];
+                assert!((numeric - analytic).abs() <= 1e-6 + 1e-4 * numeric.abs(),
+                    "outside {outside}, parameter {j}: analytic {analytic} against numeric {numeric}");
+                assert!(numeric.abs() > 1e-9 || j == mg_b, "parameter {j} has no gradient to compare");
+            }
+        }
+    }
+
     #[test]
     fn test_the_data_set_round_trips() {
-        let samples: Vec<Sample> = POSITIONS.iter().map(|fen| traced(fen).0).collect();
+        let mut samples: Vec<Sample> = POSITIONS.iter().map(|fen| traced(fen).0).collect();
+        samples[1].safety = vec![(0, 3, 4, 2.0), (1, 5, 6, -1.5)];
         let path = std::env::temp_dir().join(format!("texel-roundtrip-{}.bin", std::process::id()));
         {
             let mut w = BufWriter::new(std::fs::File::create(&path).unwrap());
-            w.write_all(b"TEXEL001").unwrap();
+            w.write_all(b"TEXEL002").unwrap();
             w.write_all(&(samples.len() as u64).to_le_bytes()).unwrap();
             for s in &samples {
                 write_sample(&mut w, s).unwrap();
