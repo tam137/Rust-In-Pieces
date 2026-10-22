@@ -117,6 +117,7 @@ pub const SAFETY_EG_DIVISOR: i32 = 20;
 
 /// The `(mg, eg)` penalty of one king for its safety sums `u_mg`, `u_eg`, as the engine and the
 /// model compute it (the engine on integers, the model on reals).
+#[cfg(feature = "texel")]
 #[inline(always)]
 pub fn safety_penalty(u_mg: f64, u_eg: f64) -> (f64, f64) {
     let (m, e) = (u_mg.max(0.0), u_eg.max(0.0));
@@ -240,6 +241,40 @@ mod imp {
         PassedPawnBlockadedMalus => passed_pawn_blockaded_malus,
         CandidatePassedPawnBonus => candidate_passed_pawn_bonus,
         PawnStormBonus => pawn_storm_bonus,
+        KingSafetyKnightAttackerMg => king_safety_knight_attacker_mg,
+        KingSafetyKnightAttackerEg => king_safety_knight_attacker_eg,
+        KingSafetyBishopAttackerMg => king_safety_bishop_attacker_mg,
+        KingSafetyBishopAttackerEg => king_safety_bishop_attacker_eg,
+        KingSafetyRookAttackerMg => king_safety_rook_attacker_mg,
+        KingSafetyRookAttackerEg => king_safety_rook_attacker_eg,
+        KingSafetyQueenAttackerMg => king_safety_queen_attacker_mg,
+        KingSafetyQueenAttackerEg => king_safety_queen_attacker_eg,
+        KingSafetyRingAttacksMg => king_safety_ring_attacks_mg,
+        KingSafetyRingAttacksEg => king_safety_ring_attacks_eg,
+        KingSafetyWeakSquaresMg => king_safety_weak_squares_mg,
+        KingSafetyWeakSquaresEg => king_safety_weak_squares_eg,
+        KingSafetyNoQueenMg => king_safety_no_queen_mg,
+        KingSafetyNoQueenEg => king_safety_no_queen_eg,
+        KingSafetySafeKnightCheckMg => king_safety_safe_knight_check_mg,
+        KingSafetySafeKnightCheckEg => king_safety_safe_knight_check_eg,
+        KingSafetySafeBishopCheckMg => king_safety_safe_bishop_check_mg,
+        KingSafetySafeBishopCheckEg => king_safety_safe_bishop_check_eg,
+        KingSafetySafeRookCheckMg => king_safety_safe_rook_check_mg,
+        KingSafetySafeRookCheckEg => king_safety_safe_rook_check_eg,
+        KingSafetySafeQueenCheckMg => king_safety_safe_queen_check_mg,
+        KingSafetySafeQueenCheckEg => king_safety_safe_queen_check_eg,
+        KingSafetyAdjustmentMg => king_safety_adjustment_mg,
+        KingSafetyAdjustmentEg => king_safety_adjustment_eg,
+        ThreatHangingMg => threat_hanging_mg,
+        ThreatHangingEg => threat_hanging_eg,
+        ThreatLesserOnMinorMg => threat_lesser_on_minor_mg,
+        ThreatLesserOnMinorEg => threat_lesser_on_minor_eg,
+        ThreatLesserOnRookMg => threat_lesser_on_rook_mg,
+        ThreatLesserOnRookEg => threat_lesser_on_rook_eg,
+        ThreatLesserOnQueenMg => threat_lesser_on_queen_mg,
+        ThreatLesserOnQueenEg => threat_lesser_on_queen_eg,
+        ThreatSafePawnPushMg => threat_safe_pawn_push_mg,
+        ThreatSafePawnPushEg => threat_safe_pawn_push_eg,
     }
 
     /// Layout of the parameter vector: scalars, the passed-pawn table (mg, eg), material (mg, eg),
@@ -255,6 +290,33 @@ mod imp {
 
     pub fn passer_mg(relative_rank: usize) -> usize { PASSER_MG + relative_rank }
     pub fn passer_eg(relative_rank: usize) -> usize { PASSER_EG + relative_rank }
+
+    /// The `(mg, eg)` weights of the king-safety features, in the order `EvalService::king_safety`
+    /// computes them.
+    pub const KING_SAFETY: [(P, P); 12] = [
+        (P::KingSafetyKnightAttackerMg, P::KingSafetyKnightAttackerEg),
+        (P::KingSafetyBishopAttackerMg, P::KingSafetyBishopAttackerEg),
+        (P::KingSafetyRookAttackerMg, P::KingSafetyRookAttackerEg),
+        (P::KingSafetyQueenAttackerMg, P::KingSafetyQueenAttackerEg),
+        (P::KingSafetyRingAttacksMg, P::KingSafetyRingAttacksEg),
+        (P::KingSafetyWeakSquaresMg, P::KingSafetyWeakSquaresEg),
+        (P::KingSafetyNoQueenMg, P::KingSafetyNoQueenEg),
+        (P::KingSafetySafeKnightCheckMg, P::KingSafetySafeKnightCheckEg),
+        (P::KingSafetySafeBishopCheckMg, P::KingSafetySafeBishopCheckEg),
+        (P::KingSafetySafeRookCheckMg, P::KingSafetySafeRookCheckEg),
+        (P::KingSafetySafeQueenCheckMg, P::KingSafetySafeQueenCheckEg),
+        (P::KingSafetyAdjustmentMg, P::KingSafetyAdjustmentEg),
+    ];
+
+    /// The `(mg, eg)` weights of the threats on the attack maps, in the order
+    /// `EvalService::threats` computes them.
+    pub const THREATS: [(P, P); 5] = [
+        (P::ThreatHangingMg, P::ThreatHangingEg),
+        (P::ThreatLesserOnMinorMg, P::ThreatLesserOnMinorEg),
+        (P::ThreatLesserOnRookMg, P::ThreatLesserOnRookEg),
+        (P::ThreatLesserOnQueenMg, P::ThreatLesserOnQueenEg),
+        (P::ThreatSafePawnPushMg, P::ThreatSafePawnPushEg),
+    ];
 
     /// The king-danger weight a given effective attacker count reads; index 0 is the constant 0.
     pub fn king_danger(index: usize) -> usize {
