@@ -713,14 +713,6 @@ impl EvalService {
                 e_eval += config.protected_passed_pawn_endgame;
             }
 
-            // Passed pawn blockade: enemy piece on square directly in front
-            let front_sq = sq + 8;
-            if front_sq < 64 && ((1u64 << front_sq) & board.black_pieces) != 0 {
-                tr!(PassedPawnBlockadedMalus, -0.5, -1);
-                o_eval -= config.passed_pawn_blockaded_malus / 2;
-                e_eval -= config.passed_pawn_blockaded_malus;
-            }
-
             tr_param!(crate::eval_trace::passer_mg(rank as usize), 1, 0);
             tr_param!(crate::eval_trace::passer_eg(rank as usize), 0, 1);
             e_eval += bonus_eg;
@@ -851,14 +843,6 @@ impl EvalService {
                 tr!(ProtectedPassedPawnEndgame, 0, -1);
                 o_eval -= config.protected_passed_pawn_middlegame;
                 e_eval -= config.protected_passed_pawn_endgame;
-            }
-
-            // Passed pawn blockade: enemy piece on square directly in front
-            let front_sq = sq - 8;
-            if front_sq >= 0 && ((1u64 << front_sq) & board.white_pieces) != 0 {
-                tr!(PassedPawnBlockadedMalus, 0.5, 1);
-                o_eval += config.passed_pawn_blockaded_malus / 2;
-                e_eval += config.passed_pawn_blockaded_malus;
             }
 
             tr_param!(crate::eval_trace::passer_mg(relative_rank), -1, 0);
@@ -1993,6 +1977,15 @@ impl EvalService {
         mg += threat_mg;
         eg += threat_eg;
 
+        // The passed-pawn blockade: an enemy piece on the square in front of a passer. It reads
+        // the pieces, so it is scored here and not in the pawn structure, which the pawn cache
+        // keeps under a key of the pawns alone (Matt-Magie step 52).
+        let blockaded = (((white_passed & wp) << 8) & board.black_pieces).count_ones() as i16
+            - (((black_passed & bp) >> 8) & board.white_pieces).count_ones() as i16;
+        tr!(PassedPawnBlockadedMalus, -0.5 * blockaded as f64, -blockaded);
+        mg -= blockaded * (config.passed_pawn_blockaded_malus / 2);
+        eg -= blockaded * config.passed_pawn_blockaded_malus;
+
         // The king distance of each passed pawn.
         let white_king_sq = bb[WHITE_KING].trailing_zeros() as u8;
         let black_king_sq = bb[BLACK_KING].trailing_zeros() as u8;
@@ -2446,6 +2439,11 @@ impl EvalService {
             let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
             let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
             e_eval += Self::king_passer_proximity_score(sq as u8, true, white_king_sq, black_king_sq, config);
+            // Passed pawn blockade: enemy piece on square directly in front
+            if sq + 8 < 64 && ((1u64 << (sq + 8)) & board.black_pieces) != 0 {
+                o_eval -= config.passed_pawn_blockaded_malus / 2;
+                e_eval -= config.passed_pawn_blockaded_malus;
+            }
         }
 
         // Pawn Storm against enemy castled king
@@ -2510,6 +2508,11 @@ impl EvalService {
             let white_king_sq = board.bitboards[crate::model::WHITE_KING].trailing_zeros() as u8;
             let black_king_sq = board.bitboards[crate::model::BLACK_KING].trailing_zeros() as u8;
             e_eval -= Self::king_passer_proximity_score(sq as u8, false, white_king_sq, black_king_sq, config);
+            // Passed pawn blockade: enemy piece on square directly in front
+            if sq >= 8 && ((1u64 << (sq - 8)) & board.white_pieces) != 0 {
+                o_eval += config.passed_pawn_blockaded_malus / 2;
+                e_eval += config.passed_pawn_blockaded_malus;
+            }
         }
 
         // Pawn Storm against enemy castled king
@@ -3710,6 +3713,32 @@ mod tests {
             "Free passed pawn must evaluate higher than blockaded passed pawn (free={}, blockaded={})",
             eval_free, eval_blockaded
         );
+    }
+
+    /// The blockade malus reads the pieces in front of a passer, so it must not travel in the pawn
+    /// cache: a position's evaluation may not depend on which position with the same pawns filled
+    /// the entry first (Matt-Magie step 52; found by the served-evaluation check of `task.md` 30.1).
+    #[test]
+    fn the_blockade_does_not_depend_on_the_pawn_cache() {
+        let service = Service::new();
+        let mut config = Config::new();
+        config.use_nnue = false;
+        let eval = |fen: &str, table: &crate::pawn_hash::PawnHashTable| {
+            service.eval.calc_eval(&service.fen.set_fen(fen), &config, &service.move_gen, table, i16::MIN, i16::MAX, 180)
+        };
+        // A blockaded and a free passer with the same pawns, for each colour.
+        for (blockaded, free) in [
+            ("7k/8/4n3/4P3/8/8/8/7K w - - 0 1", "7k/8/n7/4P3/8/8/8/7K w - - 0 1"),
+            ("7k/8/8/8/4p3/4N3/8/7K w - - 0 1", "7k/8/8/8/4p3/N7/8/7K w - - 0 1"),
+        ] {
+            let fresh = |fen| eval(fen, &crate::pawn_hash::PawnHashTable::new(16));
+            for (first, second) in [(free, blockaded), (blockaded, free)] {
+                let shared = crate::pawn_hash::PawnHashTable::new(16);
+                eval(first, &shared);
+                assert_eq!(eval(second, &shared), fresh(second),
+                    "{second} after {first} filled the pawn cache");
+            }
+        }
     }
 
     #[test]
