@@ -1988,3 +1988,43 @@ candidate (100/100 trees).
 **What it says.** On top of king safety the threats were smaller than the fit of the older pairs
 (29.26) had been, as expected when both read the same maps; counted per victim they still paid. Stage
 B of the evaluation audit (29.2: "attack maps worth it only together with E5") is closed.
+
+## 30. Move order and Transposition Table measured, 2026-10-22
+
+Matt-Magie step 50, measurement only, on v0.47.11. `search-diag` now counts every cutoff (index and
+class of the move that cut, remaining depth), every table probe, every store by what it did to the
+slot (empty, same key replaced or refused, another key evicted or kept) with the age in searches and
+the depth of an evicted entry, and the table's occupancy by age over every 64th slot - the age from a
+shadow array that exists only in that build. `scripts/measure_order_tt.py` drives it at a fixed depth
+over a pool, or in self-play at a real clock with one process per colour. The shipped build is
+unchanged (100/100 trees against v0.47.11 on both pools).
+
+| | depth 10 `wide` | depth 10 `mixed` | 20 games x 20 plies | 20 games x 60 plies |
+| :--- | ---: | ---: | ---: | ---: |
+| cutoffs on the first move, of all cutoffs | 81.0% | 81.6% | 83.0% | 87.3% |
+| ... at remaining depth 1-4 / 9 and deeper | 79-85% / 92% | 80-85% / 92% | 82-85% / 91-95% | 87-88% / 93-100% |
+| cutoffs on the second move / the fifth or later | 11.9 / 1.5% | 11.3 / 1.5% | 10.0 / 1.6% | 7.0 / 1.7% |
+| the move that cut: TT / capture / killer-counter / quiet | 25 / 46 / 24 / 4.5% | 26 / 50 / 20 / 4% | 26 / 52 / 17 / 4% | 28 / 50 / 14 / 4% |
+| key hits, main search / Quiescence Search | 33 / 11% | 33 / 11% | 31 / 11% | 32 / 15% |
+| static evaluations at a key hit, main / QS | 27.8 / 1.9% | 27.9 / 2.0% | 25.7 / 2.2% | 25.9 / 3.4% |
+| stores evicting another key | 1.3% | 1.3% | 7.6% | 16.5% |
+| ... of which the victim was deeper | 2.0% | 1.9% | 2.4% | 4.9% |
+| ... of which the victim was from this search | 47% | 45% | 5.5% | 2.1% |
+| table empty, mean over searches | 99.5% | 99.5% | 90.4% | **73.9%** |
+
+The games are 1s + 150ms with `Hash=64`, the match conditions.
+
+* **25.2 (buckets, ageing) has nothing to do at match conditions.** The table stays three quarters
+  empty after 60 plies; what a store evicts is almost always stale (96% at least three searches
+  old), and a deeper entry of the running search is lost in 0.1% of the evictions, about 0.02% of all
+  stores. A thread that cleans aged entries in the background has nothing to clean either, and would
+  cost a core per game. Re-measure before a much longer time control or a much smaller table.
+* **25.3 (the static evaluation in the entry) is the table's one lever.** About 26-28% of the main
+  search's static evaluations, and 2-3% of the Quiescence Search's, are taken at a node whose entry
+  exists - about 11% of all evaluations, worth some 2-3% of the time at the evaluation's share of the
+  search. The entry has the room: 16 of the 64 data bits are padding. Only full evaluations may be
+  stored, never a lazy return.
+* **The move order is in the published range** (85-90% of cutoffs on the first move): 81-87% overall,
+  91-100% from remaining depth 9. What is left sits near the horizon (79-88% at depth 1-4), where the
+  second move cuts in 7-12%. Captures make half of all cutoffs, so a capture history is the obvious
+  candidate; continuation history (24) stays blocked by the absolute SPSA step (23.4).
