@@ -221,7 +221,7 @@ impl EvalService {
     /// and diagnostics use. The search calls [`Self::calc_eval_known_check`].
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16) -> i16 {
         let in_check = movegen.is_in_check(board);
-        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, true)
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, true).0
     }
 
     /// [`Self::calc_eval`] for a caller that already knows whether the side to move is in check.
@@ -231,15 +231,24 @@ impl EvalService {
     /// of neither king when it is not in check: the counts `calc_eval` computes, without the check
     /// test and the two attacker scans it pays at every leaf.
     pub fn calc_eval_known_check(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool) -> i16 {
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, false).0
+    }
+
+    /// [`Self::calc_eval_known_check`], and whether the value is the full evaluation (`true`) or
+    /// a lazy return. Only a full value is a property of the position that the Transposition
+    /// Table may keep; a lazy one is a bound for this window (`task.md` 25.3).
+    #[inline(always)]
+    pub fn calc_eval_known_check_full(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool) -> (i16, bool) {
         self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, false)
     }
 
-    fn evaluate(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool, count_both_kings: bool) -> i16 {
+    /// The evaluation, and `false` when it is a lazy return.
+    fn evaluate(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool, count_both_kings: bool) -> (i16, bool) {
         if config.use_nnue && self.nnue_net.loaded {
-            return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
+            return (crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net), true);
         }
         if Self::is_insufficient_material(board) {
-            return 0;
+            return (0, true);
         }
         let game_phase = self.get_game_phase(board);
 
@@ -251,10 +260,10 @@ impl EvalService {
         {
             let cheap = self.cheap_eval(board, config, pawn_table);
             if alpha > i16::MIN + 2000 && cheap + margin <= alpha {
-                return cheap;
+                return (cheap, false);
             }
             if beta < i16::MAX - 2000 && cheap - margin >= beta {
-                return cheap;
+                return (cheap, false);
             }
         }
 
@@ -628,7 +637,7 @@ impl EvalService {
             println!("{}", eval);
         }
         tr_mark!(final_eval, eval);
-        eval
+        (eval, true)
     }
 
     fn white_pawn_structure_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {

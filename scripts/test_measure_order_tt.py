@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the parsing in `measure_order_tt.py`."""
+import contextlib
+import io
 import os
 import sys
 import unittest
@@ -35,6 +37,22 @@ class Parsing(unittest.TestCase):
         occ = m.occupancy(TT_LINE + "\n" + second)
         self.assertAlmostEqual(occ[0], 0.25)
         self.assertAlmostEqual(occ[1], 0.625)
+
+    def test_served_evaluations_add_up_and_are_reported(self):
+        line = TT_LINE.replace("eval_qs_hit=6 ", "eval_qs_hit=6 served_main=2 served_qs=3 served_mismatch=0 ")
+        _, tt, occ = m.summarize([ORDER_LINE + "\n" + line, ORDER_LINE + "\n" + line])
+        self.assertEqual((tt["served_main"], tt["served_qs"], tt["served_mismatch"]), (4, 6, 0))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m.report_tt(tt, occ)
+        self.assertIn("served from the entry: main 25.0%, QS 10.0%, all 13.2%; fresh evaluation differs 0", out.getvalue())
+
+    def test_a_build_without_served_counters_still_reports(self):
+        _, tt, occ = m.summarize([ORDER_LINE + "\n" + TT_LINE])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m.report_tt(tt, occ)
+        self.assertNotIn("served", out.getvalue())
 
 
 if __name__ == "__main__":

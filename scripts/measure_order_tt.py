@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Measures the move order and the Transposition Table, Matt-Magie step 50.
+"""Measures the move order and the Transposition Table, Matt-Magie steps 50 and 51.
 
 The engine must be built with the `search-diag` feature, which prints a `SEARCHDIAGORDER` and a
 `SEARCHDIAGTT` line after every search. The counters are process-global and cumulative; the
-table's occupancy by age is a sample of every 64th slot taken at the end of each search.
+table's occupancy by age is a sample of every 64th slot taken at the end of each search. A build
+that serves static evaluations from the entry (step 51) also reports how many it served and how
+many differed from a fresh full evaluation, which must be none.
 
 Two modes:
 
@@ -94,6 +96,12 @@ def report_tt(tt, occ):
           f"QS {tt['probe_qs']:,}, hit {pct(tt['hit_qs'], tt['probe_qs']):.1f}%")
     print(f"  static evaluations at a key hit: main {pct(tt['eval_main_hit'], tt['eval_main']):.1f}% of "
           f"{tt['eval_main']:,}, QS {pct(tt['eval_qs_hit'], tt['eval_qs']):.1f}% of {tt['eval_qs']:,}")
+    if "served_main" in tt:
+        evaluations = tt["eval_main"] + tt["eval_qs"]
+        print(f"  served from the entry: main {pct(tt['served_main'], tt['eval_main']):.1f}%, "
+              f"QS {pct(tt['served_qs'], tt['eval_qs']):.1f}%, all "
+              f"{pct(tt['served_main'] + tt['served_qs'], evaluations):.1f}%; "
+              f"fresh evaluation differs {tt['served_mismatch']:,}")
     stores = sum(tt["store"])
     print("  stores: " + ", ".join(f"{label} {pct(n, stores):.1f}%" for label, n in zip(STORES, tt["store"])))
     evicted = tt["store"][3]
