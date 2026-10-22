@@ -294,6 +294,53 @@ mod counters {
     /// The distribution, by signed magnitude. See [`super::history_bucket`] for the mapping.
     pub static LMR_HIST_BUCKETS: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    // ---------------------------------------------------------------------------------------
+    // Matt-Magie step 50: how good is the move order, and how is the Transposition Table used?
+    //
+    // `FIRST_MOVE_CUTOFF` above counts over every interior node, all-nodes included, so it
+    // cannot be read against the published share of cutoffs on the first move, which counts
+    // over the nodes that cut at all. These count every cutoff, the index of the move that cut
+    // and its class. The table counters size what a bucketed table with ageing (`task.md` 25.2)
+    // and a cached static evaluation (25.3) could win: probes and hits, every store by what it
+    // did to the slot, the age and depth of what a store evicted, and the age mix of the table.
+    // The age is kept in a shadow array that exists only in this build.
+    // ---------------------------------------------------------------------------------------
+
+    /// Every beta cutoff in the main search.
+    pub static CUTOFF_TOTAL: AtomicU64 = AtomicU64::new(0);
+    /// Cutoffs by the 1-based index of the move that cut: 1, 2, 3, 4, 5-8, 9-16, 17+.
+    pub static CUT_INDEX: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+    /// Cutoffs by the class of the move that cut, indexed by [`super::MoveClass`].
+    pub static CUT_CLASS_ANY: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+    /// Cutoffs and first-move cutoffs by remaining depth.
+    pub static CUT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    pub static FIRST_CUT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Of the cutoffs on a later move, those where the TT move existed and was searched first.
+    pub static LATE_CUT_AFTER_TT: AtomicU64 = AtomicU64::new(0);
+
+    /// Table probes and key matches, main search (depth > 0) and Quiescence Search.
+    pub static TT_PROBE_MAIN: AtomicU64 = AtomicU64::new(0);
+    pub static TT_HIT_MAIN: AtomicU64 = AtomicU64::new(0);
+    pub static TT_PROBE_QS: AtomicU64 = AtomicU64::new(0);
+    pub static TT_HIT_QS: AtomicU64 = AtomicU64::new(0);
+    /// Static evaluations, and those at a node whose probe matched the key: what an evaluation
+    /// cached in the entry could have answered.
+    pub static EVAL_MAIN: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_MAIN_TT_HIT: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_QS: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_QS_TT_HIT: AtomicU64 = AtomicU64::new(0);
+    /// Stores by outcome: 0 empty slot, 1 same key replaced, 2 same key refused, 3 another key
+    /// evicted, 4 another key kept (a Quiescence store refused against a main-search entry).
+    pub static STORE: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+    /// Of the evictions of another key: the victim was deeper than the newcomer.
+    pub static EVICT_DEEPER: AtomicU64 = AtomicU64::new(0);
+    /// Evictions of another key by the victim's age in searches (0 = this search, 1, 2, 3+),
+    /// and of those the deeper victims by the same age.
+    pub static EVICT_AGE: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+    pub static EVICT_DEEPER_AGE: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+    /// The search generation: bumped at the end of every search.
+    pub static GENERATION: AtomicU64 = AtomicU64::new(1);
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -346,6 +393,119 @@ pub fn record_cutoff(turn_counter: i32, first_searched_rank: i32, first_class: M
             }
             counters::bump(&counters::CUTOFF_BY_CLASS[first_class as usize]);
         }
+    }
+}
+
+/// Records every beta cutoff of the main search (Matt-Magie step 50): the index and class of the
+/// move that cut, the remaining depth, and whether a TT move searched first failed to cut.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_any_cutoff(turn_counter: i32, depth: i32, class: MoveClass, first_was_tt: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::CUTOFF_TOTAL);
+        let bucket = match turn_counter { ..=1 => 0, 2 => 1, 3 => 2, 4 => 3, 5..=8 => 4, 9..=16 => 5, _ => 6 };
+        counters::bump(&counters::CUT_INDEX[bucket]);
+        counters::bump(&counters::CUT_CLASS_ANY[class as usize]);
+        let d = depth.clamp(0, 31) as usize;
+        counters::bump(&counters::CUT_BY_DEPTH[d]);
+        if turn_counter == 1 {
+            counters::bump(&counters::FIRST_CUT_BY_DEPTH[d]);
+        } else if first_was_tt {
+            counters::bump(&counters::LATE_CUT_AFTER_TT);
+        }
+    }
+}
+
+/// Records one table probe: `qs` for the Quiescence Search, `hit` when the key matched.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_tt_probe(qs: bool, hit: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(if qs { &counters::TT_PROBE_QS } else { &counters::TT_PROBE_MAIN });
+        if hit {
+            counters::bump(if qs { &counters::TT_HIT_QS } else { &counters::TT_HIT_MAIN });
+        }
+    }
+}
+
+/// Records one static evaluation: `qs` for the stand pat, `tt_hit` when the node's probe matched.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_static_eval(qs: bool, tt_hit: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(if qs { &counters::EVAL_QS } else { &counters::EVAL_MAIN });
+        if tt_hit {
+            counters::bump(if qs { &counters::EVAL_QS_TT_HIT } else { &counters::EVAL_MAIN_TT_HIT });
+        }
+    }
+}
+
+/// The current search generation, for the table's shadow ages.
+#[inline(always)]
+#[allow(dead_code)]
+pub fn generation() -> u64 {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::read(&counters::GENERATION)
+    }
+    #[cfg(not(feature = "search-diag"))]
+    {
+        0
+    }
+}
+
+/// Records one table store. `outcome` as in `counters::STORE`; for an eviction of another key
+/// the victim's age in searches and whether it was deeper than the newcomer.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_tt_store(outcome: usize, victim_age: u64, victim_deeper: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::STORE[outcome]);
+        if outcome == 3 {
+            let a = victim_age.min(3) as usize;
+            counters::bump(&counters::EVICT_AGE[a]);
+            if victim_deeper {
+                counters::bump(&counters::EVICT_DEEPER);
+                counters::bump(&counters::EVICT_DEEPER_AGE[a]);
+            }
+        }
+    }
+}
+
+/// Prints the move-order and table counters, and the table's occupancy by age over every 64th
+/// slot, then starts the next search generation. Called once per search, after [`dump`].
+#[allow(unused_variables, dead_code)]
+pub fn dump_order_tt(table: &crate::zobrist::ZobristTable) {
+    #[cfg(feature = "search-diag")]
+    {
+        use std::sync::atomic::AtomicU64;
+        let list = |values: &[AtomicU64]| values.iter().map(|v| counters::read(v).to_string()).collect::<Vec<_>>().join(",");
+        eprintln!(
+            "SEARCHDIAGORDER cutoffs={} first={} index={} class={} by_depth={} first_by_depth={} late_after_tt={}",
+            counters::read(&counters::CUTOFF_TOTAL), counters::read(&counters::CUT_INDEX[0]),
+            list(&counters::CUT_INDEX), list(&counters::CUT_CLASS_ANY),
+            list(&counters::CUT_BY_DEPTH), list(&counters::FIRST_CUT_BY_DEPTH),
+            counters::read(&counters::LATE_CUT_AFTER_TT),
+        );
+        let generation = counters::read(&counters::GENERATION);
+        let (empty, by_age) = table.diag_occupancy(generation, 64);
+        eprintln!(
+            "SEARCHDIAGTT probe_main={} hit_main={} probe_qs={} hit_qs={} eval_main={} eval_main_hit={} \
+             eval_qs={} eval_qs_hit={} store={} evict_deeper={} evict_age={} evict_deeper_age={} \
+             sample_empty={} sample_age={}",
+            counters::read(&counters::TT_PROBE_MAIN), counters::read(&counters::TT_HIT_MAIN),
+            counters::read(&counters::TT_PROBE_QS), counters::read(&counters::TT_HIT_QS),
+            counters::read(&counters::EVAL_MAIN), counters::read(&counters::EVAL_MAIN_TT_HIT),
+            counters::read(&counters::EVAL_QS), counters::read(&counters::EVAL_QS_TT_HIT),
+            list(&counters::STORE), counters::read(&counters::EVICT_DEEPER),
+            list(&counters::EVICT_AGE), list(&counters::EVICT_DEEPER_AGE),
+            empty, by_age.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
+        );
+        counters::add(&counters::GENERATION, 1);
     }
 }
 

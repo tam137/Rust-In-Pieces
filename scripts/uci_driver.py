@@ -189,6 +189,19 @@ class Session:
         reached, score, signature = parse_info(info)
         return SearchResult(reached, score, best_move, round(wall_ms), "", signature)
 
+    def go(self, moves, go_arguments):
+        """Searches the position reached by `moves` with any `go` arguments (a clock, say) and
+        returns the best move and the wall time in milliseconds."""
+        position = "position startpos"
+        if moves:
+            position += " moves " + " ".join(moves)
+        self._send(position)
+        started = time.monotonic()
+        self._send(f"go {go_arguments}")
+        _, bestmove = self._read_until("bestmove")
+        parts = bestmove.split()
+        return (parts[1] if len(parts) > 1 else ""), (time.monotonic() - started) * 1000.0
+
     def close(self):
         if self._proc.poll() is None:
             try:
