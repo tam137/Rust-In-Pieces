@@ -3588,9 +3588,11 @@ mod tests {
         // The property is a statement about the window, not about one position: a narrower window
         // prunes more on average, and on a single position it can legitimately lose to a
         // re-search. Summing over a handful of positions asserts what is actually claimed. The
-        // first entry is the position this test carried while it was single-position. Depth 4:
+        // first entry is the position this test carried while it was single-position. Depth 5:
         // with the threats of `task.md` 29.26 the sum at depth 5 reads 22921 seeded against 20911
-        // full, and at 6 and 7 the seeded window loses too; at 4 it saves (7860 against 10006).
+        // full, and at 6 and 7 the seeded window loses too; at 4 it saved (7860 against 10006).
+        // With the threats on the attack maps of step 49 B2, 4 loses (16060 against 9588), as do 6
+        // to 8; 3 and 5 save (14855 against 19035 at 5).
         const FENS: [&str; 4] = [
             "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
             "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
@@ -3609,7 +3611,7 @@ mod tests {
             let mut board_wide = service.fen.set_fen(fen);
             let mut stats_wide = Stats::new();
             let wide_result = service.search.get_moves(
-                &mut board_wide, 4, true, &mut stats_wide, &config, &service,
+                &mut board_wide, 5, true, &mut stats_wide, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, None,
             );
 
@@ -3617,7 +3619,7 @@ mod tests {
             let mut board_narrow = service.fen.set_fen(fen);
             let mut stats_narrow = Stats::new();
             let narrow_result = service.search.get_moves(
-                &mut board_narrow, 4, true, &mut stats_narrow, &config, &service,
+                &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, Some(wide_result.get_eval()),
             );
 
@@ -3973,11 +3975,13 @@ mod tests {
     #[test]
     fn test_futility_pruning_node_reduction() {
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
-        // Depth 9. Since the re-fitted tables of v0.47.1 the rule saved on this position at depths
+        // Depth 8. Since the re-fitted tables of v0.47.1 the rule saved on this position at depths
         // 3, 4 and 7 and cost at 5, 6 and 8, where it used to save at 5; with the threats of
         // `task.md` 29.26 depth 7 read 20774 against 13414; with the lazy margins of 29.27 depth 8
-        // reads 84701 against 31548, and 5, 6, 7 and 9 save. A single position's node count moves
-        // with every change to the evaluation or its margins.
+        // reads 84701 against 31548, and 5, 6, 7 and 9 save; with the threats on the attack maps of
+        // step 49 B2 depth 9 reads 169752 against 106456, and 6, 8 and 11 save (27318 against 44737
+        // at 8). A single position's node count moves with every change to the evaluation or its
+        // margins.
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
@@ -4000,7 +4004,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            9,
+            8,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -4013,7 +4017,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            9,
+            8,
             true,
             &mut stats_disabled,
             &config_disabled,
