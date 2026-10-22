@@ -58,9 +58,9 @@ rank bonuses re-fitted stopped at the Texel bar (29.22), no game. A new Texel da
 games of v0.47.x (29.23) ranks what is left: the bishop pair and mobility first. **They shipped in
 v0.47.7 (29.24):** +14.2 Elo [+3, +25] over 2494 games against v0.47.6, a stopped run. The existing
 king-safety group re-fitted stopped at the bar (29.25), no game. **The threat values re-fitted
-shipped in v0.47.8 (29.26):** +13.6 Elo [+3, +24] over 2980 games against v0.47.7. Next: the threats
-in `cheap_eval` (the lazy distance doubled), or new king-safety and threat features on shared attack
-maps (stage B).
+shipped in v0.47.8 (29.26):** +13.6 Elo [+3, +24] over 2980 games against v0.47.7. **The lazy margins
+fitted to it shipped in v0.47.9 (29.27):** +12.5 Elo [+3, +22] over 3122 games against v0.47.8. Next:
+new king-safety and threat features on shared attack maps (stage B).
 
 **The source review of 2026-10-07 is finished: section 27.** It shipped v0.45.1 to v0.45.9,
 each shown tree-identical, a gain in games, or a gain on a targeted position set, and it left a
@@ -1851,4 +1851,43 @@ candidate (100/100 trees).
 **What it says.** Common features with a sound unit fit well and won in play; the bar missed by 12
 was a bar, not a measurement. The price is a lazy evaluation that is wrong twice as often - the next
 lever is to give `cheap_eval` the threats or a margin that knows them.
+
+### 29.27 Lazy evaluation fitted to the evaluation of v0.47.8: margins 200 / 140, shipped in v0.47.9 (2026-10-22)
+
+Matt-Magie step 48. `cheap_eval` (tables, cached pawn structure, scaling) has neither mobility nor
+threats; both grew in v0.47.7 and v0.47.8. `texel-lazy` now reads the windows of its search sample
+(`fen;alpha;beta`) and counts, at a search and a QS margin, the lazy returns and the wrong ones - the
+full evaluation on the other side of the bound (`lazy_return` mirrors `evaluate`; test red first;
+`0523eff`). Wrong returns in % of windowed positions, `samples_openings_wide` / `_mixed`:
+
+| | search margin | QS margin |
+| :--- | ---: | ---: |
+| v0.47.6 at 180 / 120 (target) | 0.111 / 0.095 | 0.660 / 0.542 |
+| v0.47.7 at 180 / 120 | 0.102 / 0.090 | 0.677 / 0.573 |
+| v0.47.8 at 180 / 120 | 0.172 / 0.124 | 0.922 / 0.740 |
+| **(i) v0.47.8 at 200 / 140** | **0.090 / 0.055** | **0.519 / 0.403** |
+| (ii) pawn threat in `cheap_eval`, 180 / 120 | 0.151 / 0.117 | 0.809 / 0.680 |
+| (iii) (ii) at 200 / 130 | 0.086 / 0.064 | 0.630 / 0.516 |
+
+The margins were the smallest multiples of 10 at or below the target, fixed beforehand. (ii) - the
+pawn-threat term, set-wise cheap, added to `cheap_eval` through two shared helpers (the refactor
+tree-identical, `fd56399`) - did not reach the target alone. Found on the way: the term counts
+attacking pawns, not attacked pieces; a fork counts once. Time to depth 10 against v0.47.8, 300 per
+pool: (i) **+4.3% / +2.6%**, (iii) +8.6% / +1.4%; control 300/300 (noise 1.6% this time). By the rule,
+the faster: **(i)**, no change to the evaluation; the `cheap_eval` change was dropped. One commit
+`97790ea` (`Config`, `tuning/parameters.json`); the futility node-count test moved from depth 8 to 9.
+
+**The gate:** SPRT against v0.47.8 at 1s + 150ms, `openings_wide.txt`, concurrency 4, [0, 5] with the
+[0, 10] monitor. **[0, 10] H1 after 3106 games** (LLR +3.09, +12.6 Elo), [0, 5] +2.03 undecided. At the
+end, 3122 games: **+12.5 Elo, paired 95% [+3, +22]** - a stopped run, not an effect size. Pairs 146 /
+323 / 541 / 375 / 176; no losses on time, White 53.5%. The reading was +39 after 80 games, -6.5 after
+964, +1.9 after 1450, +8.3 after 2544.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 50.0% against v0.47.8, 55.5% against v0.47.7,
+92.0% against v0.34.0, no losses on time. Shipped as **v0.47.9**, the release binary identical to the
+candidate (100/100 trees).
+
+**What it says.** A margin is a statement about how far the cheap evaluation can lie, and every term
+that `cheap_eval` does not carry moves it. Measured on wrong returns rather than on the distance
+alone, the fix was two constants, and it paid more than the time it cost.
 
