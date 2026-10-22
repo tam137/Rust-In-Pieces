@@ -521,8 +521,8 @@ impl Config {
 
             rook_on_seventh: 33,
 
-            lazy_eval_margin_search: 180,
-            lazy_eval_margin_qs: 120,
+            lazy_eval_margin_search: 200,
+            lazy_eval_margin_qs: 140,
             enable_lazy_eval: true,
             lazy_eval_min_game_phase: 60,
             king_danger_weight_1: 10,
