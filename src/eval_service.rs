@@ -128,7 +128,7 @@ impl AttackMaps {
     }
 }
 
-/// The attack maps of the last full evaluation on this thread, for the tests.
+// The attack maps of the last full evaluation on this thread, for the tests.
 #[cfg(test)]
 thread_local! {
     static LAST_MAPS: std::cell::Cell<AttackMaps> = std::cell::Cell::new(AttackMaps::default());

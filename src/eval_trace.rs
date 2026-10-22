@@ -70,6 +70,21 @@ macro_rules! tr_direct {
     }};
 }
 
+/// One feature of a king's safety: `tr_safety!(king, mg_index, eg_index, value)`, `king` 0 for
+/// White's king, 1 for Black's. The unit it belongs to adds `-max(u_mg, 0)^2 / 720` (mg) and
+/// `-max(u_eg, 0) / 20` (eg) for that king, with `u` the weighted sum of its features
+/// ([`SAFETY_MG_DIVISOR`], [`SAFETY_EG_DIVISOR`]).
+macro_rules! tr_safety {
+    ($king:expr, $mg:expr, $eg:expr, $value:expr) => {{
+        #[cfg(feature = "texel")]
+        {
+            if crate::eval_trace::active() {
+                crate::eval_trace::safety($king, $mg, $eg, ($value) as f64);
+            }
+        }
+    }};
+}
+
 /// The material and piece-square terms of every piece on the board, ahead of their unit.
 macro_rules! tr_pst {
     ($board:expr) => {{
@@ -94,7 +109,19 @@ macro_rules! tr_mark {
     }};
 }
 
-pub(crate) use {tr, tr_const, tr_direct, tr_mark, tr_param, tr_pst, tr_unit};
+pub(crate) use {tr, tr_const, tr_direct, tr_mark, tr_param, tr_pst, tr_safety, tr_unit};
+
+/// The divisors of the quadratic middlegame and the linear endgame king-safety penalty.
+pub const SAFETY_MG_DIVISOR: i32 = 720;
+pub const SAFETY_EG_DIVISOR: i32 = 20;
+
+/// The `(mg, eg)` penalty of one king for its safety sums `u_mg`, `u_eg`, as the engine and the
+/// model compute it (the engine on integers, the model on reals).
+#[inline(always)]
+pub fn safety_penalty(u_mg: f64, u_eg: f64) -> (f64, f64) {
+    let (m, e) = (u_mg.max(0.0), u_eg.max(0.0));
+    (m * m / SAFETY_MG_DIVISOR as f64, e / SAFETY_EG_DIVISOR as f64)
+}
 
 /// Whether a trace is being recorded; the constant `false` without the `texel` feature, so the
 /// evaluation's one branch on it disappears from the shipped build.
@@ -283,6 +310,8 @@ mod imp {
         pub terms: Vec<(usize, f64, f64)>,
         /// The pieces: `(piece * 64 + square from White's side, +1 White / -1 Black)`.
         pub pieces: Vec<(u16, i8)>,
+        /// The king-safety features: `(king, mg index, eg index, value)`, king 0 White, 1 Black.
+        pub safety: Vec<(u8, u16, u16, f64)>,
         /// Merged constants plus the rounding residual of every unit at the shipped parameters.
         pub constant: (f64, f64),
         /// Sum of the units' tapered values as the evaluation computed them.
@@ -301,6 +330,7 @@ mod imp {
         unit_terms: Vec<(usize, f64, f64)>,
         unit_const: (f64, f64),
         unit_pieces: (f64, f64),
+        unit_safety: Vec<(u8, u16, u16, f64)>,
     }
 
     thread_local! {
@@ -325,6 +355,7 @@ mod imp {
                 unit_terms: Vec::new(),
                 unit_const: (0.0, 0.0),
                 unit_pieces: (0.0, 0.0),
+                unit_safety: Vec::new(),
             })
         });
         ACTIVE.with(|a| a.set(true));
@@ -351,6 +382,27 @@ mod imp {
                 state.unit_terms.push((index, c_mg, c_eg));
             }
         });
+    }
+
+    pub fn safety(king: usize, mg_index: usize, eg_index: usize, value: f64) {
+        STATE.with(|s| {
+            if let Some(state) = s.borrow_mut().as_mut() {
+                state.unit_safety.push((king as u8, mg_index as u16, eg_index as u16, value));
+            }
+        });
+    }
+
+    /// The `(mg, eg)` contribution of `features` at `theta`, White-positive: each king's penalty
+    /// counts against its own side.
+    pub fn safety_contribution(features: &[(u8, u16, u16, f64)], theta: &[f64]) -> (f64, f64) {
+        let mut u = [(0.0, 0.0); 2];
+        for &(king, mg, eg, value) in features {
+            u[king as usize].0 += theta[mg as usize] * value;
+            u[king as usize].1 += theta[eg as usize] * value;
+        }
+        let (wm, we) = super::safety_penalty(u[0].0, u[0].1);
+        let (bm, be) = super::safety_penalty(u[1].0, u[1].1);
+        (bm - wm, be - we)
     }
 
     pub fn constant(k_mg: f64, k_eg: f64) {
@@ -388,6 +440,13 @@ mod imp {
         STATE.with(|s| {
             if let Some(state) = s.borrow_mut().as_mut() {
                 let mut predicted = (state.unit_const.0 + state.unit_pieces.0, state.unit_const.1 + state.unit_pieces.1);
+                if !state.unit_safety.is_empty() {
+                    let (m, e) = safety_contribution(&state.unit_safety, &state.theta0);
+                    predicted.0 += m;
+                    predicted.1 += e;
+                    let features = std::mem::take(&mut state.unit_safety);
+                    state.trace.safety.extend(features);
+                }
                 for &(i, cm, ce) in &state.unit_terms {
                     predicted.0 += state.theta0[i] * cm;
                     predicted.1 += state.theta0[i] * ce;

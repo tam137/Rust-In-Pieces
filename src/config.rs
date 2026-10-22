@@ -47,6 +47,8 @@ pub struct Config {
     pub aggressiveness: Aggressiveness,
     pub enable_positional_cap: bool,
     pub positional_cap_damping: i16,
+    /// King safety is added after the positional cap instead of being compressed by it.
+    pub king_safety_outside_cap: bool,
     pub move_overhead: u64,
 
     pub is_hashed_rank_bonus: i32,
@@ -435,6 +437,7 @@ impl Config {
             aggressiveness: Aggressiveness::Normal,
             enable_positional_cap: true,
             positional_cap_damping: 5,
+            king_safety_outside_cap: false,
             move_overhead: 0,
 
             is_hashed_rank_bonus: 4,
@@ -1264,6 +1267,7 @@ impl Config {
             "enablepositionalcap" => {
                 self.enable_positional_cap = value.to_lowercase() == "true";
             }
+            "kingsafetyoutsidecap" => self.king_safety_outside_cap = value.eq_ignore_ascii_case("true"),
             "moveoverhead" => {
                 if let Ok(overhead) = value.parse::<u64>() { self.move_overhead = overhead; }
             }
