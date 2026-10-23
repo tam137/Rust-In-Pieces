@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.2] - 2026-10-23
+
+A move-order fix: a queen taking a pawn ranked below the capture band and was never sent through the
+lazy Static Exchange Evaluation, so a queen capture that lost material was searched ahead of the
+killers. Gated as a fix that must not hurt: **SPRT [-10, 0]: H1 after 666 games** at 1s + 150ms against
+v0.48.1, +27.7 Elo, paired 95% [+8, +48] - a stopped run, not an effect size. See `task.md` section 30.4.
+
+### Fixed
+- `CAPTURE_RANK_OFFSET` (40,000) on every capture rank in the capture band, so the lowest MVV-LVA score
+  (-10,000) stays at the band's floor; the order among captures is unchanged.
+
+### Notes
+- Such captures were 11.5-12.3% of all captures in the main search, 84% of them losing.
+- Time to depth 10 against v0.48.1: +1.1% / -9.3%.
+
+
+
 ## [V0.48.1] - 2026-10-23
 
 A correctness fix: the passed-pawn blockade malus no longer travels in the pawn cache, so a
