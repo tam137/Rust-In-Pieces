@@ -2209,3 +2209,32 @@ predicted (validation: none) - the newer engine converts better, which is why pr
 test set. Systematic on both sets, small in share (about 2% of positions): **pawn endgames** - the side
 ahead scores +10 / +13 points more than predicted; **pawnless endings** - the side ahead -16 / -15
 points less (drawish, unscaled); an exchange up +2.5 / +6 points.
+
+### 31.1 Material and four tables re-fitted on the games of v0.48.x: shipped in v0.48.3 (2026-10-23)
+
+Matt-Magie step 57, probe 2 of section 31. As fitted - material plus the tables of rook, knight, bishop,
+queen **and king** (631 values, at most 61 cp per square; the king's middlegame table grew from range 210
+to 312) - the candidate cost **+10.7% / +17.4%** time to depth 10 against v0.48.2 (`wide` / `mixed`,
+300 each, control 300/300 identical): over the +10% stop, no game (branch `tables-0482`, `0783336`).
+The pre-agreed fallback, the same fit **without the king table** (`--tables rook,knight,bishop,queen`,
+L2 1e-10, best epoch 750): -238 / -235 / -712 x 10^-6 - over the bar; material pawn 86/135, knight
+420/437, bishop 436/463, rook 583/792, queen 1402/1423; largest table entry 147. Time **-6.0% / +3.3%**
+(the `wide` trees smaller). Mirror 0 asymmetric; cap 40.4 -> 38.7%; lazy wrong returns at 210 / 140 within
+0.03 points of v0.48.2. As in 29.8, the king table is what slows the search.
+
+Three node-count tests flipped and were re-sampled with the same statement: the check extension's
+deep-only restriction depth 9 -> 8, the LMP base cells depths 5-8 -> 6-9 (mean 1.006 -> 0.937; over 100
+pool positions at depth 8 base 0 still generates 12.0% fewer moves than base 12), the seeded aspiration
+window depth 5 -> 3. Found on the way, not followed: the node count of one search depends on the state of
+the `Service` instance it runs on (a scan sharing one instance over several depths read other counts
+than fresh instances) - some state in `Service` reaches the search.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.48.2, 1s + 150ms, `openings_wide.txt`: **[0, 10] H1
+after about 900 games** (LLR +2.97, +31.3 Elo), [0, 5] +1.66 open. End of the run 924 games: **+31.7 Elo,
+paired 95% [+13, +50]** - a stopped run, not an effect size. No time losses. Smoke gauntlet (1s + 100ms,
+100 games each): 53.0% vs v0.48.2, 52.0% vs v0.48.1, 95.0% vs v0.34.0. **Released as v0.48.3.**
+
+**Next:** probe 9 (the pawn-structure scalars) re-probed on v0.48.3; the king table alone needs a way to
+stop slowing the search (29.11 / 29.8); new features from the residuals of section 31 (endgame scaling
+of pawnless endings, a pawn-endgame term).
+

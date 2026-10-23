@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.3] - 2026-10-23
+
+Material and the piece-square tables of rook, knight, bishop and queen re-fitted by Texel on a data set
+whose test games are those of v0.48.x. **SPRT [0, 10]: H1 after about 900 games** at 1s + 150ms against
+v0.48.2, +31.7 Elo, paired 95% [+13, +50] over 924 - a stopped run, not an effect size. See `task.md`
+sections 31 and 31.1.
+
+### Changed
+- `MATERIAL_MG` / `MATERIAL_EG` in `src/pst.rs`: pawn 78/123 -> 86/135, knight 408/438 -> 420/437,
+  bishop 433/462 -> 436/463, rook 562/776 -> 583/792, queen 1390/1413 -> 1402/1423.
+- The middlegame and endgame tables of rook, knight, bishop and queen re-fitted (largest entry 147);
+  the pawn, passed-pawn and king tables and every scalar unchanged.
+
+### Notes
+- Texel on `data0482`: -238 / -235 / -712 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.48.2: -6.0% (`wide`) / +3.3% (`mixed`). The same fit with the king table
+  as well (-311 / -730) cost +10.7% / +17.4% and was not played.
+- Three node-count tests re-sampled at the next depth where their statement holds.
+
+
+
 ## [V0.48.2] - 2026-10-23
 
 A move-order fix: a queen taking a pawn ranked below the capture band and was never sent through the
