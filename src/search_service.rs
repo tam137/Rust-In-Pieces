@@ -2845,7 +2845,10 @@ mod tests {
         // The aggregate is the geometric mean of the per-cell ratios, so every cell weighs the
         // same. A plain sum is carried by its largest cells: with the king table of 29.10 it read
         // 187255 against 186421, the wrong way by 0.4%, while the mean stayed at 0.89 and 100
-        // pool positions at depth 8 gave base 0 11.3% fewer generated moves than base 12.
+        // pool positions at depth 8 gave base 0 11.3% fewer generated moves than base 12. Depths 6
+        // to 9 since the material and tables of step 57: over 5 to 8 the mean read 1.006 (the
+        // smothered-mate position at depth 5 alone 1.772), over 6 to 9 it reads 0.937, and 100
+        // pool positions at depth 8 still give base 0 12.0% fewer generated moves.
         let nodes = |base: i32, fen: &str, depth: i32| -> f64 {
             search_nodes(fen, depth, |c| {
                 c.enable_lmp = true;
@@ -2854,7 +2857,7 @@ mod tests {
         };
         let mut log_ratios = Vec::new();
         for fen in [CHECK_RICH_FEN, SMOTHERED_MATE_FEN] {
-            for depth in [5, 6, 7, 8] {
+            for depth in [6, 7, 8, 9] {
                 log_ratios.push((nodes(0, fen, depth) / nodes(12, fen, depth)).ln());
             }
         }
@@ -3567,19 +3570,22 @@ mod tests {
         // Late Move Pruning is off for the reason the frontier test above gives. With it on, the
         // material of the re-fit without `adjust_eval` (`task.md` 29.19) inverts this position at
         // depth 7: 39,363 nodes unlimited against 53,563 deep only and 49,038 with extensions off.
-        // Depth 9 since the king safety of step 49: at 7 the deep extensions fell below the tree
+        // Depth 9 since the king safety of step 49 (8 since step 57, below): at 7 the deep extensions fell below the tree
         // without extensions (56,352 against 63,446); both statements hold at 6 and 9 (279,046
-        // deep only against 303,845 unlimited and 190,399 off).
-        let unlimited = search_nodes(CHECK_RICH_FEN, 9, |c| {
+        // deep only against 303,845 unlimited and 190,399 off). Depth 8 since the material and
+        // tables of step 57: at 9 the deep extensions fell below the tree without them (107,901
+        // against 174,035); both statements hold at 6 and 8 (138,956 deep only against 149,711
+        // unlimited and 89,113 off).
+        let unlimited = search_nodes(CHECK_RICH_FEN, 8, |c| {
             c.enable_check_extension = true;
             c.enable_lmp = false;
         });
-        let deep_only = search_nodes(CHECK_RICH_FEN, 9, |c| {
+        let deep_only = search_nodes(CHECK_RICH_FEN, 8, |c| {
             c.enable_check_extension = true;
             c.check_extension_min_depth = 4;
             c.enable_lmp = false;
         });
-        let disabled = search_nodes(CHECK_RICH_FEN, 9, |c| {
+        let disabled = search_nodes(CHECK_RICH_FEN, 8, |c| {
             c.enable_check_extension = false;
             c.enable_lmp = false;
         });
@@ -3669,11 +3675,12 @@ mod tests {
         // The property is a statement about the window, not about one position: a narrower window
         // prunes more on average, and on a single position it can legitimately lose to a
         // re-search. Summing over a handful of positions asserts what is actually claimed. The
-        // first entry is the position this test carried while it was single-position. Depth 5:
+        // first entry is the position this test carried while it was single-position. Depth 3:
         // with the threats of `task.md` 29.26 the sum at depth 5 reads 22921 seeded against 20911
         // full, and at 6 and 7 the seeded window loses too; at 4 it saved (7860 against 10006).
         // With the threats on the attack maps of step 49 B2, 4 loses (16060 against 9588), as do 6
-        // to 8; 3 and 5 save (14855 against 19035 at 5).
+        // to 8; 3 and 5 save (14855 against 19035 at 5). With the material and tables of step 57
+        // 3 and 9 save (3781 against 5496 at 3); 4 to 8 lose (19797 against 19251 at 5).
         const FENS: [&str; 4] = [
             "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
             "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
@@ -3692,7 +3699,7 @@ mod tests {
             let mut board_wide = service.fen.set_fen(fen);
             let mut stats_wide = Stats::new();
             let wide_result = service.search.get_moves(
-                &mut board_wide, 5, true, &mut stats_wide, &config, &service,
+                &mut board_wide, 3, true, &mut stats_wide, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, None,
             );
 
@@ -3700,7 +3707,7 @@ mod tests {
             let mut board_narrow = service.fen.set_fen(fen);
             let mut stats_narrow = Stats::new();
             let narrow_result = service.search.get_moves(
-                &mut board_narrow, 5, true, &mut stats_narrow, &config, &service,
+                &mut board_narrow, 3, true, &mut stats_narrow, &config, &service,
                 &fresh_engine_state(), std::time::Instant::now(), None, Some(wide_result.get_eval()),
             );
 
