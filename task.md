@@ -2167,3 +2167,45 @@ second half of the idea has nothing to act on.
 **What it says.** A better first move does not buy a smaller tree here: on `mixed` the trees grew by a
 tenth. The step is closed without a game; the threshold would need a history learned somewhere the
 demotion does not hide it (the Quiescence Search, or a separate statistic), which is its own plan.
+
+## 31. A Texel data set from the games of v0.47.6-v0.48.2, ten probes, 2026-10-23
+
+Matt-Magie step 56, analysis only, texel build of `ae70e79` (v0.48.2). Every fit since 29.23 tested on
+the runs of v0.47.3-v0.47.6; the evaluation has changed six times since, the search twice.
+`data0482.bin`: training / validation from every list of `data0479` (old test set included) plus the
+runs of v0.47.6-v0.47.11 (13,795 games); **test = the runs of v0.48.x** (`tte`, `blk`, `ch`, `qxp`,
+12,259 games, 114,152 positions). 505,031 games, 4,759,765 positions; `texel-check` 99.995% within 3 cp
+(mean 0.30, max 3.65 - the few above 3 cp are big material leads, where the mobility units round).
+On it v0.48.2 reads 0.101472 / 0.101270 / 0.094866 (K 0.003764). Each probe 1000 epochs, the rest
+held; error change x 10^-6, train / validation / test; the bar is test <= -200 and validation <= -100:
+
+| probe | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| 1 material | -56 | -32 | -405 |
+| **2 material + tables of rook, knight, bishop, queen, king (L2 1e-10)** | **-302** | **-311** | **-730** |
+| 3 the pawn table alone (L2 1e-7) | -280 | -269 | -201 |
+| 4 the passed-pawn table | -4 | -3 | -21 |
+| 5 the rank bonuses | -34 | -37 | -92 |
+| 6 bishop pair + the four mobility factors | 0 | 0 | 0 |
+| 7 king safety (B1 weights, outside the cap) | -8 | -5 | -53 |
+| 8 threats (B2 weights + the thirteen older values) | 0 | -1 | +1 |
+| **9 pawn-structure scalars (11)** | **-224** | **-156** | **-349** |
+| 10 every scalar | -661 | -561 | -985 |
+
+Done, nothing left: the passed-pawn table, the rank bonuses, bishop pair and mobility (no value moves by
+half a point), threats; king safety only on the test set. **Probe 2** passes clearly; the tables give
+-279 / -325 over material alone, so most of it is content, not scale (best epoch 150, roughness 27.2 ->
+29.7; material pawn 78/123 -> 84/136, rook 562/776 -> 580/793). **Probe 9** passes: blockade 15 -> 57,
+protected passer mg 12 -> 48, phalanx 8/4 -> 21/12, candidate passer 8 -> 19, isolani 9 -> 13, backward
+11 -> **-2** (sign lost), connected passer mg 15 -> -2 (best epoch 50). Probe 3 passes again, but the
+pawn table slowed the search in 29.11. Probe 10 is for scale: it revives the old bucket danger (weight 4
+0 -> 537, 2 -> -443), moves the trapped bishop 58 -> 214 and the rook behind an enemy passer eg 24 ->
+108 - and 29.6 showed that freeing every scalar costs the tree.
+
+**Where the error sits** (shipped evaluation, signed = result minus prediction towards the side ahead):
+validation / test, half the squared error lies in middlegames with equal material and 12-16 pawns -
+uncertainty, not a missing term. On the test set the side 200-800 cp ahead scores 3-6 points more than
+predicted (validation: none) - the newer engine converts better, which is why probe 1 helps only the
+test set. Systematic on both sets, small in share (about 2% of positions): **pawn endgames** - the side
+ahead scores +10 / +13 points more than predicted; **pawnless endings** - the side ahead -16 / -15
+points less (drawish, unscaled); an exchange up +2.5 / +6 points.
