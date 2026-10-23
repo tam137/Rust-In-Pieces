@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.1] - 2026-10-23
+
+A correctness fix: the passed-pawn blockade malus no longer travels in the pawn cache, so a
+position's evaluation no longer depends on which position with the same pawns filled the cache
+entry first. Gated as a fix that must not hurt: **SPRT [-10, 0]: H1 after 4278 games** at 1s + 150ms
+against v0.48.0, +0.2 Elo, paired 95% [-8, +8]. See `task.md` section 30.2.
+
+### Fixed
+- `passed_pawn_blockaded_malus` moved from the cached pawn structure into `pawn_dynamic_scores`
+  (set-wise, same values); the served-evaluation check of 30.1 now finds 0 mismatches.
+
+### Notes
+- `cheap_eval` no longer includes the blockade term; lazy wrong-return rates unchanged.
+- Time to depth 10 against v0.48.0: -0.2% / +1.3%.
+
+
+
 ## [V0.48.0] - 2026-10-22
 
 The Transposition Table entry caches the position's full static evaluation, so a revisited position

@@ -2073,3 +2073,28 @@ control; the served value also replaces lazy returns with exact evaluations wher
 one, which the census cannot price. The check that every served value equals a fresh one is what
 found a defect older than the change - the cache that holds the evaluation is only as good as the
 evaluation being a function of the position.
+
+### 30.2 The passed-pawn blockade out of the pawn cache: shipped in v0.48.1 (2026-10-23)
+
+Matt-Magie step 52, the defect 30.1 found. `passed_pawn_blockaded_malus` (15; 7 mg, 15 eg per
+blockaded passer) read the enemy pieces in front of a passer inside `white/black_pawn_structure_score`,
+whose result the pawn cache keeps under a key of the pawns alone - a position took the malus of
+whichever position with the same pawns had filled the entry. The term now sits set-wise in
+`pawn_dynamic_scores`, which is never cached: `((white_passed << 8) & black_pieces)` against
+`((black_passed >> 8) & white_pieces)`, the values a fresh evaluation always gave. `cheap_eval`
+reads only the cached structure and no longer sees it. Test red first: a position evaluated after
+another with the same pawns filled the cache equals its evaluation with an empty cache, both
+colours; the set-wise / per-pawn equivalence test carries the term in its reference (`a230192`).
+
+Checks: the served-evaluation check of 30.1 **0 / 0 mismatches** (`wide` / `mixed`, depth 10, 300
+positions); time to depth 10 against v0.48.0 -0.2% / +1.3%; `texel-mirror` 0 asymmetric; `texel-lazy`
+at 210 / 140 wrong returns 0.086 / 0.066% (search), 0.580 / 0.465% (QS), as before.
+
+**The gate:** a correctness fix ships unless it hurts - SPRT [-10, 0] against v0.48.0 at 1s + 150ms,
+`openings_wide.txt`, concurrency 4. **H1 after 4278 games** (LLR +2.97): **+0.2 Elo, paired 95% [-8,
++8]** - neutral, as a term worth a few centipawns in a few positions should be. Pairs 205 / 493 /
+743 / 491 / 207; no losses on time, White 55.3%.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 51.0% against v0.48.0, 54.0% against v0.47.11,
+93.0% against v0.34.0, no losses on time. Shipped as **v0.48.1**, the release binary identical to the
+candidate (100/100 trees).
