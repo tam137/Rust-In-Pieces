@@ -2705,8 +2705,10 @@ pub(crate) mod tests {
     #[test]
     pub fn double_pawn_test() {
         equal_eval("2k5/3p1p2/3p4/5p2/5P2/3P4/3P1P2/2K5 w - - 0 1");
-        eval_between("2k5/5p2/5p2/8/8/8/4PP2/2K5 w - - 0 1", 0, 60);
-        eval_between("2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1", -60, 0);
+        // Doubled isolated f-pawns favour the other side by a moderate amount: 54 with the
+        // pawn-structure values of v0.48.3, 64 with those of step 58 (doubled 20, isolated 11).
+        eval_between("2k5/5p2/5p2/8/8/8/4PP2/2K5 w - - 0 1", 0, 80);
+        eval_between("2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1", -80, 0);
         fib("2k5/4pp2/8/8/8/4P3/5P2/2K5 w - - 0 1", "2k5/4pp2/8/8/8/5P2/5P2/2K5 w - - 0 1");
         fib("2k5/5p2/4p3/8/8/8/4PP2/2K5 w - - 0 1", "2k5/5p2/4p3/8/5P2/8/5P2/2K5 w - - 0 1");
     }
