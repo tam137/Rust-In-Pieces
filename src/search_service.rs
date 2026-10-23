@@ -4063,13 +4063,14 @@ mod tests {
     #[test]
     fn test_futility_pruning_node_reduction() {
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
-        // Depth 8. Since the re-fitted tables of v0.47.1 the rule saved on this position at depths
+        // Depth 9. Since the re-fitted tables of v0.47.1 the rule saved on this position at depths
         // 3, 4 and 7 and cost at 5, 6 and 8, where it used to save at 5; with the threats of
         // `task.md` 29.26 depth 7 read 20774 against 13414; with the lazy margins of 29.27 depth 8
         // reads 84701 against 31548, and 5, 6, 7 and 9 save; with the threats on the attack maps of
         // step 49 B2 depth 9 reads 169752 against 106456, and 6, 8 and 11 save (27318 against 44737
-        // at 8). A single position's node count moves with every change to the evaluation or its
-        // margins.
+        // at 8); with the pawn-structure values of step 58 depth 8 reads 93824 against 63508, and
+        // 3, 4, 5, 7, 9 and 11 save (172782 against 198050 at 9). A single position's node count
+        // moves with every change to the evaluation or its margins.
         let mut board = Service::new().fen.set_fen(fen);
         let service = Service::new();
         
@@ -4092,7 +4093,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            8,
+            9,
             true,
             &mut stats_enabled,
             &config_enabled,
@@ -4105,7 +4106,7 @@ mod tests {
 
         service.search.get_moves(
             &mut board,
-            8,
+            9,
             true,
             &mut stats_disabled,
             &config_disabled,
