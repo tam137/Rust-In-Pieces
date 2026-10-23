@@ -2118,3 +2118,31 @@ was +24 after 310 games, +7.7 after 2400, +0.7 after 4790. `master` unchanged.
 break. Next: the history allowed to cross steps, and loosening the SEE demotion for captures with a
 good history (Matt-Magie step 55) - after the fix of the queen-takes-pawn rank below the band floor
 (step 54).
+
+### 30.4 A queen taking a pawn below the capture band: fixed in v0.48.2 (2026-10-23)
+
+Matt-Magie step 54, found while planning 30.3's follow-up. A capture's rank is `BAND_CAPTURE` plus
+MVV-LVA (victim 20,000 to 90,000, a rook capturing -10,000, a queen -30,000), so a queen taking a pawn
+ranked at -10,000, below the band. The main search and the root send a capture through the lazy Static
+Exchange Evaluation only while its rank stands inside the band, so a non-checking queen-takes-pawn was
+never demoted and never reached bad-capture pruning: it was searched ahead of the killers whatever it
+lost. The Quiescence Search was not affected (it tests every capture with `see_ge`). Measured with
+scratch counters at depth 10, 300 positions: **11.5% / 12.3% of all captures the main search played**
+(`wide` / `mixed`) were such queen captures, **84%** of them with a negative exchange, 4.7% / 4.6% of
+them cut.
+
+The fix: `CAPTURE_RANK_OFFSET` (40,000) on every capture in the band, en passant in the capture
+generator included, so the order of the captures among themselves is unchanged and the lowest one
+stands at the band's floor (`2fcab86`). Tests red first (checked with the offset at 0): no capture of
+either generator ranks below the band over random games; a queen taking a defended pawn ranks inside
+the lazy evaluation's window. Time to depth 10 against v0.48.1 +1.1% / **-9.3%**, generated moves +2.9%
+/ -13.5%.
+
+**The gate:** SPRT [-10, 0] (a fix ships unless it hurts) against v0.48.1 at 1s + 150ms,
+`openings_wide.txt`, concurrency 4. **H1 after 666 games** (LLR +3.01): **+27.7 Elo, paired 95% [+8,
++48]** - a stopped run, not an effect size, but a fix that pays. Pairs 23 / 63 / 124 / 84 / 39; no
+losses on time, White 54.9%.
+
+**Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 50.5% against v0.48.1, 50.0% against v0.48.0,
+92.5% against v0.34.0, no losses on time. Shipped as **v0.48.2**, the release binary identical to the
+candidate (100/100 trees).
