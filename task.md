@@ -2146,3 +2146,24 @@ losses on time, White 54.9%.
 **Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 50.5% against v0.48.1, 50.0% against v0.48.0,
 92.5% against v0.34.0, no losses on time. Shipped as **v0.48.2**, the release binary identical to the
 candidate (100/100 trees).
+
+### 30.5 The capture history with weight, and a history-loosened exchange threshold: no game (2026-10-23)
+
+Matt-Magie step 55, on v0.48.2 with the history of 30.3. The capture rank becomes the victim's value
+and the history together: (A) Stockfish's proportion, `7 x value + 5/16 x history` - a capture that keeps
+cutting passes one worth up to about seven pawns more, never a queen for a pawn; (B) MVV-LVA plus the
+whole history (about 1.6 steps). A capture with a good history is demoted behind the quiet moves only
+when its exchange loses more than `history / CaptureHistorySeeDivisor` (64). Branch
+`capture-history-weighted` (`9b767c9` tree-identical base, then the change), tests for the order span,
+the band floor at both history extremes and the threshold red first.
+
+Depth 10, 300 positions, `wide` / `mixed`: cutoffs on the first move 83.2 / 83.7% (v0.48.2), (A) 84.0 /
+84.4%, (B) 83.6 / 84.0%. Time to depth 10 against v0.48.2: (A) -3.5% / **+6.2%**, (B) -2.9% / **+5.1%**,
+generated moves +10.6% / +10.4% on `mixed` - both over the +5% stop, **no game**. The loosened threshold
+kept 0 / 0 (A) and 8 / 2 (B) losing captures in front over the whole sample: a capture with a negative
+exchange is demoted and rarely searched before a cutoff, so its history is almost never positive - the
+second half of the idea has nothing to act on.
+
+**What it says.** A better first move does not buy a smaller tree here: on `mixed` the trees grew by a
+tenth. The step is closed without a game; the threshold would need a history learned somewhere the
+demotion does not hide it (the Quiescence Search, or a separate statistic), which is its own plan.
