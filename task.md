@@ -2098,3 +2098,23 @@ at 210 / 140 wrong returns 0.086 / 0.066% (search), 0.580 / 0.465% (QS), as befo
 **Smoke gauntlet**, 1s + 100ms, 100 games per pairing: 51.0% against v0.48.0, 54.0% against v0.47.11,
 93.0% against v0.34.0, no losses on time. Shipped as **v0.48.1**, the release binary identical to the
 candidate (100/100 trees).
+
+### 30.3 The capture history as a tie-break inside one MVV-LVA step: stopped, not shipped (2026-10-23)
+
+Matt-Magie step 53, on v0.48.1. `HistoryTables` holds the quiet history and a capture history
+`[moved piece][to][captured kind]` (gravity, `MAX_HISTORY`, aged and reset with the quiet one;
+`01cd1f3`, tree-identical). A cutoff of the main search credits the capture that cut with `depth²` and
+debits every capture searched before the move that cut; the capture rank adds `entry * 9,999 /
+MAX_HISTORY`, a tie-break that can neither jump an MVV-LVA step (10,000 apart) nor move a capture across
+the floor of the band (`a044baa`, branch `capture-history`). Time to depth 10 against v0.48.1 -2.3% /
+-0.8%, generated moves -4.2% / -0.6%; cutoffs on the first move 81.2 -> 81.7% / 81.7 -> 81.9%.
+
+**The gate:** SPRT [0, 5] with the [0, 10] monitor against v0.48.1, 1s + 150ms, `openings_wide.txt`,
+concurrency 4. Stopped by the owner after 5088 games, undecided: **+1.4 Elo, paired 95% [-6, +9]**,
+[0, 5] LLR -0.35, [0, 10] LLR -2.36. Pairs 274 / 545 / 878 / 581 / 266; no losses on time. The reading
+was +24 after 310 games, +7.7 after 2400, +0.7 after 4790. `master` unchanged.
+
+**What it says.** Two captures in one MVV-LVA step are rare in the tree, so a tie-break has little to
+break. Next: the history allowed to cross steps, and loosening the SEE demotion for captures with a
+good history (Matt-Magie step 55) - after the fix of the queen-takes-pawn rank below the band floor
+(step 54).
