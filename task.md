@@ -2238,3 +2238,26 @@ paired 95% [+13, +50]** - a stopped run, not an effect size. No time losses. Smo
 stop slowing the search (29.11 / 29.8); new features from the residuals of section 31 (endgame scaling
 of pawnless endings, a pawn-endgame term).
 
+### 31.2 The pawn-structure scalars re-fitted on v0.48.3: shipped in v0.48.4 (2026-10-24)
+
+Matt-Magie step 58, probe 9 of section 31 on the new material and tables. `data0483.bin`: the lists of
+`data0482` traced by a texel build of v0.48.3; `texel-check` 99.996% within 3 cp (max 3.73); K 0.003771.
+The eleven scalars free, every other one held (`--free scalars --set ...`), best epoch 100: **-211 /
+-160 / -264** x 10^-6 - over the bar. Blockade 15 -> **77**, protected passer mg/eg 12/27 -> 44/0, doubled
+14 -> 20, connected passer mg/eg 15/29 -> -5/14, isolated 9 -> 11, backward 11 -> -1, phalanx mg/eg 8/4
+-> 20/12, candidate 8 -> 14. Two values change sign (backward, connected passer mg): phalanx, isolated
+and protected passer cover the same positions.
+
+Gates: mirror 0 asymmetric; time to depth 10 against v0.48.3 per `setoption` +4.0% / +4.6% (`wide` /
+`mixed`, control 300/300); lazy wrong returns at 210 / 140 within +50% of v0.48.3 on every pool and margin
+- tightest the search margin on `mixed`, 0.050 -> 0.065% (limit 0.075%), the blockade being outside
+`cheap_eval`. Tests: the doubled-pawn range 60 -> 80 (54 -> 64 cp), the futility node count depth 8 -> 9.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.48.3: **[0, 10] H1 after about 2640 games** (LLR
++2.95, +14.1 Elo), [0, 5] +1.94 open. End of the run 2654 games: **+14.4 Elo, paired 95% [+4, +25]** - a
+stopped run, not an effect size. It sat near zero for 1200 games (+1.5 after 1176). No time losses.
+Smoke gauntlet: 50.0% vs v0.48.3, 63.0% vs v0.48.2, 90.0% vs v0.34.0. **Released as v0.48.4.**
+
+**Next:** new evaluation features from the residuals of section 31 - scaling of pawnless endings and a
+pawn-endgame term (Matt-Magie step 59).
+
