@@ -2340,3 +2340,8 @@ smaller gap.
 **Next:** fix the draw rules in Matt-Magie (fifty-move rule, insufficient material, a far higher safety
 cap) before more endgame work; then re-measure KQ v KR / KRR v KR conversion. Probe 2 only as its own
 plan with the time stop (likely without the king table, as in 31.1).
+
+**Matt-Magie 1.7.0 (2026-10-24, step 61):** the move-101 draw is gone - fifty-move rule, insufficient
+material (dead positions only), a safety limit at move 400, and the draw reason as `Termination`. Smoke
+run v0.48.5 v v0.48.4, 200 games: no problems against python-chess, mean length unchanged (135.9 plies),
+14 games past move 100 (1 decided). **Draw rates of runs before and from 1.7.0 are not comparable.**
