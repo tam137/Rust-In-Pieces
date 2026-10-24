@@ -101,6 +101,9 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name SingularMargin type spin default {} min 0 max 64", defaults.singular_margin),
         format!("option name SingularDepthReduction type spin default {} min 0 max 8", defaults.singular_depth_reduction),
         format!("option name EnableSingularMulticut type check default {}", defaults.enable_singular_multicut),
+        format!("option name EnableCorrectionHistory type check default {}", defaults.enable_correction_history),
+        format!("option name CorrHistLimit type spin default {} min 64 max 16384", defaults.corr_hist_limit),
+        format!("option name CorrHistDiv type spin default {} min 1 max 64", defaults.corr_hist_div),
         format!("option name UseNNUE type check default {}", defaults.use_nnue),
         "option name NnueModelPath type string default eval_models/quantised.bin".to_string(),
     ]

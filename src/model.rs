@@ -66,6 +66,9 @@ pub struct SearchTables {
     /// rescaling pass.
     pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
+    /// How far the search has found the static evaluation off in each pawn structure, see
+    /// [`CorrectionHistory`]. Cleared by `reset`, not aged.
+    pub correction_history: CorrectionHistory,
     /// The per-level node buffers, [`SEARCH_LEVELS`] of them, about 1.6 MB. Allocated once per
     /// engine instead of once per iterative deepening iteration; nothing in them carries from
     /// one search to the next, see [`NodeBuffers`]. Not touched by `reset`.
@@ -78,6 +81,7 @@ impl SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
             history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
+            correction_history: CorrectionHistory::new(),
             buffers: new_search_buffers(),
         }
     }
@@ -88,6 +92,7 @@ impl SearchTables {
         *self.killer_moves = [[None; 2]; 128];
         *self.history_table = [[[0i32; 64]; 64]; 2];
         *self.counter_moves = [[None; 64]; 64];
+        self.correction_history.clear();
     }
 
     /// Halves the history on entry to `get_moves`.
@@ -467,6 +472,77 @@ pub const MAX_HISTORY: i32 = 16_384;
 pub fn history_gravity(entry: &mut i32, bonus: i32) {
     let bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
     *entry += bonus - (*entry) * bonus.abs() / MAX_HISTORY;
+}
+
+/// Entries per side of the [`CorrectionHistory`], indexed by the low bits of the pawn key.
+pub const CORRECTION_HISTORY_SIZE: usize = 16_384;
+
+/// A corrected static evaluation never leaves `+-CORRECTED_EVAL_LIMIT`, so it can never be read
+/// as a mate score ([`MATE_SCORE_THRESHOLD`]).
+pub const CORRECTED_EVAL_LIMIT: i16 = MATE_SCORE_THRESHOLD - 1;
+
+/// The pawn-structure Correction History (Matt-Magie step 64).
+///
+/// `[side to move][pawn_key & (CORRECTION_HISTORY_SIZE - 1)]`, side 0 White as in
+/// [`history_side`]. An entry is side-relative and remembers by how much the search result of
+/// positions with this pawn structure missed their static evaluation; the search then reads
+/// `raw + entry / divisor` in place of the raw value. The Transposition Table keeps the raw value,
+/// so the correction, which keeps changing, is applied afresh at every read.
+///
+/// Every write goes through [`Self::update`], the same gravity as [`history_gravity`] against a
+/// configurable limit, so an entry never leaves `+-limit`. A flat `Vec` keeps the 64 KB off the
+/// stack of whatever constructs the tables (see the note on [`SearchTables`]).
+#[derive(Clone, PartialEq)]
+pub struct CorrectionHistory {
+    entries: Vec<i16>,
+}
+
+impl CorrectionHistory {
+    pub fn new() -> Self {
+        CorrectionHistory { entries: vec![0; 2 * CORRECTION_HISTORY_SIZE] }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.fill(0);
+    }
+
+    #[inline(always)]
+    fn index(white: bool, pawn_key: u64) -> usize {
+        history_side(white) * CORRECTION_HISTORY_SIZE
+            + (pawn_key as usize & (CORRECTION_HISTORY_SIZE - 1))
+    }
+
+    #[inline(always)]
+    pub fn entry(&self, white: bool, pawn_key: u64) -> i16 {
+        self.entries[Self::index(white, pawn_key)]
+    }
+
+    /// `relative` (the side to move's raw static evaluation) plus the entry over `divisor`,
+    /// clamped to `+-CORRECTED_EVAL_LIMIT`.
+    #[inline(always)]
+    pub fn corrected(&self, relative: i16, white: bool, pawn_key: u64, divisor: i16) -> i16 {
+        let correction = self.entry(white, pawn_key) as i32 / divisor.max(1) as i32;
+        (relative as i32 + correction)
+            .clamp(-(CORRECTED_EVAL_LIMIT as i32), CORRECTED_EVAL_LIMIT as i32) as i16
+    }
+
+    /// Moves the entry towards the error `result - corrected` of a node searched at `depth`:
+    /// `bonus = clamp((result - corrected) * depth / 8, +-limit / 4)`, then
+    /// `entry += bonus - entry * |bonus| / limit`. Both scores are side-to-move-relative.
+    #[inline(always)]
+    pub fn update(&mut self, white: bool, pawn_key: u64, depth: i32, result: i16, corrected: i16, limit: i32) {
+        let limit = limit.clamp(4, i16::MAX as i32);
+        let bonus = ((result as i32 - corrected as i32) * depth / 8).clamp(-limit / 4, limit / 4);
+        let entry = &mut self.entries[Self::index(white, pawn_key)];
+        let value = *entry as i32;
+        *entry = (value + bonus - value * bonus.abs() / limit) as i16;
+    }
+}
+
+impl Default for CorrectionHistory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub const BAND_TT: i32 = 5_000_000;
@@ -2128,6 +2204,97 @@ mod tests {
                    "both planes are cleared on `ucinewgame`");
         assert_eq!(tables.killer_moves[3][0], None);
         assert_eq!(tables.counter_moves[6][21], None);
+    }
+
+    /// Matt-Magie step 64. An untouched entry reads 0, and a correction of 0 is the raw
+    /// evaluation, for either side.
+    #[test]
+    fn test_an_empty_correction_history_leaves_the_evaluation_unchanged() {
+        let corr = crate::model::CorrectionHistory::new();
+        for (raw, white) in [(123, true), (-77, false), (0, true), (29_000, false)] {
+            assert_eq!(corr.corrected(raw, white, 0xDEAD_BEEF, 8), raw);
+        }
+    }
+
+    /// The published update: `bonus = clamp(diff * depth / 8, +-limit / 4)`, then the history
+    /// gravity against `limit`; the read adds `entry / divisor`.
+    #[test]
+    fn test_the_correction_history_update_and_read_follow_the_published_form() {
+        let mut corr = crate::model::CorrectionHistory::new();
+        let key = 0x1234_5678_9ABC_DEF0;
+        corr.update(true, key, 8, 100, 0, 1024);
+        assert_eq!(corr.entry(true, key), 100, "bonus 100 * 8 / 8 into an empty entry");
+        assert_eq!(corr.corrected(0, true, key, 8), 12, "100 / 8, truncated");
+        corr.update(true, key, 8, 100, 0, 1024);
+        assert_eq!(corr.entry(true, key), 191, "100 + 100 - 100 * 100 / 1024");
+        corr.update(true, key, 4, -40, 0, 1024);
+        assert_eq!(corr.entry(true, key), 168, "191 - 20 - 191 * 20 / 1024, truncated");
+    }
+
+    /// One update may move an entry by at most a quarter of the limit, so a single deep search
+    /// that misses badly cannot swing the correction to its cap.
+    #[test]
+    fn test_one_correction_history_update_is_clamped_to_a_quarter_of_the_limit() {
+        let mut corr = crate::model::CorrectionHistory::new();
+        corr.update(true, 7, 30, 20_000, 0, 1024);
+        assert_eq!(corr.entry(true, 7), 256);
+        corr.update(false, 7, 30, -20_000, 0, 1024);
+        assert_eq!(corr.entry(false, 7), -256);
+    }
+
+    /// The gravity keeps every entry inside `+-limit`, however long the same error persists.
+    #[test]
+    fn test_the_correction_history_gravity_never_leaves_the_limit() {
+        let mut corr = crate::model::CorrectionHistory::new();
+        for _ in 0..1000 {
+            corr.update(true, 99, 64, 30_000, -30_000, 1024);
+            assert!(corr.entry(true, 99) <= 1024 && corr.entry(true, 99) > 0);
+            corr.update(false, 99, 64, -30_000, 30_000, 1024);
+            assert!(corr.entry(false, 99) >= -1024 && corr.entry(false, 99) < 0);
+        }
+        assert!(corr.entry(true, 99) >= 1000, "the entry converges towards the limit");
+    }
+
+    /// A corrected evaluation never reaches the mate band, whatever the raw value and the entry.
+    #[test]
+    fn test_the_corrected_evaluation_is_clamped_below_the_mate_scores() {
+        let mut corr = crate::model::CorrectionHistory::new();
+        for _ in 0..100 {
+            corr.update(true, 5, 64, 30_000, -30_000, 1024);
+            corr.update(false, 5, 64, -30_000, 30_000, 1024);
+        }
+        let limit = crate::model::CORRECTED_EVAL_LIMIT;
+        assert!(limit < crate::model::MATE_SCORE_THRESHOLD);
+        assert_eq!(corr.corrected(29_990, true, 5, 1), limit);
+        assert_eq!(corr.corrected(-29_990, false, 5, 1), -limit);
+        assert_eq!(corr.corrected(i16::MAX - 1, true, 5, 8), limit);
+    }
+
+    /// The two sides are separate planes, as for the butterfly history, and the index is the low
+    /// bits of the pawn key.
+    #[test]
+    fn test_the_correction_history_sides_are_independent() {
+        let mut corr = crate::model::CorrectionHistory::new();
+        corr.update(true, 42, 8, 200, 0, 1024);
+        assert_eq!(corr.entry(true, 42), 200);
+        assert_eq!(corr.entry(false, 42), 0, "a White update must leave Black's entry alone");
+        assert_eq!(corr.entry(true, 42 + crate::model::CORRECTION_HISTORY_SIZE as u64), 200,
+                   "keys that agree in the index bits share an entry");
+        assert_eq!(corr.entry(true, 43), 0);
+    }
+
+    /// `ucinewgame` clears the correction history with the other tables; aging leaves it alone.
+    #[test]
+    fn test_search_tables_reset_clears_the_correction_history_and_age_keeps_it() {
+        let mut tables = crate::model::SearchTables::new();
+        tables.correction_history.update(true, 11, 8, 300, 0, 1024);
+        tables.correction_history.update(false, 12, 8, -300, 0, 1024);
+        tables.age();
+        assert_eq!(tables.correction_history.entry(true, 11), 256);
+        assert_eq!(tables.correction_history.entry(false, 12), -256);
+        tables.reset();
+        assert_eq!(tables.correction_history.entry(true, 11), 0);
+        assert_eq!(tables.correction_history.entry(false, 12), 0);
     }
 
 
