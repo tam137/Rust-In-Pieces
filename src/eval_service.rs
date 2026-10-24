@@ -3062,6 +3062,8 @@ pub(crate) mod tests {
             let board = fen_service.set_fen("8/8/8/8/4PP2/k7/8/K7 w - - 0 1");
             let mut config = Config::for_tests();
             config.max_eval_mult = 1.0;
+            // A pawn ending: the pawn-ending scale would multiply the bonus with the rest.
+            config.endgame_scale_pawn_ending = 100;
             config.connected_passed_pawn_mg = 50;
             config.connected_passed_pawn_eg = 100;
             let eval_with = eval_service.calc_eval(&board, &config, movegen, &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
