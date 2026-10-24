@@ -155,6 +155,14 @@ thread_local! {
     static LAST_MAPS: std::cell::Cell<AttackMaps> = std::cell::Cell::new(AttackMaps::default());
 }
 
+/// The scale classes of [`EvalService::scale_class`]; the Texel data set stores them per sample.
+pub const SCALE_NONE: u8 = 0;
+pub const SCALE_OPPOSITE_BISHOPS: u8 = 1;
+/// White has more non-pawn material, no pawns, and leads by at most a minor piece.
+pub const SCALE_DRAWISH_WHITE: u8 = 2;
+pub const SCALE_DRAWISH_BLACK: u8 = 3;
+pub const SCALE_PAWN_ENDING: u8 = 4;
+
 pub struct EvalService {
     _knight_moves: [i16; 8],
     pub nnue_net: crate::nnue_service::NNUENetwork,
@@ -199,14 +207,73 @@ impl EvalService {
         }
         eval += self.calculate_weighted_eval(struct_mg, struct_eg, game_phase);
 
-        // Apply bishop pair scaling if opposite colored bishops
-        if Self::is_opposite_colored_bishops_endgame(board) {
-            eval = Self::scale_opposite_bishops(eval, config);
-        }
+        // The opposite-bishop or endgame scale, as the full evaluation applies it
+        eval = Self::apply_scale(eval, Self::scale_class(board), config);
 
         // Apply endgame scaling
         eval = self.adjust_eval(eval, game_phase, config);
         eval
+    }
+
+    /// The endgame scale class of a position by its material alone (`task.md` 31.3): opposite
+    /// bishops as before; **drawish** when the side with more non-pawn material (N = B = 3, R = 5,
+    /// Q = 9) has no pawns and leads by 1 to 3 - rook against minor, rook and minor against rook, a
+    /// minor against pawns, which the games of v0.48.x drew while the evaluation gave 80-90%;
+    /// **pawn ending** when only kings and pawns are left. Queen against rook (4) and two rooks
+    /// against one (5) are won and stay out. Popcounts only; most positions leave at the first test.
+    #[inline(always)]
+    pub fn scale_class(board: &Board) -> u8 {
+        use crate::model::*;
+        let b = &board.bitboards;
+        let (white_pawns, black_pawns) = (b[WHITE_PAWN], b[BLACK_PAWN]);
+        let white_pieces = b[WHITE_ROOK] | b[WHITE_KNIGHT] | b[WHITE_BISHOP] | b[WHITE_QUEEN];
+        let black_pieces = b[BLACK_ROOK] | b[BLACK_KNIGHT] | b[BLACK_BISHOP] | b[BLACK_QUEEN];
+        if Self::is_opposite_colored_bishops_endgame(board) {
+            return SCALE_OPPOSITE_BISHOPS;
+        }
+        if white_pieces | black_pieces == 0 {
+            return if white_pawns | black_pawns != 0 { SCALE_PAWN_ENDING } else { SCALE_NONE };
+        }
+        if white_pawns != 0 && black_pawns != 0 {
+            return SCALE_NONE;
+        }
+        let npm = |off: usize| {
+            3 * (b[off + WHITE_KNIGHT] | b[off + WHITE_BISHOP]).count_ones() as i32
+                + 5 * b[off + WHITE_ROOK].count_ones() as i32 + 9 * b[off + WHITE_QUEEN].count_ones() as i32
+        };
+        let lead = npm(0) - npm(6);
+        if white_pawns == 0 && (1..=3).contains(&lead) {
+            SCALE_DRAWISH_WHITE
+        } else if black_pawns == 0 && (1..=3).contains(&-lead) {
+            SCALE_DRAWISH_BLACK
+        } else {
+            SCALE_NONE
+        }
+    }
+
+    /// `eval * scale / 100` in `i32` for the endgame classes: the drawish scale only when the
+    /// evaluation favours the side it names (a pawn side that is ahead is never damped), the
+    /// pawn-ending scale for both colours. Every other class passes through.
+    #[inline(always)]
+    pub fn scale_endgame(eval: i16, class: u8, config: &Config) -> i16 {
+        let scale = match class {
+            SCALE_DRAWISH_WHITE if eval > 0 => config.endgame_scale_drawish,
+            SCALE_DRAWISH_BLACK if eval < 0 => config.endgame_scale_drawish,
+            SCALE_PAWN_ENDING => config.endgame_scale_pawn_ending,
+            _ => return eval,
+        };
+        (eval as i32 * scale as i32 / 100).clamp(-20_000, 20_000) as i16
+    }
+
+    /// The opposite-bishop scale or the endgame scale of `class`, the one step every evaluation
+    /// path applies after the positional cap.
+    #[inline(always)]
+    fn apply_scale(eval: i16, class: u8, config: &Config) -> i16 {
+        if class == SCALE_OPPOSITE_BISHOPS {
+            Self::scale_opposite_bishops(eval, config)
+        } else {
+            Self::scale_endgame(eval, class, config)
+        }
     }
 
     /// `eval * opposite_bishops_draw_scale / 100` in `i32`. In `i16` the product wrapped above
@@ -625,9 +692,7 @@ impl EvalService {
             eval = material_eval + capped_positional + outside;
         }
 
-        if Self::is_opposite_colored_bishops_endgame(board) {
-            eval = Self::scale_opposite_bishops(eval, config);
-        }
+        eval = Self::apply_scale(eval, Self::scale_class(board), config);
 
         eval = self.adjust_eval(eval, game_phase, config);
 
@@ -4095,6 +4160,71 @@ pub(crate) mod tests {
         let eval = service.eval.calc_eval(&board, &config, &service.move_gen,
             &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180);
         assert!(eval > 300, "White is winning, got {eval}");
+    }
+
+    /// The endgame scale classes of step 59 (`task.md` 31.3) on constructed positions: the side
+    /// with more non-pawn material has no pawns and leads by at most a minor piece (drawish), or
+    /// only kings and pawns are left (pawn ending). Queen against rook and two rooks against one
+    /// lead by more and stay unscaled, as does a lead backed by a pawn.
+    #[test]
+    fn test_endgame_scale_class_by_material_signature() {
+        use super::{SCALE_DRAWISH_BLACK, SCALE_DRAWISH_WHITE, SCALE_NONE, SCALE_OPPOSITE_BISHOPS, SCALE_PAWN_ENDING};
+        let service = Service::new();
+        let class = |fen: &str| super::EvalService::scale_class(&service.fen.set_fen(fen));
+        assert_eq!(class("4k3/8/8/3r4/8/8/2R1B3/4K3 w - - 0 1"), SCALE_DRAWISH_WHITE, "KRB v KR");
+        assert_eq!(class("4k3/2r1n3/8/8/3R4/8/8/4K3 w - - 0 1"), SCALE_DRAWISH_BLACK, "KRN v KR, Black ahead");
+        assert_eq!(class("4k3/8/8/3n4/8/8/2R5/4K3 w - - 0 1"), SCALE_DRAWISH_WHITE, "KR v KN");
+        assert_eq!(class("4k3/pp6/8/8/8/2B5/8/4K3 w - - 0 1"), SCALE_DRAWISH_WHITE, "KB v KPP");
+        assert_eq!(class("4k3/p7/8/3r4/8/8/2R1B3/4K3 w - - 0 1"), SCALE_DRAWISH_WHITE, "KRB v KRP");
+        assert_eq!(class("4k3/8/8/3r4/8/8/2Q5/4K3 w - - 0 1"), SCALE_NONE, "KQ v KR leads by four");
+        assert_eq!(class("4k3/8/8/3r4/8/8/2RR4/4K3 w - - 0 1"), SCALE_NONE, "KRR v KR leads by five");
+        assert_eq!(class("4k3/8/8/3r4/8/8/P1R1B3/4K3 w - - 0 1"), SCALE_NONE, "the side ahead has a pawn");
+        assert_eq!(class("4k3/8/8/3r4/8/8/2R5/4K3 w - - 0 1"), SCALE_NONE, "KR v KR, no lead");
+        assert_eq!(class("4k3/pp6/8/8/8/8/PPP5/4K3 w - - 0 1"), SCALE_PAWN_ENDING, "kings and pawns");
+        assert_eq!(class("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), SCALE_PAWN_ENDING, "KP v K");
+        assert_eq!(class("4k3/p7/8/8/8/8/P2B4/4K2b w - - 0 1"), SCALE_OPPOSITE_BISHOPS, "opposite bishops keep their class");
+        assert_eq!(class("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"), SCALE_NONE, "start position");
+        // The colour mirror swaps the drawish side.
+        assert_eq!(class("4k3/2b1r3/8/3R4/8/8/8/4K3 w - - 0 1"), SCALE_DRAWISH_BLACK, "KRB v KR mirrored");
+    }
+
+    /// The drawish scale damps only the side it names - a pawn side that is ahead keeps its
+    /// evaluation - and the pawn-ending scale works for both colours; 100 leaves everything as it is.
+    #[test]
+    fn test_endgame_scale_applies_to_the_side_it_names() {
+        use super::{SCALE_DRAWISH_BLACK, SCALE_DRAWISH_WHITE, SCALE_NONE, SCALE_PAWN_ENDING};
+        let mut config = Config::new();
+        config.endgame_scale_drawish = 50;
+        config.endgame_scale_pawn_ending = 150;
+        assert_eq!(super::EvalService::scale_endgame(300, SCALE_DRAWISH_WHITE, &config), 150);
+        assert_eq!(super::EvalService::scale_endgame(-300, SCALE_DRAWISH_WHITE, &config), -300);
+        assert_eq!(super::EvalService::scale_endgame(-300, SCALE_DRAWISH_BLACK, &config), -150);
+        assert_eq!(super::EvalService::scale_endgame(300, SCALE_DRAWISH_BLACK, &config), 300);
+        assert_eq!(super::EvalService::scale_endgame(200, SCALE_PAWN_ENDING, &config), 300);
+        assert_eq!(super::EvalService::scale_endgame(-200, SCALE_PAWN_ENDING, &config), -300);
+        assert_eq!(super::EvalService::scale_endgame(300, SCALE_NONE, &config), 300);
+        config.endgame_scale_drawish = 100;
+        config.endgame_scale_pawn_ending = 100;
+        for class in [SCALE_NONE, SCALE_DRAWISH_WHITE, SCALE_DRAWISH_BLACK, SCALE_PAWN_ENDING] {
+            assert_eq!(super::EvalService::scale_endgame(-437, class, &config), -437, "100 is neutral");
+        }
+    }
+
+    /// The scale reaches the full evaluation: KRB v KR at a drawish scale of 50 is half of what it
+    /// is at 100, within the rounding of the division.
+    #[test]
+    fn test_endgame_scale_reaches_the_evaluation() {
+        let service = Service::new();
+        let board = service.fen.set_fen("4k3/8/8/3r4/8/8/2R1B3/4K3 w - - 0 1");
+        let eval_at = |scale: i16| {
+            let mut config = Config::new();
+            config.endgame_scale_drawish = scale;
+            service.eval.calc_eval(&board, &config, &service.move_gen,
+                &crate::pawn_hash::PawnHashTable::new(16), i16::MIN, i16::MAX, 180)
+        };
+        let (full, half) = (eval_at(100), eval_at(50));
+        assert!(full > 100, "White is ahead in KRB v KR, got {full}");
+        assert!((half - full / 2).abs() <= 1, "{full} at 100 against {half} at 50");
     }
 
     #[test]

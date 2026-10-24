@@ -122,6 +122,11 @@ pub struct Config {
     pub bishop_outpost_true_mg: i16,
     pub bishop_outpost_true_eg: i16,
     pub opposite_bishops_draw_scale: i16,
+    /// Percent of the evaluation kept when the side ahead has no pawns and leads by at most a minor
+    /// piece (`EvalService::scale_class`, `task.md` 31.3); 100 leaves it unchanged.
+    pub endgame_scale_drawish: i16,
+    /// Percent of the evaluation in a pure pawn ending; above 100 the side ahead counts for more.
+    pub endgame_scale_pawn_ending: i16,
     pub enable_endgame_mopup: bool,
     pub mopup_center_weight: i16,
     pub mopup_proximity_weight: i16,
@@ -548,6 +553,8 @@ impl Config {
             bishop_outpost_true_mg: 21,
             bishop_outpost_true_eg: 11,
             opposite_bishops_draw_scale: 51,
+            endgame_scale_drawish: 100,
+            endgame_scale_pawn_ending: 100,
             enable_endgame_mopup: true,
             mopup_center_weight: 10,
             mopup_proximity_weight: 15,
@@ -1466,6 +1473,8 @@ impl Config {
             "bishopoutposttruemg" => if let Ok(v) = value.parse::<i16>() { self.bishop_outpost_true_mg = v; },
             "bishopoutposttrueeg" => if let Ok(v) = value.parse::<i16>() { self.bishop_outpost_true_eg = v; },
             "oppositebishopsdrawscale" => if let Ok(v) = value.parse::<i16>() { self.opposite_bishops_draw_scale = v; },
+            "endgamescaledrawish" => if let Ok(v) = value.parse::<i16>() { self.endgame_scale_drawish = v; },
+            "endgamescalepawnending" => if let Ok(v) = value.parse::<i16>() { self.endgame_scale_pawn_ending = v; },
             "enableendgamemopup" => { self.enable_endgame_mopup = value.to_lowercase() == "true"; },
             "mopupcenterweight" => if let Ok(v) = value.parse::<i16>() { self.mopup_center_weight = v; },
             "mopupproximityweight" => if let Ok(v) = value.parse::<i16>() { self.mopup_proximity_weight = v; },
