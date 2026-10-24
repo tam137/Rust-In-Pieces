@@ -114,6 +114,7 @@ impl SearchService {
         let killer_moves = &mut *tables.killer_moves;
         let history_table = &mut *tables.history_table;
         let counter_moves = &mut *tables.counter_moves;
+        let correction_history = &mut tables.correction_history;
 
         // `task.md` 21.1. Path state, not learned state: every node writes its own slot before it
         // recurses, so a node at ply p reads the slot its grandparent on the *current path*
@@ -276,7 +277,7 @@ impl SearchService {
                 let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, scout);
                 let first_eval = completed(self.minimax(board, turn, depth - 1,
                     child_alpha, child_beta, stats, config, service, &child_context, !scout, false, None, child_pv,
-                    1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper).1);
+                    1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *correction_history, &mut *counter_moves, deeper).1);
                 let (scout_eval, mut full_eval) = if scout { (first_eval, None) } else { (None, first_eval) };
 
                 let re_searched = scout_eval
@@ -289,7 +290,7 @@ impl SearchService {
                     let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, false);
                     full_eval = completed(self.minimax(board, turn, depth - 1,
                         child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
-                        1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *counter_moves, deeper).1);
+                        1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *correction_history, &mut *counter_moves, deeper).1);
                 }
                 // The clock cut the re-search of a move already proven better than the best so far.
                 let re_search_cut = re_searched && full_eval.is_none();
@@ -653,6 +654,7 @@ impl SearchService {
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
+        correction_history: &mut crate::model::CorrectionHistory,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers])
         -> (Option<Turn>, i16) {
@@ -869,7 +871,15 @@ impl SearchService {
                 }
                 absolute
             };
-            Self::relative_score(white, absolute)
+            let relative = Self::relative_score(white, absolute);
+            // Matt-Magie step 64: every reader below -- Reverse Futility Pruning, the Null Move
+            // gate, razoring, Futility Pruning and `improving` -- sees the corrected value; the
+            // entry keeps the raw one.
+            if config.enable_correction_history {
+                correction_history.corrected(relative, white, board.pawn_key, config.corr_hist_div)
+            } else {
+                relative
+            }
         } else {
             0
         };
@@ -989,7 +999,7 @@ impl SearchService {
             let null_eval = -self.minimax(
                 board, turn, reduced_depth,
                 -beta, -beta + 1, stats, config, service, context,
-                is_pv, true, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                is_pv, true, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
             ).1;
 
             // Undo Null Move
@@ -1013,7 +1023,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                        is_pv, true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
                     static_eval_stack[ply_idx] = own_static_eval;
 
@@ -1077,7 +1087,7 @@ impl SearchService {
                 board, turn, 0,
                 alpha, alpha + 1, stats, config, service, context,
                 false, skip_null_move, None, child_pv, ply, killer_moves, static_eval_stack, history_table,
-                counter_moves, deeper
+                correction_history, counter_moves, deeper
             ).1;
             static_eval_stack[ply_idx] = own_static_eval;
             if razor_eval <= alpha {
@@ -1251,6 +1261,10 @@ impl SearchService {
                     absolute
                 };
                 stand_pat = Self::relative_score(white, absolute);
+                if config.enable_correction_history {
+                    stand_pat = correction_history.corrected(stand_pat, white, board.pawn_key,
+                        config.corr_hist_div);
+                }
                 eval = stand_pat;
 
                 // Stand-pat cutoff. Standing pat is a lower bound on what the side to move can
@@ -1359,7 +1373,7 @@ impl SearchService {
                 let mi = board.do_move_prefetching(capture_turn, context.zobrist_table);
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
                     -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
-                    ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper).1;
+                    ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper).1;
                 board.undo_move(capture_turn, mi);
 
                 if eval < min_max_eval {
@@ -1681,7 +1695,7 @@ impl SearchService {
             {
                 self.singular_verdict(
                     board, turn, depth, ply, tt_entry, *current_turn,
-                    stats, config, service, context, killer_moves, static_eval_stack, history_table, counter_moves,
+                    stats, config, service, context, killer_moves, static_eval_stack, history_table, correction_history, counter_moves,
                     child_pv, deeper,
                 )
             } else {
@@ -1804,7 +1818,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
 
                     #[cfg(feature = "search-diag")]
@@ -1823,7 +1837,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
 
                     // The null window only proved the move is not worse than the best so far.
@@ -1832,14 +1846,14 @@ impl SearchService {
                         min_max_eval = -self.minimax(
                             board, current_turn, child_depth,
                             -beta, -alpha, stats, config, service, &current_context,
-                            true, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                            true, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                         ).1;
                     }
                 } else {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -beta, -alpha, stats, config, service, &current_context,
-                        is_pv, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, counter_moves, deeper
+                        is_pv, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
                 }
             }
@@ -1941,11 +1955,24 @@ impl SearchService {
         // Transposition Table Write. An exclusion search is never stored: its score describes a
         // position with a legal move removed, and publishing that under this position's hash is
         // the defect `task.md` 8.1 records as roughly two hundred Elo.
+        let stopped = context.stop_flag.load(std::sync::atomic::Ordering::Relaxed);
+        let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
+
+        // Matt-Magie step 64: what this node proved about its static evaluation, credited to the
+        // pawn structure. `static_eval` is the corrected value the node searched with.
+        if config.enable_correction_history
+            && !stopped
+            && Self::correction_update_allowed(turn.gives_check, excluded_move.is_some(),
+                node_static_eval != crate::zobrist::NO_STATIC_EVAL, best_move, eval, static_eval,
+                entry_type)
+        {
+            correction_history.update(white, board.pawn_key, depth, eval, static_eval,
+                config.corr_hist_limit);
+        }
+
         if config.use_zobrist
             && excluded_move.is_none()
-            && !context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
-
+            && !stopped {
             let mut stored_eval = eval;
             // Normalize mate score
             if eval > 30000 {
@@ -1971,6 +1998,35 @@ impl SearchService {
     }
 
     
+
+    /// Whether a finished main-search node may teach the Correction History (Matt-Magie step 64).
+    ///
+    /// Not in check (there is no static evaluation), not the singular verification (its score
+    /// describes the position with a move removed), only over a full raw evaluation (a lazy one
+    /// is a bound for its window), not when a capture or a promotion was best (the error is then
+    /// tactics, not the pawn structure), not a mate score, and only in the direction a bound
+    /// proves: a fail-high above the corrected evaluation, a fail-low below it, an exact score
+    /// always. Both scores are side-to-move-relative.
+    #[inline(always)]
+    fn correction_update_allowed(in_check: bool, excluded: bool, raw_full: bool,
+        best_move: Option<Turn>, result: i16, corrected: i16,
+        bound: crate::zobrist::TranspositionType) -> bool {
+        use crate::zobrist::TranspositionType;
+        if in_check || excluded || !raw_full {
+            return false;
+        }
+        if best_move.is_some_and(|m| m.capture != 0 || m.promotion != 0) {
+            return false;
+        }
+        if (result as i32).abs() >= crate::model::MATE_SCORE_THRESHOLD as i32 {
+            return false;
+        }
+        match bound {
+            TranspositionType::LowerBound => result > corrected,
+            TranspositionType::UpperBound => result < corrected,
+            TranspositionType::Exact => true,
+        }
+    }
 
     /// Whether the Transposition Table move at this node is *singular*: whether every other
     /// move falls short of the table's score by more than `singular_margin * depth`.
@@ -2008,6 +2064,7 @@ impl SearchService {
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
+        correction_history: &mut crate::model::CorrectionHistory,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
@@ -2048,7 +2105,7 @@ impl SearchService {
             board, turn, verification_depth,
             threshold - 1, threshold, stats, config, service, context,
             false, true, Some(tt_move), pv_buffer, ply, killer_moves, static_eval_stack, history_table,
-            counter_moves, buffers,
+            correction_history, counter_moves, buffers,
         ).1;
         Some(SingularVerdict { eval, threshold })
     }
@@ -2065,6 +2122,7 @@ impl SearchService {
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         static_eval_stack: &mut [i16; MAX_PLY],
         history_table: &mut [[[i32; 64]; 64]; 2],
+        correction_history: &mut crate::model::CorrectionHistory,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers]) -> Option<SingularVerdict> {
@@ -2074,7 +2132,7 @@ impl SearchService {
 
         let verdict = self.singular_verification(
             board, turn, depth, ply, tt_entry, tt_move,
-            stats, config, service, context, killer_moves, static_eval_stack, history_table, counter_moves,
+            stats, config, service, context, killer_moves, static_eval_stack, history_table, correction_history, counter_moves,
             pv_buffer, buffers,
         );
 
@@ -2479,6 +2537,96 @@ mod tests {
         assert!(survived > 0,
             "the second search must inherit the first one's history; {} of {} entries survived",
             survived, written.len());
+    }
+
+    /// Matt-Magie step 64: which finished nodes may teach the Correction History. The allowed
+    /// case first, then each condition that refuses it on its own.
+    #[test]
+    fn test_the_correction_history_learns_only_from_quiet_full_out_of_check_nodes() {
+        use crate::zobrist::TranspositionType::{Exact, UpperBound};
+        let quiet = Some(Turn::new(12, 28, 0, 0, false, 0));
+        let capture = Some(Turn::new(12, 28, 20, 0, false, 0));
+        let promotion = Some(Turn::new(52, 60, 0, 14, false, 0));
+        let allowed = super::SearchService::correction_update_allowed;
+        assert!(allowed(false, false, true, quiet, 40, 10, Exact), "a quiet exact node teaches");
+        assert!(allowed(false, false, true, None, -40, 10, UpperBound),
+                "a fail-low without a best move teaches");
+        assert!(!allowed(true, false, true, quiet, 40, 10, Exact), "in check");
+        assert!(!allowed(false, true, true, quiet, 40, 10, Exact), "the singular verification");
+        assert!(!allowed(false, false, false, quiet, 40, 10, Exact), "a lazy raw evaluation");
+        assert!(!allowed(false, false, true, capture, 40, 10, Exact), "a capture as best move");
+        assert!(!allowed(false, false, true, promotion, 40, 10, Exact), "a promotion as best move");
+        assert!(!allowed(false, false, true, quiet, crate::model::MATE_SCORE - 5, 10, Exact),
+                "a mate score");
+        assert!(!allowed(false, false, true, quiet, -(crate::model::MATE_SCORE - 5), 10, Exact),
+                "a mated score");
+    }
+
+    /// A bound teaches only in the direction it proves: a fail-high only that the evaluation is
+    /// too low, a fail-low only that it is too high; an exact score always.
+    #[test]
+    fn test_the_correction_history_refuses_a_bound_that_contradicts_the_error() {
+        use crate::zobrist::TranspositionType::{Exact, LowerBound, UpperBound};
+        let quiet = Some(Turn::new(12, 28, 0, 0, false, 0));
+        let allowed = super::SearchService::correction_update_allowed;
+        assert!(allowed(false, false, true, quiet, 50, 10, LowerBound));
+        assert!(!allowed(false, false, true, quiet, 10, 10, LowerBound));
+        assert!(!allowed(false, false, true, quiet, -50, 10, LowerBound));
+        assert!(allowed(false, false, true, quiet, -50, 10, UpperBound));
+        assert!(!allowed(false, false, true, quiet, 10, 10, UpperBound));
+        assert!(!allowed(false, false, true, quiet, 50, 10, UpperBound));
+        assert!(allowed(false, false, true, quiet, 50, 10, Exact));
+        assert!(allowed(false, false, true, quiet, -50, 10, Exact));
+    }
+
+    fn correction_entries_after(fen: &str, depth: i32, shape: impl Fn(&mut Config))
+        -> crate::model::CorrectionHistory {
+        let service = Service::new();
+        let state = fresh_engine_state();
+        let mut config = Config::for_tests();
+        shape(&mut config);
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let mut stats = Stats::new();
+        service.search.get_moves(&mut board, depth, white, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None);
+        state.search_tables.lock().unwrap().correction_history.clone()
+    }
+
+    fn written_entries(corr: &crate::model::CorrectionHistory, white: bool) -> Vec<i16> {
+        (0..crate::model::CORRECTION_HISTORY_SIZE as u64)
+            .map(|k| corr.entry(white, k)).filter(|&e| e != 0).collect()
+    }
+
+    const CORR_FEN: &str = "r1bqkb1r/pp1p1ppp/2n1pn2/2p5/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq - 0 5";
+
+    /// Switched off, the search never writes the table: the switch is what keeps the tree of
+    /// v0.48.5.
+    #[test]
+    fn test_the_correction_history_is_untouched_when_disabled() {
+        let corr = correction_entries_after(CORR_FEN, 6, |c| c.enable_correction_history = false);
+        assert!(written_entries(&corr, true).is_empty() && written_entries(&corr, false).is_empty());
+    }
+
+    /// Switched on, a search learns in both planes and every entry stays inside the limit.
+    #[test]
+    fn test_the_correction_history_learns_during_a_search() {
+        let corr = correction_entries_after(CORR_FEN, 6, |c| c.enable_correction_history = true);
+        let (w, b) = (written_entries(&corr, true), written_entries(&corr, false));
+        assert!(!w.is_empty() && !b.is_empty(), "both sides learn: {} White, {} Black", w.len(), b.len());
+        let limit = Config::for_tests().corr_hist_limit;
+        assert!(w.iter().chain(b.iter()).all(|&e| (e as i32).abs() <= limit));
+    }
+
+    /// The write names the side to move at the node that learned. A depth-2 search from the start
+    /// position has main-search nodes only at depth 1, all of them Black (the root loop and the
+    /// Quiescence Search write nothing, and nothing checks), so every entry is Black's.
+    #[test]
+    fn test_the_correction_history_credits_the_side_to_move() {
+        let corr = correction_entries_after(crate::model::INIT_BOARD_FEN, 2,
+            |c| c.enable_correction_history = true);
+        assert!(written_entries(&corr, true).is_empty(), "no White node was searched");
+        assert!(!written_entries(&corr, false).is_empty(), "the Black nodes at depth 1 learned");
     }
 
     #[test]
@@ -4296,6 +4444,7 @@ mod tests {
             &mut killer_moves,
             &mut static_eval_stack,
             &mut history_table_mut,
+            &mut crate::model::CorrectionHistory::new(),
             &mut counter_moves,
             &mut crate::model::new_search_buffers(),
         );
@@ -4683,7 +4832,7 @@ mod tests {
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, ply, &mut killer_moves, static_eval_stack,
-            &mut history, &mut counter_moves, &mut crate::model::new_search_buffers(),
+            &mut history, &mut crate::model::CorrectionHistory::new(), &mut counter_moves, &mut crate::model::new_search_buffers(),
         );
         (score, board, stats.calculated_nodes)
     }
@@ -5015,7 +5164,8 @@ mod tests {
         service.search.minimax(
             board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, 1, &mut killer_moves,
-            &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut history, &mut counter_moves,
+            &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut history,
+            &mut crate::model::CorrectionHistory::new(), &mut counter_moves,
             &mut crate::model::new_search_buffers(),
         ).1
     }

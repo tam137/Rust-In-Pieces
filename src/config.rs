@@ -442,6 +442,14 @@ pub struct Config {
     /// opening pool's design effect is accounted for, so the interval includes zero. The
     /// deterministic case is the stronger half: -11.7% tree at depth 11. `task.md` 10.12.
     pub enable_singular_multicut: bool,
+    /// The pawn-structure Correction History (Matt-Magie step 64): the main search and the
+    /// Quiescence Search read the static evaluation plus what the search has learned about the
+    /// pawn structure, see [`crate::model::CorrectionHistory`].
+    pub enable_correction_history: bool,
+    /// The gravity limit of a Correction History entry; one update moves it by at most a quarter.
+    pub corr_hist_limit: i32,
+    /// An entry is read as `entry / corr_hist_div` centipawns.
+    pub corr_hist_div: i16,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -733,6 +741,9 @@ impl Config {
             singular_margin: 0,
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
+            enable_correction_history: false,
+            corr_hist_limit: 1024,
+            corr_hist_div: 8,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -1212,6 +1223,31 @@ mod tests {
         }
     }
 
+    /// Matt-Magie step 64: the Correction History switch and its two constants.
+    #[test]
+    fn test_correction_history_options_reach_fields_in_all_spellings() {
+        for spelling in ["EnableCorrectionHistory", "enable_correction_history", "enablecorrectionhistory"] {
+            let mut config = Config::new();
+            config.enable_correction_history = false;
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.enable_correction_history);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.enable_correction_history);
+        }
+        for spelling in ["CorrHistLimit", "corr_hist_limit", "corrhistlimit"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "2048"), UciOptionEffect::Stored);
+            assert_eq!(config.corr_hist_limit, 2048);
+        }
+        for spelling in ["CorrHistDiv", "corr_hist_div", "corrhistdiv"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "16"), UciOptionEffect::Stored);
+            assert_eq!(config.corr_hist_div, 16);
+        }
+        let defaults = Config::new();
+        assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 8));
+    }
+
     #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
@@ -1396,6 +1432,9 @@ impl Config {
             "singularmargin" => if let Ok(v) = value.parse::<i16>() { self.singular_margin = v; },
             "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
+            "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
+            "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
+            "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },
             "enablelmp" => self.enable_lmp = value.eq_ignore_ascii_case("true"),
             "lmpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.lmp_max_depth = v; },
             "lmpbasemoves" => if let Ok(v) = value.parse::<i32>() { self.lmp_base_moves = v; },
