@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.4] - 2026-10-24
+
+The eleven pawn-structure scalars re-fitted by Texel on a data set traced by v0.48.3, whose test games
+are those of v0.48.x. **SPRT [0, 10]: H1 after about 2640 games** at 1s + 150ms against v0.48.3, +14.4
+Elo, paired 95% [+4, +25] over 2654 - a stopped run, not an effect size. See `task.md` section 31.2.
+
+### Changed
+- Passed-pawn blockade 15 -> 77 (the largest move: a blockaded passer was valued far too high).
+- Protected passed pawn mg/eg 12/27 -> 44/0, connected passed pawn mg/eg 15/29 -> -5/14, candidate
+  passed pawn 8 -> 14.
+- Doubled pawn 14 -> 20, isolated pawn 9 -> 11, backward pawn 11 -> -1, phalanx mg/eg 8/4 -> 20/12.
+- `tuning/parameters.json`: the seven SPSA entries follow; ranges widened where a value left them.
+
+### Notes
+- Texel on `data0483`: -211 / -160 / -264 x 10^-6 (train / validation / test).
+- Time to depth 10 against v0.48.3: +4.0% / +4.6%. The blockade is not in `cheap_eval`; lazy wrong
+  returns at 210 / 140 rose at most from 0.050% to 0.065% (search margin, `mixed`).
+- Two tests re-sampled: the doubled-pawn range 60 -> 80, the futility node-count test depth 8 -> 9.
+
+
+
 ## [V0.48.3] - 2026-10-23
 
 Material and the piece-square tables of rook, knight, bishop and queen re-fitted by Texel on a data set
