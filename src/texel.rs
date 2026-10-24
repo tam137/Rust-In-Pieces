@@ -17,6 +17,7 @@
 //!   top of the groups; `--safety-outside-cap` models king safety after the positional cap;
 //!   `--seed-safety` starts the king-safety weights at Ethereal's. Groups `king_safety` and
 //!   `threats_new` free the weights of the new king safety and of the threats on the attack maps.
+//!   Group `endgame_scale` frees the two endgame scales (`task.md` 31.3), which `scalars` leaves alone.
 //! * `texel-export <theta.txt>` - writes the parameters into `src/pst.rs`, `src/config.rs` and
 //!   `tuning/parameters.json`; run from the repository root.
 //! * `texel-stats <data> [theta.txt]` - on the test set: how often the positional cap fires, the
@@ -29,11 +30,12 @@
 //!   be exact negatives.
 //!
 //! The model is the evaluation's own pipeline: the traced sum is tapered, then the positional cap,
-//! the opposite-bishop scale and `adjust_eval` are applied as the engine applies them. King safety
+//! the opposite-bishop or endgame scale and `adjust_eval` are applied as the engine applies them. King safety
 //! is the one non-linear unit: per king, `-max(u_mg, 0)^2 / 720` and `-max(u_eg, 0) / 20` of the
 //! weighted sums of its features, under the cap or outside it as `king_safety_outside_cap` says. Positions a
 //! mop-up or insufficient material would score are not extracted.
 use crate::config::{Aggressiveness, Config};
+use crate::eval_service::{SCALE_DRAWISH_BLACK, SCALE_DRAWISH_WHITE, SCALE_OPPOSITE_BISHOPS, SCALE_PAWN_ENDING};
 use crate::eval_trace as et;
 use crate::model::Board;
 use crate::service::Service;
@@ -70,7 +72,10 @@ pub struct Sample {
     /// 0 training, 1 validation, 2 test.
     pub set: u8,
     pub phase: u8,
-    pub opposite_bishops: bool,
+    /// The scale class of `EvalService::scale_class`: 0 none, 1 opposite bishops (a `TEXEL002`
+    /// set written before the endgame classes holds 0 or 1 here and reads the same), 2 / 3 the
+    /// drawish endgames with White / Black the side without pawns, 4 a pawn ending.
+    pub scale_class: u8,
     /// The evaluation the engine computed, White-positive.
     pub eval: i16,
     /// What the per-unit integer tapers rounded away at the shipped parameters.
@@ -106,7 +111,7 @@ pub fn trace_position(service: &Service, config: &Config, theta0: &[f64], board:
         result: 1,
         set: 0,
         phase: phase as u8,
-        opposite_bishops: opposite_bishops(board),
+        scale_class: crate::eval_service::EvalService::scale_class(board),
         eval,
         taper_residual: 0.0,
         constant: (trace.constant.0 as f32, trace.constant.1 as f32),
@@ -131,21 +136,6 @@ fn phase_of(board: &Board) -> i16 {
     let n = (b[2] | b[8]).count_ones() + (b[3] | b[9]).count_ones() + 2 * (b[1] | b[7]).count_ones()
         + 4 * (b[4] | b[10]).count_ones();
     (n.min(24) * 255 / 24) as i16
-}
-
-fn opposite_bishops(board: &Board) -> bool {
-    use crate::model::*;
-    let (wb, bb) = (board.bitboards[WHITE_BISHOP], board.bitboards[BLACK_BISHOP]);
-    if wb.count_ones() != 1 || bb.count_ones() != 1 {
-        return false;
-    }
-    let others = board.bitboards[WHITE_KNIGHT] | board.bitboards[WHITE_ROOK] | board.bitboards[WHITE_QUEEN]
-        | board.bitboards[BLACK_KNIGHT] | board.bitboards[BLACK_ROOK] | board.bitboards[BLACK_QUEEN];
-    if others != 0 {
-        return false;
-    }
-    let colour = |sq: u32| (sq % 8 + sq / 8) % 2;
-    colour(wb.trailing_zeros()) != colour(bb.trailing_zeros())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -213,7 +203,8 @@ fn material_sums(s: &Sample, theta: &[f64]) -> (f64, f64) {
     (mg, eg)
 }
 
-/// The fixed part of the pipeline: the cap, the opposite-bishop scale and `adjust_eval`.
+/// The fixed part of the pipeline: the cap, the opposite-bishop scale and `adjust_eval`; the
+/// endgame scales come from `theta`, so the tuner can fit them.
 #[derive(Clone, Copy)]
 pub struct Pipeline {
     cap: Option<(f64, f64)>,
@@ -239,11 +230,12 @@ impl Pipeline {
         }
     }
 
-    /// The evaluation at `theta`, and its derivatives with respect to the tapered sum and to the
-    /// tapered material. The tapered king safety moves the evaluation by `d_pre` under the cap and
-    /// by `d_pre + d_mat` outside it.
+    /// The evaluation at `theta`, its derivatives with respect to the tapered sum and to the
+    /// tapered material, and - when an endgame scale applied - that scale's parameter and the
+    /// derivative with respect to it. The tapered king safety moves the evaluation by `d_pre`
+    /// under the cap and by `d_pre + d_mat` outside it.
     #[inline(always)]
-    fn eval(&self, s: &Sample, theta: &[f64]) -> (f64, f64, f64) {
+    fn eval(&self, s: &Sample, theta: &[f64]) -> (f64, f64, f64, Option<(usize, f64)>) {
         let phase = s.phase as i16;
         let (mg, eg) = sums(s, theta);
         let pre = taper(mg, eg, phase) + s.taper_residual as f64;
@@ -265,18 +257,41 @@ impl Pipeline {
                 d_mat = 1.0 - 1.0 / damping;
             }
         }
-        if s.opposite_bishops {
-            eval *= self.opposite_bishops_scale;
-            d_pre *= self.opposite_bishops_scale;
-            d_mat *= self.opposite_bishops_scale;
+        let mut d_scale = None;
+        let scale = match s.scale_class {
+            SCALE_OPPOSITE_BISHOPS => Some(self.opposite_bishops_scale),
+            class => endgame_scale_param(class, eval).map(|p| {
+                d_scale = Some((p, eval / 100.0));
+                theta[p] / 100.0
+            }),
+        };
+        if let Some(scale) = scale {
+            eval *= scale;
+            d_pre *= scale;
+            d_mat *= scale;
         }
         if phase + 100 < 255 && eval.abs() >= 200.0 {
             let mult = (255.0 / (phase + 100) as f64).min(self.max_mult);
             eval *= mult;
             d_pre *= mult;
             d_mat *= mult;
+            if let Some((_, d)) = d_scale.as_mut() {
+                *d *= mult;
+            }
         }
-        (eval, d_pre, d_mat)
+        (eval, d_pre, d_mat, d_scale)
+    }
+}
+
+/// The endgame scale an evaluation of `class` and sign gets, as `EvalService::scale_endgame`
+/// chooses it: the drawish scale only for the side the class names, the pawn-ending scale always.
+#[inline(always)]
+fn endgame_scale_param(class: u8, eval: f64) -> Option<usize> {
+    match class {
+        SCALE_DRAWISH_WHITE if eval > 0.0 => Some(et::P::EndgameScaleDrawish as usize),
+        SCALE_DRAWISH_BLACK if eval < 0.0 => Some(et::P::EndgameScaleDrawish as usize),
+        SCALE_PAWN_ENDING => Some(et::P::EndgameScalePawnEnding as usize),
+        _ => None,
     }
 }
 
@@ -308,9 +323,12 @@ fn fit_k(samples: &[Sample], pipeline: &Pipeline, theta: &[f64]) -> f64 {
 /// The gradient of the training error at `theta`, summed over `samples` (not divided).
 fn gradient(samples: &[Sample], k: f64, pipeline: &Pipeline, theta: &[f64], grad: &mut [f64]) {
     for s in samples.iter().filter(|s| s.set == 0) {
-        let (eval, d_pre, d_mat) = pipeline.eval(s, theta);
+        let (eval, d_pre, d_mat, d_scale) = pipeline.eval(s, theta);
         let p = sigmoid(k, eval);
         let g = -2.0 * (s.label() - p) * p * (1.0 - p) * k;
+        if let Some((param, d)) = d_scale {
+            grad[param] += g * d;
+        }
         let w_mg = s.phase as f64 / 256.0;
         let w_eg = 1.0 - w_mg;
         let a = g * d_pre;
@@ -364,6 +382,9 @@ struct Groups {
     king_safety: bool,
     /// The threats on the attack maps (`eval_trace::THREATS`), which `scalars` holds too.
     threats_new: bool,
+    /// The two endgame scales (`task.md` 31.3), which `scalars` leaves alone: they multiply the
+    /// finished evaluation instead of adding to it.
+    endgame_scale: bool,
     /// Whose tables move when `tables` is free, in `WHITE_PAWN..=WHITE_KING` order.
     table_pieces: [bool; 6],
 }
@@ -371,7 +392,7 @@ struct Groups {
 /// `material,tables,passers,scalars,rank_bonus`, any subset, in any order.
 fn parse_groups(list: &str) -> Groups {
     let mut groups = Groups { material: false, tables: false, passers: false, scalars: false, rank_bonus: false,
-        king_safety: false, threats_new: false, table_pieces: [true; 6] };
+        king_safety: false, threats_new: false, endgame_scale: false, table_pieces: [true; 6] };
     for name in list.split(',') {
         match name.trim() {
             "material" => groups.material = true,
@@ -381,6 +402,7 @@ fn parse_groups(list: &str) -> Groups {
             "rank_bonus" => groups.rank_bonus = true,
             "king_safety" => groups.king_safety = true,
             "threats_new" => groups.threats_new = true,
+            "endgame_scale" => groups.endgame_scale = true,
             other => panic!("unknown parameter group {other}"),
         }
     }
@@ -460,6 +482,12 @@ fn trainable_for(groups: &Groups) -> Vec<bool> {
         for &p in PIECE_SQUARE_SCALARS {
             t[p as usize] = false;
         }
+        t[et::P::EndgameScaleDrawish as usize] = false;
+        t[et::P::EndgameScalePawnEnding as usize] = false;
+    }
+    if groups.endgame_scale {
+        t[et::P::EndgameScaleDrawish as usize] = true;
+        t[et::P::EndgameScalePawnEnding as usize] = true;
     }
     for (free, pairs) in [(groups.king_safety, &et::KING_SAFETY[..]), (groups.threats_new, &et::THREATS[..])] {
         if free {
@@ -550,7 +578,7 @@ fn recentre_tables(theta: &mut [f64], trainable: &[bool], means: &[f64]) {
 // Binary data set
 
 fn write_sample(w: &mut impl Write, s: &Sample) -> std::io::Result<()> {
-    w.write_all(&[s.result, s.set, s.phase, s.opposite_bishops as u8])?;
+    w.write_all(&[s.result, s.set, s.phase, s.scale_class])?;
     w.write_all(&s.eval.to_le_bytes())?;
     w.write_all(&s.taper_residual.to_le_bytes())?;
     w.write_all(&s.constant.0.to_le_bytes())?;
@@ -609,7 +637,7 @@ pub fn read_samples(path: &str) -> Vec<Sample> {
             let eg = u16::from_le_bytes(take(2).try_into().unwrap());
             safety.push((king, mg, eg, f32_of(take(4))));
         }
-        samples.push(Sample { result: h[0], set: h[1], phase: h[2], opposite_bishops: h[3] != 0, eval,
+        samples.push(Sample { result: h[0], set: h[1], phase: h[2], scale_class: h[3], eval,
             taper_residual, constant, pieces, terms, safety });
     }
     samples
@@ -1873,6 +1901,87 @@ mod tests {
                 assert_eq!(eval(fen), -eval(&mirror_fen(fen)), "outside {outside}, {fen}");
             }
         }
+    }
+
+    /// Endgames of every scale class (`task.md` 31.3), none of them excluded from extraction.
+    const ENDGAME_POSITIONS: &[&str] = &[
+        "4k3/8/8/3r4/8/8/2R1B3/4K3 w - - 0 1",
+        "4k3/2r1n3/8/8/3R4/8/8/4K3 w - - 0 1",
+        "4k3/8/8/3n4/8/8/2R5/4K3 b - - 0 1",
+        "4k3/pp6/8/8/8/2B5/8/4K3 w - - 0 1",
+        "4k3/pp6/8/8/8/8/PPP5/4K3 w - - 0 1",
+        "4k3/ppp5/8/8/8/8/PP6/4K3 b - - 0 1",
+        "4k3/p7/8/8/8/8/P2B4/4K2b w - - 0 1",
+    ];
+
+    /// A sample carries the scale class the evaluation applied.
+    #[test]
+    fn test_a_sample_carries_the_scale_class_of_the_evaluation() {
+        let service = Service::new();
+        for fen in ENDGAME_POSITIONS.iter().chain(POSITIONS) {
+            let class = crate::eval_service::EvalService::scale_class(&service.fen.set_fen(fen));
+            assert_eq!(traced(fen).0.scale_class, class, "{fen}");
+        }
+    }
+
+    /// With the endgame scales away from 100 the model still rebuilds the engine's evaluation.
+    #[test]
+    fn test_the_model_follows_the_endgame_scales() {
+        let service = Service::new();
+        let base = hce_config();
+        let mut changed = hce_config();
+        changed.endgame_scale_drawish = 40;
+        changed.endgame_scale_pawn_ending = 180;
+        let pipeline = Pipeline::of(&base);
+        let theta_changed = et::theta_of(&changed);
+        for fen in ENDGAME_POSITIONS {
+            let board = service.fen.set_fen(fen);
+            let engine = service.eval.calc_eval_known_check(&board, &changed, &service.move_gen,
+                &crate::pawn_hash::PawnHashTable::new(16), i16::MIN + 1, i16::MAX - 1, 0, false);
+            let (sample, _) = traced(fen);
+            let model = pipeline.eval(&sample, &theta_changed).0;
+            assert!((model - engine as f64).abs() <= 3.0, "{fen}: model {model} against engine {engine}");
+        }
+    }
+
+    /// The gradient of the two endgame scales equals central finite differences.
+    #[test]
+    fn test_the_endgame_scale_gradient_matches_finite_differences() {
+        let config = hce_config();
+        let pipeline = Pipeline::of(&config);
+        let mut theta = et::theta_of(&config);
+        theta[P::EndgameScaleDrawish as usize] = 60.0;
+        theta[P::EndgameScalePawnEnding as usize] = 150.0;
+        let samples: Vec<Sample> = ENDGAME_POSITIONS.iter().enumerate().map(|(i, fen)| {
+            let mut s = traced(fen).0;
+            s.result = (i % 3) as u8;
+            s
+        }).collect();
+        let k = 0.004;
+        let mut grad = vec![0.0; et::N_PARAMS];
+        gradient(&samples, k, &pipeline, &theta, &mut grad);
+        let loss = |t: &[f64]| -> f64 {
+            samples.iter().map(|s| { let d = s.label() - sigmoid(k, pipeline.eval(s, t).0); d * d }).sum()
+        };
+        for j in [P::EndgameScaleDrawish as usize, P::EndgameScalePawnEnding as usize] {
+            let h = 0.01;
+            let (mut up, mut down) = (theta.clone(), theta.clone());
+            up[j] += h;
+            down[j] -= h;
+            let numeric = (loss(&up) - loss(&down)) / (2.0 * h);
+            assert!(numeric.abs() > 1e-9, "parameter {j} has no gradient to compare");
+            assert!((numeric - grad[j]).abs() <= 1e-6 + 1e-3 * numeric.abs(), "parameter {j}: {numeric} against {}", grad[j]);
+        }
+    }
+
+    /// `--free endgame_scale` frees the two scales and nothing else; `scalars` leaves them alone.
+    #[test]
+    fn test_the_endgame_scale_group_frees_only_the_two_scales() {
+        let mask = trainable_for(&parse_groups("endgame_scale"));
+        let free: Vec<usize> = (0..et::N_PARAMS).filter(|&i| mask[i]).collect();
+        assert_eq!(free, vec![P::EndgameScaleDrawish as usize, P::EndgameScalePawnEnding as usize]);
+        let scalars = trainable_for(&parse_groups("scalars"));
+        assert!(!scalars[P::EndgameScaleDrawish as usize] && !scalars[P::EndgameScalePawnEnding as usize]);
     }
 
     #[test]
