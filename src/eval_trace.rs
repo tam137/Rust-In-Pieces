@@ -275,6 +275,10 @@ mod imp {
         ThreatLesserOnQueenEg => threat_lesser_on_queen_eg,
         ThreatSafePawnPushMg => threat_safe_pawn_push_mg,
         ThreatSafePawnPushEg => threat_safe_pawn_push_eg,
+        // The endgame scales of `task.md` 31.3: not summed into the units but applied by the
+        // pipeline to the finished evaluation, so no trace term carries them.
+        EndgameScaleDrawish => endgame_scale_drawish,
+        EndgameScalePawnEnding => endgame_scale_pawn_ending,
     }
 
     /// Layout of the parameter vector: scalars, the passed-pawn table (mg, eg), material (mg, eg),
