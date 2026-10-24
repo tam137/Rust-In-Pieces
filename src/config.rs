@@ -743,7 +743,7 @@ impl Config {
             enable_singular_multicut: true,
             enable_correction_history: true,
             corr_hist_limit: 1024,
-            corr_hist_div: 8,
+            corr_hist_div: 16,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -1246,7 +1246,7 @@ mod tests {
         }
         let defaults = Config::new();
         assert!(defaults.enable_correction_history, "on in the candidate of step 64");
-        assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 8));
+        assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 16));
     }
 
     #[test]
