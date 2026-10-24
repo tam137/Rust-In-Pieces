@@ -553,8 +553,8 @@ impl Config {
             bishop_outpost_true_mg: 21,
             bishop_outpost_true_eg: 11,
             opposite_bishops_draw_scale: 51,
-            endgame_scale_drawish: 100,
-            endgame_scale_pawn_ending: 100,
+            endgame_scale_drawish: 4,
+            endgame_scale_pawn_ending: 182,
             enable_endgame_mopup: true,
             mopup_center_weight: 10,
             mopup_proximity_weight: 15,
@@ -801,6 +801,10 @@ impl Config {
         let mut config = Config::new();
         config.use_nnue = false;
         config.enable_endgame_mopup = false;
+        // The endgame scales multiply the finished evaluation of whole material classes; these
+        // tests measure the terms inside it.
+        config.endgame_scale_drawish = 100;
+        config.endgame_scale_pawn_ending = 100;
         config.aggressiveness = Aggressiveness::Normal;
         config.enable_positional_cap = false;
         config.move_overhead = 0;
