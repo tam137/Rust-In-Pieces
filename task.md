@@ -2291,3 +2291,52 @@ stopped run, not an effect size. No time losses. Smoke gauntlet: 46.0% vs v0.48.
 **Next:** the endgames the scales leave open - winning technique for KQ v KR and KRR v KR (the mop-up
 does not cover a defender with a piece), and the pawn endings at finer grain (the square rule).
 
+
+## 32. A fresh Texel test set from the games of v0.48.3-v0.48.5, eleven probes, 2026-10-24
+
+Matt-Magie step 60, analysis only, texel build of `7282e2e` (v0.48.5). Steps 31.1-31.3 were all chosen on
+the test set of section 31, which is used up for selection. `data0485.bin`: training / validation from
+every list of `data0484` (old test set included); **test = the runs of v0.48.3-v0.48.5** (`tab57`,
+`ps58`, `es59`, 7004 games, 65,298 positions). 512,035 games, 4,825,063 positions; `texel-check` 99.996%
+within 3 cp (max 3.65). v0.48.5 reads 0.100329 / 0.100164 / 0.094810 (K 0.003824). Each probe 1000
+epochs, the rest held; error change x 10^-6, train / validation / test; the bar is test <= -200 and
+validation <= -100 (probe 10: test <= -50):
+
+| probe | train | validation | test |
+| :--- | ---: | ---: | ---: |
+| 1 material | -6 | -13 | -16 |
+| **2 material + tables of rook, knight, bishop, queen, king (L2 1e-10)** | **-90** | **-105** | **-266** |
+| 3 the pawn table alone (L2 1e-7) | -228 | -231 | -126 |
+| 4 the passed-pawn table | -17 | -23 | +4 |
+| 5 the rank bonuses | -81 | -80 | -123 |
+| 6 bishop pair + the four mobility factors | -33 | -45 | -120 |
+| 7 king safety (B1 weights, outside the cap) | -34 | -30 | -143 |
+| 8 threats (B2 weights + the thirteen older values) | -7 | -9 | +8 |
+| 9 pawn-structure scalars (11) | -3 | +1 | -15 |
+| 10 endgame scales | 0 | 0 | -5 |
+| 11 every scalar | -431 | -415 | -792 |
+
+The groups fitted in 31.1-31.3 hold on the fresh games: material, pawn structure and endgame scales sit
+at their optimum. **Probe 2** passes only just (a third of section 31's gain; it includes the king table,
+which slowed the search in 31.1; material rook eg 792 -> 814, queen 1402/1423 -> 1373/1464). Probe 5 wants
+the rank bonuses halved (183 / 104 / 47 -> 88 / 57 / 24), under the bar. Probe 11 revives the bucket
+weights again (weight 4: 0 -> 445) - for scale only.
+
+**Residuals** (shipped evaluation, all sets): the scale classes are calibrated now (within 1 point).
+Pawnless and near-pawnless wins score well below prediction: **KQ v KR 60.4% vs 94.0%** (1593 positions),
+**KRR v KR 68.7% vs 96.7%** (1117), KQ v KRP 58% vs 87%, KR v KP 71% vs 89%, and 5-10 points across most
+won endings. Pure pawn endings with a passer outside the defending king's square (side to move ignored):
++19 points with level pawns, +34 when that side is a pawn down - but only 0.05% of positions.
+
+**Why the wins are not converted - the match manager, mostly.** Matt-Magie scores every game that
+reaches move 101 as a draw (`move_count > 100`; it has no fifty-move or insufficient-material rule).
+In the 7004 test games **598 (8.5% of all games, 25% of the draws)** ended there, 272 of them with at
+least three pawns of material ahead (KR v K 37, KQ v K 16, KRB v KR 39 ...). Over the 85,720 games since
+v0.46: KQ v KR reached (stable 4 plies) in 197 games, 156 drawn - **134 at the move-101 cut**, 20 by
+threefold repetition; KRR v KR 56 drawn, 54 at the cut. The labels of long games, the endgame residuals
+and every SPRT since the cut was introduced carry this bias; the mop-up (bare king only) is a second,
+smaller gap.
+
+**Next:** fix the draw rules in Matt-Magie (fifty-move rule, insufficient material, a far higher safety
+cap) before more endgame work; then re-measure KQ v KR / KRR v KR conversion. Probe 2 only as its own
+plan with the time stop (likely without the king table, as in 31.1).
