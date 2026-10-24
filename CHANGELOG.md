@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.5] - 2026-10-24
+
+A new evaluation feature: endgame scale factors chosen by material signature, fitted by Texel.
+**SPRT [0, 10]: H1 after about 2520 games** at 1s + 150ms against v0.48.4, +14.0 Elo, paired 95%
+[+3, +25] over 2524 - a stopped run, not an effect size. See `task.md` section 31.3.
+
+### Added
+- `EvalService::scale_class`: **drawish** when the side with more non-pawn material has no pawns and
+  leads by at most a minor piece (rook v minor, rook + minor v rook, a minor v pawns) - scaled to 4%
+  (`EndgameScaleDrawish`), only when the evaluation favours that side; **pawn ending** (kings and pawns
+  only) - scaled to 182% (`EndgameScalePawnEnding`). Queen v rook and two rooks v one stay unscaled.
+- Texel: the scale class per sample (the header byte; old data sets read as before) and the group
+  `--free endgame_scale`.
+
+### Notes
+- Texel on `data0484`: -509 / -538 / -979 x 10^-6 (train / validation / test). In the games of v0.48.x the
+  strong side of KRB v KR and KRN v KR scored 52% / 50% where the evaluation predicted 89% / 87%.
+- Time to depth 10: identical trees from the opening pools (the classes are reached late in the game).
+- Smoke gauntlet: 46.0% vs v0.48.4, 49.5% vs v0.48.3, 96.0% vs v0.34.0.
+
+
+
 ## [V0.48.4] - 2026-10-24
 
 The eleven pawn-structure scalars re-fitted by Texel on a data set traced by v0.48.3, whose test games
