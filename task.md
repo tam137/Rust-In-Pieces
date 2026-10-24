@@ -2345,3 +2345,21 @@ plan with the time stop (likely without the king table, as in 31.1).
 material (dead positions only), a safety limit at move 400, and the draw reason as `Termination`. Smoke
 run v0.48.5 v v0.48.4, 200 games: no problems against python-chess, mean length unchanged (135.9 plies),
 14 games past move 100 (1 decided). **Draw rates of runs before and from 1.7.0 are not comparable.**
+
+### 32.1 Probe 2 without the king table: under the bar, no game; endgame conversion under Matt-Magie 1.7.0 (2026-10-24)
+
+Matt-Magie step 62. Probe 2 of section 32 without the king table (`--tables rook,knight,bishop,queen`,
+L2 1e-10, best epoch 50): **-29 / -30 / -159** x 10^-6 - under the bar (validation <= -100, test <= -200),
+so no game and no v0.48.6. Most of probe 2's gain sat in the king table, the known brake of 31.1.
+
+**Conversion with real draw rules** - a measurement run, v0.48.5 v v0.48.4, 2000 games at 1s + 150ms
+under Matt-Magie 1.7.0 (687 / 672 / 641, not an effect size). Draws 33.6% (36.8% in the same pairing
+under 1.6.0), mean length 138 plies, time per game unchanged. Stronger side's score, signature stable
+for 4 plies: KQ v K 93 games 100%, KR v K 55 100%, KQ v KN 11 100%, KRR v KR 7 100% (under 1.6.0 97 /
+93 / 82 / 79%) - the gaps of section 32 were the move-101 cut. **KQ v KR: 10 games, 70%** (4 drawn by
+the fifty-move rule, 2 by repetition): real missing technique (no mop-up against a lone rook), but 0.5%
+of games and about 3 points in 2000 - far below one Elo. Not worth its own step.
+
+**Matt-Magie 1.7.1 (2026-10-24, step 63):** threefold repetition as FIDE - the position hash now holds the
+castling rights and a capturable en passant square; 1.7.0 once ended a game on a "repetition" whose
+first occurrence had other castling rights. Smoke run 200 games, every draw reason matches python-chess.
