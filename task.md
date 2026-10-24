@@ -2261,3 +2261,33 @@ Smoke gauntlet: 50.0% vs v0.48.3, 63.0% vs v0.48.2, 90.0% vs v0.34.0. **Released
 **Next:** new evaluation features from the residuals of section 31 - scaling of pawnless endings and a
 pawn-endgame term (Matt-Magie step 59).
 
+### 31.3 Endgame scale factors by material signature: shipped in v0.48.5 (2026-10-24)
+
+Matt-Magie step 59, the residuals of section 31. On `data0483` (v0.48.3) the strong side scored 52 / 50%
+in KRB v KR / KRN v KR against a predicted 89 / 87%, 52 / 53% in KR v KN / KR v KB against 82 / 81%,
+50 / 49% in KB v KP / KN v KP against 69 / 67%; in pawn endings the side ahead scored 10-14 points more
+than predicted. KQ v KR (60% against 94%) and KRR v KR (69% against 97%) are won - technique, not
+evaluation - and stay out.
+
+**Feature** (`500eb48`): `EvalService::scale_class` from popcounts - opposite bishops (as before);
+drawish (2 / 3, White / Black): the side with more non-pawn material (N = B = 3, R = 5, Q = 9) has no
+pawns and leads by 1 to 3; pawn ending (4): kings and pawns only. `scale_endgame` multiplies the finished
+evaluation after the positional cap, the drawish scale only when the evaluation favours the side the
+class names, in `evaluate` and `cheap_eval`. At 100 tree-identical to v0.48.4 (300/300, both pools,
+twice), time within 0.5%. **Tuner** (`7b55288`): the sample header byte is the scale class (0 / 1 read
+as before), two new scalars outside `scalars`, group `endgame_scale`, the pipeline derivative by the
+scale. `data0484`: `texel-check` 99.996% within 3 cp; drawish 31 853 positions, pawn endings 53 738.
+
+**Fit** (best epoch 200): **-509 / -538 / -979** x 10^-6 - drawish 100 -> **4**, pawn ending 100 ->
+**182**. Mirror 0; lazy unchanged (these classes lie below the lazy phase). Three term tests in pure
+pawn endings flipped; `_for_evel_equal_tests` (which already neutralises the mop-up) and the one test
+keep both scales at 100 (`0cb6310`). Census: identical trees from the opening pools at depth 10.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.48.4: **[0, 10] H1 after about 2520 games** (LLR
++2.98, +13.8 Elo), [0, 5] +1.96 open. End of the run 2524 games: **+14.0 Elo, paired 95% [+3, +25]** - a
+stopped run, not an effect size. No time losses. Smoke gauntlet: 46.0% vs v0.48.4, 49.5% vs v0.48.3,
+96.0% vs v0.34.0. **Released as v0.48.5.**
+
+**Next:** the endgames the scales leave open - winning technique for KQ v KR and KRR v KR (the mop-up
+does not cover a defender with a piece), and the pawn endings at finer grain (the square rule).
+
