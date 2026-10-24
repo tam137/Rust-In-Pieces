@@ -56,6 +56,8 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name KingPieceShieldKingside type spin default {} min -500 max 500", defaults.king_piece_shield_kingside),
         format!("option name KingPieceShieldQueenside type spin default {} min -500 max 500", defaults.king_piece_shield_queenside),
         format!("option name OppositeBishopsDrawScale type spin default {} min 0 max 100", defaults.opposite_bishops_draw_scale),
+        format!("option name EndgameScaleDrawish type spin default {} min 0 max 100", defaults.endgame_scale_drawish),
+        format!("option name EndgameScalePawnEnding type spin default {} min 100 max 400", defaults.endgame_scale_pawn_ending),
         format!("option name RookBehindEnemyPassedPawnMg type spin default {} min -500 max 500", defaults.rook_behind_enemy_passed_pawn_mg),
         format!("option name RookBehindEnemyPassedPawnEg type spin default {} min -500 max 500", defaults.rook_behind_enemy_passed_pawn_eg),
         format!("option name EnableLazyEval type check default {}", defaults.enable_lazy_eval),
