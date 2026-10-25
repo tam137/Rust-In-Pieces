@@ -519,6 +519,28 @@ pub fn gen_pawn_hash(board: &Board) -> u64 {
 }
 
 #[inline(always)]
+/// The key of every non-pawn piece of one colour, the king included (Matt-Magie step 66): what the
+/// non-pawn Correction History tables are indexed by. Kept incrementally in `Board::non_pawn_key`.
+pub fn gen_non_pawn_hash(board: &Board, white: bool) -> u64 {
+    use crate::model::{BLACK_BISHOP, BLACK_KING, BLACK_KNIGHT, BLACK_QUEEN, BLACK_ROOK,
+        WHITE_BISHOP, WHITE_KING, WHITE_KNIGHT, WHITE_QUEEN, WHITE_ROOK};
+    let pieces = if white {
+        [WHITE_ROOK, WHITE_KNIGHT, WHITE_BISHOP, WHITE_QUEEN, WHITE_KING]
+    } else {
+        [BLACK_ROOK, BLACK_KNIGHT, BLACK_BISHOP, BLACK_QUEEN, BLACK_KING]
+    };
+    let mut hash = 0u64;
+    for piece in pieces {
+        let mut bb = board.bitboards[piece];
+        while bb != 0 {
+            let square = bb.trailing_zeros() as usize;
+            hash ^= ZOBRIST_TABLE[square][piece];
+            bb &= bb - 1;
+        }
+    }
+    hash
+}
+
 pub fn get_zobrist_val(square: usize, piece_idx: usize) -> u64 {
     ZOBRIST_TABLE[square][piece_idx]
 }
