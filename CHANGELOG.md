@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.1] - 2026-10-25
+
+The Correction History learns the placement of each colour's pieces beside the pawn structure.
+**SPRT [0, 10]: H1**, stopped at the owner's word after 2166 games at 1s + 150ms against v0.49.0
+([0, 5] +2.12, open), +17.2 Elo, paired 95% [+6, +29] - a stopped run, not an effect size. See `task.md`
+section 33.2.
+
+### Added
+- `Board::non_pawn_key`: one Zobrist key per colour over its non-pawn pieces, king included, kept
+  incrementally in `make_move` (mover, promoted piece, castling rook, captured piece) and restored on undo.
+- `model::CorrectionTables`: the pawn table plus two non-pawn tables (one per colour's key, each
+  `[side to move][key & 16383]`, 64 KB). The read adds `entry / 32` of both to the pawn correction and
+  clamps the sum once; every table learns the same error at the same place.
+- UCI `EnableCorrectionHistoryNonPawn` (true), `CorrHistNonPawnDiv` (32).
+
+### Notes
+- Off it is tree-identical to v0.49.0 (300/300 on both pools); the keys cost 0.8% throughput.
+  Time to depth 10 with the tables at 32: +2.9% / +0.9%.
+- Smoke gauntlet: 49.0% vs v0.49.0, 58.0% vs v0.48.5, 92.0% vs v0.34.0.
+
+
+
 ## [V0.49.0] - 2026-10-25
 
 A new search component: the pawn-structure Correction History.
