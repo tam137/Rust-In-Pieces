@@ -2411,3 +2411,29 @@ control -1.1% / -0.3%, 300/300; bar +5%): G2048 -2.3% / +1.7%, G512 +3.5% / -1.3
 [0, 10] monitor: **stopped by the owner after 1204 games**, -10.7 Elo, paired 95% [-26, +5]; LLR [0, 5]
 -1.03, [0, 10] -2.46 (H0 at -2.94). Not shipped. A larger cap leans negative; G512 and R24 were not played
 - the owner ended the step. v0.49.0 keeps `CorrHistLimit` 1024 and `CorrHistDiv` 16.
+
+### 33.2 Non-pawn Correction History tables per colour: shipped in v0.49.1 (2026-10-25)
+
+Matt-Magie step 66. The pawn table shares one entry between every position with the same pawns,
+wherever the pieces stand. Published engines add tables keyed by each colour's non-pawn pieces and sum
+the corrections; each sees the position from another angle.
+
+**Code** (`193d56e`, `af54a91`, `94c9427`): `Board::non_pawn_key: [u64; 2]` (index `history_side`), every
+non-pawn piece of one colour with the king, kept incrementally in `make_move` and restored on undo; equal
+to a fresh computation after every move and undo to depth 3 on six positions (castling both sides, en
+passant, promotions with captures); 14/14 identical trees, throughput -0.8%. `CorrectionTables { pawn,
+non_pawn: [_; 2] }` in `SearchTables`: the read adds `entry / CorrHistNonPawnDiv` of both colours to the
+pawn correction and clamps once; without them it is the pawn read of v0.49.0. Every table learns the same
+error at the same place.
+
+**Census** (time to depth 10 against v0.49.0, 300 per pool, + = slower; control +2.7% / +2.5% on a loaded
+host, 300/300): off 300/300 identical on both pools; **divisor 32 +2.9% / +0.9%**, 64 +4.2% / -1.4% - by the
+rule 32 plays. `search-diag`: 0 served-vs-fresh mismatches.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.0, 1s + 150ms, Matt-Magie 1.7.1: the monitor reached
+H1 at about 1900 games; **stopped at the owner's word after 2166 games, accepted** (LLR [0, 10] +3.52, [0, 5]
++2.12): **+17.2 Elo, paired 95% [+6, +29]** - a stopped run, not an effect size. No time losses, design
+effect 1.07. Smoke gauntlet: 49.0% vs v0.49.0, 58.0% vs v0.48.5, 92.0% vs v0.34.0. **Released as v0.49.1.**
+
+**Next:** further tables (minor pieces, material, continuation) each as its own step; the non-pawn divisor
+was chosen by the time bar, not tuned.
