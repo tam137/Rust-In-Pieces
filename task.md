@@ -2395,3 +2395,19 @@ and fell back. **Stopped at 2502 games by [0, 10] H1** (LLR +5.08; [0, 5] +2.93)
 **Next:** the constants were never tuned (`CorrHistDiv`, `CorrHistLimit`, the depth weight); the pruning
 margins were set on the uncorrected evaluation; further tables (material, minor pieces, continuation) and
 the NNUE port each as their own step.
+
+### 33.1 The Correction History constants: the cap 2048 refused, the step ended (2026-10-25)
+
+Matt-Magie step 65. The two UCI constants set two different things: the **cap** of the correction is
+`limit / div` cp (64 in v0.49.0), the **learning rate** per update `diff * depth / (8 * div)` cp depends on
+`div` alone; going from divisor 8 to 16 in section 33 halved both. Plan: the two axes apart - G (cap,
+`div` 16): `CorrHistLimit` 2048 / 512; R (rate, cap 64 cp): `div` 12 / limit 768 and `div` 24 / limit 1536.
+
+**Census** (time to depth 10 against v0.49.0 by `setoption`, 300 per pool, `openings_wide` / `openings_mixed`,
+control -1.1% / -0.3%, 300/300; bar +5%): G2048 -2.3% / +1.7%, G512 +3.5% / -1.3%, **R12/768 +6.8%** / +2.6%
+(over the bar, does not play), R24/1536 +0.3% / -3.0% (+ = slower).
+
+**SPRT G2048** (cap 128 cp, `9a1ef6c` on branch `corrhist-constants`) against v0.49.0, [0, 5] with the
+[0, 10] monitor: **stopped by the owner after 1204 games**, -10.7 Elo, paired 95% [-26, +5]; LLR [0, 5]
+-1.03, [0, 10] -2.46 (H0 at -2.94). Not shipped. A larger cap leans negative; G512 and R24 were not played
+- the owner ended the step. v0.49.0 keeps `CorrHistLimit` 1024 and `CorrHistDiv` 16.
