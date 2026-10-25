@@ -2363,3 +2363,35 @@ of games and about 3 points in 2000 - far below one Elo. Not worth its own step.
 **Matt-Magie 1.7.1 (2026-10-24, step 63):** threefold repetition as FIDE - the position hash now holds the
 castling rights and a capturable en passant square; 1.7.0 once ended a game on a "repetition" whose
 first occurrence had other castling rights. Smoke run 200 games, every draw reason matches python-chess.
+
+
+## 33. The pawn-structure Correction History: shipped in v0.49.0 (2026-10-25)
+
+Matt-Magie step 64. Half of the Texel error of section 31 sits in middlegames with equal material - the
+uncertainty of the evaluation, not a missing term - and five search rules read the raw static evaluation
+(Reverse Futility, the Null Move gate, razoring, Futility, `improving`). **Correction History** learns
+during the search how far the result missed the static evaluation in each pawn structure.
+
+**Code** (`9937bfb`, `4cc6dbb`, `5775d5d`): `CorrectionHistory` in `SearchTables`, `[side][pawn_key &
+16383]`, side-relative `i16`, cleared on `ucinewgame`, not aged; one `&mut` parameter of `minimax` beside
+the history. Read: `raw + entry / CorrHistDiv`, clamped to +-29 999, in the main search (all readers of
+`static_eval`) and the stand pat; the Transposition Table entry keeps the raw value (`search-diag` served
+against fresh: 0 mismatches on both pools). Update at the node-end store, only out of check, outside the
+singular verification, over a full raw evaluation, with no capture or promotion as best move, no mate
+score, and a bound that agrees with the error; `bonus = clamp(diff * depth / 8, +-limit / 4)`, gravity
+against `CorrHistLimit` 1024. Two single-position node-count tests (NMP, futility) flipped with it on and
+now measure with it off, where they pass unchanged.
+
+**Census** (time to depth 10 against v0.48.5, 300 per pool, `openings_wide` / `openings_mixed`, control
+-2.0% / -0.9% on a loaded host): off 300/300 identical trees on both; divisor 8 (at most 128 cp) **+5.1% /
++11.0%** time, over the +10% stop; **divisor 16 (at most 64 cp) +0.3% / +5.2%** - the owner chose 16.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.48.5, 1s + 150ms, Matt-Magie 1.7.1, at the owner's
+word no stop before 2500 games: the monitor reached H1 at about 950 games, [0, 5] was at H1 between about 1900 and 2140
+and fell back. **Stopped at 2502 games by [0, 10] H1** (LLR +5.08; [0, 5] +2.93): **+21.1 Elo, paired 95%
+[+10, +32]** - a stopped run, not an effect size. No time losses, design effect 1.03. Smoke gauntlet:
+55.5% vs v0.48.5, 54.0% vs v0.48.4, 98.5% vs v0.34.0. **Released as v0.49.0.**
+
+**Next:** the constants were never tuned (`CorrHistDiv`, `CorrHistLimit`, the depth weight); the pruning
+margins were set on the uncorrected evaluation; further tables (material, minor pieces, continuation) and
+the NNUE port each as their own step.
