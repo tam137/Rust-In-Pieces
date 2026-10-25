@@ -450,6 +450,11 @@ pub struct Config {
     pub corr_hist_limit: i32,
     /// An entry is read as `entry / corr_hist_div` centipawns.
     pub corr_hist_div: i16,
+    /// Matt-Magie step 66: the two non-pawn Correction History tables (one per colour's pieces)
+    /// added to the pawn table's correction. Learns only when the Correction History is on.
+    pub enable_correction_history_non_pawn: bool,
+    /// A non-pawn entry is read as `entry / corr_hist_non_pawn_div` centipawns.
+    pub corr_hist_non_pawn_div: i16,
     pub log_path: std::sync::Arc<str>,
 }
 
@@ -744,6 +749,8 @@ impl Config {
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
+            enable_correction_history_non_pawn: false,
+            corr_hist_non_pawn_div: 32,
             log_path: std::sync::Arc::from(""),
         }
     }
@@ -1244,7 +1251,19 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "16"), UciOptionEffect::Stored);
             assert_eq!(config.corr_hist_div, 16);
         }
+        for spelling in ["EnableCorrectionHistoryNonPawn", "enable_correction_history_non_pawn", "enablecorrectionhistorynonpawn"] {
+            let mut config = Config::new();
+            config.enable_correction_history_non_pawn = false;
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.enable_correction_history_non_pawn);
+        }
+        for spelling in ["CorrHistNonPawnDiv", "corr_hist_non_pawn_div", "corrhistnonpawndiv"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "48"), UciOptionEffect::Stored);
+            assert_eq!(config.corr_hist_non_pawn_div, 48);
+        }
         let defaults = Config::new();
+        assert_eq!(defaults.corr_hist_non_pawn_div, 32);
         assert!(defaults.enable_correction_history, "on in the candidate of step 64");
         assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 16));
     }
@@ -1436,6 +1455,8 @@ impl Config {
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
             "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },
+            "enablecorrectionhistorynonpawn" => self.enable_correction_history_non_pawn = value.eq_ignore_ascii_case("true"),
+            "corrhistnonpawndiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_non_pawn_div = v; },
             "enablelmp" => self.enable_lmp = value.eq_ignore_ascii_case("true"),
             "lmpmaxdepth" => if let Ok(v) = value.parse::<i32>() { self.lmp_max_depth = v; },
             "lmpbasemoves" => if let Ok(v) = value.parse::<i32>() { self.lmp_base_moves = v; },
