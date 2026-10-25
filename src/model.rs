@@ -629,6 +629,8 @@ pub struct MoveInformation {
     pub castle_information: CastleInformation,
     pub hash: u64,
     pub pawn_key: u64,
+    /// `Board::non_pawn_key` as it stood before the move, restored on undo.
+    pub non_pawn_key: [u64; 2],
     pub en_passante: i8,
     pub capture: u8,
     pub moved_piece: u8,
@@ -640,11 +642,12 @@ pub struct MoveInformation {
 
 impl MoveInformation {
     // Constructor
-    pub fn new(castle_information: CastleInformation, hash: u64, pawn_key: u64, en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16, old_irreversible_floor: usize) -> Self {
+    pub fn new(castle_information: CastleInformation, hash: u64, pawn_key: u64, non_pawn_key: [u64; 2], en_passante: i8, capture: u8, moved_piece: u8, old_pst_mg: i16, old_pst_eg: i16, old_irreversible_floor: usize) -> Self {
         MoveInformation {
             castle_information,
             hash,
             pawn_key,
+            non_pawn_key,
             en_passante,
             capture,
             moved_piece,
@@ -697,6 +700,9 @@ pub struct Board {
     pub search_root_len: usize,
     pub cached_hash: u64,
     pub pawn_key: u64,
+    /// The key of every non-pawn piece of each colour, king included, indexed by
+    /// [`history_side`]; see [`zobrist::gen_non_pawn_hash`] (Matt-Magie step 66).
+    pub non_pawn_key: [u64; 2],
     pub pst_mg: i16,
     pub pst_eg: i16,
     pub _white_king_on_board: bool,
@@ -780,6 +786,7 @@ impl Board {
             search_root_len: usize::MAX,
             cached_hash: 0,
             pawn_key: 0,
+            non_pawn_key: [0; 2],
             pst_mg,
             pst_eg,
             _white_king_on_board,
@@ -787,6 +794,7 @@ impl Board {
         };
         board.cached_hash = zobrist::gen_hash(&board);
         board.pawn_key = zobrist::gen_pawn_hash(&board);
+        board.non_pawn_key = [zobrist::gen_non_pawn_hash(&board, true), zobrist::gen_non_pawn_hash(&board, false)];
         board
     }
 
@@ -860,6 +868,7 @@ impl Board {
         let old_pst_mg = self.pst_mg;
         let old_pst_eg = self.pst_eg;
         let old_pawn_key = self.pawn_key;
+        let old_non_pawn_key = self.non_pawn_key;
 
         let mut actual_capture = turn.capture;
         if actual_capture == 0 {
@@ -1076,14 +1085,39 @@ impl Board {
             let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
             self.pawn_key ^= zobrist::get_zobrist_val(capture_sq as usize, capture_bb_idx);
         }
+        // Update the non-pawn keys: the mover's piece (or the piece a pawn promotes to), the rook of
+        // a castling move, and a captured non-pawn piece of the other colour.
+        let mover = history_side((10..=15).contains(&moved_piece));
+        if is_pawn {
+            if turn.is_promotion() {
+                self.non_pawn_key[mover] ^= zobrist::get_zobrist_val(to as usize, Board::piece_to_bb_idx(turn.promotion));
+            }
+        } else {
+            self.non_pawn_key[mover] ^= zobrist::get_zobrist_val(from as usize, moved_bb_idx)
+                ^ zobrist::get_zobrist_val(to as usize, moved_bb_idx);
+            if (moved_piece == 15 || moved_piece == 25) && (to as i8 - from as i8).abs() == 2 {
+                let (rook, rook_from, rook_to) = match to {
+                    6 => (WHITE_ROOK, 7, 5),
+                    2 => (WHITE_ROOK, 0, 3),
+                    62 => (BLACK_ROOK, 63, 61),
+                    _ => (BLACK_ROOK, 56, 59),
+                };
+                self.non_pawn_key[mover] ^= zobrist::get_zobrist_val(rook_from, rook)
+                    ^ zobrist::get_zobrist_val(rook_to, rook);
+            }
+        }
+        if actual_capture != 0 && actual_capture != 10 && actual_capture != 20 {
+            self.non_pawn_key[1 - mover] ^= zobrist::get_zobrist_val(to as usize, Board::piece_to_bb_idx(actual_capture));
+        }
 
-        MoveInformation::new(old_castle_information, old_cached_hash, old_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg, old_irreversible_floor)
+        MoveInformation::new(old_castle_information, old_cached_hash, old_pawn_key, old_non_pawn_key, old_field_for_en_passante, actual_capture, moved_piece, old_pst_mg, old_pst_eg, old_irreversible_floor)
     }
 
 
     pub fn undo_move(&mut self, turn: &Turn, move_information: MoveInformation) {
         self.cached_hash = move_information.hash;
         self.pawn_key = move_information.pawn_key;
+        self.non_pawn_key = move_information.non_pawn_key;
         self.pst_mg = move_information.old_pst_mg;
         self.pst_eg = move_information.old_pst_eg;
 
@@ -1256,6 +1290,7 @@ impl PartialEq for Board {
             self.game_status == other.game_status &&
             self.bitboards == other.bitboards &&
             self.pawn_key == other.pawn_key &&
+            self.non_pawn_key == other.non_pawn_key &&
             self.history_hashes[..self.history_len] == other.history_hashes[..other.history_len]
     }
 }

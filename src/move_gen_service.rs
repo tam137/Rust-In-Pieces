@@ -2235,6 +2235,70 @@ mod tests {
         }
     }
 
+    /// Matt-Magie step 66: the two non-pawn keys (every non-pawn piece of one colour, the king
+    /// included) are kept incrementally and must equal a fresh computation after every move and
+    /// every undo - castling, en passant, promotions and captures included.
+    #[test]
+    fn test_non_pawn_key_consistency() {
+        let service = Service::new();
+        let fens = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+            "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+            "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+            "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+        ];
+
+        fn check(board: &Board, service: &Service, context: &str) {
+            for white in [true, false] {
+                let expected = crate::zobrist::gen_non_pawn_hash(board, white);
+                assert_eq!(board.non_pawn_key[crate::model::history_side(white)], expected,
+                    "non-pawn key ({}) mismatch {} at FEN: {}",
+                    if white { "White" } else { "Black" }, context, service.fen.get_fen(board));
+            }
+        }
+
+        fn check_recursive(board: &mut Board, service: &Service, depth: i32) {
+            check(board, service, "on entry");
+            if depth == 0 {
+                return;
+            }
+            let moves = generate_valid_moves_list(board);
+            for m in &moves {
+                let move_info = board.do_move(m);
+                check_recursive(board, service, depth - 1);
+                board.undo_move(m, move_info);
+                check(board, service, &format!("after undo of {}", m.to_algebraic()));
+            }
+        }
+
+        for fen in fens {
+            let mut board = service.fen.set_fen(fen);
+            check_recursive(&mut board, &service, 3);
+        }
+    }
+
+    /// A pawn move that neither captures nor promotes leaves both non-pawn keys alone, and a quiet
+    /// piece move changes only the mover's key.
+    #[test]
+    fn test_non_pawn_keys_move_only_with_their_own_pieces() {
+        let service = Service::new();
+        let mut board = service.fen.set_init_board();
+        let before = board.non_pawn_key;
+        let e4 = generate_valid_moves_list(&mut board).into_iter()
+            .find(|m| m.to_algebraic() == "e2e4").expect("e2e4 is generated");
+        board.do_move(&e4);
+        assert_eq!(board.non_pawn_key, before, "a pawn push changes no non-pawn key");
+        let nf6 = generate_valid_moves_list(&mut board).into_iter()
+            .find(|m| m.to_algebraic() == "g8f6").expect("g8f6 is generated");
+        board.do_move(&nf6);
+        assert_eq!(board.non_pawn_key[crate::model::history_side(true)], before[0],
+                   "a Black knight move leaves White's key alone");
+        assert_ne!(board.non_pawn_key[crate::model::history_side(false)], before[1],
+                   "and changes Black's");
+    }
+
     #[test]
     fn test_generate_moves_list_bitboard_consistency() {
         let service = Service::new();
