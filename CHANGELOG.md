@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.0] - 2026-10-25
+
+A new search component: the pawn-structure Correction History.
+**SPRT [0, 10]: H1 after 2502 games** at 1s + 150ms against v0.48.5 ([0, 5] +2.93, just open), +21.1
+Elo, paired 95% [+10, +32] - a stopped run, not an effect size. See `task.md` section 33.
+
+### Added
+- `model::CorrectionHistory`: `[side to move][pawn_key & 16383]`, 64 KB in `SearchTables`, cleared on
+  `ucinewgame`, not aged. The main search (every reader of `static_eval`, `improving` included) and
+  the Quiescence Search stand pat read `raw + entry / 16`, clamped below the mate band; the
+  Transposition Table keeps the raw evaluation.
+- The update at the end of a main-search node: not in check, not the singular verification, a full
+  raw evaluation, no capture or promotion as best move, no mate score, and only in the direction the
+  bound proves; `bonus = clamp(diff * depth / 8, +-256)` with the history gravity against 1024.
+- UCI `EnableCorrectionHistory` (true), `CorrHistLimit` (1024), `CorrHistDiv` (16).
+
+### Notes
+- Off it is tree-identical to v0.48.5 (300/300 on both pools). Divisor 8 (at most 128 cp) cost
+  +5.1% / +11.0% time to depth 10, over the +10% stop; 16 costs +0.3% / +5.2%.
+- Smoke gauntlet: 55.5% vs v0.48.5, 54.0% vs v0.48.4, 98.5% vs v0.34.0.
+
+
+
 ## [V0.48.5] - 2026-10-24
 
 A new evaluation feature: endgame scale factors chosen by material signature, fitted by Texel.
