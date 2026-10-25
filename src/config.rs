@@ -749,7 +749,7 @@ impl Config {
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
-            enable_correction_history_non_pawn: false,
+            enable_correction_history_non_pawn: true,
             corr_hist_non_pawn_div: 32,
             log_path: std::sync::Arc::from(""),
         }
@@ -1264,6 +1264,7 @@ mod tests {
         }
         let defaults = Config::new();
         assert_eq!(defaults.corr_hist_non_pawn_div, 32);
+        assert!(defaults.enable_correction_history_non_pawn, "on in the candidate of step 66");
         assert!(defaults.enable_correction_history, "on in the candidate of step 64");
         assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 16));
     }
