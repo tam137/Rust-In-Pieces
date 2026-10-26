@@ -2437,3 +2437,29 @@ effect 1.07. Smoke gauntlet: 49.0% vs v0.49.0, 58.0% vs v0.48.5, 92.0% vs v0.34.
 
 **Next:** further tables (minor pieces, material, continuation) each as its own step; the non-pawn divisor
 was chosen by the time bar, not tuned.
+
+## 34. SEE piece values on the evaluation scale: refused (2026-10-26)
+
+Matt-Magie step 67. The Static Exchange Evaluation still valued the pieces 100 / 300 / 300 / 500 / 950
+(unchanged since about V0.11.0, never measured), while the evaluation's material is Texel-fitted (v0.48.3:
+MG 86 / 420 / 436 / 583 / 1402, EG 135 / 437 / 463 / 792 / 1423). The two scales disagree in sign on some
+exchanges: queen for two rooks +50 on the SEE scale, -236 in the middlegame evaluation.
+
+**Candidate** (`5553c33` on branch `see-values`): SEE values the mean of MG and EG with knight = bishop,
+111 / 440 / 440 / 688 / 1413; `bad_capture_see_threshold` -50 -> -73 (non-pawn sum 2981 / 2050), fixed
+before any measurement. Tests red first (queen for two rooks -37, defended BxN and NxB 0, a minor for a
+defended pawn pruned to depth 4); `test_futility_pruning_node_reduction` flipped at depth 9 and was
+re-sampled at depth 7 with the same claim. Opcode histograms of both binaries identical (constants only).
+
+**Census** (time to depth 10 against v0.49.1, 300 per pool, `openings_wide` / `openings_mixed`, control
++0.5% / +0.2% at 300/300; + = candidate faster): **+3.1% / +2.7%**; with the old threshold -50 by
+`setoption` +3.2% / +3.0% - the values, not the threshold, make the smaller tree.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.1, 1s + 150ms, Matt-Magie 1.7.1, `openings_wide`:
+the estimate peaked at about +11 Elo near 2800 games ([0, 10] LLR +2.2, [0, 5] +2.3 at 8000) and then fell
+steadily; [0, 10] **H0** at about 11 900 games. **Stopped by the owner after 12 616 games** ("wir verwerfen
+die Änderung"): +4249 =4200 -4168, **+2.2 Elo, paired 95% [-3, +7]**; LLR [0, 5] -0.22 undecided. No time
+losses, no illegal moves. Not shipped; `master` keeps 100 / 300 / 300 / 500 / 950 and -50.
+
+**Reading:** aligning the SEE with the evaluation shrinks the tree by about 3% but is worth at most a few
+Elo, below the owner's +5 bar. Like futility (29.17, 29.20), the scale alone does not set a search margin.
