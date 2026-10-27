@@ -2463,3 +2463,31 @@ losses, no illegal moves. Not shipped; `master` keeps 100 / 300 / 300 / 500 / 95
 
 **Reading:** aligning the SEE with the evaluation shrinks the tree by about 3% but is worth at most a few
 Elo, below the owner's +5 bar. Like futility (29.17, 29.20), the scale alone does not set a search margin.
+
+## 35. A Correction History keyed by the last move: refused (2026-10-27)
+
+Matt-Magie step 68. The pawn table (33) and the non-pawn tables (33.2) key the correction by what the
+position looks like; this table keys it by what just happened - the type of the piece that made the last
+move and its destination, `[side to move][piece type][to]`, 768 entries. The key is the piece standing on
+`turn.to` (the promoted piece after a promotion, the king after castling); a null child, whose `turn` is
+the move before the null move and whose piece is then the mover's own, has none. The table reuses
+`CorrectionHistory` (a key below 384 indexes it without a collision), read at entry / `CorrHistContDiv`
+beside the other two, same update and conditions.
+
+**Code** (`2143afe` off, `d5e0243` on at divisor 32, branch `corrhist-cont`): off 300/300 identical to
+v0.49.1 on both pools; the candidate identical to the census configuration (100/100); cost on an
+identical tree (on, `CorrHistContDiv=2048`, whose contribution is always 0) -0.6% / -0.2% against a
+control of +0.3% / +0.5% (a first run on a loaded host read -2.5%); `search-diag` 0 mismatches.
+
+**Census** (time to depth 10 against v0.49.1, 300 per pool, control -0.8% / +0.2%, + = candidate
+faster): **divisor 32 +3.0% / +4.5%**, 64 +4.8% / +3.4%; by the rule 32 plays.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.1, 1s + 150ms, Matt-Magie 1.7.1: the estimate
+sat at 0 to +3 for 6000 games, climbed to +5.6 near 10 000 ([0, 5] LLR +2.11) and fell back; [0, 10] **H0**
+at about 11 900 games. **Stopped by the owner after 12 518 games** ("wir verwerfen die änderung"):
++4190 =4246 -4083, **+2.9 Elo, paired 95% [-2, +8]**; LLR [0, 5] +0.37 undecided. No time losses, no
+illegal moves. Not shipped; `master` keeps the pawn and non-pawn tables of v0.49.1.
+
+**Reading:** the third table makes the tree 3-4% smaller and is worth at most a few Elo, below the owner's
++5 bar. The two earlier tables (+21, +17, stopped runs) took most of what the Correction History offers
+here; the two-move pair key is not worth a run on this result alone.
