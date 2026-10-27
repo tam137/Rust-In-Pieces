@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.2] - 2026-10-27
+
+The singular verification's third answer is read: when another move reaches the table score too, the
+table move is searched one ply shallower in non-PV nodes. **SPRT [0, 10]: H1** after 2986 games at
+1s + 150ms against v0.49.1 ([0, 5] +2.00, open), +12.7 Elo, paired 95% [+3, +23] - a stopped run, not an
+effect size. See `task.md` section 36.
+
+### Added
+- Negative Singular Extension: not singular and `threshold < beta` in a non-PV node -> the table move's
+  child depth `depth - 2` (extension -1, no re-search). The PV is never shortened; the multicut and the
+  +1 extension are unchanged. The rule fires at about 39% of verifications.
+- UCI `EnableSingularNegativeExtension` (true).
+- `search-diag`: `SEARCHDIAGSINGOUT`, verification outcomes (singular / multicut / neither) per PV and
+  non-PV node.
+
+### Notes
+- Off it is tree-identical to v0.49.1 (300/300 on both pools). Time to depth 10: -12.8% / -14.7%.
+- Smoke gauntlet: 52.5% vs v0.49.1, 57.0% vs v0.49.0, 97.0% vs v0.34.0.
+
+
+
 ## [V0.49.1] - 2026-10-25
 
 The Correction History learns the placement of each colour's pieces beside the pawn structure.
