@@ -62,6 +62,19 @@ impl SingularVerdict {
     }
 }
 
+/// How a child is searched, for the expected-cut-node flag (Matt-Magie step 70).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ChildSearch {
+    /// A move searched to its full depth, at the node's window or at a null window.
+    FullDepth,
+    /// A move searched at a reduced depth (Late Move Reductions) over a null window.
+    Reduced,
+    /// The null move.
+    NullMove,
+    /// The same node again: a verification search with the same side to move.
+    SameNode,
+}
+
 impl SearchService {
 
     pub fn new() -> Self {
@@ -276,7 +289,8 @@ impl SearchService {
 
                 let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, scout);
                 let first_eval = completed(self.minimax(board, turn, depth - 1,
-                    child_alpha, child_beta, stats, config, service, &child_context, !scout, false, None, child_pv,
+                    child_alpha, child_beta, stats, config, service, &child_context, !scout,
+                    Self::child_cut_node(ChildSearch::FullDepth, !scout, false), false, None, child_pv,
                     1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *correction_history, &mut *counter_moves, deeper).1);
                 let (scout_eval, mut full_eval) = if scout { (first_eval, None) } else { (None, first_eval) };
 
@@ -289,7 +303,8 @@ impl SearchService {
                 if re_searched {
                     let (child_alpha, child_beta) = Self::root_child_window(white, current_alpha, current_beta, false);
                     full_eval = completed(self.minimax(board, turn, depth - 1,
-                        child_alpha, child_beta, stats, config, service, &child_context, true, false, None, child_pv,
+                        child_alpha, child_beta, stats, config, service, &child_context, true,
+                        Self::child_cut_node(ChildSearch::FullDepth, true, false), false, None, child_pv,
                         1, &mut *killer_moves, &mut static_eval_stack, &mut *history_table, &mut *correction_history, &mut *counter_moves, deeper).1);
                 }
                 // The clock cut the re-search of a move already proven better than the best so far.
@@ -647,7 +662,7 @@ impl SearchService {
     /// recursion follows a `do_move` or a null move, and negates both.
     fn minimax(&self, board: &mut Board, turn: &Turn, mut depth: i32,
         mut alpha: i16, mut beta: i16, stats: &mut Stats, config: &Config, service: &Service,
-        context: &SearchContext, is_pv: bool,
+        context: &SearchContext, is_pv: bool, cut_node: bool,
         skip_null_move: bool,
         excluded_move: Option<Turn>,
         pv: &mut [Option<Turn>; 128],
@@ -658,6 +673,7 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers])
         -> (Option<Turn>, i16) {
+        debug_assert!(!(is_pv && cut_node), "a PV node is never an expected cut node");
 
         // The two properties the whole negamax conversion rests on. `white` used to be threaded
         // through as a parameter and was always the board's own side to move; and `get_moves`
@@ -999,7 +1015,7 @@ impl SearchService {
             let null_eval = -self.minimax(
                 board, turn, reduced_depth,
                 -beta, -beta + 1, stats, config, service, context,
-                is_pv, true, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                is_pv, Self::child_cut_node(ChildSearch::NullMove, is_pv, cut_node), true, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
             ).1;
 
             // Undo Null Move
@@ -1023,7 +1039,7 @@ impl SearchService {
                     let verify_eval = self.minimax(
                         board, turn, reduced_depth,
                         alpha, beta, stats, config, service, context,
-                        is_pv, true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                        is_pv, Self::child_cut_node(ChildSearch::SameNode, is_pv, cut_node), true, None, child_pv, ply, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
                     static_eval_stack[ply_idx] = own_static_eval;
 
@@ -1086,7 +1102,7 @@ impl SearchService {
             let razor_eval = self.minimax(
                 board, turn, 0,
                 alpha, alpha + 1, stats, config, service, context,
-                false, skip_null_move, None, child_pv, ply, killer_moves, static_eval_stack, history_table,
+                false, Self::child_cut_node(ChildSearch::SameNode, false, cut_node), skip_null_move, None, child_pv, ply, killer_moves, static_eval_stack, history_table,
                 correction_history, counter_moves, deeper
             ).1;
             static_eval_stack[ply_idx] = own_static_eval;
@@ -1371,7 +1387,8 @@ impl SearchService {
                 // overlaps with the rest of the move, move generation and evaluation.
                 let mi = board.do_move_prefetching(capture_turn, context.zobrist_table);
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
-                    -beta, -alpha, stats, config, service, &current_context, true, false, None, child_pv,
+                    -beta, -alpha, stats, config, service, &current_context, true,
+                    Self::child_cut_node(ChildSearch::FullDepth, true, cut_node), false, None, child_pv,
                     ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper).1;
                 board.undo_move(capture_turn, mi);
 
@@ -1693,7 +1710,7 @@ impl SearchService {
                 && Some(*current_turn) == tt_move
             {
                 self.singular_verdict(
-                    board, turn, depth, ply, tt_entry, *current_turn,
+                    board, turn, depth, ply, cut_node, tt_entry, *current_turn,
                     stats, config, service, context, killer_moves, static_eval_stack, history_table, correction_history, counter_moves,
                     child_pv, deeper,
                 )
@@ -1828,7 +1845,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, reduced_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                        false, Self::child_cut_node(ChildSearch::Reduced, false, cut_node), false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
 
                     #[cfg(feature = "search-diag")]
@@ -1847,7 +1864,7 @@ impl SearchService {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -alpha - 1, -alpha, stats, config, service, &current_context,
-                        false, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                        false, Self::child_cut_node(ChildSearch::FullDepth, false, cut_node), false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
 
                     // The null window only proved the move is not worse than the best so far.
@@ -1856,14 +1873,14 @@ impl SearchService {
                         min_max_eval = -self.minimax(
                             board, current_turn, child_depth,
                             -beta, -alpha, stats, config, service, &current_context,
-                            true, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                            true, Self::child_cut_node(ChildSearch::FullDepth, true, cut_node), false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                         ).1;
                     }
                 } else {
                     min_max_eval = -self.minimax(
                         board, current_turn, child_depth,
                         -beta, -alpha, stats, config, service, &current_context,
-                        is_pv, false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
+                        is_pv, Self::child_cut_node(ChildSearch::FullDepth, is_pv, cut_node), false, None, child_pv, ply + 1, killer_moves, static_eval_stack, history_table, correction_history, counter_moves, deeper
                     ).1;
                 }
             }
@@ -2077,7 +2094,7 @@ impl SearchService {
     /// verified and found wanting. The caller reads a refusal as "no extension and no cut".
     #[allow(clippy::too_many_arguments)]
     fn singular_verification(&self, board: &mut Board, turn: &Turn, depth: i32,
-        ply: i32,
+        ply: i32, cut_node: bool,
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
@@ -2123,7 +2140,7 @@ impl SearchService {
         let eval = self.minimax(
             board, turn, verification_depth,
             threshold - 1, threshold, stats, config, service, context,
-            false, true, Some(tt_move), pv_buffer, ply, killer_moves, static_eval_stack, history_table,
+            false, Self::child_cut_node(ChildSearch::SameNode, false, cut_node), true, Some(tt_move), pv_buffer, ply, killer_moves, static_eval_stack, history_table,
             correction_history, counter_moves, buffers,
         ).1;
         Some(SingularVerdict { eval, threshold })
@@ -2135,7 +2152,7 @@ impl SearchService {
     /// on, and the node delta is taken around the call rather than inside it so the measurement
     /// cannot reach into the search it measures.
     #[allow(clippy::too_many_arguments)]
-    fn singular_verdict(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32,
+    fn singular_verdict(&self, board: &mut Board, turn: &Turn, depth: i32, ply: i32, cut_node: bool,
         tt_entry: Option<(i16, i32, crate::zobrist::TranspositionType)>, tt_move: Turn,
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
@@ -2150,7 +2167,7 @@ impl SearchService {
         let nodes_before = stats.calculated_nodes as u64;
 
         let verdict = self.singular_verification(
-            board, turn, depth, ply, tt_entry, tt_move,
+            board, turn, depth, ply, cut_node, tt_entry, tt_move,
             stats, config, service, context, killer_moves, static_eval_stack, history_table, correction_history, counter_moves,
             pv_buffer, buffers,
         );
@@ -2164,6 +2181,23 @@ impl SearchService {
         );
 
         verdict
+    }
+
+    /// Whether a child is an expected cut node, after Stockfish (Matt-Magie step 70).
+    ///
+    /// A PV child never is. A reduced search is a null-window probe that expects the move to fail
+    /// low, i.e. its child to cut. A full-depth child (at the node's own window or a null window)
+    /// and the null move alternate the expectation: a cut node's children are all nodes and an
+    /// all node's children are cut nodes. A verification re-enters the same node and keeps it.
+    fn child_cut_node(kind: ChildSearch, child_is_pv: bool, parent_cut: bool) -> bool {
+        if child_is_pv {
+            return false;
+        }
+        match kind {
+            ChildSearch::Reduced => true,
+            ChildSearch::FullDepth | ChildSearch::NullMove => !parent_cut,
+            ChildSearch::SameNode => parent_cut,
+        }
     }
 
     /// The table move's extension from the singular verification, Matt-Magie step 69.
@@ -3622,6 +3656,27 @@ mod tests {
             "the search must still return a root move with the multicut enabled");
     }
 
+    /// Matt-Magie step 70: the expected-cut-node flag of a child, after Stockfish. A PV child is
+    /// never a cut node; a reduced (LMR) search expects a cut; a full-depth child searched at a
+    /// node's own window or a null window - and the null move - flips the parent's expectation;
+    /// a search of the same node (a verification) keeps it.
+    #[test]
+    fn test_child_cut_node_follows_the_published_propagation() {
+        use super::ChildSearch::*;
+        let child = super::SearchService::child_cut_node;
+        for parent_cut in [false, true] {
+            assert!(!child(FullDepth, true, parent_cut), "a PV child is never a cut node");
+            assert!(!child(Reduced, true, parent_cut), "not even when reduced");
+            assert!(child(Reduced, false, parent_cut), "a reduced null-window child expects a cut");
+            assert_eq!(child(FullDepth, false, parent_cut), !parent_cut, "full depth flips");
+            assert_eq!(child(NullMove, false, parent_cut), !parent_cut, "the null move flips");
+            assert_eq!(child(SameNode, false, parent_cut), parent_cut, "a verification keeps it");
+        }
+        // The root is a PV node: its first move is a PV child, its scouts are cut nodes.
+        assert!(!child(FullDepth, true, false));
+        assert!(child(FullDepth, false, false));
+    }
+
     /// Matt-Magie step 69: every outcome of the singular verification and what it does to the
     /// table move's child depth. The multicut case (`threshold >= beta`) returns before the
     /// extension is read when the multicut is on; with it off the function still answers 0.
@@ -4615,6 +4670,7 @@ mod tests {
             &context,
             false,
             false,
+            false,
             None,
             &mut pv,
             1,
@@ -5008,7 +5064,7 @@ mod tests {
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
-            false, false, None, &mut pv, ply, &mut killer_moves, static_eval_stack,
+            false, false, false, None, &mut pv, ply, &mut killer_moves, static_eval_stack,
             &mut history, &mut crate::model::CorrectionTables::new(), &mut counter_moves, &mut crate::model::new_search_buffers(),
         );
         (score, board, stats.calculated_nodes)
@@ -5340,7 +5396,7 @@ mod tests {
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
         service.search.minimax(
             board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
-            false, false, None, &mut pv, 1, &mut killer_moves,
+            false, false, false, None, &mut pv, 1, &mut killer_moves,
             &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut history,
             &mut crate::model::CorrectionTables::new(), &mut counter_moves,
             &mut crate::model::new_search_buffers(),
