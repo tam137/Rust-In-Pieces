@@ -750,7 +750,7 @@ impl Config {
             singular_margin: 0,
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
-            enable_singular_negative_extension: false,
+            enable_singular_negative_extension: true,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1285,7 +1285,8 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.enable_singular_negative_extension);
         }
-        assert!(!Config::new().enable_singular_negative_extension, "off until step 69's census");
+        assert!(Config::new().enable_singular_negative_extension,
+            "on in the candidate of step 69 (census: -12.8% / -14.7% time to depth 10)");
     }
 
     #[test]
