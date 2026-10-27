@@ -153,6 +153,11 @@ mod counters {
     pub static SINGULAR_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
     /// Extensions granted, by the same depth index.
     pub static SINGULAR_EXT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Matt-Magie step 69: every answered verification by node type (`[0]` non-PV, `[1]` PV) and
+    /// outcome (`[0]` singular, `[1]` not singular with `threshold >= beta` - the multicut's
+    /// case, `[2]` not singular below `beta` - the negative extension's population).
+    pub static SINGULAR_OUTCOMES: [[AtomicU64; 3]; 2] =
+        [const { [const { AtomicU64::new(0) }; 3] }; 2];
 
     // ---------------------------------------------------------------------------------------
     // Null Move Pruning, for `task.md` 20.1 and 20.2.
@@ -613,6 +618,18 @@ pub fn record_singular(depth: i32, verified: bool, extended: bool, verify_nodes:
     }
 }
 
+/// Records the outcome of one answered singular verification, for Matt-Magie step 69: which of
+/// the three readings it gives and whether the node is on the Principal Variation.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_singular_outcome(is_pv: bool, singular: bool, at_or_above_beta: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        let outcome = if singular { 0 } else if at_or_above_beta { 1 } else { 2 };
+        counters::bump(&counters::SINGULAR_OUTCOMES[is_pv as usize][outcome]);
+    }
+}
+
 /// Records one node that reached Null Move Pruning's pre-20.1 guards, for `task.md` 20.1 and 20.2.
 ///
 /// `pv_blocked` and `gate_blocked` are the two new guards' verdicts on this node, taken
@@ -932,6 +949,13 @@ pub fn dump() {
             counters::read(&counters::SINGULAR_VERIFY_NODES),
             by_depth(&counters::SINGULAR_BY_DEPTH),
             by_depth(&counters::SINGULAR_EXT_BY_DEPTH),
+        );
+        let outcome = |pv: usize, kind: usize| counters::read(&counters::SINGULAR_OUTCOMES[pv][kind]);
+        eprintln!(
+            "SEARCHDIAGSINGOUT nonpv_singular={} nonpv_multicut={} nonpv_neither={} \
+             pv_singular={} pv_multicut={} pv_neither={}",
+            outcome(0, 0), outcome(0, 1), outcome(0, 2),
+            outcome(1, 0), outcome(1, 1), outcome(1, 2),
         );
         eprintln!(
             "SEARCHDIAGNMP candidates={} pv_blocked={} gate_blocked={} searches={} cuts={} \

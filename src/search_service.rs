@@ -1702,7 +1702,12 @@ impl SearchService {
             };
             static_eval_stack[ply_idx] = own_static_eval;
 
-            let singular_extension = matches!(singular_verdict, Some(v) if v.is_singular());
+            #[cfg(feature = "search-diag")]
+            if let Some(verdict) = singular_verdict {
+                crate::search_diag::record_singular_outcome(
+                    is_pv, verdict.is_singular(), verdict.threshold >= beta,
+                );
+            }
 
             // Singular-beta multicut: the verification search's *other* answer.
             //
@@ -1727,7 +1732,13 @@ impl SearchService {
                 }
             }
 
-            let extension = if check_extension || singular_extension { 1 } else { 0 };
+            // The check extension and the singular verification exclude each other: the
+            // verification only runs without a check extension.
+            let extension = if check_extension {
+                1
+            } else {
+                Self::singular_child_extension(singular_verdict, beta, is_pv, config)
+            };
             let child_depth = depth - 1 + extension;
 
             // And for Late Move Reductions, through the same helper the rule itself uses.
@@ -2153,6 +2164,26 @@ impl SearchService {
         );
 
         verdict
+    }
+
+    /// The table move's extension from the singular verification, Matt-Magie step 69.
+    ///
+    /// * no verdict (no candidate, or a refused entry) -> 0;
+    /// * singular -> +1;
+    /// * not singular with `threshold < beta`, in a non-PV node, with the option on -> -1: some
+    ///   other move reaches the table score too, so the table move does not carry the node alone
+    ///   and is searched one ply shallower. The verification is already paid for.
+    ///
+    /// Not singular with `threshold >= beta` is the multicut's case; with the multicut on the node
+    /// has returned before this is read, with it off the move keeps its depth. The PV is never
+    /// shortened (D1a): there the table move is almost always the PV move.
+    fn singular_child_extension(verdict: Option<SingularVerdict>, beta: i16, is_pv: bool,
+        config: &Config) -> i32 {
+        match verdict {
+            Some(v) if v.is_singular() => 1,
+            Some(v) if config.enable_singular_negative_extension && !is_pv && v.threshold < beta => -1,
+            _ => 0,
+        }
     }
 
     /// Is the side to move doing better than it was two plies ago? `task.md` 21.1.
@@ -3589,6 +3620,105 @@ mod tests {
 
         assert!(!result.variants.is_empty(),
             "the search must still return a root move with the multicut enabled");
+    }
+
+    /// Matt-Magie step 69: every outcome of the singular verification and what it does to the
+    /// table move's child depth. The multicut case (`threshold >= beta`) returns before the
+    /// extension is read when the multicut is on; with it off the function still answers 0.
+    #[test]
+    fn test_singular_child_extension_covers_every_outcome() {
+        let mut on = Config::new();
+        on.enable_singular_negative_extension = true;
+        let mut off = Config::new();
+        off.enable_singular_negative_extension = false;
+        let singular = Some(super::SingularVerdict { eval: 49, threshold: 50 });
+        let neither = Some(super::SingularVerdict { eval: 50, threshold: 50 });
+        let beta = 80;
+
+        for config in [&on, &off] {
+            assert_eq!(super::SearchService::singular_child_extension(None, beta, false, config), 0,
+                "no verdict, no extension");
+            assert_eq!(super::SearchService::singular_child_extension(singular, beta, false, config), 1,
+                "a singular table move is extended in a non-PV node");
+            assert_eq!(super::SearchService::singular_child_extension(singular, beta, true, config), 1,
+                "and in a PV node");
+        }
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, &on), -1,
+            "not singular below beta in a non-PV node: one ply shallower");
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, true, &on), 0,
+            "the Principal Variation is never shortened (D1a)");
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, &off), 0,
+            "off is v0.49.1");
+        assert_eq!(super::SearchService::singular_child_extension(neither, 50, false, &on), 0,
+            "threshold at beta is the multicut's case, never a negative extension");
+        assert_eq!(super::SearchService::singular_child_extension(neither, 40, false, &on), 0,
+            "threshold above beta is the multicut's case too");
+    }
+
+    #[test]
+    fn test_the_negative_singular_extension_changes_the_tree_when_enabled() {
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_negative_extension = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_negative_extension = true;
+        });
+        assert_ne!(with, without,
+            "the negative extension must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_the_negative_singular_extension_is_inert_without_a_verification() {
+        // It reads the singular verification and never runs one: without a table there is no
+        // candidate, and with singular extensions off there is no verification to read.
+        for (use_zobrist, singular) in [(false, true), (true, false)] {
+            let off = search_nodes(CHECK_RICH_FEN, 7, |c| {
+                c.use_zobrist = use_zobrist;
+                c.enable_singular_extensions = singular;
+                c.singular_min_depth = 4;
+                c.enable_singular_negative_extension = false;
+            });
+            let on = search_nodes(CHECK_RICH_FEN, 7, |c| {
+                c.use_zobrist = use_zobrist;
+                c.enable_singular_extensions = singular;
+                c.singular_min_depth = 4;
+                c.enable_singular_negative_extension = true;
+            });
+            assert_eq!(off, on,
+                "zobrist {} / singular {}: the rule must be inert ({} vs {})",
+                use_zobrist, singular, off, on);
+        }
+    }
+
+    #[test]
+    fn test_the_negative_singular_extension_keeps_the_smothered_mate() {
+        // The canary of `test_pruning_rules_preserve_the_smothered_mate`, with the table and the
+        // singular rule live from depth 4 so the negative extension can reach the mating line.
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = false;
+        config.singular_min_depth = 4;
+        config.enable_singular_negative_extension = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(result.get_eval() > 30000,
+            "the negative singular extension must not lose the smothered mate, got eval {}",
+            result.get_eval());
     }
 
     #[test]
