@@ -153,11 +153,17 @@ mod counters {
     pub static SINGULAR_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
     /// Extensions granted, by the same depth index.
     pub static SINGULAR_EXT_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
-    /// Matt-Magie step 69: every answered verification by node type (`[0]` non-PV, `[1]` PV) and
-    /// outcome (`[0]` singular, `[1]` not singular with `threshold >= beta` - the multicut's
-    /// case, `[2]` not singular below `beta` - the negative extension's population).
-    pub static SINGULAR_OUTCOMES: [[AtomicU64; 3]; 2] =
-        [const { [const { AtomicU64::new(0) }; 3] }; 2];
+    /// Matt-Magie steps 69 and 70: every answered verification by node type (`[0]` non-PV all
+    /// node, `[1]` non-PV expected cut node, `[2]` PV) and outcome (`[0]` singular, `[1]` not
+    /// singular with `threshold >= beta` - the multicut's case, `[2]` not singular below `beta` -
+    /// the negative extension's population).
+    pub static SINGULAR_OUTCOMES: [[AtomicU64; 3]; 3] =
+        [const { [const { AtomicU64::new(0) }; 3] }; 3];
+    /// Matt-Magie step 70: main-search non-PV nodes that reached the move loop, `[0]` all nodes,
+    /// `[1]` expected cut nodes, and of those the ones that failed high. A sound propagation
+    /// shows a far higher cut rate at the expected cut nodes.
+    pub static NONPV_NODES: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+    pub static NONPV_CUTOFFS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
 
     // ---------------------------------------------------------------------------------------
     // Null Move Pruning, for `task.md` 20.1 and 20.2.
@@ -622,11 +628,26 @@ pub fn record_singular(depth: i32, verified: bool, extended: bool, verify_nodes:
 /// the three readings it gives and whether the node is on the Principal Variation.
 #[inline(always)]
 #[allow(unused_variables, dead_code)]
-pub fn record_singular_outcome(is_pv: bool, singular: bool, at_or_above_beta: bool) {
+pub fn record_singular_outcome(is_pv: bool, cut_node: bool, singular: bool, at_or_above_beta: bool) {
     #[cfg(feature = "search-diag")]
     {
+        let kind = if is_pv { 2 } else { cut_node as usize };
         let outcome = if singular { 0 } else if at_or_above_beta { 1 } else { 2 };
-        counters::bump(&counters::SINGULAR_OUTCOMES[is_pv as usize][outcome]);
+        counters::bump(&counters::SINGULAR_OUTCOMES[kind][outcome]);
+    }
+}
+
+/// Records one main-search non-PV node at its move loop, and whether it failed high, by its
+/// expected-cut-node flag (Matt-Magie step 70).
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_nonpv_node(cut_node: bool, failed_high: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::NONPV_NODES[cut_node as usize]);
+        if failed_high {
+            counters::bump(&counters::NONPV_CUTOFFS[cut_node as usize]);
+        }
     }
 }
 
@@ -950,12 +971,22 @@ pub fn dump() {
             by_depth(&counters::SINGULAR_BY_DEPTH),
             by_depth(&counters::SINGULAR_EXT_BY_DEPTH),
         );
-        let outcome = |pv: usize, kind: usize| counters::read(&counters::SINGULAR_OUTCOMES[pv][kind]);
+        let outcome = |node: usize, kind: usize| counters::read(&counters::SINGULAR_OUTCOMES[node][kind]);
+        let nonpv = |kind: usize| outcome(0, kind) + outcome(1, kind);
         eprintln!(
             "SEARCHDIAGSINGOUT nonpv_singular={} nonpv_multicut={} nonpv_neither={} \
-             pv_singular={} pv_multicut={} pv_neither={}",
-            outcome(0, 0), outcome(0, 1), outcome(0, 2),
+             pv_singular={} pv_multicut={} pv_neither={} \
+             cut_singular={} cut_multicut={} cut_neither={}",
+            nonpv(0), nonpv(1), nonpv(2),
+            outcome(2, 0), outcome(2, 1), outcome(2, 2),
             outcome(1, 0), outcome(1, 1), outcome(1, 2),
+        );
+        eprintln!(
+            "SEARCHDIAGCUTNODE all_nodes={} all_cutoffs={} cut_nodes={} cut_cutoffs={}",
+            counters::read(&counters::NONPV_NODES[0]),
+            counters::read(&counters::NONPV_CUTOFFS[0]),
+            counters::read(&counters::NONPV_NODES[1]),
+            counters::read(&counters::NONPV_CUTOFFS[1]),
         );
         eprintln!(
             "SEARCHDIAGNMP candidates={} pv_blocked={} gate_blocked={} searches={} cuts={} \

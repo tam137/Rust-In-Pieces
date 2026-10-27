@@ -1722,7 +1722,7 @@ impl SearchService {
             #[cfg(feature = "search-diag")]
             if let Some(verdict) = singular_verdict {
                 crate::search_diag::record_singular_outcome(
-                    is_pv, verdict.is_singular(), verdict.threshold >= beta,
+                    is_pv, cut_node, verdict.is_singular(), verdict.threshold >= beta,
                 );
             }
 
@@ -1754,7 +1754,7 @@ impl SearchService {
             let extension = if check_extension {
                 1
             } else {
-                Self::singular_child_extension(singular_verdict, beta, is_pv, config)
+                Self::singular_child_extension(singular_verdict, beta, is_pv, cut_node, config)
             };
             let child_depth = depth - 1 + extension;
 
@@ -1985,6 +1985,13 @@ impl SearchService {
         let stopped = context.stop_flag.load(std::sync::atomic::Ordering::Relaxed);
         let entry_type = Self::bound_for(white, eval, orig_alpha, orig_beta);
 
+        // Matt-Magie step 70: whether the expected cut nodes really cut more often.
+        #[cfg(feature = "search-diag")]
+        if !is_pv && excluded_move.is_none() && !stopped {
+            crate::search_diag::record_nonpv_node(
+                cut_node, entry_type == crate::zobrist::TranspositionType::LowerBound);
+        }
+
         // Matt-Magie step 64: what this node proved about its static evaluation, credited to the
         // pawn structure. `static_eval` is the corrected value the node searched with.
         if config.enable_correction_history
@@ -2211,11 +2218,17 @@ impl SearchService {
     /// Not singular with `threshold >= beta` is the multicut's case; with the multicut on the node
     /// has returned before this is read, with it off the move keeps its depth. The PV is never
     /// shortened (D1a): there the table move is almost always the PV move.
+    ///
+    /// Matt-Magie step 70: at an expected cut node the negative extension is -2. The search
+    /// expects some move to reach `beta` there, and another move already reaches the table score,
+    /// so the table move carries the cut even less on its own.
     fn singular_child_extension(verdict: Option<SingularVerdict>, beta: i16, is_pv: bool,
-        config: &Config) -> i32 {
+        cut_node: bool, config: &Config) -> i32 {
         match verdict {
             Some(v) if v.is_singular() => 1,
-            Some(v) if config.enable_singular_negative_extension && !is_pv && v.threshold < beta => -1,
+            Some(v) if config.enable_singular_negative_extension && !is_pv && v.threshold < beta => {
+                if cut_node && config.enable_singular_cut_node_extension { -2 } else { -1 }
+            }
             _ => 0,
         }
     }
@@ -3691,23 +3704,110 @@ mod tests {
         let beta = 80;
 
         for config in [&on, &off] {
-            assert_eq!(super::SearchService::singular_child_extension(None, beta, false, config), 0,
+            assert_eq!(super::SearchService::singular_child_extension(None, beta, false, false, config), 0,
                 "no verdict, no extension");
-            assert_eq!(super::SearchService::singular_child_extension(singular, beta, false, config), 1,
+            assert_eq!(super::SearchService::singular_child_extension(singular, beta, false, false, config), 1,
                 "a singular table move is extended in a non-PV node");
-            assert_eq!(super::SearchService::singular_child_extension(singular, beta, true, config), 1,
+            assert_eq!(super::SearchService::singular_child_extension(singular, beta, true, false, config), 1,
                 "and in a PV node");
         }
-        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, &on), -1,
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, false, &on), -1,
             "not singular below beta in a non-PV node: one ply shallower");
-        assert_eq!(super::SearchService::singular_child_extension(neither, beta, true, &on), 0,
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, true, false, &on), 0,
             "the Principal Variation is never shortened (D1a)");
-        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, &off), 0,
+        assert_eq!(super::SearchService::singular_child_extension(neither, beta, false, false, &off), 0,
             "off is v0.49.1");
-        assert_eq!(super::SearchService::singular_child_extension(neither, 50, false, &on), 0,
+        assert_eq!(super::SearchService::singular_child_extension(neither, 50, false, false, &on), 0,
             "threshold at beta is the multicut's case, never a negative extension");
-        assert_eq!(super::SearchService::singular_child_extension(neither, 40, false, &on), 0,
+        assert_eq!(super::SearchService::singular_child_extension(neither, 40, false, false, &on), 0,
             "threshold above beta is the multicut's case too");
+    }
+
+    /// Matt-Magie step 70: at an expected cut node the negative extension is -2, elsewhere -1.
+    #[test]
+    fn test_singular_child_extension_at_cut_nodes() {
+        let ext = super::SearchService::singular_child_extension;
+        let mut on = Config::new();
+        on.enable_singular_negative_extension = true;
+        on.enable_singular_cut_node_extension = true;
+        let mut cut_off = on.clone();
+        cut_off.enable_singular_cut_node_extension = false;
+        let mut negative_off = on.clone();
+        negative_off.enable_singular_negative_extension = false;
+        let singular = Some(super::SingularVerdict { eval: 49, threshold: 50 });
+        let neither = Some(super::SingularVerdict { eval: 50, threshold: 50 });
+
+        assert_eq!(ext(neither, 80, false, true, &on), -2, "cut node: two plies shallower");
+        assert_eq!(ext(neither, 80, false, false, &on), -1, "all node: one ply, as v0.49.2");
+        assert_eq!(ext(neither, 80, false, true, &cut_off), -1, "off is v0.49.2");
+        assert_eq!(ext(neither, 80, false, true, &negative_off), 0,
+            "the cut-node rule only sharpens the negative extension, it never stands alone");
+        assert_eq!(ext(neither, 80, true, false, &on), 0, "the PV is never shortened");
+        assert_eq!(ext(singular, 80, false, true, &on), 1, "a singular move is extended at a cut node");
+        assert_eq!(ext(neither, 50, false, true, &on), 0, "threshold at beta is the multicut's case");
+        assert_eq!(ext(None, 80, false, true, &on), 0, "no verdict, no extension");
+    }
+
+    #[test]
+    fn test_the_cut_node_extension_changes_the_tree_when_enabled() {
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_cut_node_extension = false;
+        });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.singular_min_depth = 4;
+            c.enable_singular_cut_node_extension = true;
+        });
+        assert_ne!(with, without,
+            "the cut-node extension must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_the_cut_node_extension_is_inert_without_a_verification() {
+        for (use_zobrist, singular) in [(false, true), (true, false)] {
+            let off = search_nodes(CHECK_RICH_FEN, 7, |c| {
+                c.use_zobrist = use_zobrist;
+                c.enable_singular_extensions = singular;
+                c.singular_min_depth = 4;
+                c.enable_singular_cut_node_extension = false;
+            });
+            let on = search_nodes(CHECK_RICH_FEN, 7, |c| {
+                c.use_zobrist = use_zobrist;
+                c.enable_singular_extensions = singular;
+                c.singular_min_depth = 4;
+                c.enable_singular_cut_node_extension = true;
+            });
+            assert_eq!(off, on,
+                "zobrist {} / singular {}: the rule must be inert ({} vs {})",
+                use_zobrist, singular, off, on);
+        }
+    }
+
+    #[test]
+    fn test_the_cut_node_extension_keeps_the_smothered_mate() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = false;
+        config.singular_min_depth = 4;
+        config.enable_singular_cut_node_extension = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(result.get_eval() > 30000,
+            "the cut-node extension must not lose the smothered mate, got eval {}",
+            result.get_eval());
     }
 
     #[test]
