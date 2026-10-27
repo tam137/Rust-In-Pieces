@@ -2491,3 +2491,35 @@ illegal moves. Not shipped; `master` keeps the pawn and non-pawn tables of v0.49
 **Reading:** the third table makes the tree 3-4% smaller and is worth at most a few Elo, below the owner's
 +5 bar. The two earlier tables (+21, +17, stopped runs) took most of what the Correction History offers
 here; the two-move pair key is not worth a run on this result alone.
+
+## 36. The negative Singular Extension: shipped in v0.49.2 (2026-10-27)
+
+Matt-Magie step 69. The singular verification (depth >= 6, `(d - 1) / 2`, null window at `tt_eval` since
+`singular_margin` is 0) has three answers and two were read: singular -> +1, not singular with
+`threshold >= beta` -> multicut. The third - not singular below `beta`, another move reaches the table
+score too - kept the table move at its normal depth. Published engines search it shallower.
+
+**Code** (`07bfb42` off, `4a87e13` on): `singular_child_extension(verdict, beta, is_pv, config)`: no
+verdict 0, singular +1, not singular below `beta` in a non-PV node -1, otherwise 0; no re-search; the check
+extension keeps priority. UCI `EnableSingularNegativeExtension`. Tests red first (every outcome, PV, off,
+`threshold` at and above `beta`; tree changes when on, inert without the table or the singular rule;
+smothered mate kept). No node-count test flipped.
+
+**Pre-measurement** (`search-diag`, the v0.49.1 tree, depth 10, 300 per pool): non-PV nodes run 94% of the
+verifications - singular 28.5%, multicut 30%, **neither 41.5%**; PV 75% singular. The rule fires at
+**38.7% / 39.1%** of all verifications, more often than the +1 extension (31%).
+
+**Census** (time to depth 10 against v0.49.1, 300 per pool, control +0.6% / -0.2%, + = candidate faster):
+off 300/300 identical on both pools (-0.4% / -0.4%, the branch costs nothing measurable); **on +12.8% /
++14.7%**, generated moves -16.9% / -20.1%. Candidate identical to the census configuration (100/100).
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.1, 1s + 150ms, Matt-Magie 1.7.1, `openings_wide`,
+no stop before 2500 games: [0, 10] first crossed H1 near 1800 games (+18), fell back below the bound at
+2392 and was **accepted again after 2986 games** (LLR +3.03, [0, 5] +2.00 open): +1045 =1005 -936,
+**+12.7 Elo, paired 95% [+3, +23]** - a stopped run, not an effect size. No time losses, no illegal moves,
+design effect 1.02. Smoke gauntlet: 52.5% vs v0.49.1, 57.0% vs v0.49.0, 97.0% vs v0.34.0. **Released as
+v0.49.2.**
+
+**Next:** -2 / -3 for cut nodes, the PV variant (D1b) and the depth of the verification are separate steps;
+the singular parameters were sensitive before (29.x).
+
