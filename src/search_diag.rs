@@ -260,6 +260,11 @@ mod counters {
     pub static LMR_RESEARCHED_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
     /// Of those, the ones at a node that is not improving.
     pub static LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Matt-Magie step 71: reduced searches `[0]` at all nodes, `[1]` at expected cut nodes; of
+    /// those, the ones searched again; and at cut nodes, the ones whose extra ply got past the clamp.
+    pub static LMR_BY_CUT: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+    pub static LMR_RESEARCHED_BY_CUT: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+    pub static LMR_CUT_DEEPER: AtomicU64 = AtomicU64::new(0);
 
     // Principal Variation Search at the root: what do the later root moves do?
     // ---------------------------------------------------------------------------------------
@@ -811,6 +816,23 @@ pub fn record_lmr_research(depth: i32, improving: bool, researched: bool) {
     }
 }
 
+/// Records one reduced search by the expected-cut-node flag of its node, Matt-Magie step 71:
+/// whether the cut node's extra ply got past the clamp, and whether it was searched again.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_lmr_cut_node(cut_node: bool, deeper: bool, researched: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::LMR_BY_CUT[cut_node as usize]);
+        if researched {
+            counters::bump(&counters::LMR_RESEARCHED_BY_CUT[cut_node as usize]);
+        }
+        if deeper {
+            counters::bump(&counters::LMR_CUT_DEEPER);
+        }
+    }
+}
+
 /// Records the start of one root pass.
 #[cfg(feature = "search-diag")]
 pub fn record_root_pass() {
@@ -1070,6 +1092,14 @@ pub fn dump() {
             by_depth(&counters::LMR_DEEPER_BY_DEPTH),
             by_depth(&counters::LMR_RESEARCHED_BY_DEPTH),
             by_depth(&counters::LMR_RESEARCHED_NOT_IMPROVING_BY_DEPTH),
+        );
+        eprintln!(
+            "SEARCHDIAGLMRCUT all={} all_researched={} cut={} cut_researched={} cut_deeper={}",
+            counters::read(&counters::LMR_BY_CUT[0]),
+            counters::read(&counters::LMR_RESEARCHED_BY_CUT[0]),
+            counters::read(&counters::LMR_BY_CUT[1]),
+            counters::read(&counters::LMR_RESEARCHED_BY_CUT[1]),
+            counters::read(&counters::LMR_CUT_DEEPER),
         );
     }
 }

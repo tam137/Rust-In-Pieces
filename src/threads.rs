@@ -103,6 +103,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name EnableSingularMulticut type check default {}", defaults.enable_singular_multicut),
         format!("option name EnableSingularNegativeExtension type check default {}", defaults.enable_singular_negative_extension),
         format!("option name EnableSingularCutNodeExtension type check default {}", defaults.enable_singular_cut_node_extension),
+        format!("option name EnableLmrCutNode type check default {}", defaults.enable_lmr_cut_node),
         format!("option name EnableCorrectionHistory type check default {}", defaults.enable_correction_history),
         format!("option name CorrHistLimit type spin default {} min 64 max 16384", defaults.corr_hist_limit),
         format!("option name CorrHistDiv type spin default {} min 1 max 64", defaults.corr_hist_div),
