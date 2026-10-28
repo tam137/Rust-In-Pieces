@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.4] - 2026-10-28
+
+The Late Move Reduction reduces one ply more at expected cut nodes. SPRT [0, 5] / [0, 10] against v0.49.3
+**stopped and accepted at the owner's word after 6818 games**, both tests open ([0, 5] +1.21, [0, 10] +0.18):
++5.2 Elo, paired 95% [-1, +12] - a stopped run, not an effect size. See `task.md` section 38.
+
+### Added
+- `lmr_reduction(.., cut_node)`: at an expected cut node a move reduced anyway is reduced one ply more;
+  never a new reduction, the clamp `1 ..= depth - 2` unchanged. UCI `EnableLmrCutNode` (true).
+- `search-diag`: `SEARCHDIAGLMRCUT`, reduced searches and re-searches per cut / all node.
+
+### Notes
+- Off it is tree-identical to v0.49.3 (300/300 on both pools). Time to depth 10: -1.7% on
+  `openings_wide`, **+5.4% on `openings_mixed`** - over the +5% bar, played by the owner's word.
+- Only a quarter of the reductions sit at cut nodes, and the clamp swallows the extra ply in about
+  81% of them; the cut-node re-search rate moves from 1.57% to 1.60%.
+- Smoke gauntlet: 45.0% vs v0.49.3, 43.5% vs v0.49.2 (repeated at the owner's word: 47.5%), 97.5% vs
+  v0.34.0.
+
+
+
 ## [V0.49.3] - 2026-10-28
 
 The search tracks expected cut nodes, and the negative Singular Extension is -2 there. **SPRT [0, 10]:
