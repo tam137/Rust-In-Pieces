@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.3] - 2026-10-28
+
+The search tracks expected cut nodes, and the negative Singular Extension is -2 there. **SPRT [0, 10]:
+H1** after 6686 games at 1s + 150ms against v0.49.2 ([0, 5] +2.69, open), +8.5 Elo, paired 95% [+2, +15]
+- a stopped run, not an effect size. See `task.md` section 37.
+
+### Added
+- `minimax` carries an expected-cut-node flag, propagated as published: a PV child is never a cut node,
+  a reduced (LMR) child is one, a full-depth child and the null move flip the parent's flag, a
+  verification of the same node keeps it. Cut nodes fail high 85% of the time, all nodes 47%.
+- Negative Singular Extension -2 (child depth `depth - 3`) at expected cut nodes, -1 elsewhere as in
+  v0.49.2; cut nodes hold 95% of the -1 cases. UCI `EnableSingularCutNodeExtension` (true).
+- `search-diag`: `SEARCHDIAGSINGOUT` per cut / all node, `SEARCHDIAGCUTNODE`.
+
+### Notes
+- The flag alone and the rule off are tree-identical to v0.49.2 (300/300 on both pools). Time to depth
+  10: -2.9% / -3.5%.
+- Smoke gauntlet: 50.0% vs v0.49.2, 46.5% vs v0.49.1, 93.0% vs v0.34.0.
+
+
+
 ## [V0.49.2] - 2026-10-27
 
 The singular verification's third answer is read: when another move reaches the table score too, the

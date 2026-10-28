@@ -2523,3 +2523,35 @@ v0.49.2.**
 **Next:** -2 / -3 for cut nodes, the PV variant (D1b) and the depth of the verification are separate steps;
 the singular parameters were sensitive before (29.x).
 
+## 37. The negative Singular Extension -2 at expected cut nodes: shipped in v0.49.3 (2026-10-28)
+
+Matt-Magie step 70. Section 36 searches the table move one ply shallower in a non-PV node when another
+move reaches its score too. Published engines grade that case: -2 at an expected cut node, where the
+search expects some move to reach `beta`, -1 elsewhere. The engine knew PV and non-PV only.
+
+**Code** (`c17f67d` flag, `84899a0` rule off, `a684c34` on): `minimax(.., is_pv, cut_node, ..)` with
+`child_cut_node(ChildSearch, child_is_pv, parent_cut)`: a PV child false, a reduced (LMR) child true, a
+full-depth child (first move, PVS null window, re-search) and the null move flip, a same-node search
+(singular and NMP verification, razoring) keeps; root scouts are cut nodes. `debug_assert` that no PV node
+is a cut node. `singular_child_extension` gives -2 at a cut node with `EnableSingularCutNodeExtension`,
+which only sharpens `EnableSingularNegativeExtension`. Tests red first; no node-count test flipped.
+
+**Pre-measurement** (`search-diag`, the v0.49.2 tree, depth 10, 300 per pool): 59.4% of non-PV nodes are
+expected cut nodes; **they fail high 85.5% / 85.4% of the time, all nodes 47.2% / 47.9%** - the
+propagation is sound. Cut nodes run 84-85% of the verifications and hold **95% of the -1 cases**; -2 fires
+at 34.3% / 32.0% of all verifications.
+
+**Census** (time to depth 10 against v0.49.2, 300 per pool, control -0.5% / -0.2%, + = candidate faster):
+the flag alone and the rule off 300/300 identical on both pools; **on +2.9% / +3.5%**. Candidate identical
+to the census configuration (100/100).
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.2, 1s + 150ms, Matt-Magie 1.7.1, `openings_wide`,
+no stop before 2500 games, abort from 8000: the estimate moved between +2 and +10 for 6000 games (+2.4 at
+3700, +3.8 at 5400), then climbed; [0, 10] **H1 after 6686 games** (LLR +3.15, [0, 5] +2.69 open):
++2280 =2290 -2116, **+8.5 Elo, paired 95% [+2, +15]** - a stopped run, not an effect size. No time losses,
+no illegal moves, design effect 1.07. Smoke gauntlet: 50.0% vs v0.49.2, 46.5% vs v0.49.1, 93.0% vs
+v0.34.0. **Released as v0.49.3.**
+
+**Next:** the flag serves other rules too (LMR and IIR at cut nodes) - each its own step. The trigger
+depth `singular_min_depth` 5 is the cheapest singular follow-up.
+
