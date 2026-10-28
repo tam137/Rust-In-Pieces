@@ -2588,3 +2588,34 @@ needed a second sample.
 
 **Next:** a +2 step only on a clearer signal than this one; the clamp, not the flag, limits the rule.
 
+
+## 39. UCI pondering, off by default: shipped in v0.49.5 (2026-10-28)
+
+Matt-Magie step 72. Asked for by the owner to try pondering on Lichess: off by default, switched on by a UCI
+option. The engine could not ponder: no `Ponder` option, `ponderhit` was an unknown command, and
+`go ponder` was read as a timed `go` that wrote `bestmove` in the middle of the ponder - a protocol
+violation a GUI reads as the answer to a move not yet played.
+
+**Code** (`2042b61`): `go ponder` / `ponderhit` always handled by the protocol; UCI `Ponder` (false) only adds
+the `ponder` token. `EngineState.pondering`, set by the UCI thread with `stop_flag = false` *before* it
+forwards `go` - the game thread used to clear the stop flag itself, so a `stop` read in between was lost; a
+timed search still ended on its clock, a ponder search would have hung. The three clock checks are one
+`SearchContext::out_of_time`, which never fires while pondering; after `ponderhit` the budget of the
+`go ponder` clocks counts from the start of the ponder search (as Stockfish does), so a long ponder plays
+at once. Every `bestmove` of `go` waits while pondering (single legal move, book, mate, depth reached).
+Ponder move: the second PV move when the PV starts with the move played and the reply is legal. Tests
+red first: each one fails on a mutation of the code it covers (no wait, clock ignoring the flag, the old
+reset in the game thread).
+
+**Gates:** off **300/300 identical trees** against v0.49.4 on both pools (time to depth 10 +0.4% / +0.6%).
+Protocol test with python-chess 1.11.2, the library of the Lichess bot: 40 self-play games at 1s + 100ms,
+Move Overhead 100, one side pondering - no protocol error, no time loss, no hang, no python-chess warning;
+2106 `go ponder`, **1371 ponderhits and 721 misses, hit rate 65.5%**. A first run with Move Overhead 0 lost
+6 of 10 games on time by 1-6 ms, always the side not pondering; the control without any pondering at
+Move Overhead 0 lost 4 of 12 the same way - the harness clock (wall time around python-chess) plus an
+engine that at the increment floor plans its whole remaining clock, not pondering. Smoke gauntlet with
+the option off: 46.5% vs v0.49.4, 50.5% vs v0.49.3, 95.5% vs v0.34.0.
+
+**Not measured:** Elo of pondering against not pondering - a resource gain, known to be worth tens of
+Elo, and it would need pondering in Matt-Magie and twice the load per game.
+
