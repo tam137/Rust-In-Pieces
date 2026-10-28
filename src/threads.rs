@@ -31,6 +31,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
             defaults.max_zobrist_hash_entries * 16 / (1024 * 1024)),
         "option name Threads type spin default 1 min 1 max 8".to_string(),
         format!("option name Move Overhead type spin default {} min 0 max 5000", defaults.move_overhead),
+        format!("option name Ponder type check default {}", defaults.ponder),
         "option name BookFile type string default <empty>".to_string(),
         format!("option name OwnBook type check default {}", defaults.use_book),
         format!("option name CacheBookInRam type check default {}", defaults.cache_book_in_ram),
@@ -188,11 +189,19 @@ pub fn uci_command_processor(
                 }
 
                 else if uci_token.trim() == "go infinite" {
+                    arm_search(&engine_state, false);
                     tx_game_command.send("infinite".to_string()).expect("RIP Could not send 'infinite' as internal cmd");
                 }
 
                 else if uci_token.trim().starts_with("go") {
+                    arm_search(&engine_state, uci_parser.parse_go(&uci_token).ponder);
                     tx_game_command.send(uci_token).expect("RIP Could not send 'go' as internal cmd");
+                }
+
+                else if uci_token.trim() == "ponderhit" {
+                    // The expected reply was played: from here on the clock of the running
+                    // search counts, measured from the start of the ponder search.
+                    engine_state.pondering.store(false, Ordering::SeqCst);
                 }
 
                 else if uci_token.trim().starts_with("test") {
@@ -311,10 +320,12 @@ pub fn uci_command_processor(
 
                 else if uci_token.trim().starts_with("stop") {
                     engine_state.stop_flag.store(true, Ordering::SeqCst);
+                    engine_state.pondering.store(false, Ordering::SeqCst);
                 }
 
                 else if uci_token.trim().starts_with("quit") {
                     engine_state.stop_flag.store(true, Ordering::SeqCst);
+                    engine_state.pondering.store(false, Ordering::SeqCst);
                     tx_game_command.send("quit".to_string()).expect("RIP Could not send 'quit' as internal cmd");
                     break;
                 }
@@ -329,6 +340,18 @@ pub fn uci_command_processor(
             panic!("RIP failed to flush stdout");
         };
     }
+}
+
+
+/// Prepares the shared flags for the search a `go` is about to start, in the UCI thread and
+/// before the command is forwarded.
+///
+/// The game thread used to clear `stop_flag` itself, when it picked the `go` up. A `stop` read in
+/// between was then lost; a timed search still ended on its clock, but a ponder search has no
+/// clock and would never have answered. Matt-Magie step 72.
+fn arm_search(engine_state: &EngineState, ponder: bool) {
+    engine_state.stop_flag.store(false, Ordering::SeqCst);
+    engine_state.pondering.store(ponder, Ordering::SeqCst);
 }
 
 
@@ -352,5 +375,85 @@ fn logger_thread(engine_state: Arc<EngineState>, _config: &Config, rx_log_msg: R
     while let Ok(log_msg) = rx_log_msg.recv() {
         let logger_function = engine_state.logger.read().unwrap().clone();
         logger_function(log_msg);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
+
+    use super::{Config, EngineState};
+
+    /// Feeds `lines` to the UCI thread and returns the engine state and the commands it
+    /// forwarded to the game thread, once it has read them all.
+    fn process(state: std::sync::Arc<EngineState>, lines: &[&str]) -> Vec<String> {
+        let (tx_in, rx_in) = mpsc::channel();
+        let (tx_game, rx_game) = mpsc::channel();
+        for line in lines {
+            tx_in.send(line.to_string()).unwrap();
+        }
+        drop(tx_in);
+        super::uci_command_processor(state, &Config::new(), rx_in, tx_game);
+        rx_game.try_iter().collect()
+    }
+
+    /// The state, and the receiver of its log lines, which has to stay alive while it is used.
+    fn engine_state() -> (std::sync::Arc<EngineState>, mpsc::Receiver<String>) {
+        let (tx_log, rx_log) = mpsc::channel::<String>();
+        (std::sync::Arc::new(EngineState {
+            stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
+            debug_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(std::sync::Arc::new(crate::zobrist::ZobristTable::with_capacity(1024))),
+            pv_nodes: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(|_| {}))),
+            log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
+        }), rx_log)
+    }
+
+    /// Matt-Magie step 72: the UCI thread arms the flags of a search before it forwards the `go`.
+    #[test]
+    fn test_go_arms_the_flags_before_it_is_forwarded() {
+        let (state, _log) = engine_state();
+        state.stop_flag.store(true, Ordering::SeqCst); // left over from the previous search
+        let forwarded = process(state.clone(), &["go ponder wtime 1000 btime 1000"]);
+        assert_eq!(forwarded, vec!["go ponder wtime 1000 btime 1000".to_string()]);
+        assert!(!state.stop_flag.load(Ordering::SeqCst));
+        assert!(state.pondering.load(Ordering::SeqCst));
+
+        let (state, _log) = engine_state();
+        state.stop_flag.store(true, Ordering::SeqCst);
+        state.pondering.store(true, Ordering::SeqCst);
+        process(state.clone(), &["go wtime 1000 btime 1000"]);
+        assert!(!state.stop_flag.load(Ordering::SeqCst));
+        assert!(!state.pondering.load(Ordering::SeqCst));
+
+        let (state, _log) = engine_state();
+        state.stop_flag.store(true, Ordering::SeqCst);
+        assert_eq!(process(state.clone(), &["go infinite"]), vec!["infinite".to_string()]);
+        assert!(!state.stop_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_ponderhit_ends_pondering_and_keeps_the_search_running() {
+        let (state, _log) = engine_state();
+        let forwarded = process(state.clone(), &["go ponder wtime 1000 btime 1000", "ponderhit"]);
+        assert_eq!(forwarded.len(), 1, "ponderhit is not a command of the game thread");
+        assert!(!state.pondering.load(Ordering::SeqCst));
+        assert!(!state.stop_flag.load(Ordering::SeqCst));
+    }
+
+    /// The race of step 72: `stop` read right after `go ponder`, before the game thread has
+    /// started, leaves the stop set and pondering off, so the search ends instead of hanging.
+    #[test]
+    fn test_stop_after_go_ponder_survives_until_the_search_starts() {
+        let (state, _log) = engine_state();
+        process(state.clone(), &["go ponder wtime 1000 btime 1000", "stop"]);
+        assert!(state.stop_flag.load(Ordering::SeqCst));
+        assert!(!state.pondering.load(Ordering::SeqCst));
     }
 }

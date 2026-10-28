@@ -61,6 +61,7 @@ fn main() {
     let initial_logger: std::sync::Arc<dyn Fn(String) + Send + Sync> = std::sync::Arc::new(|_| {});
     let engine_state = Arc::new(crate::model::EngineState {
         stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        pondering: std::sync::atomic::AtomicBool::new(false),
         debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(Config::new().max_zobrist_hash_entries))),
 
@@ -130,6 +131,7 @@ mod tests {
         let initial_logger: std::sync::Arc<dyn Fn(String) + Send + Sync> = std::sync::Arc::new(|_| {});
         let engine_state = Arc::new(crate::model::EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(config.max_zobrist_hash_entries))),
 

@@ -87,8 +87,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command == "infinite" {
-                    engine_state.stop_flag.store(false, Ordering::SeqCst);
-
                     let mut best_result: Option<SearchResult> = None;
                     // Score of the last completed iteration, used to seed the aspiration window.
                     let mut prev_score: Option<i16> = None;
@@ -139,8 +137,6 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 else if command.starts_with("go") {
                     logger.send("Incoming go command".to_string()).ok();
 
-                    engine_state.stop_flag.store(false, Ordering::SeqCst);
-                    
                     let white = game.white_to_move();        
                     let game_fen = service.fen.get_fen(&game.board);
                     let book_ply = game.made_moves_str.split_whitespace().count();
@@ -162,6 +158,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let context = crate::model::SearchContext {
                             zobrist_table: &current_zobrist_table_1,
                             stop_flag: &engine_state.stop_flag,
+                            pondering: &engine_state.pondering,
                             pv_nodes: &engine_state.pv_nodes,
                             killer_moves: [None; 2],
                             history_table: &history_table,
@@ -177,12 +174,14 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                         if valid_moves.len == 0 {
                             logger.send("No valid moves found at root! Game over.".to_string()).ok();
+                            wait_while_pondering(&engine_state);
                             stdout.write("bestmove 0000");
                             continue;
                         }
 
                         if valid_moves.len == 1 {
                             let mv_str = valid_moves.moves[0].to_algebraic();
+                            wait_while_pondering(&engine_state);
                             stdout.write(&format!("bestmove {}", mv_str));
                             game.do_move(&mv_str);
                             logger.send(format!("Only one legal move found. Playing bestmove: {}", mv_str)).ok();
@@ -291,7 +290,9 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         }
 
                         if let Some(res) = best_result {
-                            stdout.write(&format!("bestmove {}", res.get_best_move_algebraic()));
+                            let reply = ponder_move(service, &game.board, &res, &active_config, &engine_state);
+                            wait_while_pondering(&engine_state);
+                            stdout.write(&bestmove_line(&res.get_best_move_algebraic(), reply.as_deref()));
                             game.do_move(&res.get_best_move_algebraic());
                             logger.send(format!(
                                 "final move: bestmove {} (total time: {}ms)",
@@ -306,6 +307,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let context = crate::model::SearchContext {
                                 zobrist_table: &current_zobrist_table_2,
                                 stop_flag: &engine_state.stop_flag,
+                                pondering: &engine_state.pondering,
                                 pv_nodes: &engine_state.pv_nodes,
                                 killer_moves: [None; 2],
                                 history_table: &history_table,
@@ -318,6 +320,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             };
                             let mut valid_moves = crate::model::MoveList::new();
                             service.move_gen.generate_valid_moves_list(&mut game.board, &mut stats, &active_config, &context, true, &mut valid_moves);
+                            wait_while_pondering(&engine_state);
                             if let Some(first_move) = valid_moves.as_slice().first() {
                                 let mv_str = first_move.to_algebraic();
                                 stdout.write(&format!("bestmove {}", mv_str));
@@ -330,6 +333,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         logger.send(format!("found Book move: {} for position {}", book_move, game_fen))
                             .expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
                         game.do_move(&book_move);
+                        wait_while_pondering(&engine_state);
                         stdout.write(&format!("bestmove {}", book_move));
                     }
                 }
@@ -399,12 +403,25 @@ fn is_playable_book_move(service: &Service, board: &crate::model::Board, book_mo
     if !crate::notation_util::NotationUtil::is_long_algebraic(book_move) {
         return false;
     }
+    match find_legal_move(service, board, book_move, config, engine_state) {
+        Some(turn) => {
+            let mut probe = board.clone();
+            probe.do_move(&turn);
+            probe.game_status != crate::model::GameStatus::Draw
+        }
+        None => false,
+    }
+}
+
+/// The legal move of `board` that is written `notation`, if there is one.
+fn find_legal_move(service: &Service, board: &crate::model::Board, notation: &str, config: &Config, engine_state: &EngineState) -> Option<crate::model::Turn> {
     let mut stats = Stats::default();
     let history_table = [[[0i32; 64]; 64]; 2];
     let zobrist_table = engine_state.zobrist_table.read().unwrap().clone();
     let context = crate::model::SearchContext {
         zobrist_table: &zobrist_table,
         stop_flag: &engine_state.stop_flag,
+        pondering: &crate::model::NEVER_PONDERING,
         pv_nodes: &engine_state.pv_nodes,
         killer_moves: [None; 2],
         history_table: &history_table,
@@ -418,12 +435,42 @@ fn is_playable_book_move(service: &Service, board: &crate::model::Board, book_mo
     let mut probe = board.clone();
     let mut legal = crate::model::MoveList::new();
     service.move_gen.generate_valid_moves_list(&mut probe, &mut stats, config, &context, false, &mut legal);
-    match legal.as_slice().iter().find(|turn| turn.to_algebraic() == book_move) {
-        Some(turn) => {
-            probe.do_move(turn);
-            probe.game_status != crate::model::GameStatus::Draw
-        }
-        None => false,
+    legal.as_slice().iter().find(|turn| turn.to_algebraic() == notation).copied()
+}
+
+/// The reply the engine expects to `result`'s move, for `bestmove <move> ponder <reply>`, when the
+/// option `Ponder` is on (Matt-Magie step 72, D2a): the second move of the principal variation,
+/// provided the variation starts with the move played and the reply is legal after it. A GUI
+/// that ponders searches the position after that reply on the opponent's time.
+fn ponder_move(service: &Service, board: &crate::model::Board, result: &SearchResult, config: &Config, engine_state: &EngineState) -> Option<String> {
+    if !config.ponder {
+        return None;
+    }
+    let best = result.variants.first()?.best_move?;
+    let pv = result.get_pv_move_row();
+    let (first, reply) = (pv.first()?, pv.get(1)?);
+    if *first != best {
+        return None;
+    }
+    let mut after = board.clone();
+    after.do_move(&best);
+    let reply = reply.to_algebraic();
+    find_legal_move(service, &after, &reply, config, engine_state).map(|_| reply)
+}
+
+fn bestmove_line(best: &str, ponder: Option<&str>) -> String {
+    match ponder {
+        Some(reply) => format!("bestmove {} ponder {}", best, reply),
+        None => format!("bestmove {}", best),
+    }
+}
+
+/// Holds the answer back while the engine ponders. A ponder search must not write `bestmove`
+/// before `ponderhit` or `stop`, even when it has nothing left to search: a GUI would read the
+/// move as the answer to a move that has not been played. Returns at once when not pondering.
+fn wait_while_pondering(engine_state: &EngineState) {
+    while engine_state.pondering.load(Ordering::SeqCst) && !engine_state.stop_flag.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
@@ -486,6 +533,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         std::sync::Arc::new(crate::model::EngineState {
             stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(std::sync::Arc::new(crate::zobrist::ZobristTable::with_capacity(1024))),
             pv_nodes: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -574,30 +622,160 @@ mod tests {
         assert!(super::is_playable_book_move(&service, &game.board, "e2e4", &config, &state));
     }
 
+    /// `engine_state()` with the receiver of its log lines kept alive, which `game_loop` writes to.
+    fn logging_engine_state() -> (std::sync::Arc<crate::model::EngineState>, std::sync::mpsc::Receiver<String>) {
+        let (tx_log, rx_log) = std::sync::mpsc::channel();
+        let state = std::sync::Arc::into_inner(engine_state()).expect("a fresh state has one owner");
+        (std::sync::Arc::new(crate::model::EngineState { log_sender: tx_log, ..state }), rx_log)
+    }
+
+    /// Runs `game_loop` on its own thread with the given internal commands queued; the loop ends
+    /// once it has worked through them, because the sender is dropped.
+    fn run_game_loop(state: &std::sync::Arc<crate::model::EngineState>, config: Config, commands: &[&str]) -> std::thread::JoinHandle<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for command in commands {
+            tx.send(command.to_string()).unwrap();
+        }
+        drop(tx);
+        let state = state.clone();
+        std::thread::spawn(move || super::game_loop(state, &config, rx))
+    }
+
+    /// Waits up to `limit` for the thread to end; whether it did.
+    fn ends_within(handle: &std::thread::JoinHandle<()>, limit: std::time::Duration) -> bool {
+        let start = std::time::Instant::now();
+        while !handle.is_finished() && start.elapsed() < limit {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        handle.is_finished()
+    }
+
+    #[test]
+    fn test_wait_while_pondering_returns_on_ponderhit_or_stop_only() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+        let state = engine_state();
+        super::wait_while_pondering(&state); // not pondering: returns at once
+
+        for release in ["ponderhit", "stop"] {
+            state.stop_flag.store(false, Ordering::SeqCst);
+            state.pondering.store(true, Ordering::SeqCst);
+            let waiting = state.clone();
+            let handle = std::thread::spawn(move || super::wait_while_pondering(&waiting));
+            assert!(!ends_within(&handle, Duration::from_millis(100)), "returned before {}", release);
+            match release {
+                "ponderhit" => state.pondering.store(false, Ordering::SeqCst),
+                _ => state.stop_flag.store(true, Ordering::SeqCst),
+            }
+            assert!(ends_within(&handle, Duration::from_secs(2)), "still waiting after {}", release);
+        }
+    }
+
+    #[test]
+    fn test_bestmove_line_carries_the_ponder_move_only_when_given() {
+        assert_eq!(super::bestmove_line("e2e4", None), "bestmove e2e4");
+        assert_eq!(super::bestmove_line("e2e4", Some("e7e5")), "bestmove e2e4 ponder e7e5");
+    }
+
+    #[test]
+    fn test_ponder_move_is_the_legal_second_move_of_the_pv() {
+        let service = crate::service::Service::new();
+        let state = engine_state();
+        let start = service.fen.set_init_board();
+        let mut after_e4 = start.clone();
+        let e2e4 = super::find_legal_move(&service, &start, "e2e4", &Config::new(), &state).unwrap();
+        after_e4.do_move(&e2e4);
+        let e7e5 = super::find_legal_move(&service, &after_e4, "e7e5", &Config::new(), &state).unwrap();
+        let d2d4 = super::find_legal_move(&service, &start, "d2d4", &Config::new(), &state).unwrap();
+        let result = |best: crate::model::Turn, row: &[crate::model::Turn]| {
+            let mut result = crate::model::SearchResult::default();
+            result.add_variant(crate::model::Variant {
+                eval: 0,
+                best_move: Some(best),
+                move_row: row.iter().map(|turn| Some(*turn)).collect(),
+            });
+            result
+        };
+        let mut on = Config::new();
+        on.ponder = true;
+        let ponder = |res: &crate::model::SearchResult, config: &Config| super::ponder_move(&service, &start, res, config, &state);
+
+        assert_eq!(ponder(&result(e2e4, &[e2e4, e7e5]), &on).as_deref(), Some("e7e5"));
+        assert_eq!(ponder(&result(e2e4, &[e2e4, e7e5]), &Config::new()), None, "option off");
+        assert_eq!(ponder(&result(e2e4, &[e2e4]), &on), None, "no second move");
+        assert_eq!(ponder(&result(e2e4, &[d2d4, e7e5]), &on), None, "the PV is not that of the move played");
+        // e2e4 again is White's move, not a reply.
+        assert_eq!(ponder(&result(e2e4, &[e2e4, e2e4]), &on), None, "illegal reply");
+    }
+
+    /// A `stop` that arrives before the game thread picks up its `go` is no longer lost: the UCI
+    /// thread arms the flags, and the game thread does not clear `stop_flag` again.
+    #[test]
+    fn test_a_stop_read_before_the_search_starts_ends_it_at_once() {
+        use std::sync::atomic::Ordering;
+        let (state, _log) = logging_engine_state();
+        state.stop_flag.store(true, Ordering::SeqCst);
+        let mut config = Config::new();
+        config.use_book = false;
+        let handle = run_game_loop(&state, config, &["go wtime 300000 btime 300000"]);
+        assert!(ends_within(&handle, std::time::Duration::from_secs(2)),
+            "the search ran on its clock (6 s) instead of reading the stop");
+    }
+
+    /// A ponder search answers only after `ponderhit` or `stop`: when its depth is reached, when
+    /// there is one legal move and when the book has the move.
+    #[test]
+    fn test_a_ponder_search_holds_its_bestmove_until_ponderhit_or_stop() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+        // Black to move, the king on h8 has g8 only.
+        const ONE_LEGAL_MOVE: &str = "board 7k/8/6KQ/8/8/8/8/8 b - - 0 1";
+        const MIDDLEGAME: &str = "board r1bqk2r/pppp1ppp/2n1pn2/8/1b2P3/3P1N2/PPPN1PPP/R1BQKB1R w KQkq - 3 5";
+        let cases: [(&str, &[&str], bool); 4] = [
+            ("depth reached", &[MIDDLEGAME, "go ponder depth 3"], false),
+            ("one legal move", &[ONE_LEGAL_MOVE, "go ponder wtime 1000 btime 1000"], false),
+            ("book move", &["board rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "go ponder wtime 1000 btime 1000"], true),
+            ("stop instead of ponderhit", &[MIDDLEGAME, "go ponder depth 3"], false),
+        ];
+        for (name, commands, book) in cases {
+            let (state, _log) = logging_engine_state();
+            state.pondering.store(true, Ordering::SeqCst); // as the UCI thread arms `go ponder`
+            let mut config = Config::new();
+            config.use_book = book;
+            let handle = run_game_loop(&state, config, commands);
+            assert!(!ends_within(&handle, Duration::from_millis(500)), "{}: bestmove before ponderhit", name);
+            if name.starts_with("stop") {
+                state.stop_flag.store(true, Ordering::SeqCst);
+            }
+            state.pondering.store(false, Ordering::SeqCst);
+            assert!(ends_within(&handle, Duration::from_secs(10)), "{}: no bestmove after ponderhit", name);
+        }
+    }
+
     #[test]
     fn calculate_thinking_time_test() {
         let config = Config::new();
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 0, &config);
         assert_eq!(2000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 0, &config);
         assert_eq!(1000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 10, &config);
         assert_eq!(600, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 20, &config);
         assert_eq!(400, thinking_time);

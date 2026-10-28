@@ -131,6 +131,9 @@ impl Default for SearchTables {
 
 pub struct EngineState {
     pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Set by the UCI thread for `go ponder` and cleared by `ponderhit`, `stop` and `quit`. While
+    /// it is set the search ignores its clock and no `bestmove` is written. Matt-Magie step 72.
+    pub pondering: std::sync::atomic::AtomicBool,
     pub debug_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub zobrist_table: std::sync::RwLock<std::sync::Arc<ZobristTable>>,
 
@@ -149,6 +152,8 @@ pub struct SearchContext<'a> {
     pub zobrist_table: &'a ZobristTable,
 
     pub stop_flag: &'a AtomicBool,
+    /// [`EngineState::pondering`]; contexts outside a `go` search use [`NEVER_PONDERING`].
+    pub pondering: &'a AtomicBool,
     pub pv_nodes: &'a std::sync::Mutex<std::collections::HashMap<u64, Turn>>,
     pub killer_moves: [Option<Turn>; 2],
     /// `[side][from][to]`, indexed with [`history_side`]. See `SearchTables::history_table`.
@@ -162,6 +167,31 @@ pub struct SearchContext<'a> {
     /// use it to derive how much of the extension budget the current path has already
     /// consumed: without extensions `depth == root_depth - ply` holds exactly.
     pub root_depth: i32,
+}
+
+/// The pondering flag of every search context that does not belong to a `go` search: move
+/// generation, book probes, tests. Nothing stores to it.
+pub static NEVER_PONDERING: AtomicBool = AtomicBool::new(false);
+
+impl SearchContext<'_> {
+    /// Whether the clock has run out, with `searched` of `total` root moves done. From 85% of the
+    /// root moves the target is stretched by 1.3. While the engine ponders the clock never runs
+    /// out: the opponent's time is being spent, and `ponderhit` makes the same target count from
+    /// the start of the ponder search (Matt-Magie step 72, D1a).
+    #[inline]
+    pub fn out_of_time(&self, searched: i32, total: i32) -> bool {
+        let Some(target) = self.target_time else {
+            return false;
+        };
+        if self.pondering.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        let mut dynamic_target = target;
+        if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
+            dynamic_target = (target * 13) / 10;
+        }
+        self.start_time.elapsed().as_millis() as i32 >= dynamic_target
+    }
 }
 
 
@@ -228,7 +258,9 @@ pub struct TimeInfo {
     pub binc: i32,
     pub moves_to_go: i32,
     pub depth: i32,
-    pub time_mode: TimeMode,    
+    pub time_mode: TimeMode,
+    /// `go ponder`: search the position after the expected reply until `ponderhit` or `stop`.
+    pub ponder: bool,
 }
 
 
@@ -1558,6 +1590,45 @@ impl SearchResult {
 
 #[cfg(test)]
 mod tests {
+
+    /// Matt-Magie step 72: the clock check of the search, with and without pondering.
+    #[test]
+    fn test_out_of_time_never_fires_while_pondering() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let stop_flag = AtomicBool::new(false);
+        let pondering = AtomicBool::new(false);
+        let zobrist_table = crate::zobrist::ZobristTable::with_capacity(16);
+        let pv_nodes = std::sync::Mutex::new(std::collections::HashMap::new());
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let started_120ms_ago = std::time::Instant::now() - std::time::Duration::from_millis(120);
+        let context = |target_time: Option<i32>| super::SearchContext {
+            zobrist_table: &zobrist_table,
+            stop_flag: &stop_flag,
+            pondering: &pondering,
+            pv_nodes: &pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: started_120ms_ago,
+            target_time,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 0,
+        };
+
+        assert!(context(Some(100)).out_of_time(0, 10));
+        assert!(!context(Some(100)).out_of_time(9, 10), "from 85% of the root moves the target is 130 ms");
+        assert!(!context(Some(10_000)).out_of_time(0, 10));
+        assert!(!context(None).out_of_time(0, 10));
+
+        pondering.store(true, Ordering::Relaxed);
+        assert!(!context(Some(100)).out_of_time(0, 10), "the opponent's time is being spent");
+        assert!(!context(Some(0)).out_of_time(0, 0));
+
+        // `ponderhit`: the same target, still measured from the start of the ponder search.
+        pondering.store(false, Ordering::Relaxed);
+        assert!(context(Some(100)).out_of_time(0, 10));
+    }
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
     use super::UciGame;
@@ -2508,6 +2579,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
+            pondering: &crate::model::NEVER_PONDERING,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
