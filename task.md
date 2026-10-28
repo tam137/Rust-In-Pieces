@@ -2555,3 +2555,36 @@ v0.34.0. **Released as v0.49.3.**
 **Next:** the flag serves other rules too (LMR and IIR at cut nodes) - each its own step. The trigger
 depth `singular_min_depth` 5 is the cheapest singular follow-up.
 
+## 38. The Late Move Reduction one ply more at expected cut nodes: shipped in v0.49.4 (2026-10-28)
+
+Matt-Magie step 71. The cut-node flag of section 37 used by the Late Move Reduction: at an expected cut
+node, a move the rule reduces anyway is reduced one ply more (published engines add about two). No new
+reductions, the clamp `1 ..= depth - 2` unchanged.
+
+**Code** (`3c436d6` off, `ea9521d` on): `lmr_reduction(.., improving, cut_node)`, UCI `EnableLmrCutNode`.
+Tests red first over a grid of depth, move number, killer, counter, history and `improving`; no node-count
+test flipped.
+
+**Pre-measurement** (`search-diag`, depth 10, 300 per pool): only 25.1% / 25.6% of the LMR decisions sit at
+cut nodes; re-search rate there 1.57% / 1.39% against 0.82% / 0.72% at all nodes. With the rule the extra
+ply passes the clamp in only 19% of the cut-node decisions - about 5% of all reductions get deeper; the
+cut-node re-search rate moves to 1.60% / 1.45%.
+
+**Census** (time to depth 10 against v0.49.3, 300 per pool, control -0.1% / +0.1%): off 300/300 identical
+on both pools; on **-1.7% on `openings_wide`** (generated moves -6.1%) but **+5.4% on `openings_mixed`**
+(generated moves +11.7%) - over the +5% bar. More reduction does not always shrink the tree: a cut node
+whose late move no longer fails high can end on an upper bound and send its parent searching on. Played by
+the owner's word.
+
+**SPRT** [0, 5] with the [0, 10] monitor against v0.49.3, 1s + 150ms, Matt-Magie 1.7.1: the estimate swung
+from -5 to +16 in the first 1000 games and then sat at +5 to +8 for 5000 games. **Stopped and accepted by
+the owner after 6818 games**, both tests open ([0, 5] +1.21, [0, 10] +0.18): +2295 =2330 -2193, **+5.2 Elo,
+paired 95% [-1, +12]**. No time losses, no illegal moves, design effect 1.00.
+
+**Smoke gauntlet:** 45.0% vs v0.49.3, **43.5% vs v0.49.2** (below the 45% bar), 97.5% vs v0.34.0; the v0.49.2
+pairing repeated at the owner's word: 47.5%. **Released as v0.49.4** - the weakest evidence of the
+v0.49.x line: an open SPRT accepted by hand, a slower census on one pool and one gauntlet pairing that
+needed a second sample.
+
+**Next:** a +2 step only on a clearer signal than this one; the clamp, not the flag, limits the rule.
+
