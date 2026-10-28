@@ -758,7 +758,7 @@ impl Config {
             enable_singular_multicut: true,
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
-            enable_lmr_cut_node: false,
+            enable_lmr_cut_node: true,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1323,7 +1323,8 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.enable_lmr_cut_node);
         }
-        assert!(!Config::new().enable_lmr_cut_node, "off until step 71's census");
+        assert!(Config::new().enable_lmr_cut_node,
+            "on in the candidate of step 71 (census: -1.7% / +5.4% time to depth 10, played by the owner's word)");
     }
 
     #[test]
