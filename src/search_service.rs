@@ -1777,6 +1777,7 @@ impl SearchService {
                     history_table[crate::model::history_side(white)]
                         [current_turn.from as usize][current_turn.to as usize],
                     improving,
+                    cut_node,
                 ) > 0;
 
             // The fourth guard: the SEE pruning of bad captures also exempts a checking move.
@@ -1830,6 +1831,7 @@ impl SearchService {
                 );
                 let reduction = Self::lmr_reduction(
                     config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val, improving,
+                    cut_node,
                 );
 
                 if reduction > 0 {
@@ -1850,6 +1852,15 @@ impl SearchService {
 
                     #[cfg(feature = "search-diag")]
                     crate::search_diag::record_lmr_research(depth, improving, min_max_eval > alpha);
+                    // Matt-Magie step 71: the same per cut / all node, and whether the cut node's
+                    // extra ply got past the clamp to `depth - 2`.
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_lmr_cut_node(
+                        cut_node,
+                        cut_node && config.enable_lmr_cut_node
+                            && clamped_reduction > (reduction - 1).clamp(1, depth - 2),
+                        min_max_eval > alpha,
+                    );
                     // The reduced search failed low, so the move is confirmed uninteresting and
                     // no full-depth re-search is needed.
                     if min_max_eval <= alpha {
@@ -2346,6 +2357,7 @@ impl SearchService {
         is_counter: bool,
         hist_val: i32,
         improving: bool,
+        cut_node: bool,
     ) -> i32 {
         let d_idx = (depth as usize).min(63);
         let m_idx = (turn_counter as usize).min(63);
@@ -2375,6 +2387,12 @@ impl SearchService {
 
         // `task.md` 21.4: one ply more at a node that is not improving, for a move reduced anyway.
         if !improving && reduction > 0 {
+            reduction += 1;
+        }
+
+        // Matt-Magie step 71: an expected cut node expects an early move to reach `beta`, so a
+        // late quiet move reduced anyway is reduced one ply more. Like 21.4, never a new reduction.
+        if cut_node && config.enable_lmr_cut_node && reduction > 0 {
             reduction += 1;
         }
 
@@ -4368,7 +4386,7 @@ mod tests {
         // `improving = true` is the arithmetic this test was written against; 21.4 only adds to
         // the other case.
         let reduction = |hist_val| super::SearchService::lmr_reduction(
-            &config, depth, turn_counter, false, false, false, hist_val, true,
+            &config, depth, turn_counter, false, false, false, hist_val, true, false,
         );
 
         assert_eq!(reduction(1), base - 1,
@@ -4381,6 +4399,94 @@ mod tests {
                    "a refuted quiet move reduces one ply more");
         assert_eq!(reduction(-crate::model::MAX_HISTORY), base + 1,
                    "and the penalty is one ply whatever the magnitude");
+    }
+
+    /// Matt-Magie step 71: at an expected cut node every move the rule reduces anyway is reduced
+    /// one ply more; no reduction is created where the damping left none; off is v0.49.3.
+    #[test]
+    fn test_lmr_reduces_one_ply_more_at_cut_nodes() {
+        let mut on = Config::new();
+        on.enable_lmr_cut_node = true;
+        let mut off = on.clone();
+        off.enable_lmr_cut_node = false;
+        let (mut deepened, mut untouched) = (0, 0);
+
+        for depth in [3, 4, 6, 8, 10, 16] {
+            for turn_counter in [4, 8, 16, 30] {
+                // A PV node is never a cut node, so the PV rebate is not combined with the flag.
+                for (is_killer, is_counter) in [(false, false), (true, false), (false, true), (true, true)] {
+                    for hist_val in [-1, 0, 1] {
+                        for improving in [false, true] {
+                            let reduction = |config: &Config, cut_node| super::SearchService::lmr_reduction(
+                                config, depth, turn_counter, false, is_killer, is_counter, hist_val,
+                                improving, cut_node,
+                            );
+                            let all = reduction(&on, false);
+                            assert_eq!(all, reduction(&off, false), "an all node is unchanged");
+                            assert_eq!(reduction(&off, true), all, "off is v0.49.3 at a cut node too");
+                            if all > 0 {
+                                deepened += 1;
+                                assert_eq!(reduction(&on, true), all + 1,
+                                    "depth {} move {} killer {} counter {} history {} improving {}: one ply more",
+                                    depth, turn_counter, is_killer, is_counter, hist_val, improving);
+                            } else {
+                                untouched += 1;
+                                assert_eq!(reduction(&on, true), all,
+                                    "depth {} move {} killer {} counter {} history {} improving {}: no new reduction",
+                                    depth, turn_counter, is_killer, is_counter, hist_val, improving);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(deepened > 0 && untouched > 0,
+            "the grid must reach both branches ({} deepened, {} untouched)", deepened, untouched);
+    }
+
+    #[test]
+    fn test_the_lmr_cut_node_rule_changes_the_tree_when_enabled() {
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmr_cut_node = false);
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmr_cut_node = true);
+        assert_ne!(with, without,
+            "the cut-node reduction must change the searched tree ({} with vs {} without)",
+            with, without);
+    }
+
+    #[test]
+    fn test_the_lmr_cut_node_rule_is_inert_without_lmr() {
+        let off = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmr = false;
+            c.enable_lmr_cut_node = false;
+        });
+        let on = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.enable_lmr = false;
+            c.enable_lmr_cut_node = true;
+        });
+        assert_eq!(off, on, "without LMR the rule must be inert ({} vs {})", off, on);
+    }
+
+    #[test]
+    fn test_the_lmr_cut_node_rule_keeps_the_smothered_mate() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(SMOTHERED_MATE_FEN);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.enable_check_extension = true;
+        config.enable_lmp = true;
+        config.enable_bad_capture_pruning = true;
+        config.enable_razoring = false;
+        config.enable_lmr_cut_node = true;
+        let mut stats = Stats::new();
+
+        let result = service.search.get_moves(
+            &mut board, 6, true, &mut stats, &config, &service,
+            &fresh_engine_state(), std::time::Instant::now(), None, None,
+        );
+
+        assert!(result.get_eval() > 30000,
+            "the cut-node reduction must not lose the smothered mate, got eval {}",
+            result.get_eval());
     }
 
     /// `task.md` 21.4, the LMR half. A node that is not improving reduces every move the rule
@@ -4399,7 +4505,7 @@ mod tests {
                     for hist_val in [-1, 0, 1] {
                         let reduction = |improving| super::SearchService::lmr_reduction(
                             &config, depth, turn_counter, is_pv, is_killer, is_counter, hist_val,
-                            improving,
+                            improving, false,
                         );
                         let (improving, not_improving) = (reduction(true), reduction(false));
                         if improving > 0 {
