@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.5] - 2026-10-28
+
+UCI pondering, off by default: the option `Ponder` adds `ponder <reply>` to `bestmove`. With the option
+off the engine searches and answers exactly like v0.49.4. No game measurement - pondering is a use of
+the opponent's time, not a search change. See `task.md` section 39.
+
+### Added
+- UCI `Ponder` (check, false): `bestmove <move> ponder <reply>`, the reply being the second PV move when
+  it is legal after the move played.
+- `go ponder` searches without a clock and holds `bestmove` until `ponderhit` or `stop`, also for a
+  single legal move, a book move, a mate or a reached depth. After `ponderhit` the normal budget counts
+  from the start of the ponder search. Honoured whether `Ponder` is on or not.
+- `SearchContext::out_of_time`: the three clock checks of the search in one place.
+
+### Fixed
+- A `stop` read before the game thread had started its `go` was lost (the game thread cleared the flag
+  itself); the UCI thread now arms `stop_flag` and the pondering flag before forwarding `go`.
+
+### Notes
+- Off: 300/300 identical trees against v0.49.4 on both pools, time to depth 10 +0.4% / +0.6%.
+- python-chess 1.11.2 protocol test, 40 self-play games at 1s + 100ms, Move Overhead 100, one side
+  pondering: no protocol error, time loss or hang; ponderhit rate 65.5% (1371 of 2092).
+- Smoke gauntlet (option off): 46.5% vs v0.49.4, 50.5% vs v0.49.3, 95.5% vs v0.34.0.
+
+
+
 ## [V0.49.4] - 2026-10-28
 
 The Late Move Reduction reduces one ply more at expected cut nodes. SPRT [0, 5] / [0, 10] against v0.49.3
