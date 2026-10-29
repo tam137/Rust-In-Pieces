@@ -167,7 +167,7 @@ impl EvalService {
     /// and diagnostics use. The search calls [`Self::calc_eval_known_check_with_acc`].
     pub fn calc_eval(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16) -> i16 {
         let in_check = movegen.is_in_check(board);
-        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, true, None)
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, true, None).0
     }
 
     /// [`Self::calc_eval`] for a caller that already knows whether the side to move is in check.
@@ -191,19 +191,40 @@ impl EvalService {
         in_check: bool,
         acc: Option<&crate::nnue_service::NNUEAccumulator>,
     ) -> i16 {
+        self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, false, acc).0
+    }
+
+    /// [`Self::calc_eval_known_check_with_acc`], and whether the value is the full evaluation
+    /// (`true`) or a lazy return of the classical fallback. Only a full value may teach the
+    /// Correction History (Matt-Magie step 74); with the network loaded every value is full.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub fn calc_eval_known_check_with_acc_full(
+        &self,
+        board: &Board,
+        config: &Config,
+        movegen: &MoveGenService,
+        pawn_table: &crate::pawn_hash::PawnHashTable,
+        alpha: i16,
+        beta: i16,
+        margin: i16,
+        in_check: bool,
+        acc: Option<&crate::nnue_service::NNUEAccumulator>,
+    ) -> (i16, bool) {
         self.evaluate(board, config, movegen, pawn_table, alpha, beta, margin, in_check, false, acc)
     }
 
+    /// The evaluation, and `false` when it is a lazy return (master v0.48.0, `task.md` 25.3).
     #[allow(clippy::too_many_arguments)]
-    fn evaluate(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool, count_both_kings: bool, acc: Option<&crate::nnue_service::NNUEAccumulator>) -> i16 {
+    fn evaluate(&self, board: &Board, config: &Config, movegen: &MoveGenService, pawn_table: &crate::pawn_hash::PawnHashTable, alpha: i16, beta: i16, margin: i16, in_check: bool, count_both_kings: bool, acc: Option<&crate::nnue_service::NNUEAccumulator>) -> (i16, bool) {
         if Self::is_insufficient_material(board) {
-            return 0;
+            return (0, true);
         }
         if config.use_nnue && self.nnue_net.loaded {
             if let Some(a) = acc {
-                return crate::nnue_service::NNUEService::evaluate_with_accumulator(board, &self.nnue_net, a);
+                return (crate::nnue_service::NNUEService::evaluate_with_accumulator(board, &self.nnue_net, a), true);
             }
-            return crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net);
+            return (crate::nnue_service::NNUEService::evaluate(board, &self.nnue_net), true);
         }
         let game_phase = self.get_game_phase(board);
 
@@ -215,10 +236,10 @@ impl EvalService {
         {
             let cheap = self.cheap_eval(board, config, pawn_table);
             if alpha > i16::MIN + 2000 && cheap + margin <= alpha {
-                return cheap;
+                return (cheap, false);
             }
             if beta < i16::MAX - 2000 && cheap - margin >= beta {
-                return cheap;
+                return (cheap, false);
             }
         }
 
@@ -573,7 +594,7 @@ impl EvalService {
         if config.print_eval_per_figure {
             println!("{}", eval);
         }
-        eval
+        (eval, true)
     }
 
     fn white_pawn_structure_score(&self, sq: u8, board: &Board, config: &Config, precalculated_passed_pawns: u64) -> (i16, i16) {
