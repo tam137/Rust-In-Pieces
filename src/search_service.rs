@@ -951,12 +951,7 @@ impl SearchService {
             board.white_to_move = !board.white_to_move;
             board.field_for_en_passante = -1;
 
-            let dynamic_divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
-            let reduction = config.nmp_reduction + (depth / dynamic_divisor);
-            let mut reduced_depth = depth - 1 - reduction;
-            if reduced_depth < 0 {
-                reduced_depth = 0;
-            }
+            let reduced_depth = Self::nmp_child_depth(depth, config);
 
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
@@ -987,7 +982,7 @@ impl SearchService {
                 // write a mate score normalised against the wrong ply under this node's own
                 // hash - which the early return below then leaves in place as the entry for
                 // this position.
-                if depth >= config.nmp_verification_threshold {
+                if config.nmp_verification && depth >= config.nmp_verification_threshold {
                     // Same node, same side to move, same ply: the window and the score pass
                     // through unchanged.
                     let verify_eval = self.minimax(
@@ -995,6 +990,9 @@ impl SearchService {
                         alpha, beta, stats, config, service, context,
                         is_pv, Self::child_cut_node(ChildSearch::SameNode, is_pv, cut_node), true, None, child_pv, ply, killer_moves, history_table, correction_history, counter_moves, deeper, acc_stack
                     ).1;
+
+                    #[cfg(feature = "search-diag")]
+                    crate::search_diag::record_nmp_verification(verify_eval >= beta);
 
                     if verify_eval >= beta {
                         #[cfg(feature = "search-diag")]
@@ -2066,6 +2064,18 @@ impl SearchService {
         }
     }
 
+    /// The depth Null Move Pruning searches the null child at, `task.md` 20.
+    ///
+    /// `depth - 1 - (nmp_reduction + depth / nmp_dynamic_divisor)`, floored at 0, where 0 is the
+    /// Quiescence Search. The move's own ply is subtracted on top of the reduction, so the
+    /// published `depth - R` with `R = 3 + depth / 3` is `nmp_reduction` 2 with a divisor of 3
+    /// here - not 3 with 3, which is one ply beyond it. A divisor of 0 or below falls back to 6,
+    /// the divisor before 20, rather than dividing by zero.
+    fn nmp_child_depth(depth: i32, config: &Config) -> i32 {
+        let divisor = if config.nmp_dynamic_divisor > 0 { config.nmp_dynamic_divisor } else { 6 };
+        (depth - 1 - (config.nmp_reduction + depth / divisor)).max(0)
+    }
+
     /// The table move's extension from the singular verification, Matt-Magie step 75 (master step 69).
     ///
     /// * no verdict (no candidate, or a refused entry) -> 0;
@@ -2305,6 +2315,7 @@ mod tests {
         let mut config_enabled = Config::for_tests();
         config_enabled.enable_nmp = true;
         config_enabled.nmp_depth_threshold = 2;
+        config_enabled.nmp_verification = true;
         config_enabled.nmp_verification_threshold = 3;
         config_enabled.nmp_reduction = 2;
         config_enabled.nmp_dynamic_divisor = 6;
@@ -2769,8 +2780,10 @@ mod tests {
     }
 
     /// v0.43.0 ships the gate of 20.1 and neither PV guard of 20.2, which is the configuration
-    /// the tree census picked and the 6000-game run on `master` priced. This pins it, so a later
-    /// edit cannot quietly ship a configuration nothing measured.
+    /// the tree census picked and the 6000-game run on `master` priced. `task.md` 20 (Matt-Magie step 76 on this
+    /// branch) adds the published depth of the null child, divisor 3, and no verification search. This pins
+    /// both, so a later edit cannot quietly ship a configuration nothing measured — the same job
+    /// `test_the_shipped_default_is_the_configuration_that_was_measured` does for v0.35.1.
     #[test]
     fn test_the_shipped_nmp_configuration_is_the_one_that_was_measured() {
         let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
@@ -2779,9 +2792,13 @@ mod tests {
             c.nmp_static_eval_gate = true;
             c.nmp_pv_guard = false;
             c.rfp_pv_guard = false;
+            c.nmp_reduction = 2;
+            c.nmp_dynamic_divisor = 3;
+            c.nmp_verification = false;
         });
         assert_eq!(default_tree, explicit,
-            "the shipped default must be the gate alone ({} vs {})", default_tree, explicit);
+            "the shipped default must be the gate alone, the published depth and no \
+             verification ({} vs {})", default_tree, explicit);
 
         let ungated = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
@@ -2791,6 +2808,70 @@ mod tests {
         });
         assert_ne!(default_tree, ungated,
             "the gate must be a different tree from the search without it");
+        let v0_49_3_nnue = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.nmp_dynamic_divisor = 6;
+            c.nmp_verification = true;
+        });
+        assert_ne!(default_tree, v0_49_3_nnue,
+            "v0.49.3-NNUE's null move must be a different tree from the shipped default");
+    }
+
+    /// `task.md` 20. The child depth the null move searches at, against the table in that
+    /// section: v0.46.2's divisor 6, and the published `depth - (3 + depth / 3)`, which is divisor
+    /// 3 in this engine's convention because the move's own ply is subtracted separately.
+    #[test]
+    fn test_nmp_child_depth_follows_the_published_form() {
+        let mut config = Config::for_tests();
+        config.nmp_reduction = 2;
+
+        config.nmp_dynamic_divisor = 6;
+        let v0_49_3_nnue: Vec<i32> = (3..=10).map(|d| super::SearchService::nmp_child_depth(d, &config)).collect();
+        assert_eq!(v0_49_3_nnue, vec![0, 1, 2, 2, 3, 4, 5, 6]);
+
+        config.nmp_dynamic_divisor = 3;
+        let published: Vec<i32> = (3..=10).map(|d| super::SearchService::nmp_child_depth(d, &config)).collect();
+        assert_eq!(published, vec![0, 0, 1, 1, 2, 3, 3, 4]);
+        for depth in 3..=10 {
+            assert_eq!(published[(depth - 3) as usize], (depth - (3 + depth / 3)).max(0),
+                "depth {}: the published depth - R with R = 3 + depth / 3", depth);
+        }
+
+        config.nmp_dynamic_divisor = 0;
+        assert_eq!(super::SearchService::nmp_child_depth(9, &config), 5, "a divisor of 0 falls back to 6");
+    }
+
+    /// `NmpVerification` off is the verification at a threshold no node reaches, so the census
+    /// taken with `NmpVerificationThreshold=99` on v0.46.2 measures the tree the switch ships. On,
+    /// with a threshold the test depth reaches, it has to change the tree, or the switch is inert.
+    ///
+    /// The pass is seeded, as every iteration from depth 3 on is in play. Unseeded, with the null
+    /// child at the published depth, the switch left the node count at depth 7 unchanged (46285
+    /// either way): a verification at depth 3 or 4 re-searches this node at depth 0, which is the
+    /// Quiescence Search.
+    #[test]
+    fn test_the_nmp_verification_switch() {
+        const SEED: Option<i16> = Some(0);
+        let off = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
+            c.use_zobrist = true;
+            c.nmp_verification = false;
+            c.nmp_verification_threshold = 3;
+        });
+        let unreachable = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
+            c.use_zobrist = true;
+            c.nmp_verification = true;
+            c.nmp_verification_threshold = 99;
+        });
+        assert_eq!(off, unreachable,
+            "switched off must be the verification at an unreachable threshold ({} vs {})",
+            off, unreachable);
+
+        let on = search_nodes_seeded(CHECK_RICH_FEN, 7, SEED, |c| {
+            c.use_zobrist = true;
+            c.nmp_verification = true;
+            c.nmp_verification_threshold = 3;
+        });
+        assert_ne!(off, on, "the verification must reach nodes at depth 7 ({} nodes either way)", off);
     }
 
     /// The gate of 20.1 reads `static_eval`, which is the sentinel `0` outside
@@ -4593,12 +4674,15 @@ mod tests {
     fn test_a_null_move_into_stalemate_does_not_leave_the_node_drawn() {
         // White mates with Qb7, but Black to move would be stalemated. The null child generates no
         // move and writes `Draw` onto the shared board, and the node then scored itself 0 because
-        // nothing restored the status. At depths 5 and 6 Null Move Pruning reaches the null child
-        // without razoring answering first. Reverse Futility Pruning is off: at its published bound
-        // and ahead of the null move (`task.md` 21.3) it cuts this node on its queen before the null
-        // move is tried.
+        // nothing restored the status. The null child has to be searched at depth 2 or more to
+        // generate its moves at all: razoring answers at depth 1 and the Quiescence Search at 0.
+        // With the null child at the published depth of `task.md` 20 that is depths 7 and 8; until
+        // v0.49.3-NNUE it was 5 and 6. Reverse Futility Pruning is off: at its published bound and
+        // ahead of the null move (`task.md` 21.3) it cuts this node on its queen first.
         let fen = "k7/2K5/1Q6/8/8/8/8/8 w - - 0 1";
-        for depth in [5, 6] {
+        for depth in [7, 8] {
+            assert!(super::SearchService::nmp_child_depth(depth, &Config::for_tests()) >= 2,
+                "depth {depth}: the null child must be deep enough to generate its moves");
             let (score, board) = search_node(fen, depth, 0, 1, |c| c.enable_rfp = false);
             assert!(score > crate::model::MATE_SCORE_THRESHOLD,
                 "depth {depth}: Qb7# must score as a mate, got {score}");

@@ -191,6 +191,10 @@ mod counters {
     pub static NMP_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
     /// Nodes both guards let through, by the same depth index.
     pub static NMP_SEARCH_BY_DEPTH: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
+    /// Verification searches run after a null search failed high (`task.md` 20): how often the
+    /// rule pays for a second search, and how often that search refused the cut.
+    pub static NMP_VERIFICATIONS: AtomicU64 = AtomicU64::new(0);
+    pub static NMP_VERIFICATIONS_REFUSED: AtomicU64 = AtomicU64::new(0);
 
     // ---------------------------------------------------------------------------------------
     // `task.md` 21.3: where Reverse Futility Pruning cuts, and what Null Move Pruning would
@@ -540,6 +544,16 @@ pub fn record_nmp_cut() {
     counters::bump(&counters::NMP_CUTS);
 }
 
+/// Records a verification search after a null search that failed high, and whether it confirmed
+/// the cut (`task.md` 20). A refused one is a cut the verification prevented.
+#[cfg(feature = "search-diag")]
+pub fn record_nmp_verification(confirmed: bool) {
+    counters::bump(&counters::NMP_VERIFICATIONS);
+    if !confirmed {
+        counters::bump(&counters::NMP_VERIFICATIONS_REFUSED);
+    }
+}
+
 /// Writes the size of the tree the search actually walked.
 ///
 /// The UCI `nodes` field reports `Stats::created_nodes`, i.e. the number of *generated* moves.
@@ -653,7 +667,7 @@ pub fn dump() {
         );
         eprintln!(
             "SEARCHDIAGNMP candidates={} pv_blocked={} gate_blocked={} searches={} cuts={} \
-             by_depth={} search_by_depth={}",
+             by_depth={} search_by_depth={} verifications={} verifications_refused={}",
             counters::read(&counters::NMP_CANDIDATES),
             counters::read(&counters::NMP_PV_BLOCKED),
             counters::read(&counters::NMP_GATE_BLOCKED),
@@ -661,6 +675,8 @@ pub fn dump() {
             counters::read(&counters::NMP_CUTS),
             by_depth(&counters::NMP_BY_DEPTH),
             by_depth(&counters::NMP_SEARCH_BY_DEPTH),
+            counters::read(&counters::NMP_VERIFICATIONS),
+            counters::read(&counters::NMP_VERIFICATIONS_REFUSED),
         );
         eprintln!(
             "SEARCHDIAGRFP cuts_by_depth={} cuts_nmp_by_depth={} pv_cuts={}",

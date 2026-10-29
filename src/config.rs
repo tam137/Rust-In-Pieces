@@ -207,9 +207,21 @@ pub struct Config {
     /// Precalculated logarithmic LMR reduction lookup table indexed by [depth][move_index].
     pub lmr_table: [[i16; 64]; 64],
     pub nmp_depth_threshold: i32,
+    /// The null child is searched at `depth - 1 - (nmp_reduction + depth / nmp_dynamic_divisor)`,
+    /// floored at 0: the move's own ply is subtracted on top of the reduction, so the published
+    /// `depth - R` with `R = 3 + depth / 3` is `nmp_reduction` 2 with `nmp_dynamic_divisor` 3
+    /// here. `task.md` 20; see `search_service::nmp_child_depth`.
     pub nmp_reduction: i32,
     pub nmp_verification_threshold: i32,
     pub nmp_dynamic_divisor: i32,
+    /// Whether a null cut at `depth >= nmp_verification_threshold` is first confirmed by
+    /// searching this node again at the null child's depth (`task.md` 20).
+    ///
+    /// The verification exists for zugzwang, where passing is the best move and the null search
+    /// overstates the position. The published pairing runs none: the `static_eval >= beta` gate of
+    /// 20.1 already refuses the nodes where giving a free move away could be what fails high, and
+    /// a position without non-pawn material never reaches the rule.
+    pub nmp_verification: bool,
     /// Null Move Pruning only runs where the *static* evaluation is already at or above `beta`
     /// (`task.md` 20.1). Ships **enabled**: Elo-neutral over 6000 games on `master`, at 34.7% of
     /// all null searches and 3.0% / 11.0% of the generated moves removed.
@@ -575,7 +587,13 @@ impl Config {
             nmp_depth_threshold: 3,
             nmp_reduction: 2,
             nmp_verification_threshold: 6,
-            nmp_dynamic_divisor: 6,
+            // `task.md` 20, the published pairing: the null child at `depth - (3 + depth / 3)`
+            // and no verification search. Until v0.46.2 the divisor was 6 and every null cut
+            // from depth 6 up was verified. Census against v0.46.2 at depth 10, 300 positions per
+            // pool: -16.4% / -13.2% time on `openings_wide` / `openings_mixed`; the divisor alone
+            // -14.9% / -14.1%, the verification off alone -2.6% / +3.9%.
+            nmp_dynamic_divisor: 3,
+            nmp_verification: false,
             nmp_static_eval_gate: true,
             nmp_pv_guard: false,
             aspiration_window_initial_delta: 16,
@@ -956,6 +974,37 @@ mod tests {
                 "RfpBeforeNmp must be advertised as a UCI option");
     }
 
+    /// `task.md` 20: the null child at the published depth, `depth - (3 + depth / 3)`, which is
+    /// reduction 2 and divisor 3 in this engine's convention, and no verification search.
+    /// `NmpVerification` is advertised so that one binary can be surveyed against itself with the
+    /// verification on and off.
+    #[test]
+    fn test_the_null_move_ships_the_published_depth_and_no_verification() {
+        let defaults = Config::new();
+        assert_eq!(defaults.nmp_reduction, 2);
+        assert_eq!(defaults.nmp_dynamic_divisor, 3, "the published depth term is depth / 3");
+        assert!(!defaults.nmp_verification, "the published pairing runs no verification search");
+        assert_eq!(defaults.nmp_verification_threshold, 6,
+                   "the threshold keeps its value for when the verification is switched on");
+
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l.starts_with("option name NmpVerification ")),
+                "NmpVerification must be advertised as a UCI option");
+    }
+
+    #[test]
+    fn test_the_nmp_verification_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["NmpVerification", "nmp_verification", "nmpverification"] {
+            for value in [true, false] {
+                let mut config = Config::new();
+                config.nmp_verification = !value;
+                assert_eq!(config.apply_uci_option(spelling, &value.to_string()),
+                           UciOptionEffect::Stored);
+                assert_eq!(config.nmp_verification, value, "'{}' must reach the field", spelling);
+            }
+        }
+    }
+
     #[test]
     fn test_the_rfp_before_nmp_option_reaches_the_field_in_all_spellings() {
         for spelling in ["RfpBeforeNmp", "rfp_before_nmp", "rfpbeforenmp"] {
@@ -1200,6 +1249,7 @@ impl Config {
             "nmpreduction" => if let Ok(v) = value.parse::<i32>() { self.nmp_reduction = v; },
             "nmpverificationthreshold" => if let Ok(v) = value.parse::<i32>() { self.nmp_verification_threshold = v; },
             "nmpdynamicdivisor" => if let Ok(v) = value.parse::<i32>() { self.nmp_dynamic_divisor = v; },
+            "nmpverification" => self.nmp_verification = value.eq_ignore_ascii_case("true"),
             "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
