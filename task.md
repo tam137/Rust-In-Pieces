@@ -2147,6 +2147,14 @@ losses on time, White 54.9%.
 92.5% against v0.34.0, no losses on time. Shipped as **v0.48.2**, the release binary identical to the
 candidate (100/100 trees).
 
+**On the NNUE branch: v0.48.2-NNUE** (2026-10-29, Matt-Magie step 73). The branch had the same ranks and
+the same SEE window, line for line; `2fcab86` ported onto v0.46.4-NNUE, one conflict in test context
+only, no protected parameter touched. Time to depth 10 against v0.46.4-NNUE +3.1% / -0.8% (`wide` /
+`mixed`, 2 / 0 of 300 trees identical). SPRT [-10, 0] against v0.46.4-NNUE at 1s + 150ms, `openings_wide`,
+concurrency 4: **H1 after 426 games** (LLR +3.04); over 429 games **+40.1 Elo, paired 95% [+17, +64]** - a
+stopped run, not an effect size. No losses on time, no illegal moves. Smoke gauntlet 51.5% / 56.0% / 91.0%
+against v0.46.4- / v0.46.2- / v0.34.0-NNUE; release binary identical to the candidate (100/100 trees).
+
 ### 30.5 The capture history with weight, and a history-loosened exchange threshold: no game (2026-10-23)
 
 Matt-Magie step 55, on v0.48.2 with the history of 30.3. The capture rank becomes the victim's value
