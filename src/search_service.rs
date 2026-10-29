@@ -4373,6 +4373,41 @@ mod tests {
         assert_eq!(search_with_table(&mut board, &table, 5), 700);
     }
 
+    // Matt-Magie step 54: every capture stands where the lazy Static Exchange Evaluation sees it.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_queen_taking_a_defended_pawn_is_sent_through_the_static_exchange_evaluation() {
+        // Qxd5 loses the queen to exd5 and gives no check. The main search demotes a losing
+        // capture only while its rank lies between these two bounds.
+        let service = Service::new();
+        let mut board = service.fen.set_fen("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1");
+        let config = Config::new();
+        let table = ZobristTable::with_capacity(1);
+        let state = fresh_engine_state();
+        let history = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: &table,
+            stop_flag: &state.stop_flag,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: 0,
+        };
+        let mut moves = crate::model::MoveList::new();
+        service.move_gen.generate_valid_moves_list(&mut board, &mut Stats::new(), &config, &context, true, &mut moves);
+        let qxd5 = moves.as_slice().iter().find(|t| t.from == 3 && t.to == 35).expect("Qxd5 is legal");
+        assert!(!qxd5.gives_check);
+        assert!(service.search.see(&board, qxd5, &config, &service.move_gen) < 0, "the fixture's capture must lose");
+        assert!(qxd5.rank >= super::SEE_PENDING_FLOOR && qxd5.rank < super::SEE_PENDING_CEILING,
+            "Qxd5 bypasses the exchange evaluation (rank {})", qxd5.rank >> crate::model::RANK_TIEBREAK_BITS);
+    }
+
     // Principal Variation Search at the root (`Config::root_pvs`).
     // ---------------------------------------------------------------------------------------
 

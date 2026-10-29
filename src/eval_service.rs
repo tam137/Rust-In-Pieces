@@ -2164,7 +2164,7 @@ impl EvalService {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::service::Service;
     use crate::config::Config;
 
@@ -3383,7 +3383,7 @@ mod tests {
 
     /// Every position of `games` random legal games of up to `plies` plies, from a fixed seed so
     /// that a failure reproduces.
-    fn random_positions(games: usize, plies: usize, seed: u64) -> Vec<crate::model::Board> {
+    pub(crate) fn random_positions(games: usize, plies: usize, seed: u64) -> Vec<crate::model::Board> {
         let service = Service::new();
         let config = Config::for_tests();
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);
