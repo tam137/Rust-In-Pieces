@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.3-NNUE] - 2026-10-29
+
+- Ported master v0.49.2 and v0.49.3 (`task.md` 36 and 37 on `master`): the negative Singular
+  Extension. When the singular verification finds the table move not singular below `beta` - another
+  move reaches its score too - the table move is searched one ply shallower in a non-PV node (-1) and
+  two plies shallower at an expected cut node (-2). The check extension keeps priority; the PV is
+  never shortened. UCI `EnableSingularNegativeExtension`, `EnableSingularCutNodeExtension` (both on).
+- The expected-cut-node flag through `minimax`, after the published propagation (a PV child never,
+  a reduced child always, a full-depth child and the null move flip it, a same-node search keeps it);
+  `debug_assert` that no PV node is a cut node. Expected cut nodes cut 88.4% of the time here, the
+  other non-PV nodes 44%.
+- Both options off, and every intermediate commit: v0.49.1-NNUE node for node (300/300 identical trees
+  on both pools at depth 10). On: 11.1% / 9.7% less time to depth 10 (-1 alone 7.3% / 2.5%). No
+  node-count test flipped; no protected NNUE or SPSA parameter is touched.
+- **Not on this branch:** master v0.46.0, v0.46.1, v0.46.3, v0.47.x, v0.48.0, v0.48.1, v0.48.3 to
+  v0.48.5, and v0.49.4 (Late Move Reduction at expected cut nodes).
+- Measured here against v0.49.1-NNUE at 1s + 150ms: **SPRT [0, 10] H1 after 1450 games** (at the owner's
+  word no stop before 1000 games; [0, 5] undecided at +1.78); over 1450 games +16.8 Elo, paired 95%
+  [+4, +29] - a stopped run, not an effect size. Smoke gauntlet 59.0% / 49.0% / 87.5% against
+  v0.49.1-NNUE / v0.48.2-NNUE / v0.34.0-NNUE. `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.49.1-NNUE] - 2026-10-29
 
 - Ported master v0.49.0 and v0.49.1 (`task.md` 33 and 33.2 on `master`): the Correction History.
