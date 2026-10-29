@@ -646,7 +646,7 @@ impl SearchService {
         pv: &mut [Option<Turn>; 128],
         ply: i32, killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[[i32; 64]; 64]; 2],
-        correction_history: &mut crate::model::CorrectionHistory,
+        correction_history: &mut crate::model::CorrectionTables,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers],
         acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY])
@@ -847,7 +847,7 @@ impl SearchService {
             // Pruning, the Null Move gate, razoring and Futility Pruning -- sees the corrected
             // value.
             if config.enable_correction_history {
-                correction_history.corrected(relative, white, board.pawn_key, config.corr_hist_div)
+                Self::corrected_eval(correction_history, relative, white, board, config)
             } else {
                 relative
             }
@@ -1141,8 +1141,7 @@ impl SearchService {
                     if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
                 ));
                 if config.enable_correction_history {
-                    stand_pat = correction_history.corrected(stand_pat, white, board.pawn_key,
-                        config.corr_hist_div);
+                    stand_pat = Self::corrected_eval(correction_history, stand_pat, white, board, config);
                 }
                 eval = stand_pat;
 
@@ -1823,8 +1822,8 @@ impl SearchService {
             && Self::correction_update_allowed(turn.gives_check, excluded_move.is_some(),
                 raw_static_eval_full, best_move, eval, static_eval, entry_type)
         {
-            correction_history.update(white, board.pawn_key, depth, eval, static_eval,
-                config.corr_hist_limit);
+            correction_history.update(white, board, depth, eval, static_eval,
+                config.corr_hist_limit, config.enable_correction_history_non_pawn);
         }
 
         if config.use_zobrist
@@ -1856,6 +1855,15 @@ impl SearchService {
 
     
 
+
+    /// The side-to-move-relative static evaluation with every enabled Correction History table
+    /// applied (Matt-Magie step 74, master steps 64 and 66).
+    #[inline(always)]
+    fn corrected_eval(tables: &crate::model::CorrectionTables, relative: i16, white: bool,
+        board: &Board, config: &Config) -> i16 {
+        let non_pawn_div = config.enable_correction_history_non_pawn.then_some(config.corr_hist_non_pawn_div);
+        tables.corrected(relative, white, board, config.corr_hist_div, non_pawn_div)
+    }
 
     /// Whether a finished main-search node may teach the Correction History (Matt-Magie step 74, master step 64).
     ///
@@ -1922,7 +1930,7 @@ impl SearchService {
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[[i32; 64]; 64]; 2],
-        correction_history: &mut crate::model::CorrectionHistory,
+        correction_history: &mut crate::model::CorrectionTables,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -1980,7 +1988,7 @@ impl SearchService {
         stats: &mut Stats, config: &Config, service: &Service, context: &SearchContext,
         killer_moves: &mut [[Option<Turn>; 2]; 128],
         history_table: &mut [[[i32; 64]; 64]; 2],
-        correction_history: &mut crate::model::CorrectionHistory,
+        correction_history: &mut crate::model::CorrectionTables,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
@@ -2365,7 +2373,7 @@ mod tests {
     }
 
     fn correction_entries_after(fen: &str, depth: i32, shape: impl Fn(&mut Config))
-        -> crate::model::CorrectionHistory {
+        -> crate::model::CorrectionTables {
         let service = Service::new();
         let state = fresh_engine_state();
         let mut config = Config::for_tests();
@@ -2378,9 +2386,38 @@ mod tests {
         state.search_tables.lock().unwrap().correction_history.clone()
     }
 
-    fn written_entries(corr: &crate::model::CorrectionHistory, white: bool) -> Vec<i16> {
+    fn written_entries(corr: &crate::model::CorrectionTables, white: bool) -> Vec<i16> {
+        written(&corr.pawn, white)
+    }
+
+    fn written(table: &crate::model::CorrectionHistory, white: bool) -> Vec<i16> {
         (0..crate::model::CORRECTION_HISTORY_SIZE as u64)
-            .map(|k| corr.entry(white, k)).filter(|&e| e != 0).collect()
+            .map(|k| table.entry(white, k)).filter(|&e| e != 0).collect()
+    }
+
+    /// Matt-Magie step 66: the non-pawn tables learn only when switched on, and then in both
+    /// colours' tables and both side-to-move planes; switched off they stay empty while the pawn
+    /// table learns as in v0.49.0.
+    #[test]
+    fn test_the_non_pawn_correction_tables_learn_only_when_enabled() {
+        let off = correction_entries_after(CORR_FEN, 6, |c| {
+            c.enable_correction_history = true;
+            c.enable_correction_history_non_pawn = false;
+        });
+        assert!(!written_entries(&off, true).is_empty(), "the pawn table still learns");
+        for colour in 0..2 {
+            assert!(written(&off.non_pawn[colour], true).is_empty()
+                && written(&off.non_pawn[colour], false).is_empty());
+        }
+        let on = correction_entries_after(CORR_FEN, 6, |c| {
+            c.enable_correction_history = true;
+            c.enable_correction_history_non_pawn = true;
+        });
+        for colour in 0..2 {
+            assert!(!written(&on.non_pawn[colour], true).is_empty()
+                && !written(&on.non_pawn[colour], false).is_empty(),
+                "the non-pawn table of colour {} learns in both planes", colour);
+        }
     }
 
     const CORR_FEN: &str = "r1bqkb1r/pp1p1ppp/2n1pn2/2p5/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq - 0 5";
@@ -3876,7 +3913,7 @@ mod tests {
             1,
             &mut killer_moves,
             &mut history_table_mut,
-            &mut crate::model::CorrectionHistory::new(),
+            &mut crate::model::CorrectionTables::new(),
             &mut counter_moves,
             &mut crate::model::new_search_buffers(),
             &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
@@ -4256,7 +4293,7 @@ mod tests {
         let (_, score) = service.search.minimax(
             &mut board, &no_move, depth, alpha, beta, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, 1, &mut killer_moves, &mut history,
-            &mut crate::model::CorrectionHistory::new(), &mut counter_moves,
+            &mut crate::model::CorrectionTables::new(), &mut counter_moves,
             &mut crate::model::new_search_buffers(), &mut acc_stack,
         );
         (score, board, stats.calculated_nodes)
@@ -4516,7 +4553,7 @@ mod tests {
         service.search.minimax(
             board, &no_move, depth, -30_000, 30_000, &mut stats, &config, &service, &context,
             false, false, None, &mut pv, 1, &mut killer_moves, &mut history,
-            &mut crate::model::CorrectionHistory::new(), &mut counter_moves,
+            &mut crate::model::CorrectionTables::new(), &mut counter_moves,
             &mut crate::model::new_search_buffers(),
             &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
         ).1
