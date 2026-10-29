@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.5-NNUE] - 2026-10-29
+
+- **Not master v0.49.5** (pondering). This is master v0.48.0 (`task.md` 30.1 on `master`), ported now:
+  the Transposition Table entry carries the position's full raw static evaluation in its former padding
+  bits; the main search and the stand pat take it from the probe they already make instead of evaluating,
+  and store a computed one with the node's entry. The Correction History is applied on top, as before.
+- With the network every evaluation is full and depends only on the position, so the served value is the
+  one that would be computed: **the search tree is v0.49.4-NNUE's node for node** (300/300 identical trees
+  on both pools at depth 10, in every census round). `search-diag`: about 30% of the main-search
+  evaluations and 3% of the stand pats served, 0 mismatches against a fresh evaluation without the
+  accumulator. About 1% less time to depth 10 (+0.9% / +1.3% over the control), since a hit saves the
+  output layer only - the accumulator is updated when the child is made either way.
+- **Shipped without an SPRT** by the owner's decision (Matt-Magie step 77, E1a), as master shipped its
+  tree-identical speed releases v0.45.2 to v0.45.4: an SPRT cannot resolve 1% of speed. Smoke gauntlet
+  52.0% / 52.5% / 92.5% against v0.49.4-NNUE / v0.49.3-NNUE / v0.34.0-NNUE. No protected NNUE or SPSA
+  parameter is touched. Master's own +21.9 Elo came largely from replacing lazy returns, which do not
+  exist with the network; it is not this branch's number.
+
+
+
 ## [V0.49.4-NNUE] - 2026-10-29
 
 - **Not master v0.49.4.** This is master v0.46.3 (`task.md` 20 on `master`), ported now: Null Move Pruning
