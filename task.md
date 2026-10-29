@@ -2085,6 +2085,17 @@ one, which the census cannot price. The check that every served value equals a f
 found a defect older than the change - the cache that holds the evaluation is only as good as the
 evaluation being a function of the position.
 
+**On the NNUE branch: v0.49.5-NNUE** (2026-10-29, Matt-Magie step 77; the next free NNUE number, not master's
+v0.49.5). Ported onto v0.49.4-NNUE with the Correction History applied on top of the served raw value. With the
+network every evaluation is full and a function of the position alone, so the served value is the computed one:
+**300/300 identical trees on both pools** against v0.49.4-NNUE, `search-diag` 29.7% / 29.6% of the main-search
+evaluations and 2.7% / 2.8% of the stand pats served, **0 mismatches** against a fresh evaluation without the
+accumulator. The accumulator is updated when the child is made either way, so a hit saves only the output layer:
+time to depth 10 -0.9% / -1.3% net of the control over two rounds. What explained much of the +21.9 Elo here -
+exact values in place of lazy returns - does not exist with the network. Shipped without an SPRT at the owner's
+decision, as the tree-identical speed releases v0.45.2 to v0.45.4 were; smoke gauntlet 52.0% / 52.5% / 92.5%
+against v0.49.4- / v0.49.3- / v0.34.0-NNUE. More value would come with lazy child accumulators (review item N2).
+
 ### 30.2 The passed-pawn blockade out of the pawn cache: shipped in v0.48.1 (2026-10-23)
 
 Matt-Magie step 52, the defect 30.1 found. `passed_pawn_blockaded_malus` (15; 7 mg, 15 eg per
