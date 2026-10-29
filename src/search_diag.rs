@@ -253,6 +253,15 @@ mod counters {
     /// The distribution, by signed magnitude. See [`super::history_bucket`] for the mapping.
     pub static LMR_HIST_BUCKETS: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
+    /// Static evaluations of the main search and the stand pat, and of those the ones served
+    /// from the Transposition Table entry instead of computed (Matt-Magie step 77, master step
+    /// 51), and the served ones whose fresh full evaluation differed.
+    pub static EVAL_MAIN: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_QS: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_MAIN_SERVED: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_QS_SERVED: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL_SERVED_MISMATCH: AtomicU64 = AtomicU64::new(0);
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -304,6 +313,28 @@ pub fn record_cutoff(turn_counter: i32, first_searched_rank: i32, first_class: M
                 counters::bump(&counters::STAGE0_CUTOFF);
             }
             counters::bump(&counters::CUTOFF_BY_CLASS[first_class as usize]);
+        }
+    }
+}
+
+/// Records one static evaluation of the main search or (`qs`) the stand pat, Matt-Magie step 77.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_static_eval(qs: bool) {
+    #[cfg(feature = "search-diag")]
+    counters::bump(if qs { &counters::EVAL_QS } else { &counters::EVAL_MAIN });
+}
+
+/// Records one static evaluation served from the entry: `qs` for the stand pat, `matches` when
+/// the fresh full evaluation equals it.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_served_static_eval(qs: bool, matches: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(if qs { &counters::EVAL_QS_SERVED } else { &counters::EVAL_MAIN_SERVED });
+        if !matches {
+            counters::bump(&counters::EVAL_SERVED_MISMATCH);
         }
     }
 }
@@ -657,6 +688,12 @@ pub fn dump() {
             nonpv(0), nonpv(1), nonpv(2),
             outcome(2, 0), outcome(2, 1), outcome(2, 2),
             outcome(1, 0), outcome(1, 1), outcome(1, 2),
+        );
+        eprintln!(
+            "SEARCHDIAGTTEVAL eval_main={} eval_qs={} served_main={} served_qs={} served_mismatch={}",
+            counters::read(&counters::EVAL_MAIN), counters::read(&counters::EVAL_QS),
+            counters::read(&counters::EVAL_MAIN_SERVED), counters::read(&counters::EVAL_QS_SERVED),
+            counters::read(&counters::EVAL_SERVED_MISMATCH),
         );
         eprintln!(
             "SEARCHDIAGCUTNODE all_nodes={} all_cutoffs={} cut_nodes={} cut_cutoffs={}",
