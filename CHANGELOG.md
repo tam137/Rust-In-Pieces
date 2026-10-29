@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.48.2-NNUE] - 2026-10-29
+
+- Ported master v0.48.2 (`task.md` 30.4 on `master`), a move-order defect this branch had too:
+  MVV-LVA put a queen taking a pawn 10,000 below `BAND_CAPTURE`, so the main search and the root
+  never sent it through the lazy Static Exchange Evaluation - a losing queen capture was neither
+  demoted nor pruned and was searched ahead of the killers. `CAPTURE_RANK_OFFSET` (40,000) now
+  lifts every capture into the band, en passant in the capture generator included; the order of
+  the captures among themselves is unchanged. No protected NNUE or SPSA parameter is touched.
+- **Not on this branch:** master v0.46.0, v0.46.1, v0.46.3, v0.47.x, v0.48.0 and v0.48.1 (`improving`,
+  the Null Move child depth and verification, the HCE evaluation re-fits, the static evaluation in
+  the table entry, the passed-pawn blockade).
+- Measured here against v0.46.4-NNUE at 1s + 150ms: **SPRT [-10, 0] H1 after 426 games** (a fix
+  ships unless it hurts); over 429 games +40.1 Elo, paired 95% [+17, +64] - a stopped run, not an
+  effect size. Smoke gauntlet 51.5% / 56.0% / 91.0% against v0.46.4-NNUE / v0.46.2-NNUE /
+  v0.34.0-NNUE. Time to depth 10: +3.1% on `openings_wide`, -0.8% on `openings_mixed`.
+  `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.46.4-NNUE] - 2026-10-14
 
 - Ported master v0.46.4 (`task.md` 21.3 on `master`): Reverse Futility Pruning runs ahead of Null
