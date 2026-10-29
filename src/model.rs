@@ -67,9 +67,9 @@ pub struct SearchTables {
     /// rescaling pass.
     pub history_table: Box<[[[i32; 64]; 64]; 2]>,
     pub counter_moves: Box<[[Option<Turn>; 64]; 64]>,
-    /// How far the search has found the static evaluation off in each pawn structure, see
-    /// [`CorrectionHistory`]. Cleared by `reset`, not aged.
-    pub correction_history: CorrectionHistory,
+    /// How far the search has found the static evaluation off in each pawn structure and each
+    /// placement of either colour's pieces, see [`CorrectionTables`]. Cleared by `reset`, not aged.
+    pub correction_history: CorrectionTables,
     /// The per-level node buffers, [`SEARCH_LEVELS`] of them, about 1.6 MB. Allocated once per
     /// engine instead of once per iterative deepening iteration; nothing in them carries from
     /// one search to the next, see [`NodeBuffers`]. Not touched by `reset`.
@@ -82,7 +82,7 @@ impl SearchTables {
             killer_moves: Box::new([[None; 2]; 128]),
             history_table: Box::new([[[0i32; 64]; 64]; 2]),
             counter_moves: Box::new([[None; 64]; 64]),
-            correction_history: CorrectionHistory::new(),
+            correction_history: CorrectionTables::new(),
             buffers: new_search_buffers(),
         }
     }
@@ -541,6 +541,62 @@ impl CorrectionHistory {
 }
 
 impl Default for CorrectionHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Every Correction History table the search reads (Matt-Magie step 66): the pawn structure, and
+/// the non-pawn pieces of each colour (`Board::non_pawn_key`, indexed by [`history_side`]). Their
+/// corrections add up; the sum is clamped once, as the pawn table alone was.
+#[derive(Clone, PartialEq)]
+pub struct CorrectionTables {
+    pub pawn: CorrectionHistory,
+    pub non_pawn: [CorrectionHistory; 2],
+}
+
+impl CorrectionTables {
+    pub fn new() -> Self {
+        CorrectionTables {
+            pawn: CorrectionHistory::new(),
+            non_pawn: [CorrectionHistory::new(), CorrectionHistory::new()],
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.pawn.clear();
+        self.non_pawn.iter_mut().for_each(CorrectionHistory::clear);
+    }
+
+    /// `relative` plus the pawn entry over `pawn_div` and, with `non_pawn_div`, both non-pawn
+    /// entries over it, clamped to `+-CORRECTED_EVAL_LIMIT`. Without the non-pawn tables this is
+    /// exactly [`CorrectionHistory::corrected`] of the pawn table.
+    #[inline(always)]
+    pub fn corrected(&self, relative: i16, white: bool, board: &Board, pawn_div: i16, non_pawn_div: Option<i16>) -> i16 {
+        let Some(div) = non_pawn_div else {
+            return self.pawn.corrected(relative, white, board.pawn_key, pawn_div);
+        };
+        let div = div.max(1) as i32;
+        let correction = self.pawn.entry(white, board.pawn_key) as i32 / pawn_div.max(1) as i32
+            + self.non_pawn[0].entry(white, board.non_pawn_key[0]) as i32 / div
+            + self.non_pawn[1].entry(white, board.non_pawn_key[1]) as i32 / div;
+        (relative as i32 + correction)
+            .clamp(-(CORRECTED_EVAL_LIMIT as i32), CORRECTED_EVAL_LIMIT as i32) as i16
+    }
+
+    /// The same error `result - corrected` into the pawn table and, with `non_pawn`, into both
+    /// non-pawn tables, each under its own key; see [`CorrectionHistory::update`].
+    #[inline(always)]
+    pub fn update(&mut self, white: bool, board: &Board, depth: i32, result: i16, corrected: i16, limit: i32, non_pawn: bool) {
+        self.pawn.update(white, board.pawn_key, depth, result, corrected, limit);
+        if non_pawn {
+            self.non_pawn[0].update(white, board.non_pawn_key[0], depth, result, corrected, limit);
+            self.non_pawn[1].update(white, board.non_pawn_key[1], depth, result, corrected, limit);
+        }
+    }
+}
+
+impl Default for CorrectionTables {
     fn default() -> Self {
         Self::new()
     }
@@ -2323,14 +2379,62 @@ mod tests {
     #[test]
     fn test_search_tables_reset_clears_the_correction_history_and_age_keeps_it() {
         let mut tables = crate::model::SearchTables::new();
-        tables.correction_history.update(true, 11, 8, 300, 0, 1024);
-        tables.correction_history.update(false, 12, 8, -300, 0, 1024);
+        tables.correction_history.pawn.update(true, 11, 8, 300, 0, 1024);
+        tables.correction_history.pawn.update(false, 12, 8, -300, 0, 1024);
+        tables.correction_history.non_pawn[0].update(true, 13, 8, 300, 0, 1024);
+        tables.correction_history.non_pawn[1].update(false, 14, 8, -300, 0, 1024);
         tables.age();
-        assert_eq!(tables.correction_history.entry(true, 11), 256);
-        assert_eq!(tables.correction_history.entry(false, 12), -256);
+        assert_eq!(tables.correction_history.pawn.entry(true, 11), 256);
+        assert_eq!(tables.correction_history.pawn.entry(false, 12), -256);
+        assert_eq!(tables.correction_history.non_pawn[0].entry(true, 13), 256);
         tables.reset();
-        assert_eq!(tables.correction_history.entry(true, 11), 0);
-        assert_eq!(tables.correction_history.entry(false, 12), 0);
+        assert_eq!(tables.correction_history.pawn.entry(true, 11), 0);
+        assert_eq!(tables.correction_history.pawn.entry(false, 12), 0);
+        assert_eq!(tables.correction_history.non_pawn[0].entry(true, 13), 0);
+        assert_eq!(tables.correction_history.non_pawn[1].entry(false, 14), 0);
+    }
+
+    fn board_with_keys(pawn_key: u64, white_key: u64, black_key: u64) -> crate::model::Board {
+        let mut board = crate::service::Service::new().fen.set_init_board();
+        board.pawn_key = pawn_key;
+        board.non_pawn_key = [white_key, black_key];
+        board
+    }
+
+    /// Matt-Magie step 66: the read is the raw value plus the pawn entry over its divisor plus both
+    /// non-pawn entries over theirs, clamped as before; without the non-pawn tables it is the
+    /// pawn-only read of v0.49.0.
+    #[test]
+    fn test_the_correction_tables_read_the_sum_of_their_entries() {
+        let mut corr = crate::model::CorrectionTables::new();
+        let board = board_with_keys(1, 2, 3);
+        assert_eq!(corr.corrected(50, true, &board, 16, Some(32)), 50, "empty tables change nothing");
+        corr.pawn.update(true, 1, 8, 160, 0, 1024);
+        corr.non_pawn[0].update(true, 2, 8, 128, 0, 1024);
+        corr.non_pawn[1].update(true, 3, 8, -64, 0, 1024);
+        assert_eq!(corr.corrected(50, true, &board, 16, None), 50 + 160 / 16,
+                   "without the non-pawn tables only the pawn entry counts");
+        assert_eq!(corr.corrected(50, true, &board, 16, Some(32)), 50 + 160 / 16 + 128 / 32 - 64 / 32);
+        assert_eq!(corr.corrected(50, true, &board, 16, None),
+                   corr.pawn.corrected(50, true, 1, 16), "the pawn-only read is the v0.49.0 read");
+        assert_eq!(corr.corrected(50, false, &board, 16, Some(32)), 50,
+                   "the other side to move reads its own planes");
+        assert_eq!(corr.corrected(29_998, true, &board, 1, Some(1)), crate::model::CORRECTED_EVAL_LIMIT);
+    }
+
+    /// The update moves every table it covers by the same error; without the non-pawn tables they
+    /// stay untouched.
+    #[test]
+    fn test_the_correction_tables_update_all_tables_by_the_same_error() {
+        let mut corr = crate::model::CorrectionTables::new();
+        let board = board_with_keys(7, 8, 9);
+        corr.update(true, &board, 8, 100, 0, 1024, false);
+        assert_eq!(corr.pawn.entry(true, 7), 100);
+        assert_eq!((corr.non_pawn[0].entry(true, 8), corr.non_pawn[1].entry(true, 9)), (0, 0));
+        corr.update(true, &board, 8, 100, 0, 1024, true);
+        assert_eq!(corr.pawn.entry(true, 7), 191);
+        assert_eq!((corr.non_pawn[0].entry(true, 8), corr.non_pawn[1].entry(true, 9)), (100, 100));
+        assert_eq!(corr.non_pawn[0].entry(false, 8), 0, "the side to move names the plane");
     }
 
 
