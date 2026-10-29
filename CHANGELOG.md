@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.1-NNUE] - 2026-10-29
+
+- Ported master v0.49.0 and v0.49.1 (`task.md` 33 and 33.2 on `master`): the Correction History.
+  The search learns how far its result missed the static evaluation, in a pawn-structure table and
+  in a non-pawn table per colour, and reads `raw + entry / 16` (pawn) plus `entry / 32` (each
+  non-pawn table) in the main search and the stand pat. Learns at the node end, out of check, outside
+  the singular verification, over a full raw evaluation, not when a capture or promotion was best,
+  not from a mate score, and only in the direction the bound proves. UCI `EnableCorrectionHistory`,
+  `EnableCorrectionHistoryNonPawn` (both on), `CorrHistDiv`, `CorrHistNonPawnDiv`, `CorrHistLimit`.
+- `EvalService::evaluate` now also says whether the value is full (master v0.48.0's flag): with the
+  network always, in the classical fallback not after a lazy return. The static evaluation in the
+  table entry itself (master v0.48.0) is still not on this branch.
+- Both options off: v0.48.2-NNUE node for node (300/300 identical trees on both pools at depth 10).
+  On: 3.5% / 1.7% less time to depth 10. No node-count test flipped; no protected NNUE or SPSA
+  parameter is touched.
+- **Not on this branch:** master v0.46.0, v0.46.1, v0.46.3, v0.47.x, v0.48.0, v0.48.1 and v0.48.3 to
+  v0.48.5.
+- Measured here against v0.48.2-NNUE at 1s + 150ms: **SPRT [0, 10] H1 after 4048 games** (run under
+  [0, 5] with a [0, 10] monitor; [0, 5] undecided at +2.32); over 4060 games +9.0 Elo, paired 95%
+  [+2, +16] - a stopped run, not an effect size. Smoke gauntlet 51.5% / 51.5% / 89.5% against
+  v0.48.2-NNUE / v0.46.4-NNUE / v0.34.0-NNUE. `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.48.2-NNUE] - 2026-10-29
 
 - Ported master v0.48.2 (`task.md` 30.4 on `master`), a move-order defect this branch had too:
