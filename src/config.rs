@@ -351,6 +351,10 @@ pub struct Config {
     /// includes zero. **That number does not transfer to this branch**: the rule keys on
     /// Transposition Table scores and those come from the network here, not the HCE.
     pub enable_singular_multicut: bool,
+    /// Matt-Magie step 69: the third reading of the verification search. Not singular and
+    /// `threshold < beta` means another move reaches the table score too, so in a non-PV node the
+    /// table move is searched one ply shallower (`-1`, no re-search). The PV is never shortened.
+    pub enable_singular_negative_extension: bool,
     /// The pawn-structure Correction History (Matt-Magie step 64): the main search and the
     /// Quiescence Search read the static evaluation plus what the search has learned about the
     /// pawn structure, see [`crate::model::CorrectionHistory`].
@@ -597,6 +601,7 @@ impl Config {
             singular_margin: 0,
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
+            enable_singular_negative_extension: false,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1019,6 +1024,20 @@ mod tests {
         assert_eq!((defaults.corr_hist_limit, defaults.corr_hist_div), (1024, 16));
     }
 
+    /// Matt-Magie step 69: the negative Singular Extension switch.
+    #[test]
+    fn test_singular_negative_extension_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["EnableSingularNegativeExtension", "enable_singular_negative_extension", "enablesingularnegativeextension"] {
+            let mut config = Config::new();
+            config.enable_singular_negative_extension = false;
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.enable_singular_negative_extension);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.enable_singular_negative_extension);
+        }
+        assert!(!Config::new().enable_singular_negative_extension, "off until step 69's census");
+    }
+
     #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
@@ -1198,6 +1217,7 @@ impl Config {
             "singularmargin" => if let Ok(v) = value.parse::<i16>() { self.singular_margin = v; },
             "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
+            "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
             "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },
