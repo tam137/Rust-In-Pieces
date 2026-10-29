@@ -604,8 +604,8 @@ impl Config {
             singular_margin: 0,
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
-            enable_singular_negative_extension: false,
-            enable_singular_cut_node_extension: false,
+            enable_singular_negative_extension: true,
+            enable_singular_cut_node_extension: true,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1039,7 +1039,7 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.enable_singular_negative_extension);
         }
-        assert!(!Config::new().enable_singular_negative_extension, "off until step 69's census");
+        assert!(Config::new().enable_singular_negative_extension, "on in the candidate of step 75");
     }
 
     /// Matt-Magie step 70: the cut-node switch of the negative Singular Extension.
@@ -1053,7 +1053,7 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.enable_singular_cut_node_extension);
         }
-        assert!(!Config::new().enable_singular_cut_node_extension, "off until step 70's census");
+        assert!(Config::new().enable_singular_cut_node_extension, "on in the candidate of step 75");
     }
 
     #[test]
