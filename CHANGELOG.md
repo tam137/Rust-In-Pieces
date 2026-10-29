@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.4-NNUE] - 2026-10-29
+
+- **Not master v0.49.4.** This is master v0.46.3 (`task.md` 20 on `master`), ported now: Null Move Pruning
+  searches the null child at the published depth, `depth - (3 + depth / 3)` (divisor 6 -> 3), and runs no
+  verification search (`NmpVerification`, off; `nmp_verification_threshold` 6 keeps its value for when it
+  is switched on). The `static_eval >= beta` gate already refuses the zugzwang case the verification
+  exists for. Master v0.49.4 (Late Move Reduction at expected cut nodes) is not on this branch.
+- `NmpDynamicDivisor=6 NmpVerification=true` is v0.49.3-NNUE node for node, and v0.49.3-NNUE with
+  `NmpDynamicDivisor=3 NmpVerificationThreshold=99` is this release (300/300 identical trees on both pools
+  at depth 10, each way). 10.8% / 14.9% less time to depth 10. With the old settings the verification
+  refused 1 of 28,129 and 0 of 26,475 null cuts. No protected NNUE or SPSA parameter is touched.
+- Measured here against v0.49.3-NNUE at 1s + 150ms: SPRT [0, 10] past H1 (LLR +3.50; [0, 5] +1.91 open)
+  and **accepted by the owner after 698 games**, before the 1000-game minimum; +31.5 Elo, paired 95%
+  [+15, +48] - a stopped run, not an effect size. Smoke gauntlet 56.5% / 50.5% / 90.5% against
+  v0.49.3-NNUE / v0.49.1-NNUE / v0.34.0-NNUE. `master`'s own numbers are not this branch's.
+
+
+
 ## [V0.49.3-NNUE] - 2026-10-29
 
 - Ported master v0.49.2 and v0.49.3 (`task.md` 36 and 37 on `master`): the negative Singular
