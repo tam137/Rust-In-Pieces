@@ -460,7 +460,7 @@ impl MoveGenService {
             move_turn.rank = if is_table_move {
                 crate::model::BAND_TT
             } else if move_turn.capture != 0 {
-                crate::model::BAND_CAPTURE + capture_score
+                crate::model::BAND_CAPTURE + crate::model::CAPTURE_RANK_OFFSET + capture_score
             } else {
                 let mut remembered = 0;
                 if Some(move_turn) == context.killer_moves[0] {
@@ -516,7 +516,8 @@ impl MoveGenService {
                 if let Some(mut turn) = *opt_turn {
                     if self.is_en_passant_legal(board, &turn, white_turn, masks) {
                         if only_captures {
-                            turn.rank = crate::model::BAND_CAPTURE + 20000;
+                            // A pawn takes a pawn: 20,000 in the MVV-LVA of the other captures.
+                            turn.rank = crate::model::BAND_CAPTURE + crate::model::CAPTURE_RANK_OFFSET + 20000;
                         }
                         self.add_move(board, &mut turn, config, valid_moves, masks);
                     }
@@ -2428,6 +2429,30 @@ mod tests {
     }
 
     #[test]
+    fn no_capture_ranks_below_the_floor_of_the_capture_band() {
+        // Matt-Magie step 54. The search sends a capture through its lazy Static Exchange
+        // Evaluation only while the rank stands in the capture band, and MVV-LVA put a queen
+        // taking a pawn 10,000 below the band's floor - so a queen that took a defended pawn was
+        // never demoted and was searched ahead of the killers. En passant in the full generator
+        // is ranked as a quiet move on purpose and is not part of the band.
+        let mut queen_takes_pawn = 0;
+        for mut board in crate::eval_service::tests::random_positions(12, 100, 0x5EED_0054) {
+            let squares = board.mailbox;
+            for turn in generate_valid_moves_list(&mut board).iter()
+                .chain(generate_valid_moves_list_capture(&mut board).iter())
+                .filter(|t| t.capture != 0 && t.promotion == 0 && squares[t.to as usize] != 0)
+            {
+                if squares[turn.from as usize] % 10 == 4 && turn.capture % 10 == 0 {
+                    queen_takes_pawn += 1;
+                }
+                assert!(turn.rank >> crate::model::RANK_TIEBREAK_BITS >= crate::model::BAND_CAPTURE,
+                    "{} ranks below the capture band", turn.to_algebraic());
+            }
+        }
+        assert!(queen_takes_pawn > 0, "the sample must contain a queen taking a pawn");
+    }
+
+    #[test]
     fn test_generate_valid_moves_list_capture_includes_en_passant() {
         let service = Service::new();
         // White to move, Black just played d7-d5, en passant square is d6.
@@ -2438,7 +2463,9 @@ mod tests {
         assert!(ep_move.is_some(), "Capture generator must generate e5xd6 en passant");
         let ep = ep_move.unwrap();
         assert_ne!(ep.capture, 0, "En passant must be flagged as capture");
-        assert_eq!(ep.rank >> crate::model::RANK_TIEBREAK_BITS, crate::model::BAND_CAPTURE + 20000, "In capture generator, en passant must be ranked in BAND_CAPTURE + 20000");
+        assert_eq!(ep.rank >> crate::model::RANK_TIEBREAK_BITS,
+            crate::model::BAND_CAPTURE + crate::model::CAPTURE_RANK_OFFSET + 20000,
+            "In capture generator, en passant must be ranked as a pawn taking a pawn");
 
         // Verify that in full move generator, en passant is NOT given BAND_CAPTURE (protecting regular minimax search)
         let all_moves = generate_valid_moves_list(&mut board);

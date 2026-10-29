@@ -474,6 +474,10 @@ pub const BAND_TT: i32 = 5_000_000;
 pub const BAND_PROMOTION: i32 = 4_000_000;
 pub const BAND_CAPTURE: i32 = 3_000_000;
 pub const BAND_KILLER: i32 = 2_000_000;
+/// Added to every capture in [`BAND_CAPTURE`]: MVV-LVA reaches -10,000 (a queen taking a pawn), and a
+/// rank below the band is never sent through the search's lazy Static Exchange Evaluation
+/// (Matt-Magie step 54). The highest capture, 90,000 + 40,000, stays far below [`BAND_PROMOTION`].
+pub const CAPTURE_RANK_OFFSET: i32 = 40_000;
 pub const BAND_QUIET: i32 = 0;
 
 /// Levels in the per-search buffer arena.
