@@ -355,6 +355,9 @@ pub struct Config {
     /// `threshold < beta` means another move reaches the table score too, so in a non-PV node the
     /// table move is searched one ply shallower (`-1`, no re-search). The PV is never shortened.
     pub enable_singular_negative_extension: bool,
+    /// Matt-Magie step 70: at an expected cut node the negative Singular Extension is -2 instead
+    /// of -1 (child depth `depth - 3`). Only sharpens `enable_singular_negative_extension`.
+    pub enable_singular_cut_node_extension: bool,
     /// The pawn-structure Correction History (Matt-Magie step 64): the main search and the
     /// Quiescence Search read the static evaluation plus what the search has learned about the
     /// pawn structure, see [`crate::model::CorrectionHistory`].
@@ -602,6 +605,7 @@ impl Config {
             singular_depth_reduction: 0,
             enable_singular_multicut: true,
             enable_singular_negative_extension: false,
+            enable_singular_cut_node_extension: false,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1038,6 +1042,20 @@ mod tests {
         assert!(!Config::new().enable_singular_negative_extension, "off until step 69's census");
     }
 
+    /// Matt-Magie step 70: the cut-node switch of the negative Singular Extension.
+    #[test]
+    fn test_singular_cut_node_extension_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["EnableSingularCutNodeExtension", "enable_singular_cut_node_extension", "enablesingularcutnodeextension"] {
+            let mut config = Config::new();
+            config.enable_singular_cut_node_extension = false;
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.enable_singular_cut_node_extension);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.enable_singular_cut_node_extension);
+        }
+        assert!(!Config::new().enable_singular_cut_node_extension, "off until step 70's census");
+    }
+
     #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
@@ -1218,6 +1236,7 @@ impl Config {
             "singulardepthreduction" => if let Ok(v) = value.parse::<i32>() { self.singular_depth_reduction = v; },
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
+            "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
             "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },
