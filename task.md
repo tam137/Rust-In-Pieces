@@ -2446,6 +2446,17 @@ effect 1.07. Smoke gauntlet: 49.0% vs v0.49.0, 58.0% vs v0.48.5, 92.0% vs v0.34.
 **Next:** further tables (minor pieces, material, continuation) each as its own step; the non-pawn divisor
 was chosen by the time bar, not tuned.
 
+**On the NNUE branch: v0.49.1-NNUE** (2026-10-29, Matt-Magie step 74). Both tables ported onto v0.48.2-NNUE
+with master's constants; `minimax` keeps the NNUE form (`acc_stack` last), and the "full raw evaluation"
+condition comes from a flag `evaluate` now returns (always full with the network, master v0.48.0's flag
+without the table entry). Both off: 300/300 identical trees on both pools; on: **-3.5% / -1.7% time to
+depth 10** (pawn table alone +0.2% / +0.0%); no node-count test flipped there. SPRT against v0.48.2-NNUE
+at 1s + 150ms, `openings_wide`, concurrency 4, [0, 5] with the [0, 10] monitor: **[0, 10] H1 after 4048
+games** (LLR +2.99; [0, 5] +2.32 open); over 4060 games **+9.0 Elo, paired 95% [+2, +16]** - a stopped run,
+not an effect size. The estimate sat between +5 and +9 for 3000 games. No losses on time, no illegal moves,
+design effect 1.04. Smoke gauntlet 51.5% / 51.5% / 89.5% against v0.48.2- / v0.46.4- / v0.34.0-NNUE;
+release binary identical to the candidate (100/100 trees).
+
 ## 34. SEE piece values on the evaluation scale: refused (2026-10-26)
 
 Matt-Magie step 67. The Static Exchange Evaluation still valued the pieces 100 / 300 / 300 / 500 / 950
