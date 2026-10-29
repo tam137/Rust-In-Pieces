@@ -425,6 +425,17 @@ The null child keeps the parent's `is_pv`. The code is on the local branch `nmp-
 touches under 1% of null searches; what moved the tree is reordering through the Transposition
 Table and the history, not the pruning inside those few searches.
 
+**On the NNUE branch: v0.49.4-NNUE** (2026-10-29, Matt-Magie step 76; the version number is the next
+free one there, not master's v0.49.4). v0.46.3 ported onto v0.49.3-NNUE, where Reverse Futility Pruning
+already runs ahead of the null move to depth 8. Census on v0.49.3-NNUE by `setoption`, depth 10, 300 per
+pool: divisor 3 alone -11.5% / -13.2% time, verification off alone -1.5% / +1.2%, both **-10.8% / -14.9%**.
+With the old settings the verification refused **1 of 28,129 and 0 of 26,475** null cuts. Both directions
+300/300 identical. SPRT against v0.49.3-NNUE at 1s + 150ms, `openings_wide`, concurrency 4: [0, 10] past H1
+(LLR +3.50; [0, 5] +1.91 open), **accepted by the owner after 698 games**, before the 1000-game minimum the owner had
+set: **+31.5 Elo, paired 95% [+15, +48]** - a stopped run, not an effect size. No losses on time, no illegal
+moves, design effect 1.00. Smoke gauntlet 56.5% / 50.5% / 90.5% against v0.49.3- / v0.49.1- / v0.34.0-NNUE;
+release binary identical to the candidate (100/100 trees).
+
 ## 21. `improving`, and the two rules whose depth bounds keep them from firing
 
 `[Impact: Medium]` `[Complexity: Medium]` — **21.1 and 21.2 shipped in v0.46.0 (2026-10-10), the
