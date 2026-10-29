@@ -2574,6 +2574,17 @@ v0.34.0. **Released as v0.49.3.**
 **Next:** the flag serves other rules too (LMR and IIR at cut nodes) - each its own step. The trigger
 depth `singular_min_depth` 5 is the cheapest singular follow-up.
 
+**On the NNUE branch: v0.49.3-NNUE** (2026-10-29, Matt-Magie step 75). Section 36 and this section ported
+together onto v0.49.1-NNUE; `minimax` keeps the NNUE form (`acc_stack` last, no `static_eval_stack`). Every
+intermediate commit and the candidate with both options off: 300/300 identical trees on both pools. On: **-11.1%
+/ -9.7% time to depth 10** (-1 alone -7.3% / -2.5%). `search-diag`: -1/-2 at 34% / 32% of the non-PV
+verifications, 97% of them at cut nodes; expected cut nodes cut 88.4% of the time, the other non-PV nodes 44%.
+SPRT against v0.49.1-NNUE at 1s + 150ms, `openings_wide`, concurrency 4, [0, 5] with the [0, 10] monitor and at
+the owner's word no stop before 1000 games: **[0, 10] H1 after 1450 games** (LLR +2.95; [0, 5] +1.78 open):
+**+16.8 Elo, paired 95% [+4, +29]** - a stopped run, not an effect size. No losses on time, no illegal moves,
+design effect 1.00. Smoke gauntlet 59.0% / 49.0% / 87.5% against v0.49.1- / v0.48.2- / v0.34.0-NNUE; release
+binary identical to the candidate (100/100 trees). v0.49.4 (section 38) is not ported.
+
 ## 38. The Late Move Reduction one ply more at expected cut nodes: shipped in v0.49.4 (2026-10-28)
 
 Matt-Magie step 71. The cut-node flag of section 37 used by the Late Move Reduction: at an expected cut
