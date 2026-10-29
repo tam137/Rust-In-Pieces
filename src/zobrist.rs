@@ -83,6 +83,10 @@ pub enum TranspositionType {
     UpperBound, // All Node (Alpha cutoff - score is at most this)
 }
 
+/// The `static_eval` of an entry that carries none. A static evaluation is hundreds of times
+/// smaller in practice; one that came out at exactly this value would simply not be stored.
+pub const NO_STATIC_EVAL: i16 = i16::MIN;
+
 #[derive(Debug, Clone, Copy)]
 pub struct TranspositionEntry {
     pub key: u64, // Full 64-bit Zobrist key to prevent index collisions
@@ -90,8 +94,11 @@ pub struct TranspositionEntry {
     pub best_move: u16,
     pub depth: i8,
     pub entry_type: TranspositionType,
-    #[allow(dead_code)]
-    pub padding: [u8; 2],
+    /// The position's full static evaluation, White-positive, or [`NO_STATIC_EVAL`]. It lives in
+    /// the 16 bits of the data word the four fields above leave free, so the entry stays 16 bytes.
+    /// Only a full evaluation may be stored: a lazy return is a bound for the window that produced
+    /// it, not a value of the position (`task.md` 25.3).
+    pub static_eval: i16,
 }
 
 impl Default for TranspositionEntry {
@@ -102,7 +109,7 @@ impl Default for TranspositionEntry {
             best_move: 0,
             depth: -1, // -1 signals empty slot
             entry_type: TranspositionType::Exact,
-            padding: [0; 2],
+            static_eval: NO_STATIC_EVAL,
         }
     }
 }
@@ -120,6 +127,7 @@ impl TranspositionEntry {
             TranspositionType::UpperBound => 2,
         } as u64;
         val |= (type_val & 0xFF) << 40;
+        val |= (self.static_eval as u16 as u64) << 48;
         val
     }
 
@@ -133,13 +141,14 @@ impl TranspositionEntry {
             2 => TranspositionType::UpperBound,
             _ => TranspositionType::Exact,
         };
+        let static_eval = (data >> 48) as u16 as i16;
         Self {
             key,
             eval,
             best_move,
             depth,
             entry_type,
-            padding: [0; 2],
+            static_eval,
         }
     }
 
@@ -358,9 +367,16 @@ impl ZobristTable {
             // of the same position found threw away the refutation the next visit would have tried
             // first; the next iteration overwrote 8% of same-key entries that way. The move only
             // ever orders moves, so keeping it cannot make a stored bound wrong.
+            // The static evaluation is a property of the position alone, whatever search stored
+            // the entry, so a store that carries none keeps the one the slot already holds.
             let mut entry = entry;
-            if entry.best_move == 0 && existing.key == hash && existing.depth != -1 {
-                entry.best_move = existing.best_move;
+            if existing.key == hash && existing.depth != -1 {
+                if entry.best_move == 0 {
+                    entry.best_move = existing.best_move;
+                }
+                if entry.static_eval == NO_STATIC_EVAL {
+                    entry.static_eval = existing.static_eval;
+                }
             }
             // Invalidate the key before writing data to prevent a "torn read" by another thread.
             slot.key.store(!hash, std::sync::atomic::Ordering::Release);
@@ -515,7 +531,7 @@ mod tests {
     }
 
     fn entry(key: u64, eval: i16, depth: i8, entry_type: TranspositionType) -> TranspositionEntry {
-        TranspositionEntry { key, eval, depth, entry_type, best_move: 0, padding: [0; 2] }
+        TranspositionEntry { key, eval, depth, entry_type, best_move: 0, static_eval: NO_STATIC_EVAL }
     }
 
     #[test]
@@ -552,7 +568,7 @@ mod tests {
         let table = ZobristTable::with_capacity(2);
         assert_slot_layout(&table);
         let with_move = |key, eval, depth, best_move| TranspositionEntry {
-            key, eval, depth, entry_type: TranspositionType::LowerBound, best_move, padding: [0; 2]
+            key, eval, depth, entry_type: TranspositionType::LowerBound, best_move, static_eval: NO_STATIC_EVAL
         };
         let refutation = 0x8000 | (12 << 6) | 28;
 
@@ -570,6 +586,51 @@ mod tests {
         // A different position in the same slot inherits nothing.
         table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 0, 8, TranspositionType::UpperBound));
         assert_eq!(table.get_entry(SLOT_A_2).unwrap().best_move, 0);
+    }
+
+    #[test]
+    fn the_static_evaluation_survives_pack_and_unpack() {
+        for static_eval in [0, 1, -1, 437, -1290, i16::MAX, i16::MIN + 1, NO_STATIC_EVAL] {
+            let stored = TranspositionEntry {
+                key: SLOT_A_1, eval: -31_000, depth: -2, entry_type: TranspositionType::UpperBound,
+                best_move: 0x8000 | (12 << 6) | 28, static_eval,
+            };
+            let back = TranspositionEntry::unpack(SLOT_A_1, stored.pack());
+            assert_eq!((back.eval, back.depth, back.entry_type, back.best_move, back.static_eval),
+                (-31_000, -2, TranspositionType::UpperBound, stored.best_move, static_eval));
+        }
+        assert_eq!(TranspositionEntry::default().static_eval, NO_STATIC_EVAL);
+        assert_eq!(TranspositionEntry::unpack(0, TranspositionEntry::default().pack()).static_eval,
+            NO_STATIC_EVAL, "an empty slot carries no evaluation");
+    }
+
+    #[test]
+    fn a_store_without_a_static_evaluation_keeps_the_one_of_the_same_position() {
+        let table = ZobristTable::with_capacity(2);
+        assert_slot_layout(&table);
+        let evaluated = |key, depth, static_eval| TranspositionEntry {
+            static_eval, ..entry(key, 0, depth, TranspositionType::Exact)
+        };
+
+        // A deeper store of the same position without an evaluation keeps the stored one.
+        table.insert_entry(SLOT_A_1, evaluated(SLOT_A_1, 3, 57));
+        table.insert_entry(SLOT_A_1, entry(SLOT_A_1, 12, 4, TranspositionType::LowerBound));
+        let kept = table.get_entry(SLOT_A_1).unwrap();
+        assert_eq!((kept.eval, kept.depth, kept.static_eval), (12, 4, 57));
+
+        // An evaluation of its own wins over the old one.
+        table.insert_entry(SLOT_A_1, evaluated(SLOT_A_1, 5, -8));
+        assert_eq!(table.get_entry(SLOT_A_1).unwrap().static_eval, -8);
+
+        // A different position in the same slot inherits nothing.
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 0, 6, TranspositionType::UpperBound));
+        assert_eq!(table.get_entry(SLOT_A_2).unwrap().static_eval, NO_STATIC_EVAL);
+
+        // `clear` forgets it.
+        table.insert_entry(SLOT_A_2, evaluated(SLOT_A_2, 7, 99));
+        table.clear();
+        table.insert_entry(SLOT_A_2, entry(SLOT_A_2, 0, 1, TranspositionType::Exact));
+        assert_eq!(table.get_entry(SLOT_A_2).unwrap().static_eval, NO_STATIC_EVAL);
     }
 
     #[test]
@@ -630,7 +691,7 @@ mod tests {
             best_move: compressed,
             depth: 3,
             entry_type: TranspositionType::Exact,
-            padding: [0; 2],
+            static_eval: NO_STATIC_EVAL,
         };
         let decompressed = entry.decompress_move(&board).unwrap();
         assert_eq!(decompressed.from, original_move.from);
@@ -658,7 +719,7 @@ mod tests {
             best_move: compressed_promo,
             depth: 3,
             entry_type: TranspositionType::Exact,
-            padding: [0; 2],
+            static_eval: NO_STATIC_EVAL,
         };
         let decompressed_promo = entry_promo.decompress_move(&board_promo).unwrap();
         assert_eq!(decompressed_promo.from, original_promo.from);
@@ -685,7 +746,7 @@ mod tests {
             best_move: compressed_ep,
             depth: 3,
             entry_type: TranspositionType::Exact,
-            padding: [0; 2],
+            static_eval: NO_STATIC_EVAL,
         };
         let decompressed_ep = entry_ep.decompress_move(&board_ep).unwrap();
         assert_eq!(decompressed_ep.from, original_ep.from);
@@ -701,7 +762,7 @@ mod tests {
             best_move: compressed_none,
             depth: 3,
             entry_type: TranspositionType::Exact,
-            padding: [0; 2],
+            static_eval: NO_STATIC_EVAL,
         };
         assert!(entry_none.decompress_move(&board).is_none());
     }
@@ -728,7 +789,7 @@ mod tests {
                         best_move: 0,
                         depth,
                         entry_type: TranspositionType::Exact,
-                        padding: [0; 2],
+                        static_eval: NO_STATIC_EVAL,
                     };
                     table_clone.insert_entry(key, entry);
                     if let Some(ret) = table_clone.get_entry(key) {
