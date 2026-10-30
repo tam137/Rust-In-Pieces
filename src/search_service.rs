@@ -434,6 +434,7 @@ impl SearchService {
         crate::nnue_prof::end_search(prof_start);
         crate::nnue_prof::dump();
         crate::search_diag::dump();
+        crate::search_diag::dump_tt(context.zobrist_table);
         crate::search_diag::dump_tree(
             search_result.stats.calculated_nodes,
             search_result.stats.eval_nodes,

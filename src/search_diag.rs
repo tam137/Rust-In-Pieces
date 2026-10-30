@@ -262,6 +262,19 @@ mod counters {
     pub static EVAL_QS_SERVED: AtomicU64 = AtomicU64::new(0);
     pub static EVAL_SERVED_MISMATCH: AtomicU64 = AtomicU64::new(0);
 
+    /// Table stores by outcome: 0 empty slot, 1 same key replaced, 2 same key refused, 3 another
+    /// key evicted, 4 another key kept (a Quiescence store refused against a main-search entry).
+    /// From master step 50, here Matt-Magie step 81.
+    pub static STORE: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+    /// Of the evictions of another key: the victim was deeper than the newcomer.
+    pub static EVICT_DEEPER: AtomicU64 = AtomicU64::new(0);
+    /// Evictions of another key by the victim's age in searches (0 = this search, 1, 2, 3+), and of
+    /// those the deeper victims by the same age.
+    pub static EVICT_AGE: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+    pub static EVICT_DEEPER_AGE: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+    /// The search generation: one per `go`.
+    pub static GENERATION: AtomicU64 = AtomicU64::new(1);
+
     pub fn add(counter: &AtomicU64, value: u64) {
         counter.fetch_add(value, Ordering::Relaxed);
     }
@@ -757,6 +770,65 @@ pub fn dump() {
             counters::read(&counters::ROOT_RESEARCH_NOT_BEST),
             counters::read(&counters::ROOT_RESEARCH_CUT),
             counters::read(&counters::ROOT_CUTOFFS),
+        );
+    }
+}
+
+/// The current search generation, for the table's shadow ages.
+#[inline(always)]
+#[allow(dead_code)]
+pub fn generation() -> u64 {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::read(&counters::GENERATION)
+    }
+    #[cfg(not(feature = "search-diag"))]
+    {
+        0
+    }
+}
+
+/// Starts the next search generation for the table's shadow ages, once per `go`, so an entry's age
+/// counts the searches (moves) since it was written (Matt-Magie step 81).
+#[inline(always)]
+pub fn new_search_generation() {
+    #[cfg(feature = "search-diag")]
+    counters::add(&counters::GENERATION, 1);
+}
+
+/// Records one table store. `outcome` as in `counters::STORE`; for an eviction of another key
+/// the victim's age in searches and whether it was deeper than the newcomer.
+#[inline(always)]
+#[allow(unused_variables, dead_code)]
+pub fn record_tt_store(outcome: usize, victim_age: u64, victim_deeper: bool) {
+    #[cfg(feature = "search-diag")]
+    {
+        counters::bump(&counters::STORE[outcome]);
+        if outcome == 3 {
+            let a = victim_age.min(3) as usize;
+            counters::bump(&counters::EVICT_AGE[a]);
+            if victim_deeper {
+                counters::bump(&counters::EVICT_DEEPER);
+                counters::bump(&counters::EVICT_DEEPER_AGE[a]);
+            }
+        }
+    }
+}
+
+/// Prints the table counters and its occupancy by age over every 64th slot as one `SEARCHDIAGTT`
+/// line, in the fields master's line has for them (Matt-Magie step 81). Called once per iteration.
+#[allow(unused_variables, dead_code)]
+pub fn dump_tt(table: &crate::zobrist::ZobristTable) {
+    #[cfg(feature = "search-diag")]
+    {
+        use std::sync::atomic::AtomicU64;
+        let list = |values: &[AtomicU64]| values.iter().map(|v| counters::read(v).to_string()).collect::<Vec<_>>().join(",");
+        let (empty, by_age) = table.diag_occupancy(counters::read(&counters::GENERATION), 64);
+        eprintln!(
+            "SEARCHDIAGTT store={} evict_deeper={} evict_age={} evict_deeper_age={} sample_empty={} sample_age={}",
+            list(&counters::STORE), counters::read(&counters::EVICT_DEEPER),
+            list(&counters::EVICT_AGE), list(&counters::EVICT_DEEPER_AGE),
+            empty, by_age.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
         );
     }
 }
