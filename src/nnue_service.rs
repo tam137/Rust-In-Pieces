@@ -180,6 +180,55 @@ fn sub_weights(acc: &mut [i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SI
     }
 }
 
+/// `out = parent - removed + added` for one perspective in one pass (Matt-Magie step 79, N1). The
+/// terms are taken in the order the separate passes took them - every removed feature subtracted,
+/// then every added one added - so each value is the one they produced.
+#[inline(always)]
+fn apply_delta(
+    out: &mut [i16; NNUE_HIDDEN_SIZE],
+    parent: &[i16; NNUE_HIDDEN_SIZE],
+    perspective: usize,
+    removed: &[(u8, usize)],
+    added: &[(u8, usize)],
+    king_bucket: &KingBucket,
+    net: &NNUENetwork,
+) {
+    let weights = |&(piece, sq): &(u8, usize)| {
+        let (pt, pc) = piece_to_type_and_color(piece);
+        let (bucket, idx) = get_feature_index(perspective, pt, pc, sq, king_bucket);
+        &net.ft_weights[bucket][idx]
+    };
+    match (removed, added) {
+        ([r0], [a0]) => {
+            let (r0, a0) = (weights(r0), weights(a0));
+            for i in 0..NNUE_HIDDEN_SIZE {
+                out[i] = parent[i] - r0[i] + a0[i];
+            }
+        }
+        ([r0, r1], [a0]) => {
+            let (r0, r1, a0) = (weights(r0), weights(r1), weights(a0));
+            for i in 0..NNUE_HIDDEN_SIZE {
+                out[i] = parent[i] - r0[i] - r1[i] + a0[i];
+            }
+        }
+        ([r0, r1], [a0, a1]) => {
+            let (r0, r1, a0, a1) = (weights(r0), weights(r1), weights(a0), weights(a1));
+            for i in 0..NNUE_HIDDEN_SIZE {
+                out[i] = parent[i] - r0[i] - r1[i] + a0[i] + a1[i];
+            }
+        }
+        _ => {
+            *out = *parent;
+            for feature in removed {
+                sub_weights(out, weights(feature));
+            }
+            for feature in added {
+                add_weights(out, weights(feature));
+            }
+        }
+    }
+}
+
 #[inline(always)]
 pub fn piece_to_type_and_color(piece: u8) -> (usize, usize) {
     let color = if piece >= 20 { 1 } else { 0 };
@@ -333,6 +382,8 @@ impl NNUEService {
         }
     }
 
+    /// [`Self::update_accumulator_into`] returning the child by value, for the tests.
+    #[cfg(test)]
     pub fn update_accumulator(
         parent: &NNUEAccumulator,
         board: &Board,
@@ -340,34 +391,54 @@ impl NNUEService {
         move_info: &MoveInformation,
         net: &NNUENetwork,
     ) -> NNUEAccumulator {
-        let start = crate::nnue_prof::cycles();
-        let mut refreshed = false;
-        let acc = Self::update_accumulator_inner(parent, board, turn, move_info, net, &mut refreshed);
-        crate::nnue_prof::record_update(start, refreshed);
-        acc
+        let mut out = NNUEAccumulator::new();
+        Self::update_accumulator_into(parent, &mut out, board, turn, move_info, net);
+        out
     }
 
-    #[allow(unused_assignments)]
-    fn update_accumulator_inner(
+    /// The child's accumulator after `turn`, written into `out` (Matt-Magie step 79, review item
+    /// N1): each perspective in one pass, `parent - removed + added`, in the order the separate
+    /// copy, subtract and add passes used, so the values are bit-identical to them - only the
+    /// zeroing, the separate passes and the return by value are gone. A king that crosses a bucket
+    /// boundary rebuilds its perspective from the board, as before.
+    pub fn update_accumulator_into(
         parent: &NNUEAccumulator,
+        out: &mut NNUEAccumulator,
+        board: &Board,
+        turn: &Turn,
+        move_info: &MoveInformation,
+        net: &NNUENetwork,
+    ) {
+        let start = crate::nnue_prof::cycles();
+        let mut refreshed = false;
+        Self::update_accumulator_into_inner(parent, out, board, turn, move_info, net, &mut refreshed);
+        crate::nnue_prof::record_update(start, refreshed);
+    }
+
+    fn update_accumulator_into_inner(
+        parent: &NNUEAccumulator,
+        out: &mut NNUEAccumulator,
         board: &Board,
         turn: &Turn,
         move_info: &MoveInformation,
         net: &NNUENetwork,
         refreshed: &mut bool,
-    ) -> NNUEAccumulator {
+    ) {
         if !net.loaded {
-            return NNUEAccumulator::new();
+            *out = NNUEAccumulator::new();
+            return;
         }
         if !parent.computed {
-            return Self::compute_accumulator_inner(board, net);
+            *out = Self::compute_accumulator_inner(board, net);
+            return;
         }
 
         let white_king_sq = board.bitboards[WHITE_KING].trailing_zeros() as usize;
         let black_king_sq = board.bitboards[BLACK_KING].trailing_zeros() as usize;
 
         if white_king_sq >= 64 || black_king_sq >= 64 {
-            return Self::compute_accumulator_inner(board, net);
+            *out = Self::compute_accumulator_inner(board, net);
+            return;
         }
 
         let moved_piece = move_info.moved_piece;
@@ -438,86 +509,36 @@ impl NNUEService {
             (rem, rc, add, 1)
         };
 
-        let mut new_acc = NNUEAccumulator::new();
+        let removed = &removed[..removed_count];
+        let added = &added[..added_count];
 
         // White perspective
         let white_bucket = get_king_bucket(white_king_sq, 0);
-        if moved_piece == 15 {
+        let white_refresh = moved_piece == 15 && {
             let old_bucket = get_king_bucket(from, 0);
-            if old_bucket.index != white_bucket.index || old_bucket.mirrored != white_bucket.mirrored {
-                Self::refresh_perspective(board, net, 0, &mut new_acc.white);
-                *refreshed = true;
-            } else {
-                new_acc.white = parent.white;
-                for i in 0..removed_count {
-                    let (p, sq) = removed[i];
-                    let (pt, pc) = piece_to_type_and_color(p);
-                    let (b, idx) = get_feature_index(0, pt, pc, sq, &white_bucket);
-                    sub_weights(&mut new_acc.white, &net.ft_weights[b][idx]);
-                }
-                for i in 0..added_count {
-                    let (p, sq) = added[i];
-                    let (pt, pc) = piece_to_type_and_color(p);
-                    let (b, idx) = get_feature_index(0, pt, pc, sq, &white_bucket);
-                    add_weights(&mut new_acc.white, &net.ft_weights[b][idx]);
-                }
-            }
+            old_bucket.index != white_bucket.index || old_bucket.mirrored != white_bucket.mirrored
+        };
+        if white_refresh {
+            Self::refresh_perspective(board, net, 0, &mut out.white);
+            *refreshed = true;
         } else {
-            new_acc.white = parent.white;
-            for i in 0..removed_count {
-                let (p, sq) = removed[i];
-                let (pt, pc) = piece_to_type_and_color(p);
-                let (b, idx) = get_feature_index(0, pt, pc, sq, &white_bucket);
-                sub_weights(&mut new_acc.white, &net.ft_weights[b][idx]);
-            }
-            for i in 0..added_count {
-                let (p, sq) = added[i];
-                let (pt, pc) = piece_to_type_and_color(p);
-                let (b, idx) = get_feature_index(0, pt, pc, sq, &white_bucket);
-                add_weights(&mut new_acc.white, &net.ft_weights[b][idx]);
-            }
+            apply_delta(&mut out.white, &parent.white, 0, removed, added, &white_bucket, net);
         }
 
         // Black perspective
         let black_bucket = get_king_bucket(black_king_sq, 1);
-        if moved_piece == 25 {
+        let black_refresh = moved_piece == 25 && {
             let old_bucket = get_king_bucket(from, 1);
-            if old_bucket.index != black_bucket.index || old_bucket.mirrored != black_bucket.mirrored {
-                Self::refresh_perspective(board, net, 1, &mut new_acc.black);
-                *refreshed = true;
-            } else {
-                new_acc.black = parent.black;
-                for i in 0..removed_count {
-                    let (p, sq) = removed[i];
-                    let (pt, pc) = piece_to_type_and_color(p);
-                    let (b, idx) = get_feature_index(1, pt, pc, sq, &black_bucket);
-                    sub_weights(&mut new_acc.black, &net.ft_weights[b][idx]);
-                }
-                for i in 0..added_count {
-                    let (p, sq) = added[i];
-                    let (pt, pc) = piece_to_type_and_color(p);
-                    let (b, idx) = get_feature_index(1, pt, pc, sq, &black_bucket);
-                    add_weights(&mut new_acc.black, &net.ft_weights[b][idx]);
-                }
-            }
+            old_bucket.index != black_bucket.index || old_bucket.mirrored != black_bucket.mirrored
+        };
+        if black_refresh {
+            Self::refresh_perspective(board, net, 1, &mut out.black);
+            *refreshed = true;
         } else {
-            new_acc.black = parent.black;
-            for i in 0..removed_count {
-                let (p, sq) = removed[i];
-                let (pt, pc) = piece_to_type_and_color(p);
-                let (b, idx) = get_feature_index(1, pt, pc, sq, &black_bucket);
-                sub_weights(&mut new_acc.black, &net.ft_weights[b][idx]);
-            }
-            for i in 0..added_count {
-                let (p, sq) = added[i];
-                let (pt, pc) = piece_to_type_and_color(p);
-                let (b, idx) = get_feature_index(1, pt, pc, sq, &black_bucket);
-                add_weights(&mut new_acc.black, &net.ft_weights[b][idx]);
-            }
+            apply_delta(&mut out.black, &parent.black, 1, removed, added, &black_bucket, net);
         }
 
-        new_acc.computed = true;
-        new_acc
+        out.computed = true;
     }
 
     pub fn evaluate_with_accumulator(board: &Board, net: &NNUENetwork, acc: &NNUEAccumulator) -> i16 {
@@ -597,6 +618,36 @@ mod tests {
             "Error message should mention missing file, got: {}",
             err_msg
         );
+    }
+
+    /// Matt-Magie step 79, N1: after every legal move of every position of random games - quiet
+    /// moves, captures, castling, en passant, promotions, king moves across a bucket boundary - the
+    /// child accumulator written in one pass equals the one computed from the board, bit for bit.
+    #[test]
+    fn the_one_pass_update_equals_a_full_computation_after_every_move() {
+        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let (mut moves_checked, mut refreshes, mut castles, mut promotions, mut en_passant) = (0, 0, 0, 0, 0);
+        for mut board in crate::eval_service::tests::random_positions(16, 120, 0x5EED_0079) {
+            let parent = NNUEService::compute_accumulator(&board, &net);
+            for turn in crate::move_gen_service::tests::generate_valid_moves_list(&mut board) {
+                let mi = board.do_move(&turn);
+                let mut child = NNUEAccumulator::new();
+                child.white[0] = 12345; // a stale slot: every value has to be written
+                NNUEService::update_accumulator_into(&parent, &mut child, &board, &turn, &mi, &net);
+                assert_eq!(child, NNUEService::compute_accumulator(&board, &net),
+                    "{} diverges", turn.to_algebraic());
+                moves_checked += 1;
+                let king = mi.moved_piece == 15 || mi.moved_piece == 25;
+                if king && (turn.to as i8 - turn.from as i8).abs() == 2 { castles += 1; }
+                if king { refreshes += 1; }
+                if turn.is_promotion() { promotions += 1; }
+                if (mi.moved_piece == 10 || mi.moved_piece == 20) && turn.to as i8 == mi.en_passante { en_passant += 1; }
+                board.undo_move(&turn, mi);
+            }
+        }
+        assert!(moves_checked > 1000, "only {moves_checked} moves checked");
+        assert!(castles > 0 && promotions > 0 && refreshes > 0,
+            "the sample must hold castling ({castles}), promotions ({promotions}) and king moves ({refreshes}); en passant {en_passant}");
     }
 
     #[test]
