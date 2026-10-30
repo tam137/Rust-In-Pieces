@@ -238,9 +238,7 @@ impl SearchService {
                 let mi = board.do_move_prefetching(turn, context.zobrist_table);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     crate::nnue_prof::step_into(1, false);
-                    acc_stack[1] = crate::nnue_service::NNUEService::update_accumulator(
-                        &acc_stack[0], board, turn, &mi, &service.eval.nnue_net
-                    );
+                    Self::update_child_accumulator(&mut acc_stack, 0, 1, board, turn, &mi, &service.eval.nnue_net);
                 }
 
                 let child_context = SearchContext {
@@ -1297,9 +1295,7 @@ impl SearchService {
                 let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
                 if config.use_nnue && service.eval.nnue_net.loaded {
                     crate::nnue_prof::step_into(child_ply_idx, false);
-                    acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
-                        &acc_stack[ply_idx], board, capture_turn, &mi, &service.eval.nnue_net
-                    );
+                    Self::update_child_accumulator(acc_stack, ply_idx, child_ply_idx, board, capture_turn, &mi, &service.eval.nnue_net);
                 }
                 let min_max_eval = -self.minimax(board, capture_turn, depth - 1,
                     -beta, -alpha, stats, config, service, &current_context, true,
@@ -1707,9 +1703,7 @@ impl SearchService {
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
                 crate::nnue_prof::step_into(child_ply_idx, false);
-                acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
-                    &acc_stack[ply_idx], board, current_turn, &mi, &service.eval.nnue_net
-                );
+                Self::update_child_accumulator(acc_stack, ply_idx, child_ply_idx, board, current_turn, &mi, &service.eval.nnue_net);
             }
 
             // Dead store: either the reduced search below assigns it, or the Principal
@@ -2221,6 +2215,25 @@ impl SearchService {
         }
 
         reduction
+    }
+
+    /// The accumulator of the child at `child_idx` after `turn`, from the one at `ply_idx`, written
+    /// into its stack slot (Matt-Magie step 79, N1). The two slots differ except at the ply ceiling,
+    /// where the clamped index makes them one; the parent is then copied first.
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn update_child_accumulator(acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY],
+        ply_idx: usize, child_idx: usize, board: &Board, turn: &Turn,
+        move_info: &crate::model::MoveInformation, net: &crate::nnue_service::NNUENetwork) {
+        if child_idx > ply_idx {
+            let (lower, upper) = acc_stack.split_at_mut(child_idx);
+            crate::nnue_service::NNUEService::update_accumulator_into(
+                &lower[ply_idx], &mut upper[0], board, turn, move_info, net);
+        } else {
+            let parent = acc_stack[ply_idx];
+            crate::nnue_service::NNUEService::update_accumulator_into(
+                &parent, &mut acc_stack[child_idx], board, turn, move_info, net);
+        }
     }
 
     /// Classify a fail-hard score against the window this node actually searched.
