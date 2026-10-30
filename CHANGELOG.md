@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.7-NNUE] - 2026-10-30
+
+- The accumulator update writes each perspective in one pass straight into the child's stack slot,
+  `parent - removed + added`, instead of zeroing a new accumulator, copying the parent and running one
+  pass per feature before returning it by value (review item N1). The terms keep the order of the
+  separate passes, so the values are bit-identical: **v0.49.6-NNUE's search tree node for node**
+  (300/300 identical trees on both pools at depth 10, in every round) and **about 10% less time to
+  depth 10** (+10.6 / +10.0 / +9.2 / +9.9% over two rounds against a control of +-0.3%). A new test
+  checks every legal move of random games against a full computation.
+- Measured first (Matt-Magie step 79, phase A, Cargo feature `nnue-prof`, compiled out by default):
+  the accumulator update took 27.7% of the search on this aarch64 host, the output layer 11.6%, and
+  17% of the accumulator steps were never needed by an evaluation.
+- Lazy child accumulators (review item N2) were built, tree-identical and correct, but **3.7-4.2%
+  slower** than this release: about 83% of the steps are needed anyway. Not in this release; kept on
+  the local branch `perf/nnue-acc-n2`.
+- **Shipped without an SPRT**, as v0.49.5-NNUE was: tree-identical speed only. Smoke gauntlet 54.5% /
+  57.5% / 92.0% against v0.49.6-NNUE / v0.49.5-NNUE / v0.34.0-NNUE. No protected NNUE or SPSA
+  parameter is touched.
+
+
+
 ## [V0.49.6-NNUE] - 2026-10-30
 
 - Ported master v0.49.5 (`task.md` 39 on `master`): UCI pondering. `go ponder` and `ponderhit` are handled
