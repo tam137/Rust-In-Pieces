@@ -1179,6 +1179,23 @@ impl SearchService {
             root_depth: context.root_depth,
         };
 
+        // 0.8. ProbCut (Matt-Magie step 83, `task.md` 26). Ahead of the node's own move generation,
+        // and behind Internal Iterative Reduction, so the gate reads the depth the node will
+        // actually search. See [`Self::probcut`].
+        if config.enable_probcut
+            && depth >= config.probcut_min_depth
+            && !is_pv
+            && !turn.gives_check
+            && excluded_move.is_none()
+            && beta.abs() < 20000
+            && self.probcut(
+                board, depth, beta, static_eval, ply, cut_node, stats, config, service,
+                &current_context, turns, child_pv, killer_moves, static_eval_stack, history_table,
+                correction_history, counter_moves, deeper)
+        {
+            return (None, beta);
+        }
+
         // Quiescence Search (depth <= 0)
         if depth <= 0 {
             stats.add_eval_nodes(1);
@@ -2197,6 +2214,126 @@ impl SearchService {
             ChildSearch::FullDepth | ChildSearch::NullMove => !parent_cut,
             ChildSearch::SameNode => parent_cut,
         }
+    }
+
+    /// ProbCut (Matt-Magie step 83, `task.md` 26): does some capture beat the raised bound
+    /// `probcut_beta = beta + probcut_margin` at reduced depth? If one does, the node beats its
+    /// real `beta` too, and the caller returns `beta`.
+    ///
+    /// Only captures whose Static Exchange clears `probcut_beta - static_eval` are tried: a capture
+    /// that cannot win that much by material does not lift the static evaluation over the raised
+    /// bound. Each is confirmed twice at the null window of `probcut_beta`, first by a Quiescence
+    /// Search, which refutes most of them cheaply, then by a real search at
+    /// `depth - probcut_reduction` (at least 1).
+    ///
+    /// The caller has gated out PV nodes, nodes in check, the singular verification and a `beta`
+    /// near the mate scores. Two more refusals live here:
+    /// * a raised bound that runs into the mate scores;
+    /// * a table entry at least as deep as the reduced search that already scores below the raised
+    ///   bound - the reduced search would only repeat it.
+    ///
+    /// Nothing is stored on a cut: this engine's speculative table writes have been expensive
+    /// (`task.md` 8.1), and pricing the store is a step of its own. The node's move buffer is
+    /// borrowed for the captures; the node has not generated its own moves yet and clears the
+    /// buffer before it does.
+    #[allow(clippy::too_many_arguments)]
+    fn probcut(&self, board: &mut Board, depth: i32, beta: i16, static_eval: i16, ply: i32,
+        cut_node: bool, stats: &mut Stats, config: &Config, service: &Service,
+        context: &SearchContext, turns: &mut crate::model::MoveList, child_pv: &mut [Option<Turn>; 128],
+        killer_moves: &mut [[Option<Turn>; 2]; 128],
+        static_eval_stack: &mut [i16; MAX_PLY],
+        history_table: &mut [[[i32; 64]; 64]; 2],
+        correction_history: &mut crate::model::CorrectionTables,
+        counter_moves: &mut [[Option<Turn>; 64]; 64],
+        deeper: &mut [crate::model::NodeBuffers]) -> bool {
+        let probcut_beta = beta.saturating_add(config.probcut_margin);
+        if probcut_beta >= 20000 {
+            return false;
+        }
+        let child_depth = (depth - config.probcut_reduction).max(1);
+
+        if config.use_zobrist
+            && let Some(entry) = context.zobrist_table.get_entry(board.cached_hash)
+        {
+            let mut entry_eval = entry.eval;
+            if entry_eval > 30000 {
+                entry_eval -= ply as i16;
+            } else if entry_eval < -30000 {
+                entry_eval += ply as i16;
+            }
+            if entry.depth as i32 >= child_depth && entry_eval < probcut_beta {
+                return false;
+            }
+        }
+
+        let see_threshold = probcut_beta.saturating_sub(static_eval);
+        #[cfg(feature = "search-diag")]
+        let (diag_start, mut diag_tries, mut diag_qs_held) = (stats.calculated_nodes, 0u64, 0u64);
+        let mut cut = false;
+
+        turns.clear();
+        service.move_gen.generate_valid_moves_list_capture(board, stats, config, context, true, turns);
+
+        for i in 0..turns.len {
+            let mut best_idx = i;
+            for j in (i + 1)..turns.len {
+                if turns.moves[j].precedes(&turns.moves[best_idx]) {
+                    best_idx = j;
+                }
+            }
+            turns.moves.swap(i, best_idx);
+            let capture = turns.moves[i];
+
+            if !self.see_ge(board, &capture, see_threshold, config, &service.move_gen) {
+                continue;
+            }
+
+            if stats.calculated_nodes & 1023 == 0
+                && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+            {
+                context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            stats.add_calculated_nodes(1);
+            #[cfg(feature = "search-diag")]
+            {
+                diag_tries += 1;
+            }
+
+            let child_cut = Self::child_cut_node(ChildSearch::FullDepth, false, cut_node);
+            let mi = board.do_move_prefetching(&capture, context.zobrist_table);
+            let mut score = -self.minimax(board, &capture, 0,
+                -probcut_beta, -probcut_beta + 1, stats, config, service, context,
+                false, child_cut, false, None, child_pv, ply + 1, killer_moves, static_eval_stack,
+                history_table, correction_history, counter_moves, deeper).1;
+            if score >= probcut_beta {
+                #[cfg(feature = "search-diag")]
+                {
+                    diag_qs_held += 1;
+                }
+                score = -self.minimax(board, &capture, child_depth,
+                    -probcut_beta, -probcut_beta + 1, stats, config, service, context,
+                    false, child_cut, false, None, child_pv, ply + 1, killer_moves, static_eval_stack,
+                    history_table, correction_history, counter_moves, deeper).1;
+            }
+            board.undo_move(&capture, mi);
+
+            // A search the clock abandoned returns a sentinel, not a score.
+            if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            if score >= probcut_beta {
+                cut = true;
+                break;
+            }
+        }
+
+        #[cfg(feature = "search-diag")]
+        crate::search_diag::record_probcut(diag_tries, diag_qs_held, cut,
+            (stats.calculated_nodes - diag_start) as u64);
+        cut
     }
 
     /// The table move's extension from the singular verification, Matt-Magie step 69.
@@ -5877,6 +6014,196 @@ mod tests {
         let parser = crate::uci_parser_service::UciParserService {};
         assert_eq!("mate 3", parser.format_score(-on.get_eval()));
         assert_eq!(on.get_best_move_algebraic(), off.get_best_move_algebraic());
+    }
+
+
+    // Matt-Magie step 83: ProbCut.
+
+    /// White to move, a rook takes an undefended queen. The static evaluation is about a rook and
+    /// a half down, so neither Reverse Futility Pruning nor Null Move Pruning reaches `beta` 0, and
+    /// the capture clears every ProbCut threshold.
+    const PROBCUT_WIN_FEN: &str = "4k3/8/8/3q4/8/8/3R4/4K3 w - - 0 1";
+    /// The rook takes the undefended queen as above, but the reply `Bxh4+` takes the knight back:
+    /// the Static Exchange of the capture is a queen, what the Quiescence Search finds is about
+    /// two pawns.
+    const PROBCUT_COUNTER_FEN: &str = "4k3/8/5b2/3q4/7N/8/3R4/4K3 w - - 0 1";
+    /// The same material with the queen out of the rook's reach and no capture on the board.
+    const PROBCUT_QUIET_FEN: &str = "4k3/8/8/q7/8/8/3R4/4K3 w - - 0 1";
+
+    /// One node at ply 1 over the null window below `beta` 0, on a fresh table. Returns the score,
+    /// the moves played and whether the node itself left a table entry.
+    fn probcut_node(fen: &str, depth: i32, is_pv: bool, in_check: bool, excluded: Option<Turn>,
+        shape: impl Fn(&mut Config)) -> (i16, usize, bool) {
+        probcut_node_below(fen, depth, 0, is_pv, in_check, excluded, None, shape)
+    }
+
+    /// [`probcut_node`] over the null window below `beta`.
+    /// `seed` is a table entry `(eval, depth)` for the node, stored before the search.
+    fn probcut_node_below(fen: &str, depth: i32, beta: i16, is_pv: bool, in_check: bool,
+        excluded: Option<Turn>, seed: Option<(i16, i8)>, shape: impl Fn(&mut Config)) -> (i16, usize, bool) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let mut config = Config::new();
+        config.pre_sort_moves = false;
+        shape(&mut config);
+        let table = ZobristTable::with_capacity(100_000);
+        let state = fresh_engine_state();
+        let history_table = [[[0i32; 64]; 64]; 2];
+        let context = crate::model::SearchContext {
+            zobrist_table: &table,
+            stop_flag: &state.stop_flag,
+            pondering: &state.pondering,
+            pv_nodes: &state.pv_nodes,
+            killer_moves: [None; 2],
+            history_table: &history_table,
+            counter_move: None,
+            start_time: std::time::Instant::now(),
+            target_time: None,
+            root_moves_total: 0,
+            root_moves_searched: 0,
+            root_depth: depth,
+        };
+        let mut stats = Stats::new();
+        let previous = Turn::new(0, 0, 0, 0, in_check, 0);
+        let hash = crate::zobrist::gen_hash(&board);
+        if let Some((eval, entry_depth)) = seed {
+            table.insert_entry(hash, crate::zobrist::TranspositionEntry {
+                key: hash,
+                eval,
+                depth: entry_depth,
+                entry_type: crate::zobrist::TranspositionType::UpperBound,
+                best_move: 0,
+                static_eval: crate::zobrist::NO_STATIC_EVAL,
+            });
+        }
+        // The null window for a PV node too: a full window would put `beta` beyond the mate bound,
+        // which refuses ProbCut on its own and would hide the PV gate.
+        let alpha = beta - 1;
+        let (_, score) = service.search.minimax(
+            &mut board, &previous, depth, alpha, beta, &mut stats, &config, &service, &context,
+            is_pv, false, false, excluded, &mut [None; 128], 1, &mut [[None; 2]; 128],
+            &mut [super::STATIC_EVAL_UNAVAILABLE; super::MAX_PLY], &mut [[[0i32; 64]; 64]; 2],
+            &mut crate::model::CorrectionTables::new(), &mut [[None; 64]; 64],
+            &mut crate::model::new_search_buffers(),
+        );
+        (score, stats.calculated_nodes, table.get_entry(hash).is_some())
+    }
+
+    fn probcut_on(c: &mut Config) {
+        c.enable_probcut = true;
+    }
+
+    fn probcut_off(c: &mut Config) {
+        c.enable_probcut = false;
+    }
+
+    #[test]
+    fn test_probcut_cuts_a_node_with_a_clearly_winning_capture() {
+        let (on_score, on_nodes, _) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, probcut_on);
+        let (off_score, off_nodes, _) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, probcut_off);
+        assert_eq!(on_score, 0, "the cut returns beta");
+        assert_eq!(off_score, 0, "the full search fails high as well");
+        assert!(on_nodes < off_nodes,
+            "ProbCut ends the node after a Quiescence Search and a reduced search: {} vs {} moves",
+            on_nodes, off_nodes);
+    }
+
+    #[test]
+    fn test_a_probcut_cut_stores_nothing_for_the_node() {
+        let (_, _, stored_on) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, probcut_on);
+        let (_, _, stored_off) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, probcut_off);
+        assert!(stored_off, "control: the searched node stores its result");
+        assert!(!stored_on, "a ProbCut cut returns before the node's table write");
+    }
+
+    #[test]
+    fn test_probcut_is_inert_where_its_gates_refuse() {
+        let excluded = Some(Turn::new(51, 27, 24, 0, false, 0));
+        for (name, depth, is_pv, in_check, exclude) in [
+            ("PV node", 6, true, false, None),
+            ("in check", 6, false, true, None),
+            ("below the minimum depth", 4, false, false, None),
+            ("singular verification", 6, false, false, excluded),
+        ] {
+            let on = probcut_node(PROBCUT_WIN_FEN, depth, is_pv, in_check, exclude, probcut_on);
+            let off = probcut_node(PROBCUT_WIN_FEN, depth, is_pv, in_check, exclude, probcut_off);
+            assert_eq!(on, off, "{}: ProbCut must not change the node", name);
+        }
+    }
+
+    #[test]
+    fn test_probcut_changes_nothing_without_a_capture() {
+        let on = probcut_node(PROBCUT_QUIET_FEN, 6, false, false, None, probcut_on);
+        let off = probcut_node(PROBCUT_QUIET_FEN, 6, false, false, None, probcut_off);
+        assert_eq!(on, off);
+    }
+
+    #[test]
+    fn test_probcut_respects_the_raised_bound() {
+        // A margin above anything the capture wins: the SEE threshold refuses it, no cut.
+        let wide = |c: &mut Config| {
+            c.enable_probcut = true;
+            c.probcut_margin = 1000;
+        };
+        let (_, wide_nodes, stored) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, wide);
+        let (_, off_nodes, _) = probcut_node(PROBCUT_WIN_FEN, 6, false, false, None, probcut_off);
+        assert!(stored, "without a cut the node stores as usual");
+        assert!(wide_nodes >= off_nodes, "no cut at a margin the capture cannot clear");
+
+        // A margin the Static Exchange clears but the searches do not: the capture is tried and
+        // the node is searched as without ProbCut, because neither search reaches `beta + 300`.
+        let margin_200 = |c: &mut Config| {
+            c.enable_probcut = true;
+            c.probcut_margin = 200;
+        };
+        let (on_score, on_nodes, stored) = probcut_node_below(PROBCUT_COUNTER_FEN, 6, -150, false, false, None, None, margin_200);
+        let (off_score, off_nodes, _) = probcut_node_below(PROBCUT_COUNTER_FEN, 6, -150, false, false, None, None, probcut_off);
+        assert!(stored, "no cut below the raised bound, the node stores");
+        assert_eq!(on_score, off_score);
+        assert!(on_nodes > off_nodes, "the capture was tried: {} vs {} moves", on_nodes, off_nodes);
+    }
+
+    /// `Nxd5` wins the queen, and a Quiescence Search agrees, but `...Re1#` follows: only the
+    /// reduced search sees the back-rank mate.
+    const PROBCUT_BACK_RANK_FEN: &str = "4r1k1/5ppp/8/3q4/8/2N5/5PPP/6K1 w - - 0 1";
+
+    #[test]
+    fn test_probcut_needs_the_reduced_search_to_hold() {
+        let (on_score, on_nodes, stored) = probcut_node_below(PROBCUT_BACK_RANK_FEN, 6, -1000, false, false, None, None, probcut_on);
+        let (off_score, off_nodes, _) = probcut_node_below(PROBCUT_BACK_RANK_FEN, 6, -1000, false, false, None, None, probcut_off);
+        assert!(stored, "the mate refutes the capture: no cut, the node stores");
+        assert_eq!(on_score, off_score);
+        assert!(on_nodes > off_nodes, "the capture was tried: {} vs {} moves", on_nodes, off_nodes);
+    }
+
+    #[test]
+    fn test_probcut_defers_to_a_table_entry_that_already_answers() {
+        // An entry as deep as the reduced search (6 - 4 = 2) that scores below the raised bound:
+        // the reduced search would only repeat it, so ProbCut does not run.
+        let deep = Some((-500, 2));
+        let on = probcut_node_below(PROBCUT_WIN_FEN, 6, 0, false, false, None, deep, probcut_on);
+        let off = probcut_node_below(PROBCUT_WIN_FEN, 6, 0, false, false, None, deep, probcut_off);
+        assert_eq!(on, off);
+        // One ply shallower, the entry does not answer the question and the capture cuts.
+        let shallow = Some((-500, 1));
+        let (_, on_nodes, stored) = probcut_node_below(PROBCUT_WIN_FEN, 6, 0, false, false, None, shallow, probcut_on);
+        let (_, off_nodes, _) = probcut_node_below(PROBCUT_WIN_FEN, 6, 0, false, false, None, shallow, probcut_off);
+        assert!(on_nodes < off_nodes, "a shallower entry leaves ProbCut free to cut: {} vs {}", on_nodes, off_nodes);
+        assert!(stored, "the seeded entry is still there: a cut writes nothing over it");
+    }
+
+    #[test]
+    fn test_probcut_ships_off_and_is_tree_identical_off() {
+        assert!(!Config::new().enable_probcut, "commit 1 of step 83 ships the rule off");
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        let off_tree = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_probcut = false;
+            c.probcut_margin = 1;
+            c.probcut_reduction = 1;
+            c.probcut_min_depth = 2;
+        });
+        assert_eq!(default_tree, off_tree, "the ProbCut values do nothing while the rule is off");
     }
 
 }
