@@ -126,7 +126,7 @@ impl TranspositionEntry {
             TranspositionType::LowerBound => 1,
             TranspositionType::UpperBound => 2,
         } as u64;
-        val |= (type_val & 0xFF) << 40;
+        val |= (type_val & 0x3) << 40;
         val |= (self.static_eval as u16 as u64) << 48;
         val
     }
@@ -136,7 +136,8 @@ impl TranspositionEntry {
         let eval = (data & 0xFFFF) as u16 as i16;
         let best_move = ((data >> 16) & 0xFFFF) as u16;
         let depth = ((data >> 32) & 0xFF) as u8 as i8;
-        let entry_type = match (data >> 40) & 0xFF {
+        // Two bits: bits 42-47 hold the search generation of the store (`GENERATION_SHIFT`).
+        let entry_type = match (data >> 40) & 0x3 {
             1 => TranspositionType::LowerBound,
             2 => TranspositionType::UpperBound,
             _ => TranspositionType::Exact,
@@ -258,9 +259,17 @@ pub struct AtomicEntry {
     pub data: std::sync::atomic::AtomicU64,
 }
 
+/// Where `insert_entry` writes the search generation into an entry's data word: the six bits above
+/// the two-bit bound type, unused before (Matt-Magie step 81). Only `hashfull` reads them; the
+/// search and the replacement rule never do, so they cannot move a search tree.
+const GENERATION_SHIFT: u32 = 42;
+const GENERATION_MASK: u64 = 0x3F;
+
 #[derive(Debug)]
 pub struct ZobristTable {
     pub table: Vec<AtomicEntry>,
+    /// The current search generation, 0 to 63, advanced once per `go` (`new_search`).
+    generation: std::sync::atomic::AtomicU64,
     /// The search generation each slot was last written in; only in the `search-diag` build,
     /// which measures the table and is never timed (Matt-Magie step 50).
     #[cfg(feature = "search-diag")]
@@ -283,6 +292,7 @@ impl ZobristTable {
         }
         Self {
             table,
+            generation: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "search-diag")]
             written: (0..capacity.max(1)).map(|_| std::sync::atomic::AtomicU64::new(0)).collect(),
         }
@@ -425,10 +435,33 @@ impl ZobristTable {
             }
             // Invalidate the key before writing data to prevent a "torn read" by another thread.
             slot.key.store(!hash, std::sync::atomic::Ordering::Release);
-            slot.data.store(entry.pack(), std::sync::atomic::Ordering::Release);
+            let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
+            slot.data.store(entry.pack() | (generation << GENERATION_SHIFT), std::sync::atomic::Ordering::Release);
             // Restore the correct key after data is written.
             slot.key.store(hash, std::sync::atomic::Ordering::Release);
         }
+    }
+
+    /// Starts the next search generation; called once per `go`.
+    pub fn new_search(&self) {
+        let next = (self.generation.load(std::sync::atomic::Ordering::Relaxed) + 1) & GENERATION_MASK;
+        self.generation.store(next, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// UCI `hashfull`: per mille of the first 1000 slots holding an entry this search wrote, as
+    /// Stockfish counts it. An entry from an earlier search no longer counts, so the figure says how
+    /// much of the table the current search uses, not how much was ever written.
+    pub fn hashfull(&self) -> u16 {
+        let sample = self.table.len().min(1000);
+        let current = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
+        let used = self.table[..sample].iter()
+            .filter(|slot| {
+                let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+                let depth = ((data >> 32) & 0xFF) as u8 as i8;
+                depth != -1 && (data >> GENERATION_SHIFT) & GENERATION_MASK == current
+            })
+            .count();
+        (used * 1000 / sample.max(1)) as u16
     }
 
     pub fn _size(&self) -> usize {
@@ -548,6 +581,46 @@ pub fn get_zobrist_val(square: usize, piece_idx: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Matt-Magie step 81: the generation bits a store adds are invisible to `unpack` - every field
+    /// comes back as packed, a mate score, a negative static evaluation and each bound included.
+    #[test]
+    fn the_generation_bits_never_reach_an_unpacked_entry() {
+        for entry_type in [TranspositionType::Exact, TranspositionType::LowerBound, TranspositionType::UpperBound] {
+            let entry = TranspositionEntry { key: 0xABCD, eval: -29_990, best_move: 0xBEEF, depth: 17,
+                entry_type, static_eval: -321 };
+            for generation in [0u64, 1, 37, 63] {
+                let data = entry.pack() | (generation << GENERATION_SHIFT);
+                let back = TranspositionEntry::unpack(0xABCD, data);
+                assert_eq!((back.key, back.eval, back.best_move, back.depth, back.entry_type, back.static_eval),
+                    (entry.key, entry.eval, entry.best_move, entry.depth, entry.entry_type, entry.static_eval),
+                    "generation {generation}");
+            }
+        }
+    }
+
+    /// Matt-Magie step 81: `hashfull` counts the slots among the first 1000 that this search
+    /// wrote - 0 when empty, rising with stores, back to 0 after `new_search` until the new search
+    /// stores again, and 0 after `clear`.
+    #[test]
+    fn hashfull_counts_only_what_the_current_search_wrote() {
+        let table = ZobristTable::with_capacity(2000);
+        assert_eq!(table.hashfull(), 0);
+        let store = |key: u64| table.insert_entry(key, TranspositionEntry { key, eval: 1, best_move: 0, depth: 3,
+            entry_type: TranspositionType::Exact, static_eval: NO_STATIC_EVAL });
+        // Keys below 2^63 land in the first half of a 2000-slot table, the slots `hashfull` samples.
+        let keys: Vec<u64> = (1..=600u64).map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 1).collect();
+        keys.iter().for_each(|&k| store(k));
+        let full = table.hashfull();
+        assert!(full > 300 && full <= 600, "600 stores into 1000 sampled slots, got {full}");
+        table.new_search();
+        assert_eq!(table.hashfull(), 0, "the previous search's entries no longer count");
+        store(keys[0]);
+        assert_eq!(table.hashfull(), 1, "one slot rewritten by the new search");
+        assert!(table.get_entry(keys[1]).is_some(), "older entries stay and still answer probes");
+        table.clear();
+        assert_eq!(table.hashfull(), 0);
+    }
 
     #[test]
     fn zobrist_entry_size_test() {
