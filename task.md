@@ -819,6 +819,22 @@ lockless contract must survive per entry, not per cluster: invalidate the key, w
 restore the key is what makes a torn read detectable. This is the rewrite, and it subsumes the
 layout 25.3 needs.
 
+**25.2 measured at match conditions (2026-10-30, Matt-Magie step 81).** `scripts/replay_games_tt.py` replays games of
+the 2026-10-30 tournament (1s + 100ms) with the engine's own moves, a rebuilt clock and the `search-diag` table counters
+(ages now counted per `go`, not per iteration). 20 games each, slots sampled every 64th:
+
+| own moves | HCE v0.49.5, 64 MB occupied | of it this search | HCE 256 MB occupied | NNUE v0.49.7, 64 MB occupied |
+| :--- | ---: | ---: | ---: | ---: |
+| 1-10 | 8.9% | 1.6% | 2.0% | 6.2% |
+| 21-30 | 31.1% | 1.2% | 7.4% | 21.7% |
+| 61+ | 55.3% | 0.6% | 14.5% | 36.8% |
+
+A search stores 27k-75k entries and evicts 4k-14k other keys, of them 100-1400 deeper ones. **At this time control
+the table is never full and one search uses about 1% of it**: neither the size nor the missing ageing is a
+bottleneck, so the bucketed table with ageing is not expected to pay at 1s + 100ms (it may at longer controls).
+v0.49.6 / v0.49.8-NNUE add UCI `hashfull` (current-search entries among the first 1000 slots, from a six-bit
+generation in data bits 42-47 that the search never reads; tree-identical) and `nps` per second.
+
 **25.3 The entry caches no static evaluation** - *shipped in v0.48.0, see 30.1.* It holds the *search score* only, so every revisit
 recomputes `calc_eval` from scratch (`search_service.rs:666`) although a position's static
 evaluation never changes. The published entry carries the raw static evaluation beside the score
