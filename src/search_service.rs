@@ -88,6 +88,7 @@ impl SearchService {
         // the aspiration window. `None` disables aspiration for this search.
         prev_score: Option<i16>,
     ) -> SearchResult {
+        let prof_start = crate::nnue_prof::cycles();
         let mut search_config = config.clone();
         search_config.pre_sort_moves = false;
         let config = &search_config;
@@ -236,6 +237,7 @@ impl SearchService {
                 // overlaps with the rest of the move, move generation and evaluation.
                 let mi = board.do_move_prefetching(turn, context.zobrist_table);
                 if config.use_nnue && service.eval.nnue_net.loaded {
+                    crate::nnue_prof::step_into(1, false);
                     acc_stack[1] = crate::nnue_service::NNUEService::update_accumulator(
                         &acc_stack[0], board, turn, &mi, &service.eval.nnue_net
                     );
@@ -431,6 +433,8 @@ impl SearchService {
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
         board.search_root_len = usize::MAX;
+        crate::nnue_prof::end_search(prof_start);
+        crate::nnue_prof::dump();
         crate::search_diag::dump();
         crate::search_diag::dump_tree(
             search_result.stats.calculated_nodes,
@@ -723,7 +727,7 @@ impl SearchService {
             let absolute = service.eval.calc_eval_known_check_with_acc(
                 board, config, &service.move_gen, &service.pawn_table,
                 abs_alpha, abs_beta, config.lazy_eval_margin_search, turn.gives_check,
-                if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+                if config.use_nnue && service.eval.nnue_net.loaded { crate::nnue_prof::needed_at(ply_idx); Some(&acc_stack[ply_idx]) } else { None },
             );
             return (None, Self::relative_score(white, absolute));
         }
@@ -867,7 +871,7 @@ impl SearchService {
                 let (absolute, full) = service.eval.calc_eval_known_check_with_acc_full(
                     board, config, &service.move_gen, &service.pawn_table,
                     abs_alpha, abs_beta, config.lazy_eval_margin_search, false,
-                    if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+                    if config.use_nnue && service.eval.nnue_net.loaded { crate::nnue_prof::needed_at(ply_idx); Some(&acc_stack[ply_idx]) } else { None },
                 );
                 raw_static_eval_full = full;
                 if full {
@@ -972,6 +976,7 @@ impl SearchService {
 
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
+                crate::nnue_prof::step_into(child_ply_idx, true);
                 acc_stack[child_ply_idx] = acc_stack[ply_idx];
             }
 
@@ -1181,7 +1186,7 @@ impl SearchService {
                     let (absolute, full) = service.eval.calc_eval_known_check_with_acc_full(
                         board, config, &service.move_gen, &service.pawn_table,
                         abs_alpha, abs_beta, config.lazy_eval_margin_qs, false,
-                        if config.use_nnue && service.eval.nnue_net.loaded { Some(&acc_stack[ply_idx]) } else { None },
+                        if config.use_nnue && service.eval.nnue_net.loaded { crate::nnue_prof::needed_at(ply_idx); Some(&acc_stack[ply_idx]) } else { None },
                     );
                     if full {
                         node_static_eval = absolute;
@@ -1291,6 +1296,7 @@ impl SearchService {
                 let mi = board.do_move_prefetching(capture_turn, context.zobrist_table);
                 let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
                 if config.use_nnue && service.eval.nnue_net.loaded {
+                    crate::nnue_prof::step_into(child_ply_idx, false);
                     acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
                         &acc_stack[ply_idx], board, capture_turn, &mi, &service.eval.nnue_net
                     );
@@ -1700,6 +1706,7 @@ impl SearchService {
             let mi = board.do_move_prefetching(current_turn, context.zobrist_table);
             let child_ply_idx = ((ply + 1).max(0) as usize).min(MAX_PLY - 1);
             if config.use_nnue && service.eval.nnue_net.loaded {
+                crate::nnue_prof::step_into(child_ply_idx, false);
                 acc_stack[child_ply_idx] = crate::nnue_service::NNUEService::update_accumulator(
                     &acc_stack[ply_idx], board, current_turn, &mi, &service.eval.nnue_net
                 );

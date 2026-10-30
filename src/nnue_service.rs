@@ -199,6 +199,13 @@ pub struct NNUEService;
 
 impl NNUEService {
     pub fn compute_accumulator(board: &Board, net: &NNUENetwork) -> NNUEAccumulator {
+        let start = crate::nnue_prof::cycles();
+        let acc = Self::compute_accumulator_inner(board, net);
+        crate::nnue_prof::record_full(start);
+        acc
+    }
+
+    fn compute_accumulator_inner(board: &Board, net: &NNUENetwork) -> NNUEAccumulator {
         let mut acc = NNUEAccumulator::new();
         if !net.loaded {
             return acc;
@@ -333,18 +340,34 @@ impl NNUEService {
         move_info: &MoveInformation,
         net: &NNUENetwork,
     ) -> NNUEAccumulator {
+        let start = crate::nnue_prof::cycles();
+        let mut refreshed = false;
+        let acc = Self::update_accumulator_inner(parent, board, turn, move_info, net, &mut refreshed);
+        crate::nnue_prof::record_update(start, refreshed);
+        acc
+    }
+
+    #[allow(unused_assignments)]
+    fn update_accumulator_inner(
+        parent: &NNUEAccumulator,
+        board: &Board,
+        turn: &Turn,
+        move_info: &MoveInformation,
+        net: &NNUENetwork,
+        refreshed: &mut bool,
+    ) -> NNUEAccumulator {
         if !net.loaded {
             return NNUEAccumulator::new();
         }
         if !parent.computed {
-            return Self::compute_accumulator(board, net);
+            return Self::compute_accumulator_inner(board, net);
         }
 
         let white_king_sq = board.bitboards[WHITE_KING].trailing_zeros() as usize;
         let black_king_sq = board.bitboards[BLACK_KING].trailing_zeros() as usize;
 
         if white_king_sq >= 64 || black_king_sq >= 64 {
-            return Self::compute_accumulator(board, net);
+            return Self::compute_accumulator_inner(board, net);
         }
 
         let moved_piece = move_info.moved_piece;
@@ -423,6 +446,7 @@ impl NNUEService {
             let old_bucket = get_king_bucket(from, 0);
             if old_bucket.index != white_bucket.index || old_bucket.mirrored != white_bucket.mirrored {
                 Self::refresh_perspective(board, net, 0, &mut new_acc.white);
+                *refreshed = true;
             } else {
                 new_acc.white = parent.white;
                 for i in 0..removed_count {
@@ -460,6 +484,7 @@ impl NNUEService {
             let old_bucket = get_king_bucket(from, 1);
             if old_bucket.index != black_bucket.index || old_bucket.mirrored != black_bucket.mirrored {
                 Self::refresh_perspective(board, net, 1, &mut new_acc.black);
+                *refreshed = true;
             } else {
                 new_acc.black = parent.black;
                 for i in 0..removed_count {
@@ -496,6 +521,13 @@ impl NNUEService {
     }
 
     pub fn evaluate_with_accumulator(board: &Board, net: &NNUENetwork, acc: &NNUEAccumulator) -> i16 {
+        let start = crate::nnue_prof::cycles();
+        let eval = Self::evaluate_with_accumulator_inner(board, net, acc);
+        crate::nnue_prof::record_eval(start);
+        eval
+    }
+
+    fn evaluate_with_accumulator_inner(board: &Board, net: &NNUENetwork, acc: &NNUEAccumulator) -> i16 {
         if !net.loaded || !acc.computed {
             return 0;
         }

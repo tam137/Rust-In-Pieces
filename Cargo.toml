@@ -16,3 +16,6 @@ rayon = "1.10.0"
 [features]
 # Stage-0 opportunity measurement for `task.md` 1.2.2. Off by default; see `src/search_diag.rs`.
 search-diag = []
+# Matt-Magie step 79, phase A: cycles of the network accumulator and the steps no evaluation needs.
+# Off by default; see `src/nnue_prof.rs`.
+nnue-prof = []
