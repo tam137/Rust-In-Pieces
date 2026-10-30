@@ -558,6 +558,7 @@ mod tests {
         let context = SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &stop_flag,
+            pondering: &crate::model::NEVER_PONDERING,
             pv_nodes: &pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
