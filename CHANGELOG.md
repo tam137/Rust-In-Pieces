@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.6-NNUE] - 2026-10-30
+
+- Ported master v0.49.5 (`task.md` 39 on `master`): UCI pondering. `go ponder` and `ponderhit` are handled
+  by the protocol whatever the option says - before, `go ponder` was read as a timed `go` that wrote
+  `bestmove` in the middle of the ponder. UCI `Ponder` (off) only adds the `ponder` token to `bestmove`.
+  The UCI thread clears the stop flag before it forwards `go`, so a `stop` that arrives before the search
+  starts is no longer lost. After `ponderhit` the budget counts from the start of the ponder search.
+- `Ponder` off: v0.49.5-NNUE node for node (300/300 identical trees on both pools at depth 10). Protocol
+  test with python-chess 1.11.2, 40 self-play games at 1s + 100ms, Move Overhead 100, one side pondering:
+  no protocol error, no time loss, no hang; 1249 ponderhits of 1915 `go ponder`, 66.0%. Smoke gauntlet
+  with the option off 48.5% / 55.0% / 93.0% against v0.49.5-NNUE / v0.49.4-NNUE / v0.34.0-NNUE. No SPRT:
+  a protocol change, tree-identical with the option off.
+
+
+
 ## [V0.49.5-NNUE] - 2026-10-29
 
 - **Not master v0.49.5** (pondering). This is master v0.48.0 (`task.md` 30.1 on `master`), ported now:
