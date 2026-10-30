@@ -354,6 +354,7 @@ impl SearchService {
                         let calc_time_ms = context.start_time.elapsed().as_millis();
                         stats.calc_time_ms = calc_time_ms as usize;
                         stats.calculate();
+                        stats.hashfull = context.zobrist_table.hashfull();
                         if config.print_info_string_during_search {
                             if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
                                 logger.send("stdout channel closed during search".to_string())
@@ -377,6 +378,7 @@ impl SearchService {
                     let calc_time_ms = context.start_time.elapsed().as_millis();
                     stats.calc_time_ms = calc_time_ms as usize;
                     stats.calculate();
+                    stats.hashfull = context.zobrist_table.hashfull();
                     if config.print_info_string_during_search {
                         if let Err(_e) = service.stdout.write_get_result(&service.uci_parser.get_info_str(&search_result, stats)) {
                             logger.send("stdout channel closed during search".to_string())
@@ -437,6 +439,7 @@ impl SearchService {
         search_result.stats.calc_time_ms = calc_time_ms as usize;
         search_result.completed = !stop_flag.load(std::sync::atomic::Ordering::Relaxed);
         board.search_root_len = usize::MAX;
+        stats.hashfull = context.zobrist_table.hashfull();
         crate::search_diag::dump();
         crate::search_diag::dump_order_tt(context.zobrist_table);
         crate::search_diag::dump_tree(
