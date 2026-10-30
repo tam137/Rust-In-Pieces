@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.0-NNUE] - 2026-10-30
+
+- **Finny table** for the king-bucket rebuilds (Matt-Magie step 82; Stockfish's accumulator caches,
+  SleepMind's `c042109`): per perspective and king bucket, mirrored or not, the accumulator last built
+  there and the piece bitboards it was built for. A king that crosses a bucket boundary no longer rebuilds
+  its perspective from every piece but from the cached one, adding and removing only the pieces that
+  changed - 6.2 features on average instead of about 30; 2.6% of the rebuilds are a first use of a bucket.
+  `i16` sums wrap and are exact in any order, so the result is the full rebuild bit for bit.
+- The search's accumulator stack is a type `AccStack` (slots plus the table), one per search.
+- The rebuilds took 8.5% of the search before and 4.0% after (`nnue-prof`); **the search tree is
+  v0.49.8-NNUE's node for node** (300/300 identical trees on both pools at depth 10, in every round) and
+  **4.1-5.1% faster** to depth 10 over two rounds against a control of +-0.7%.
+- No SPRT (tree-identical speed). Smoke gauntlet, 50 games per pairing: 51.0% / 57.0% / 87.0% against
+  v0.49.8-NNUE / v0.49.7-NNUE / v0.34.0-NNUE. The version number is the owner's choice; master has no
+  v0.50.0 yet.
+
+
+
 ## [V0.49.8-NNUE] - 2026-10-30
 
 - UCI `hashfull` in every `info` line: per mille of the first 1000 table slots holding an entry the current
