@@ -918,6 +918,16 @@ Q, not done: 26 clippy lints, unused dependencies (`chashmap` with RUSTSEC-2022-
 `run_perft_bench.py` and `apply_spsa.py`, and a `#[test]` that sits outside `mod tests` at the end
 of `model.rs`.
 
+**N1 and N2 on the NNUE branch (2026-10-30, Matt-Magie step 79).** Measured first with a profiling feature
+(`nnue-prof`, compiled out by default; aarch64 generic timer): the accumulator update took 27.7% of the
+search, bucket refreshes 8% of it from 7% of the updates, the output layer 11.6%; 17% of the accumulator steps
+were never needed by an evaluation. **N1** (one pass into the child slot instead of zeroing, copying and a pass
+per feature) is bit-identical and **about 10% faster** to depth 10 on identical trees (+9.2% to +10.6% over two
+rounds and both pools): **shipped as v0.49.7-NNUE** without an SPRT, smoke gauntlet 54.5% / 57.5% / 92.0%.
+**N2** (lazy child accumulators, a king crossing a bucket rebuilt at the move) was correct and tree-identical
+but **3.7% to 4.2% slower than N1**: with 83% of the steps needed anyway, catching up costs more than it saves.
+Refused; the code is on the local NNUE-repository branch `perf/nnue-acc-n2`.
+
 ## 28. Principal Variation Search at the root, v0.46.2
 
 `get_moves` searched **every** root move with `is_pv = true` and the full current window, so the
