@@ -512,7 +512,8 @@ pub fn record_tt_store(outcome: usize, victim_age: u64, victim_deeper: bool) {
 }
 
 /// Prints the move-order and table counters, and the table's occupancy by age over every 64th
-/// slot, then starts the next search generation. Called once per search, after [`dump`].
+/// slot. Called once per iteration, after [`dump`]; the generation moves per `go`
+/// ([`new_search_generation`]).
 #[allow(unused_variables, dead_code)]
 pub fn dump_order_tt(table: &crate::zobrist::ZobristTable) {
     #[cfg(feature = "search-diag")]
@@ -542,8 +543,16 @@ pub fn dump_order_tt(table: &crate::zobrist::ZobristTable) {
             list(&counters::EVICT_AGE), list(&counters::EVICT_DEEPER_AGE),
             empty, by_age.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
         );
-        counters::add(&counters::GENERATION, 1);
     }
+}
+
+/// Starts the next search generation for the table's shadow ages: once per `go`, so an entry's age
+/// counts the searches (moves) since it was written, not the iterations (Matt-Magie step 81; until
+/// then it was bumped after every iteration's dump).
+#[inline(always)]
+pub fn new_search_generation() {
+    #[cfg(feature = "search-diag")]
+    counters::add(&counters::GENERATION, 1);
 }
 
 /// Records one move that was actually searched, for `task.md` section 11.
