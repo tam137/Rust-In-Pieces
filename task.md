@@ -2671,3 +2671,11 @@ the option off: 46.5% vs v0.49.4, 50.5% vs v0.49.3, 95.5% vs v0.34.0.
 **Not measured:** Elo of pondering against not pondering - a resource gain, known to be worth tens of
 Elo, and it would need pondering in Matt-Magie and twice the load per game.
 
+**On the NNUE branch: v0.49.6-NNUE** (2026-10-30, Matt-Magie step 78). `2042b61` ported onto v0.49.5-NNUE, four
+hunks of context only. Option off: 300/300 identical trees on both pools. The hand probe as here (`OwnBook=false`:
+with the book the reply comes from it at once): `ponderhit` after 1.0 s -> `bestmove` at 2.55 s, the 2.52 s budget
+counted from the ponder start; after 3.0 s -> at once; `stop` right after `go ponder` -> 0.02 s; a single legal move
+waits for the `ponderhit`. Protocol test with the same script: 40 games, no protocol error, no time loss, no hang;
+1249 ponderhits of 1915, 66.0%. Smoke gauntlet with the option off 48.5% / 55.0% / 93.0% against v0.49.5- /
+v0.49.4- / v0.34.0-NNUE. No SPRT.
+
