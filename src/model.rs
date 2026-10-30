@@ -1397,6 +1397,8 @@ pub struct Stats {
     pub cuts: i32,
     pub capture_share: i32,
     pub nodes_per_ms: i32,
+    /// UCI `hashfull` of the table when the line is written (Matt-Magie step 81).
+    pub hashfull: u16,
     pub logging: Vec<String>,
 }
 
@@ -1414,6 +1416,7 @@ impl Stats {
             cuts: 0,
             capture_share: 0,
             nodes_per_ms: 0,
+            hashfull: 0,
             logging: Vec::default(),
          }
     }
