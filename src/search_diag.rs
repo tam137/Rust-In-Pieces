@@ -266,6 +266,21 @@ mod counters {
     pub static LMR_RESEARCHED_BY_CUT: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
     pub static LMR_CUT_DEEPER: AtomicU64 = AtomicU64::new(0);
 
+    // Matt-Magie step 83: ProbCut.
+    // ---------------------------------------------------------------------------------------
+
+    /// Nodes that passed every ProbCut gate and generated their captures.
+    pub static PROBCUT_NODES: AtomicU64 = AtomicU64::new(0);
+    /// Captures that cleared the SEE threshold and were searched.
+    pub static PROBCUT_TRIES: AtomicU64 = AtomicU64::new(0);
+    /// Of those, the ones whose Quiescence Search held the raised bound and went on to the
+    /// reduced search.
+    pub static PROBCUT_QS_HELD: AtomicU64 = AtomicU64::new(0);
+    /// Nodes ended by ProbCut.
+    pub static PROBCUT_CUTS: AtomicU64 = AtomicU64::new(0);
+    /// Moves played inside the ProbCut searches (`Stats::calculated_nodes`), cut or not.
+    pub static PROBCUT_TREE: AtomicU64 = AtomicU64::new(0);
+
     // Principal Variation Search at the root: what do the later root moves do?
     // ---------------------------------------------------------------------------------------
 
@@ -908,6 +923,19 @@ pub fn record_nmp_verification(confirmed: bool) {
     }
 }
 
+/// Records one ProbCut node (Matt-Magie step 83): the captures it searched, how many of them held
+/// the raised bound in the Quiescence Search, whether it cut, and the moves its searches played.
+#[cfg(feature = "search-diag")]
+pub fn record_probcut(tries: u64, qs_held: u64, cut: bool, tree: u64) {
+    counters::bump(&counters::PROBCUT_NODES);
+    counters::add(&counters::PROBCUT_TRIES, tries);
+    counters::add(&counters::PROBCUT_QS_HELD, qs_held);
+    if cut {
+        counters::bump(&counters::PROBCUT_CUTS);
+    }
+    counters::add(&counters::PROBCUT_TREE, tree);
+}
+
 /// Writes the size of the tree the search actually walked.
 ///
 /// The UCI `nodes` field reports `Stats::created_nodes`, i.e. the number of *generated* moves.
@@ -1109,6 +1137,14 @@ pub fn dump() {
             counters::read(&counters::LMR_BY_CUT[1]),
             counters::read(&counters::LMR_RESEARCHED_BY_CUT[1]),
             counters::read(&counters::LMR_CUT_DEEPER),
+        );
+        eprintln!(
+            "SEARCHDIAGPROBCUT nodes={} tries={} qs_held={} cuts={} tree={}",
+            counters::read(&counters::PROBCUT_NODES),
+            counters::read(&counters::PROBCUT_TRIES),
+            counters::read(&counters::PROBCUT_QS_HELD),
+            counters::read(&counters::PROBCUT_CUTS),
+            counters::read(&counters::PROBCUT_TREE),
         );
     }
 }

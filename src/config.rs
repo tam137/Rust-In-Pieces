@@ -452,6 +452,15 @@ pub struct Config {
     /// Matt-Magie step 71: at an expected cut node a move the Late Move Reduction reduces anyway is
     /// reduced one ply more. No reduction is created where the damping left none.
     pub enable_lmr_cut_node: bool,
+    /// Matt-Magie step 83: ProbCut. At a non-PV node out of check with `depth >= probcut_min_depth`,
+    /// a capture whose Static Exchange clears `beta + probcut_margin - static_eval` is searched
+    /// against the raised bound `beta + probcut_margin`, first by a Quiescence Search and then at
+    /// `depth - probcut_reduction`; a capture that holds both times ends the node at `beta`. The
+    /// cut stores nothing in the Transposition Table (`task.md` 26).
+    pub enable_probcut: bool,
+    pub probcut_margin: i16,
+    pub probcut_reduction: i32,
+    pub probcut_min_depth: i32,
     /// UCI `Ponder` (Matt-Magie step 72): write `bestmove <move> ponder <reply>`. `go ponder` and
     /// `ponderhit` are honoured whatever this says; it only tells the GUI that pondering is wanted.
     pub ponder: bool,
@@ -762,6 +771,10 @@ impl Config {
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
             enable_lmr_cut_node: true,
+            enable_probcut: false,
+            probcut_margin: 180,
+            probcut_reduction: 4,
+            probcut_min_depth: 5,
             ponder: false,
             enable_correction_history: true,
             corr_hist_limit: 1024,
@@ -1331,6 +1344,26 @@ mod tests {
             "on in the candidate of step 71 (census: -1.7% / +5.4% time to depth 10, played by the owner's word)");
     }
 
+    /// Matt-Magie step 83: the ProbCut options.
+    #[test]
+    fn test_probcut_options_reach_the_fields_in_all_spellings() {
+        for spelling in ["EnableProbCut", "enable_probcut", "enableprobcut"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.enable_probcut);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.enable_probcut);
+        }
+        let mut config = Config::new();
+        assert_eq!(config.apply_uci_option("ProbCutMargin", "140"), UciOptionEffect::Stored);
+        assert_eq!(config.apply_uci_option("probcut_reduction", "3"), UciOptionEffect::Stored);
+        assert_eq!(config.apply_uci_option("PROBCUTMINDEPTH", "6"), UciOptionEffect::Stored);
+        assert_eq!((config.probcut_margin, config.probcut_reduction, config.probcut_min_depth), (140, 3, 6));
+        let defaults = Config::new();
+        assert_eq!((defaults.probcut_margin, defaults.probcut_reduction, defaults.probcut_min_depth), (180, 4, 5),
+            "the published shape, `task.md` 26");
+    }
+
     /// Matt-Magie step 72: the switch of the `ponder` token, off by default.
     #[test]
     fn test_ponder_option_reaches_the_field_in_all_spellings() {
@@ -1533,6 +1566,10 @@ impl Config {
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
             "enablelmrcutnode" => self.enable_lmr_cut_node = value.eq_ignore_ascii_case("true"),
+            "enableprobcut" => self.enable_probcut = value.eq_ignore_ascii_case("true"),
+            "probcutmargin" => if let Ok(v) = value.parse::<i16>() { self.probcut_margin = v; },
+            "probcutreduction" => if let Ok(v) = value.parse::<i32>() { self.probcut_reduction = v; },
+            "probcutmindepth" => if let Ok(v) = value.parse::<i32>() { self.probcut_min_depth = v; },
             "ponder" => self.ponder = value.eq_ignore_ascii_case("true"),
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
