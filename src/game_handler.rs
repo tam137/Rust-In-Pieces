@@ -87,6 +87,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                 }
 
                 else if command == "infinite" {
+                    crate::search_diag::new_search_generation();
                     let mut best_result: Option<SearchResult> = None;
                     // Score of the last completed iteration, used to seed the aspiration window.
                     let mut prev_score: Option<i16> = None;
@@ -200,6 +201,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         engine_state.pv_nodes_len.store(0, Ordering::SeqCst);
 
                         let go_start_time = std::time::Instant::now();
+                        crate::search_diag::new_search_generation();
                         let mut best_result: Option<SearchResult> = None;
                         let max_depth = active_config.max_depth;
                         // Score of the last completed iteration, used to seed the aspiration window.
