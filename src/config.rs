@@ -771,7 +771,10 @@ impl Config {
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
             enable_lmr_cut_node: true,
-            enable_probcut: false,
+            // Matt-Magie step 83: on at the published margin. Depth-10 census over 300 positions per
+            // pool against the rule off: 180 -> +1.6% / +8.9% time (wide / mixed), 140 -> -0.9% /
+            // +5.8%, 220 -> +0.9% / +5.6%; 180 is the fastest on both pools.
+            enable_probcut: true,
             probcut_margin: 180,
             probcut_reduction: 4,
             probcut_min_depth: 5,
