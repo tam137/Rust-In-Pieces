@@ -5,6 +5,7 @@ mod notation_util;
 mod model;
 mod eval_service;
 mod nnue_service;
+mod nnue_prof;
 mod config;
 mod search_service;
 mod search_diag;
