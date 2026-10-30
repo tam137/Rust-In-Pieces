@@ -6193,9 +6193,12 @@ mod tests {
     }
 
     #[test]
-    fn test_probcut_ships_off_and_is_tree_identical_off() {
-        assert!(!Config::new().enable_probcut, "commit 1 of step 83 ships the rule off");
-        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+    fn test_probcut_ships_on_and_is_inert_off() {
+        assert!(Config::new().enable_probcut, "on at margin 180 since the census of step 83");
+        let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| {
+            c.use_zobrist = true;
+            c.enable_probcut = false;
+        });
         let off_tree = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
             c.enable_probcut = false;
@@ -6204,6 +6207,8 @@ mod tests {
             c.probcut_min_depth = 2;
         });
         assert_eq!(default_tree, off_tree, "the ProbCut values do nothing while the rule is off");
+        let on_tree = search_nodes(CHECK_RICH_FEN, 7, |c| c.use_zobrist = true);
+        assert_ne!(on_tree, off_tree, "the shipped rule changes the tree");
     }
 
 }
