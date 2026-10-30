@@ -244,6 +244,82 @@ pub fn piece_to_type_and_color(piece: u8) -> (usize, usize) {
     (piece_type, color)
 }
 
+/// The twelve piece bitboards in board order, with the piece type and colour the features use.
+const FEATURE_PIECES: [(usize, usize, usize); 12] = [
+    (WHITE_PAWN, 0, 0), (WHITE_KNIGHT, 1, 0), (WHITE_BISHOP, 2, 0),
+    (WHITE_ROOK, 3, 0), (WHITE_QUEEN, 4, 0), (WHITE_KING, 5, 0),
+    (BLACK_PAWN, 0, 1), (BLACK_KNIGHT, 1, 1), (BLACK_BISHOP, 2, 1),
+    (BLACK_ROOK, 3, 1), (BLACK_QUEEN, 4, 1), (BLACK_KING, 5, 1),
+];
+
+/// One cached perspective of the Finny table: the accumulator last built for this king bucket and
+/// the piece bitboards it was built for.
+#[derive(Copy, Clone)]
+struct FinnyEntry {
+    acc: [i16; NNUE_HIDDEN_SIZE],
+    pieces: [u64; 12],
+    valid: bool,
+}
+
+/// The Finny table (Matt-Magie step 82; Stockfish's accumulator caches, SleepMind's `c042109`): per
+/// perspective and king bucket, mirrored or not, the accumulator last built there. A king that
+/// crosses a bucket boundary no longer rebuilds its perspective from every piece but from the cached
+/// one, adding and removing only the pieces that changed since. `i16` sums wrap and are exact in
+/// any order, so the result is the full rebuild bit for bit.
+pub struct FinnyTable {
+    entries: [[[FinnyEntry; 2]; NNUE_INPUT_BUCKETS]; 2],
+}
+
+impl FinnyTable {
+    pub fn new() -> Self {
+        let empty = FinnyEntry { acc: [0; NNUE_HIDDEN_SIZE], pieces: [0; 12], valid: false };
+        Self { entries: [[[empty; 2]; NNUE_INPUT_BUCKETS]; 2] }
+    }
+}
+
+/// The search's accumulator per ply and the Finny table that serves its king-bucket rebuilds. A
+/// slot reads and writes as `acc_stack[ply]`.
+pub struct AccStack {
+    slots: [NNUEAccumulator; crate::search_service::MAX_PLY],
+    pub finny: FinnyTable,
+}
+
+impl AccStack {
+    pub fn new() -> Self {
+        Self { slots: [NNUEAccumulator::new(); crate::search_service::MAX_PLY], finny: FinnyTable::new() }
+    }
+
+    /// The child at `child_idx` after `turn`, from the slot at `ply_idx` (step 79, N1), its
+    /// king-bucket rebuilds served by the Finny table. The two slots differ except at the ply
+    /// ceiling, where the clamped index makes them one; the parent is then copied first.
+    #[inline(always)]
+    pub fn update_child(&mut self, ply_idx: usize, child_idx: usize, board: &Board, turn: &Turn,
+        move_info: &MoveInformation, net: &NNUENetwork) {
+        if child_idx > ply_idx {
+            let (lower, upper) = self.slots.split_at_mut(child_idx);
+            NNUEService::update_accumulator_into(&lower[ply_idx], &mut upper[0], board, turn, move_info, net,
+                &mut self.finny);
+        } else {
+            let parent = self.slots[ply_idx];
+            NNUEService::update_accumulator_into(&parent, &mut self.slots[child_idx], board, turn, move_info, net,
+                &mut self.finny);
+        }
+    }
+}
+
+impl std::ops::Index<usize> for AccStack {
+    type Output = NNUEAccumulator;
+    fn index(&self, ply: usize) -> &NNUEAccumulator {
+        &self.slots[ply]
+    }
+}
+
+impl std::ops::IndexMut<usize> for AccStack {
+    fn index_mut(&mut self, ply: usize) -> &mut NNUEAccumulator {
+        &mut self.slots[ply]
+    }
+}
+
 pub struct NNUEService;
 
 impl NNUEService {
@@ -382,6 +458,62 @@ impl NNUEService {
         }
     }
 
+    /// [`Self::refresh_perspective`] from the Finny table: the cached accumulator of this king bucket,
+    /// moved to the board by the pieces that differ, or a full rebuild that fills the entry the first
+    /// time a bucket is used.
+    pub fn refresh_perspective_cached(
+        board: &Board,
+        net: &NNUENetwork,
+        perspective: usize,
+        out: &mut [i16; NNUE_HIDDEN_SIZE],
+        finny: &mut FinnyTable,
+    ) {
+        let king = if perspective == 0 { WHITE_KING } else { BLACK_KING };
+        let king_sq = board.bitboards[king].trailing_zeros() as usize;
+        if !net.loaded || king_sq >= 64 {
+            Self::refresh_perspective(board, net, perspective, out);
+            return;
+        }
+        let bucket = get_king_bucket(king_sq, perspective);
+        let entry = &mut finny.entries[perspective][bucket.index][bucket.mirrored as usize];
+        if !entry.valid {
+            Self::refresh_perspective(board, net, perspective, &mut entry.acc);
+            for (pieces, &(bb, _, _)) in entry.pieces.iter_mut().zip(FEATURE_PIECES.iter()) {
+                *pieces = board.bitboards[bb];
+            }
+            entry.valid = true;
+            crate::nnue_prof::record_finny(true, 0);
+        } else {
+            #[cfg(feature = "nnue-prof")]
+            let mut changed = 0u64;
+            for (pieces, &(bb, piece_type, color)) in entry.pieces.iter_mut().zip(FEATURE_PIECES.iter()) {
+                #[cfg(feature = "nnue-prof")]
+                {
+                    changed += ((*pieces) ^ board.bitboards[bb]).count_ones() as u64;
+                }
+                let (old, new) = (*pieces, board.bitboards[bb]);
+                let mut removed = old & !new;
+                while removed != 0 {
+                    let sq = removed.trailing_zeros() as usize;
+                    removed &= removed - 1;
+                    let (b, idx) = get_feature_index(perspective, piece_type, color, sq, &bucket);
+                    sub_weights(&mut entry.acc, &net.ft_weights[b][idx]);
+                }
+                let mut added = new & !old;
+                while added != 0 {
+                    let sq = added.trailing_zeros() as usize;
+                    added &= added - 1;
+                    let (b, idx) = get_feature_index(perspective, piece_type, color, sq, &bucket);
+                    add_weights(&mut entry.acc, &net.ft_weights[b][idx]);
+                }
+                *pieces = new;
+            }
+            #[cfg(feature = "nnue-prof")]
+            crate::nnue_prof::record_finny(false, changed);
+        }
+        *out = entry.acc;
+    }
+
     /// [`Self::update_accumulator_into`] returning the child by value, for the tests.
     #[cfg(test)]
     pub fn update_accumulator(
@@ -392,7 +524,7 @@ impl NNUEService {
         net: &NNUENetwork,
     ) -> NNUEAccumulator {
         let mut out = NNUEAccumulator::new();
-        Self::update_accumulator_into(parent, &mut out, board, turn, move_info, net);
+        Self::update_accumulator_into(parent, &mut out, board, turn, move_info, net, &mut FinnyTable::new());
         out
     }
 
@@ -408,10 +540,11 @@ impl NNUEService {
         turn: &Turn,
         move_info: &MoveInformation,
         net: &NNUENetwork,
+        finny: &mut FinnyTable,
     ) {
         let start = crate::nnue_prof::cycles();
         let mut refreshed = false;
-        Self::update_accumulator_into_inner(parent, out, board, turn, move_info, net, &mut refreshed);
+        Self::update_accumulator_into_inner(parent, out, board, turn, move_info, net, finny, &mut refreshed);
         crate::nnue_prof::record_update(start, refreshed);
     }
 
@@ -422,6 +555,7 @@ impl NNUEService {
         turn: &Turn,
         move_info: &MoveInformation,
         net: &NNUENetwork,
+        finny: &mut FinnyTable,
         refreshed: &mut bool,
     ) {
         if !net.loaded {
@@ -519,7 +653,7 @@ impl NNUEService {
             old_bucket.index != white_bucket.index || old_bucket.mirrored != white_bucket.mirrored
         };
         if white_refresh {
-            Self::refresh_perspective(board, net, 0, &mut out.white);
+            Self::refresh_perspective_cached(board, net, 0, &mut out.white, finny);
             *refreshed = true;
         } else {
             apply_delta(&mut out.white, &parent.white, 0, removed, added, &white_bucket, net);
@@ -532,7 +666,7 @@ impl NNUEService {
             old_bucket.index != black_bucket.index || old_bucket.mirrored != black_bucket.mirrored
         };
         if black_refresh {
-            Self::refresh_perspective(board, net, 1, &mut out.black);
+            Self::refresh_perspective_cached(board, net, 1, &mut out.black, finny);
             *refreshed = true;
         } else {
             apply_delta(&mut out.black, &parent.black, 1, removed, added, &black_bucket, net);
@@ -627,13 +761,16 @@ mod tests {
     fn the_one_pass_update_equals_a_full_computation_after_every_move() {
         let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
         let (mut moves_checked, mut refreshes, mut castles, mut promotions, mut en_passant) = (0, 0, 0, 0, 0);
+        // One Finny table across all positions (Matt-Magie step 82): its entries go stale between
+        // unrelated positions, so every bucket rebuild after the first also checks a large difference.
+        let mut finny = FinnyTable::new();
         for mut board in crate::eval_service::tests::random_positions(16, 120, 0x5EED_0079) {
             let parent = NNUEService::compute_accumulator(&board, &net);
             for turn in crate::move_gen_service::tests::generate_valid_moves_list(&mut board) {
                 let mi = board.do_move(&turn);
                 let mut child = NNUEAccumulator::new();
                 child.white[0] = 12345; // a stale slot: every value has to be written
-                NNUEService::update_accumulator_into(&parent, &mut child, &board, &turn, &mi, &net);
+                NNUEService::update_accumulator_into(&parent, &mut child, &board, &turn, &mi, &net, &mut finny);
                 assert_eq!(child, NNUEService::compute_accumulator(&board, &net),
                     "{} diverges", turn.to_algebraic());
                 moves_checked += 1;
@@ -648,6 +785,33 @@ mod tests {
         assert!(moves_checked > 1000, "only {moves_checked} moves checked");
         assert!(castles > 0 && promotions > 0 && refreshes > 0,
             "the sample must hold castling ({castles}), promotions ({promotions}) and king moves ({refreshes}); en passant {en_passant}");
+    }
+
+    /// Matt-Magie step 82: a rebuild from the Finny table equals the full rebuild bit for bit - the
+    /// first use of a bucket, the same bucket again a few moves later (a small difference) and after
+    /// an unrelated position (a large one), for both perspectives, castled kings included.
+    #[test]
+    fn a_finny_rebuild_equals_a_full_rebuild() {
+        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let mut finny = FinnyTable::new();
+        let (mut checks, mut first_uses) = (0, 0);
+        for board in crate::eval_service::tests::random_positions(12, 120, 0x5EED_0082) {
+            for perspective in [0, 1] {
+                let king = if perspective == 0 { WHITE_KING } else { BLACK_KING };
+                let bucket = get_king_bucket(board.bitboards[king].trailing_zeros() as usize, perspective);
+                if !finny.entries[perspective][bucket.index][bucket.mirrored as usize].valid {
+                    first_uses += 1;
+                }
+                let mut cached = [0i16; NNUE_HIDDEN_SIZE];
+                let mut full = [0i16; NNUE_HIDDEN_SIZE];
+                NNUEService::refresh_perspective_cached(&board, &net, perspective, &mut cached, &mut finny);
+                NNUEService::refresh_perspective(&board, &net, perspective, &mut full);
+                assert_eq!(cached, full, "perspective {perspective}");
+                checks += 1;
+            }
+        }
+        assert!(checks > 500 && first_uses > 4 && checks > first_uses * 20,
+            "{checks} rebuilds, {first_uses} first uses of a bucket");
     }
 
     #[test]

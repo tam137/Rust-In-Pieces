@@ -30,6 +30,9 @@ mod imp {
         pub static SEARCH_CYCLES: Cell<u64> = const { Cell::new(0) };
         pub static STEPS: Cell<u64> = const { Cell::new(0) };
         pub static UNNEEDED: Cell<u64> = const { Cell::new(0) };
+        pub static FINNY_FIRST: Cell<u64> = const { Cell::new(0) };
+        pub static FINNY_CACHED: Cell<u64> = const { Cell::new(0) };
+        pub static FINNY_FEATURES: Cell<u64> = const { Cell::new(0) };
         pub static WRITTEN: [Cell<bool>; SLOTS] = const { [const { Cell::new(false) }; SLOTS] };
         pub static NEEDED: [Cell<bool>; SLOTS] = const { [const { Cell::new(false) }; SLOTS] };
     }
@@ -146,6 +149,22 @@ pub fn step_into(slot: usize, null_copy: bool) {
     }
 }
 
+/// One king-bucket rebuild through the Finny table (Matt-Magie step 82): a first use of the
+/// bucket (a full rebuild), or a cached one that added and removed `features` features.
+#[inline(always)]
+#[allow(unused_variables)]
+pub fn record_finny(first_use: bool, features: u64) {
+    #[cfg(feature = "nnue-prof")]
+    {
+        if first_use {
+            imp::add(&imp::FINNY_FIRST, 1);
+        } else {
+            imp::add(&imp::FINNY_CACHED, 1);
+            imp::add(&imp::FINNY_FEATURES, features);
+        }
+    }
+}
+
 /// The network evaluates at `slot`: that slot and every slot below it on the path are needed.
 #[inline(always)]
 #[allow(unused_variables)]
@@ -189,10 +208,12 @@ pub fn dump() {
         use imp::*;
         eprintln!(
             "SEARCHDIAGNNUE tick_hz={} search_cycles={} update_cycles={} updates={} refresh_cycles={} refreshes={} \
-             full_cycles={} fulls={} eval_cycles={} evals={} steps={} null_copies={} unneeded={}",
+             full_cycles={} fulls={} eval_cycles={} evals={} steps={} null_copies={} unneeded={} \
+             finny_first={} finny_cached={} finny_features={}",
             tick_frequency(), read(&SEARCH_CYCLES), read(&UPDATE_CYCLES), read(&UPDATES), read(&REFRESH_CYCLES),
             read(&REFRESHES), read(&FULL_CYCLES), read(&FULLS), read(&EVAL_CYCLES), read(&EVALS),
             read(&STEPS), read(&NULL_COPIES), read(&UNNEEDED),
+            read(&FINNY_FIRST), read(&FINNY_CACHED), read(&FINNY_FEATURES),
         );
     }
 }

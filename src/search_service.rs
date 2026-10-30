@@ -141,7 +141,7 @@ impl SearchService {
         // `minimax`. The arena belongs to `SearchTables` and outlives the search, so the root
         // list is cleared before generation, as `minimax` clears its own; see
         // `model::NodeBuffers` for why reusing the buffers cannot move the search tree.
-        let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); MAX_PLY];
+        let mut acc_stack = crate::nnue_service::AccStack::new();
         if config.use_nnue && service.eval.nnue_net.loaded {
             acc_stack[0] = crate::nnue_service::NNUEService::compute_accumulator(board, &service.eval.nnue_net);
         }
@@ -665,7 +665,7 @@ impl SearchService {
         correction_history: &mut crate::model::CorrectionTables,
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         buffers: &mut [crate::model::NodeBuffers],
-        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY])
+        acc_stack: &mut crate::nnue_service::AccStack)
         -> (Option<Turn>, i16) {
         debug_assert!(!(is_pv && cut_node), "a PV node is never an expected cut node");
 
@@ -1989,7 +1989,7 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
-        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY]) -> Option<SingularVerdict> {
+        acc_stack: &mut crate::nnue_service::AccStack) -> Option<SingularVerdict> {
 
         let (tt_eval, tt_depth, tt_type) = tt_entry?;
 
@@ -2047,7 +2047,7 @@ impl SearchService {
         counter_moves: &mut [[Option<Turn>; 64]; 64],
         pv_buffer: &mut [Option<Turn>; 128],
         buffers: &mut [crate::model::NodeBuffers],
-        acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY]) -> Option<SingularVerdict> {
+        acc_stack: &mut crate::nnue_service::AccStack) -> Option<SingularVerdict> {
 
         #[cfg(feature = "search-diag")]
         let nodes_before = stats.calculated_nodes as u64;
@@ -2222,22 +2222,13 @@ impl SearchService {
     }
 
     /// The accumulator of the child at `child_idx` after `turn`, from the one at `ply_idx`, written
-    /// into its stack slot (Matt-Magie step 79, N1). The two slots differ except at the ply ceiling,
-    /// where the clamped index makes them one; the parent is then copied first.
+    /// into its stack slot (Matt-Magie step 79, N1), king-bucket rebuilds from the Finny table (step 82).
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
-    fn update_child_accumulator(acc_stack: &mut [crate::nnue_service::NNUEAccumulator; MAX_PLY],
+    fn update_child_accumulator(acc_stack: &mut crate::nnue_service::AccStack,
         ply_idx: usize, child_idx: usize, board: &Board, turn: &Turn,
         move_info: &crate::model::MoveInformation, net: &crate::nnue_service::NNUENetwork) {
-        if child_idx > ply_idx {
-            let (lower, upper) = acc_stack.split_at_mut(child_idx);
-            crate::nnue_service::NNUEService::update_accumulator_into(
-                &lower[ply_idx], &mut upper[0], board, turn, move_info, net);
-        } else {
-            let parent = acc_stack[ply_idx];
-            crate::nnue_service::NNUEService::update_accumulator_into(
-                &parent, &mut acc_stack[child_idx], board, turn, move_info, net);
-        }
+        acc_stack.update_child(ply_idx, child_idx, board, turn, move_info, net);
     }
 
     /// Classify a fail-hard score against the window this node actually searched.
@@ -4346,7 +4337,7 @@ mod tests {
             &mut crate::model::CorrectionTables::new(),
             &mut counter_moves,
             &mut crate::model::new_search_buffers(),
-            &mut [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY],
+            &mut crate::nnue_service::AccStack::new(),
         );
 
         assert_eq!(ret_eval, 125, "QS TT hit should return exact evaluation 125!");
@@ -4721,7 +4712,7 @@ mod tests {
         // The node reads its static evaluation from its own accumulator slot, which `get_moves`
         // fills for a root child before it searches one. Entered directly, the node has to be
         // handed it the same way, or the network evaluates an empty accumulator.
-        let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY];
+        let mut acc_stack = crate::nnue_service::AccStack::new();
         if config.use_nnue && service.eval.nnue_net.loaded {
             acc_stack[1] = crate::nnue_service::NNUEService::compute_accumulator(&board, &service.eval.nnue_net);
         }
@@ -5004,7 +4995,7 @@ mod tests {
         let mut history = [[[0i32; 64]; 64]; 2];
         let mut counter_moves = [[None; 64]; 64];
         let no_move = Turn::new(0, 0, 0, 0, false, 0);
-        let mut acc_stack = [crate::nnue_service::NNUEAccumulator::new(); crate::search_service::MAX_PLY];
+        let mut acc_stack = crate::nnue_service::AccStack::new();
         if config.use_nnue && service.eval.nnue_net.loaded {
             acc_stack[1] = crate::nnue_service::NNUEService::compute_accumulator(board, &service.eval.nnue_net);
         }
