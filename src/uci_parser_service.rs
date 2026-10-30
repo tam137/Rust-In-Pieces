@@ -160,12 +160,15 @@ impl UciParserService {
         let mut stats = stats.clone();
         let stats = stats.calculate();
         let cp = if search_result.is_white_move { search_result.get_eval() } else { -search_result.get_eval() };
-        format!("info depth {} score {} time {} nodes {} nps {} pv {}",
+        // `nps` per second, as UCI defines it (until Matt-Magie step 81 it was per millisecond);
+        // `nodes` stays the count of generated moves the measurement scripts compare.
+        format!("info depth {} score {} time {} nodes {} nps {} hashfull {} pv {}",
             search_result.calculated_depth,
             self.format_score(cp),
             stats.calc_time_ms,
             stats.created_nodes,
-            stats.created_nodes / (stats.calc_time_ms + 1),
+            stats.created_nodes * 1000 / stats.calc_time_ms.max(1),
+            stats.hashfull,
             search_result.get_best_move_row())
     }
 }
@@ -326,6 +329,19 @@ mod tests {
 
         assert!(info.starts_with("info depth 11 "),
             "info string must report the completed iteration depth, got: {}", info);
+    }
+
+    /// Matt-Magie step 81: `nps` is per second, as UCI defines it, and `hashfull` stands before
+    /// `pv`, so a reader that takes everything after `pv` as the variation still gets only moves.
+    #[test]
+    fn info_string_reports_nps_per_second_and_hashfull_before_the_pv() {
+        let parser = UciParserService {};
+        let stats = Stats { created_nodes: 5000, calc_time_ms: 250, hashfull: 123, ..Stats::default() };
+        let info = parser.get_info_str(&search_result_with(42, 11, true), &stats);
+        assert!(info.contains(" nodes 5000 nps 20000 hashfull 123 pv"), "got: {}", info);
+        let instant = Stats { created_nodes: 700, calc_time_ms: 0, ..Stats::default() };
+        assert!(parser.get_info_str(&search_result_with(42, 11, true), &instant).contains(" nps 700000 "),
+            "a search under a millisecond counts as one millisecond");
     }
 
     /// Regression guard: mate scores used to leave the engine as raw centipawns,
