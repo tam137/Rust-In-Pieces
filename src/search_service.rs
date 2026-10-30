@@ -124,6 +124,7 @@ impl SearchService {
         let mut context = SearchContext {
             zobrist_table,
             stop_flag,
+            pondering: &engine_state.pondering,
             pv_nodes,
             killer_moves: [None; 2],
             history_table: &*history_table,
@@ -220,15 +221,8 @@ impl SearchService {
                 let turn = &turns.moves[i];
 
                 // Check time at the start of each root move
-                let elapsed = context.start_time.elapsed().as_millis() as i32;
-                if let Some(target) = context.target_time {
-                    let mut dynamic_target = target;
-                    if target < i32::MAX - 1000000 && total_root_moves > 0 && (turn_counter * 100) / total_root_moves >= 85 {
-                        dynamic_target = (target * 13) / 10;
-                    }
-                    if elapsed >= dynamic_target {
-                        stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                    }
+                if context.out_of_time(turn_counter, total_root_moves) {
+                    stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
 
                 if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -250,6 +244,7 @@ impl SearchService {
                 let child_context = SearchContext {
                     zobrist_table: context.zobrist_table,
                     stop_flag: context.stop_flag,
+                    pondering: context.pondering,
                     pv_nodes: context.pv_nodes,
                     killer_moves: killer_moves[1],
                     history_table: &*history_table,
@@ -1090,6 +1085,7 @@ impl SearchService {
         let current_context = SearchContext {
             zobrist_table: context.zobrist_table,
             stop_flag: context.stop_flag,
+            pondering: context.pondering,
             pv_nodes: context.pv_nodes,
             killer_moves: killer_moves[ply_idx],
             history_table,
@@ -1280,19 +1276,10 @@ impl SearchService {
                     continue;
                 }
 
-                if stats.calculated_nodes & 1023 == 0 {
-                    let elapsed = context.start_time.elapsed().as_millis() as i32;
-                    if let Some(target) = context.target_time {
-                        let mut dynamic_target = target;
-                        let searched = context.root_moves_searched;
-                        let total = context.root_moves_total;
-                        if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
-                            dynamic_target = (target * 13) / 10;
-                        }
-                        if elapsed >= dynamic_target {
-                            context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                        }
-                    }
+                if stats.calculated_nodes & 1023 == 0
+                    && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                {
+                    context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
 
                 if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1547,19 +1534,10 @@ impl SearchService {
                     static_eval + futility_margin <= alpha
                 };
 
-            if stats.calculated_nodes & 1023 == 0 {
-                let elapsed = context.start_time.elapsed().as_millis() as i32;
-                if let Some(target) = context.target_time {
-                    let mut dynamic_target = target;
-                    let searched = context.root_moves_searched;
-                    let total = context.root_moves_total;
-                    if target < i32::MAX - 1000000 && total > 0 && (searched * 100) / total >= 85 {
-                        dynamic_target = (target * 13) / 10;
-                    }
-                    if elapsed >= dynamic_target {
-                        context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                    }
-                }
+            if stats.calculated_nodes & 1023 == 0
+                && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+            {
+                context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             }
 
             if context.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2415,6 +2393,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4064,6 +4043,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4174,6 +4154,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4227,6 +4208,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4282,6 +4264,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(table.clone()),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4299,6 +4282,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &engine_state.stop_flag,
+            pondering: &engine_state.pondering,
             pv_nodes: &engine_state.pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
@@ -4356,6 +4340,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4399,6 +4384,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state_enabled = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(500_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4409,6 +4395,7 @@ mod tests {
         });
         let engine_state_disabled = Arc::new(EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(500_000))),
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -4478,6 +4465,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: &zobrist_table,
             stop_flag: &state.stop_flag,
+            pondering: &state.pondering,
             pv_nodes: &state.pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
@@ -4689,6 +4677,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &state.stop_flag,
+            pondering: &state.pondering,
             pv_nodes: &state.pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
@@ -4974,6 +4963,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: table,
             stop_flag: &state.stop_flag,
+            pondering: &state.pondering,
             pv_nodes: &state.pv_nodes,
             killer_moves: [None; 2],
             history_table: &history_table,
@@ -5039,6 +5029,7 @@ mod tests {
         let context = crate::model::SearchContext {
             zobrist_table: &table,
             stop_flag: &state.stop_flag,
+            pondering: &state.pondering,
             pv_nodes: &state.pv_nodes,
             killer_moves: [None; 2],
             history_table: &history,

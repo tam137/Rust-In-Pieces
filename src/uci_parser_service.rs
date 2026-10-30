@@ -15,6 +15,7 @@ impl UciParserService {
 
     /// Got a "go" command and return wtime and btime in ms. (-1, -1) if no time information given.
     pub fn parse_go(&self, command: &str) -> TimeInfo {
+        let ponder = command.split_whitespace().any(|part| part == "ponder");
 
         if (!command.contains("wtime") || !command.contains("btime")) && !command.contains("movetime") && !command.contains("depth") {
             return TimeInfo {
@@ -25,6 +26,7 @@ impl UciParserService {
                 moves_to_go: 0,
                 depth: 0,
                 time_mode: TimeMode::None,
+                ponder,
             }
         }
 
@@ -96,7 +98,8 @@ impl UciParserService {
             moves_to_go,
             depth,
             time_mode,
-        }        
+            ponder,
+        }
     }
 
 
@@ -249,6 +252,27 @@ mod tests {
         assert_eq!(TimeMode::Depth, time_info.time_mode);
     }
 
+    /// Matt-Magie step 72: `ponder` is a flag of its own and changes none of the clock fields.
+    #[test]
+    fn parse_go_reads_ponder_with_and_without_clocks() {
+        let parser = UciParserService {};
+        let pondering = parser.parse_go("go ponder wtime 31520 btime 1410 winc 100 binc 100");
+        assert!(pondering.ponder);
+        assert_eq!(TimeInfo { ponder: false, ..pondering.clone() },
+            parser.parse_go("go wtime 31520 btime 1410 winc 100 binc 100"),
+            "the clocks of `go ponder` are read as those of `go`");
+        assert_eq!(TimeMode::HourGlas, pondering.time_mode);
+
+        let bare = parser.parse_go("go ponder");
+        assert!(bare.ponder);
+        assert_eq!(TimeMode::None, bare.time_mode);
+        assert!(parser.parse_go("go ponder infinite").ponder);
+
+        assert!(!parser.parse_go("go wtime 1000 btime 1000").ponder);
+        assert!(!parser.parse_go("go").ponder);
+        assert!(!parser.parse_go("go depth 6").ponder);
+    }
+
     #[test]
     fn parse_position_command_test() {
         let parser = UciParserService {};
@@ -339,6 +363,7 @@ mod tests {
         let (tx_log, _rx_log) = std::sync::mpsc::channel();
         let engine_state = std::sync::Arc::new(crate::model::EngineState {
             stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             zobrist_table: std::sync::RwLock::new(std::sync::Arc::new(
                 crate::zobrist::ZobristTable::with_capacity(100_000))),

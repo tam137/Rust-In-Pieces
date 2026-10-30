@@ -370,6 +370,10 @@ pub struct Config {
     /// Matt-Magie step 70: at an expected cut node the negative Singular Extension is -2 instead
     /// of -1 (child depth `depth - 3`). Only sharpens `enable_singular_negative_extension`.
     pub enable_singular_cut_node_extension: bool,
+    /// UCI `Ponder` (Matt-Magie step 72; on this branch step 78): write `bestmove <move> ponder
+    /// <reply>`. `go ponder` and `ponderhit` are honoured whatever this says; it only tells the GUI
+    /// that pondering is wanted.
+    pub ponder: bool,
     /// The pawn-structure Correction History (Matt-Magie step 64): the main search and the
     /// Quiescence Search read the static evaluation plus what the search has learned about the
     /// pawn structure, see [`crate::model::CorrectionHistory`].
@@ -624,6 +628,7 @@ impl Config {
             enable_singular_multicut: true,
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
+            ponder: false,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1105,6 +1110,21 @@ mod tests {
         assert!(Config::new().enable_singular_cut_node_extension, "on in the candidate of step 75");
     }
 
+    /// Matt-Magie step 72: the switch of the `ponder` token, off by default.
+    #[test]
+    fn test_ponder_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["Ponder", "ponder", "PONDER"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.ponder);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.ponder);
+        }
+        assert!(!Config::new().ponder, "pondering is off unless the GUI asks for it");
+        assert!(crate::threads::uci_options(&Config::new())
+            .contains(&"option name Ponder type check default false".to_string()));
+    }
+
     #[test]
     fn test_config_aggressiveness_scaling() {
         let base_config = Config::new_raw();
@@ -1287,6 +1307,7 @@ impl Config {
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
+            "ponder" => self.ponder = value.eq_ignore_ascii_case("true"),
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
             "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },
