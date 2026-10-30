@@ -1351,7 +1351,7 @@ impl MoveGenService {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
     use crate::zobrist::ZobristTable;
@@ -1385,7 +1385,7 @@ mod tests {
         (9 - row) * 8 + (col - 1)
     }
 
-    fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
+    pub(crate) fn generate_valid_moves_list(board: &mut Board) -> Vec<Turn> {
         let service = Service::new();
                 let config = Config::for_tests();
         let zobrist_table = ZobristTable::with_capacity(1);
