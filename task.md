@@ -942,7 +942,11 @@ per feature) is bit-identical and **about 10% faster** to depth 10 on identical 
 rounds and both pools): **shipped as v0.49.7-NNUE** without an SPRT, smoke gauntlet 54.5% / 57.5% / 92.0%.
 **N2** (lazy child accumulators, a king crossing a bucket rebuilt at the move) was correct and tree-identical
 but **3.7% to 4.2% slower than N1**: with 83% of the steps needed anyway, catching up costs more than it saves.
-Refused; the code is on the local NNUE-repository branch `perf/nnue-acc-n2`.
+Refused; the code is on the local NNUE-repository branch `perf/nnue-acc-n2`. **The Finny table (2026-10-30, Matt-Magie step 82)**
+caches per perspective and king bucket the accumulator last built there and its piece bitboards; a bucket rebuild
+then adds and removes only the changed pieces (6.2 features on average instead of about 30). Bit-identical; the
+rebuilds fell from 8.5% to 4.0% of the search, **4.1% to 5.1% faster** on identical trees over two rounds and both
+pools. Shipped as **v0.50.0-NNUE** without an SPRT, smoke gauntlet 51.0% / 57.0% / 87.0%.
 
 ## 28. Principal Variation Search at the root, v0.46.2
 
