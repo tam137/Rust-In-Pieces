@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.49.8-NNUE] - 2026-10-30
+
+- UCI `hashfull` in every `info` line: per mille of the first 1000 table slots holding an entry the current
+  search wrote, as Stockfish counts it. A six-bit search generation is written into the free bits 42-47 of
+  the entry's data word and advanced once per `go`; the search and the replacement rule never read it, so
+  the search tree is v0.49.7-NNUE's node for node (300/300 identical trees on both pools at depth 10).
+- `nps` is nodes per second, as UCI defines it (it was nodes per millisecond); `nodes` is unchanged.
+- Measured with the new `scripts/replay_games_tt.py` (`search-diag` build, 20 games of the 2026-10-30 tournament
+  replayed with the engine's own moves and a rebuilt 1s + 100ms clock): at 64 MB the table is never full -
+  about half occupied after 60 moves on HCE, a third on NNUE - and one search writes only 0.4-1.6% of it.
+  Neither the size nor the missing ageing is a bottleneck at this time control.
+- The `search-diag` table counters of master (stores by outcome, evictions by age and depth, occupancy by age) are ported to this branch.
+- No SPRT (tree-identical). Smoke gauntlet, 50 games per pairing: 46.0% / 49.0% / 89.0% against v0.49.7-NNUE / v0.49.6-NNUE / v0.34.0-NNUE. Matt-Magie plan step 81.
+
+
+
 ## [V0.49.7-NNUE] - 2026-10-30
 
 - The accumulator update writes each perspective in one pass straight into the child's stack slot,
