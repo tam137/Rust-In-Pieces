@@ -769,8 +769,8 @@ reads that file, the engine does not.
 
 ## 24. Continuation History
 
-`[Impact: unknown]` `[Complexity: High]` `[unmeasured]` — backlog item 8. A rework, not an
-addition, and the one item here that must not be measured without its tuning run.
+`[Impact: unknown]` `[Complexity: High]` `[stage A failed its census, see 24.1]` — backlog item 8. A
+rework, not an addition, and the one item here that must not be measured without its tuning run.
 
 Quiet moves are ordered today by three mechanisms in two bands: killers and the counter move sit
 in `BAND_KILLER` with fixed bonuses, everything else in `BAND_QUIET` ranked by the butterfly
@@ -794,6 +794,29 @@ the ordering constants and the reduction thresholds were tuned jointly. So: no g
 untuned version, and a tuning group of the two curves, the follow-up weight and the four reduction
 thresholds together. A two-run item at minimum — and it inherits 23.4's blocker, because that
 group cannot run until `spsa_tuner.py` has an absolute step.
+
+### 24.1 Stage A: the addition without tuning (Matt-Magie step 84, 2026-10-31)
+
+Built on branch `cont-history` (not merged): two `i16` tables `[previous piece-square][piece-square]`
+for the moves one and two plies back, 1.2 MB each, the path of moves per ply written by the parent
+before each child (no move after a null move), the quiet rank `BAND_QUIET` + butterfly + both
+entries, bonus and malus as the butterfly's `depth^2`, killers and the counter move kept, cleared
+on `ucinewgame` and not halved per iteration. Options `EnableContinuationHistory`,
+`ContHist1Weight` / `ContHist2Weight` (1 / 1), `ContHistLmr`.
+
+Census at depth 10, 300 positions per pool, time to depth with the tables on against off (+ is
+faster); the gate was at most 5% slower:
+
+| variant | wide | mixed |
+|---|---|---|
+| sum read by the ordering and the Late Move Reduction | -7.6% | -8.6% |
+| ordering only (`ContHistLmr` off) | -3.2% | **-13.1%** |
+
+`search-diag` over 100 positions per pool: the first move cuts as often as without (82.5% -> 82.2%,
+82.8% -> 82.5%), so the ordering does not improve; read by the reduction, the untuned sum turns 17%
+more decisions into "good history" and the tree grows. The off build is tree-identical to v0.50.1
+(300/300) but about 1-2% slower, so the branch is not merged. Stage A is closed; what remains is
+the reworked form with its tuning run, which needs the absolute SPSA step of 23.4 first.
 
 ## 25. The Transposition Table: one slot, no ageing, no cached static evaluation, and a division in the probe
 
