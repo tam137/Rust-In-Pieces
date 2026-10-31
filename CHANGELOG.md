@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.1] - 2026-10-31
+
+- ProbCut (Matt-Magie step 83, `task.md` 26): at a non-PV node out of check from depth 5, a capture whose
+  Static Exchange clears `beta + 180 - static_eval` is searched against `beta + 180`, first by a Quiescence
+  Search, then at `depth - 4`; holding both times ends the node at `beta`. The cut stores nothing in the table.
+- New UCI options `EnableProbCut` (on), `ProbCutMargin` (180), `ProbCutReduction` (4), `ProbCutMinDepth` (5);
+  with the rule off the tree is identical to v0.49.6. Margin chosen by a depth-10 census: 180 is the fastest of
+  140 / 180 / 220 on both pools (+1.6% / +8.9% time).
+- SPRT against v0.49.6 at 1s + 150ms: [0, 10] H1 after 3087 games, +12.6 Elo, paired 95% CI [+3, +22]
+  ([0, 5] undecided at LLR +2.04; an upper bound, not an effect size).
+- Smoke gauntlet, 100 games per pairing: 50.5% / 58.0% / 96.5% against v0.49.6 / v0.49.5 / v0.34.0.
+- The version follows v0.50.0-NNUE on the NNUE branch; the two are different engines.
+
 ## [V0.49.6] - 2026-10-30
 
 - UCI `hashfull` in every `info` line: per mille of the first 1000 table slots holding an entry the current

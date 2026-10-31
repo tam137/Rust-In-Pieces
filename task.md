@@ -848,8 +848,9 @@ before writing code.
 
 ## 26. ProbCut
 
-`[Impact: unknown]` `[Complexity: Medium]` `[unmeasured]` — backlog item 9, the most speculative
-item here and deliberately last.
+`[Impact: +12.6 Elo, [0, 10] H1]` `[Complexity: Medium]` `[shipped in v0.50.1]` — backlog item 9,
+the most speculative item here and deliberately last. Built as described below, without the store;
+see 26.1.
 
 Absent. The idea: before generating the node normally, ask whether some capture already beats a
 *raised* `beta` at reduced depth. If one does, the node beats its real `beta` too, and the raised
@@ -873,6 +874,26 @@ Two constraints specific to this engine:
 
 `scripts/measure_tree_size.py` first: a rule that does not shrink the tree deterministically has
 nothing to offer a game run.
+
+### 26.1 Result (Matt-Magie step 83, 2026-10-30/31)
+
+* **Shape:** the published one - non-PV, not in check, no excluded move, `depth >= 5` read after IIR,
+  `probcut_beta = beta + 180`, captures with `see_ge(probcut_beta - static_eval)`, a Quiescence
+  Search at the raised null window and then `depth - 4` (at least 1), fail-hard `beta` on a cut,
+  **no table store**. A table entry at least `depth - 4` deep that already scores below
+  `probcut_beta` skips the rule. Options `EnableProbCut`, `ProbCutMargin`, `ProbCutReduction`,
+  `ProbCutMinDepth`.
+* **Census** (depth 10, 300 positions per pool, time to depth with the rule against without, + is
+  faster): margin 180 **+1.6% / +8.9%** (wide / mixed), 140 -0.9% / +5.8%, 220 +0.9% / +5.6%. Off
+  is 300/300 tree-identical to v0.49.6.
+* **Counters** (`search-diag`, 100 positions per pool): about 30,000 nodes pass the gates, a third
+  of them try a capture, and nearly every Quiescence Search that holds is confirmed by the reduced
+  search - about 10,000 to 12,000 cuts. The ProbCut searches cost under 1% of the tree.
+* **Games:** smoke gauntlet 50.5% / 58.0% / 96.5% against v0.49.6 / v0.49.5 / v0.34.0. SPRT
+  against v0.49.6 at 1s + 150ms, `openings_wide.txt`, owner's minimum of 2500 games: **[0, 10] H1
+  after 3087 games, +12.6 Elo, paired 95% CI [+3, +22]**; [0, 5] undecided (LLR +2.04). The point
+  estimate of a stopped SPRT is an upper bound, not an effect size.
+* **Open:** the store on a cut, a capture-history ordering inside ProbCut, and the NNUE port.
 
 ## 27. The source review of 2026-10-07 to 2026-10-09
 
