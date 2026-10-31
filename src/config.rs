@@ -638,8 +638,12 @@ impl Config {
             enable_singular_multicut: true,
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
-            enable_probcut: false,
-            probcut_margin: 180,
+            // Matt-Magie step 85: on at margin 140 (180 on master). Depth-10 census over 300
+            // positions per pool against the rule off: 140 -> +3.5% / +0.6% time (wide / mixed),
+            // 180 -> +0.0% / -1.0%, 220 -> +1.4% / -3.4%; 140 is the only margin not slower on
+            // either pool.
+            enable_probcut: true,
+            probcut_margin: 140,
             probcut_reduction: 4,
             probcut_min_depth: 5,
             ponder: false,
@@ -1207,8 +1211,8 @@ mod tests {
         assert_eq!(config.apply_uci_option("PROBCUTMINDEPTH", "6"), UciOptionEffect::Stored);
         assert_eq!((config.probcut_margin, config.probcut_reduction, config.probcut_min_depth), (140, 3, 6));
         let defaults = Config::new();
-        assert_eq!((defaults.probcut_margin, defaults.probcut_reduction, defaults.probcut_min_depth), (180, 4, 5),
-            "the published shape, `task.md` 26");
+        assert_eq!((defaults.probcut_margin, defaults.probcut_reduction, defaults.probcut_min_depth), (140, 4, 5),
+            "the published shape, `task.md` 26, at the margin the census of step 85 chose");
     }
 
     #[test]

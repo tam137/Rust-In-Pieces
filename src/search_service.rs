@@ -5628,7 +5628,7 @@ mod tests {
 
     #[test]
     fn test_probcut_ships_on_and_is_inert_off() {
-        assert!(!Config::new().enable_probcut, "commit 1 of step 85 ships the rule off");
+        assert!(Config::new().enable_probcut, "on at margin 140 since the census of step 85");
         let default_tree = search_nodes(CHECK_RICH_FEN, 7, |c| {
             c.use_zobrist = true;
             c.enable_probcut = false;
