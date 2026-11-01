@@ -916,7 +916,14 @@ nothing to offer a game run.
   against v0.49.6 at 1s + 150ms, `openings_wide.txt`, owner's minimum of 2500 games: **[0, 10] H1
   after 3087 games, +12.6 Elo, paired 95% CI [+3, +22]**; [0, 5] undecided (LLR +2.04). The point
   estimate of a stopped SPRT is an upper bound, not an effect size.
-* **Open:** the store on a cut, a capture-history ordering inside ProbCut, and the NNUE port.
+* **NNUE port (Matt-Magie step 85, v0.50.1-NNUE, 2026-11-01):** the same rule with accumulators for
+  its children. Margin 140 by the same census (+3.5% / +0.6% time; 180 was -1.0% on mixed, 220
+  -3.4%), so on NNUE ProbCut barely shrinks the tree to depth 10 - about a quarter as many ProbCut
+  nodes as here. In games it still gains: a run the owner fixed at 8500 games against v0.50.0-NNUE
+  scored **+9.9 Elo, paired 95% CI [+5, +15]**, SPRT [0, 5] and [0, 10] both H1. The later games
+  scored higher (+5.6 over the first 2500, +22.5 over the last 1451, played with less load on the
+  host); noise or a dependence on search depth, not separable from this run.
+* **Open:** the store on a cut and a capture-history ordering inside ProbCut.
 
 ## 27. The source review of 2026-10-07 to 2026-10-09
 
