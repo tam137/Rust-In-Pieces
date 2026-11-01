@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.1-NNUE] - 2026-11-01
+
+- **ProbCut**, ported from master v0.50.1 (Matt-Magie step 85, `task.md` 26): at a non-PV node out of check from
+  depth 5, a capture whose Static Exchange clears `beta + 140 - static_eval` is searched against `beta + 140`,
+  first by a Quiescence Search, then at `depth - 4`; holding both times ends the node at `beta`. The cut stores
+  nothing in the table. Its children get their accumulators like every other child.
+- Options `EnableProbCut` (on), `ProbCutMargin` (140, 180 on master), `ProbCutReduction` (4), `ProbCutMinDepth`
+  (5). Off, the tree is v0.50.0-NNUE's (300/300 on both pools). Margin by a depth-10 census: 140 is the only one
+  of 140 / 180 / 220 not slower on either pool (+3.5% / +0.6% time).
+- Smoke gauntlet, 100 games per pairing: 53.0% / 57.5% / 91.5% against v0.50.0- / v0.49.8- / v0.34.0-NNUE.
+- Against v0.50.0-NNUE at 1s + 150ms, a run fixed by the owner at 8500 games: **+9.9 Elo, paired 95% CI
+  [+5, +15]** over 8501 games; SPRT [0, 5] and [0, 10] both H1. The later games scored higher than the
+  earlier ones (+5.6 Elo over the first 2500, +22.5 over the last 1451).
+
 ## [V0.50.0-NNUE] - 2026-10-30
 
 - **Finny table** for the king-bucket rebuilds (Matt-Magie step 82; Stockfish's accumulator caches,
