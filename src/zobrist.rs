@@ -265,9 +265,27 @@ pub struct AtomicEntry {
 const GENERATION_SHIFT: u32 = 42;
 const GENERATION_MASK: u64 = 0x3F;
 
+/// Slots per cluster when the table runs clustered (Matt-Magie step 89): four 16-byte entries, one
+/// 64-byte cache line, so a probe of all four costs the same memory access as a probe of one.
+pub const CLUSTER_SLOTS: usize = 4;
+
+/// The number of ways a new table starts with, the default of `Config::tt_cluster_size`: 1 is the
+/// table up to v0.50.1, one slot per key; 4 probes and replaces within a cluster.
+pub const DEFAULT_TT_WAYS: usize = 1;
+
+/// Four slots on one cache line.
+#[repr(C, align(64))]
+#[derive(Debug)]
+struct Cluster([AtomicEntry; CLUSTER_SLOTS]);
+
 #[derive(Debug)]
 pub struct ZobristTable {
-    pub table: Vec<AtomicEntry>,
+    clusters: Vec<Cluster>,
+    /// The number of slots asked for. With one way the keys map onto exactly these, as they always
+    /// did; the slots past it that round the last cluster up are used by the clustered table only.
+    len: usize,
+    /// 1 or [`CLUSTER_SLOTS`], see [`Self::set_ways`].
+    ways: std::sync::atomic::AtomicUsize,
     /// The current search generation, 0 to 63, advanced once per `go` (`new_search`).
     generation: std::sync::atomic::AtomicU64,
     /// The search generation each slot was last written in; only in the `search-diag` build,
@@ -279,23 +297,57 @@ pub struct ZobristTable {
 impl ZobristTable {
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let mut table: Vec<AtomicEntry> = Vec::with_capacity(capacity.max(1));
-        advise_huge_pages(table.as_ptr() as *const u8, table.capacity() * std::mem::size_of::<AtomicEntry>());
+        let len = capacity.max(1);
+        let cluster_count = len.div_ceil(CLUSTER_SLOTS);
+        let mut clusters: Vec<Cluster> = Vec::with_capacity(cluster_count);
+        advise_huge_pages(clusters.as_ptr() as *const u8, clusters.capacity() * std::mem::size_of::<Cluster>());
         let default_entry = TranspositionEntry::default();
         let default_key = default_entry.key;
         let default_data = default_entry.pack();
-        for _ in 0..capacity.max(1) {
-            table.push(AtomicEntry {
+        for _ in 0..cluster_count {
+            clusters.push(Cluster(std::array::from_fn(|_| AtomicEntry {
                 key: std::sync::atomic::AtomicU64::new(default_key),
                 data: std::sync::atomic::AtomicU64::new(default_data),
-            });
+            })));
         }
         Self {
-            table,
+            clusters,
+            len,
+            ways: std::sync::atomic::AtomicUsize::new(DEFAULT_TT_WAYS),
             generation: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "search-diag")]
-            written: (0..capacity.max(1)).map(|_| std::sync::atomic::AtomicU64::new(0)).collect(),
+            written: (0..cluster_count * CLUSTER_SLOTS).map(|_| std::sync::atomic::AtomicU64::new(0)).collect(),
         }
+    }
+
+    /// Every slot, cluster after cluster.
+    #[inline(always)]
+    fn slots(&self) -> &[AtomicEntry] {
+        // SAFETY: `Cluster` is `repr(C)` around an array of `CLUSTER_SLOTS` entries, 64 bytes with no
+        // padding, so the clusters are that many entries laid out back to back.
+        unsafe {
+            std::slice::from_raw_parts(self.clusters.as_ptr() as *const AtomicEntry,
+                self.clusters.len() * CLUSTER_SLOTS)
+        }
+    }
+
+    /// The number of slots asked for.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// One slot per key (`1`, the table up to v0.50.1) or probe and replace within a cluster of
+    /// [`CLUSTER_SLOTS`] (any other value). Set from `Config::tt_cluster_size` at every `go`. A
+    /// change leaves the entries where they are: they are found again where both mappings agree
+    /// and are simply missed elsewhere, which costs hits and never correctness.
+    pub fn set_ways(&self, ways: usize) {
+        let ways = if ways <= 1 { 1 } else { CLUSTER_SLOTS };
+        self.ways.store(ways, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn clustered(&self) -> bool {
+        self.ways.load(std::sync::atomic::Ordering::Relaxed) != 1
     }
 
     /// Over every `step`-th slot: how many are empty, and how many hold an entry written this
@@ -303,8 +355,10 @@ impl ZobristTable {
     #[cfg(feature = "search-diag")]
     pub fn diag_occupancy(&self, generation: u64, step: usize) -> (u64, [u64; 4]) {
         let (mut empty, mut by_age) = (0u64, [0u64; 4]);
-        for i in (0..self.table.len()).step_by(step.max(1)) {
-            let slot = &self.table[i];
+        let slots = self.slots();
+        let used = if self.clustered() { slots.len() } else { self.len };
+        for i in (0..used).step_by(step.max(1)) {
+            let slot = &slots[i];
             let entry = TranspositionEntry::unpack(slot.key.load(std::sync::atomic::Ordering::Relaxed),
                 slot.data.load(std::sync::atomic::Ordering::Relaxed));
             if entry.depth == -1 {
@@ -326,7 +380,19 @@ impl ZobristTable {
     /// key bits - which are as well distributed as the low ones for a Zobrist hash.
     #[inline(always)]
     pub fn slot_index(&self, hash: u64) -> usize {
-        ((hash as u128 * self.table.len() as u128) >> 64) as usize
+        ((hash as u128 * self.len as u128) >> 64) as usize
+    }
+
+    /// The first slot of the cluster `hash` maps onto, by the same reduction as [`Self::slot_index`].
+    #[inline(always)]
+    pub fn cluster_start(&self, hash: u64) -> usize {
+        (((hash as u128 * self.clusters.len() as u128) >> 64) as usize) * CLUSTER_SLOTS
+    }
+
+    /// The first slot a probe of `hash` reads: its slot, or its cluster's first.
+    #[inline(always)]
+    fn probe_start(&self, hash: u64) -> usize {
+        if self.clustered() { self.cluster_start(hash) } else { self.slot_index(hash) }
     }
 
     /// Pulls the slot for `hash` into L1 ahead of the probe.
@@ -334,16 +400,17 @@ impl ZobristTable {
     /// A default-sized table is far larger than the last-level cache, so nearly every probe misses
     /// to DRAM. Issuing the request as soon as the child key is known - `do_move` computes it
     /// before it touches the board - overlaps that latency with move generation and evaluation.
+    /// A cluster is one cache line, so the same request covers all of its slots.
     #[inline(always)]
     pub fn prefetch(&self, hash: u64) {
         #[cfg(target_arch = "x86_64")]
         {
-            let slot = unsafe { self.table.as_ptr().add(self.slot_index(hash)) };
+            let slot = unsafe { self.slots().as_ptr().add(self.probe_start(hash)) };
             unsafe { std::arch::x86_64::_mm_prefetch(slot as *const i8, std::arch::x86_64::_MM_HINT_T0) };
         }
         #[cfg(target_arch = "aarch64")]
         {
-            let slot = unsafe { self.table.as_ptr().add(self.slot_index(hash)) };
+            let slot = unsafe { self.slots().as_ptr().add(self.probe_start(hash)) };
             // `std::arch::aarch64::_prefetch` is still unstable (rust-lang#117217), so the
             // intrinsic would pin the whole engine to a nightly toolchain. `prfm` under
             // `asm!` is stable, and `pldl1keep` is exactly what the intrinsic emits for
@@ -358,8 +425,16 @@ impl ZobristTable {
 
     #[inline]
     pub fn get_entry(&self, hash: u64) -> Option<TranspositionEntry> {
-        let slot = &self.table[self.slot_index(hash)];
+        let slots = self.slots();
+        let start = self.probe_start(hash);
+        let ways = if self.clustered() { CLUSTER_SLOTS } else { 1 };
+        slots[start..start + ways].iter().find_map(|slot| Self::read_slot(slot, hash))
+    }
 
+    /// The entry in `slot` if it holds `hash`, read twice around the data word so a torn read by
+    /// another thread is rejected.
+    #[inline(always)]
+    fn read_slot(slot: &AtomicEntry, hash: u64) -> Option<TranspositionEntry> {
         let key1 = slot.key.load(std::sync::atomic::Ordering::Acquire);
         if key1 != hash {
             return None;
@@ -376,9 +451,20 @@ impl ZobristTable {
         None
     }
 
+    /// Searches since the entry `data` was stored, from the 6-bit generation, across its wrap.
+    #[inline(always)]
+    fn age(&self, data: u64) -> u64 {
+        let current = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
+        (current + GENERATION_MASK + 1 - ((data >> GENERATION_SHIFT) & GENERATION_MASK)) & GENERATION_MASK
+    }
+
     pub fn insert_entry(&self, hash: u64, entry: TranspositionEntry) {
+        if self.clustered() {
+            self.insert_clustered(hash, entry);
+            return;
+        }
         let index = self.slot_index(hash);
-        let slot = &self.table[index];
+        let slot = &self.slots()[index];
 
         let key1 = slot.key.load(std::sync::atomic::Ordering::Relaxed);
         let data1 = slot.data.load(std::sync::atomic::Ordering::Relaxed);
@@ -400,46 +486,121 @@ impl ZobristTable {
         };
 
         #[cfg(feature = "search-diag")]
-        {
-            let generation = crate::search_diag::generation();
-            let outcome = match (existing.depth == -1, existing.key == hash, should_replace) {
-                (true, _, _) => 0,
-                (false, true, true) => 1,
-                (false, true, false) => 2,
-                (false, false, true) => 3,
-                (false, false, false) => 4,
-            };
-            let age = generation.saturating_sub(self.written[index].load(std::sync::atomic::Ordering::Relaxed));
-            crate::search_diag::record_tt_store(outcome, age, existing.depth > entry.depth);
-            if should_replace {
-                self.written[index].store(generation, std::sync::atomic::Ordering::Relaxed);
+        self.diag_store(index, &existing, &entry, hash, should_replace);
+
+        if should_replace {
+            self.write_slot(index, &existing, entry, hash);
+        }
+    }
+
+    /// Matt-Magie step 89: the store into a cluster.
+    ///
+    /// * The same position in the cluster is overwritten when the new search is at least as deep,
+    ///   as before, or when the entry is from an earlier search - an old bound is not worth more
+    ///   than the new one because it once went deeper.
+    /// * Otherwise an empty slot, else the slot of least worth `depth - 8 * age`, Stockfish's rule:
+    ///   every search since it was written costs an entry eight plies of standing, so a deep entry
+    ///   outlives a shallow current one only for a move or two.
+    /// * The old collision guard stays: a Quiescence Search entry never displaces a main-search
+    ///   entry of the running search; if every slot is one, the store is dropped.
+    fn insert_clustered(&self, hash: u64, entry: TranspositionEntry) {
+        let start = self.cluster_start(hash);
+        let slots = &self.slots()[start..start + CLUSTER_SLOTS];
+
+        for (offset, slot) in slots.iter().enumerate() {
+            let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+            let existing = TranspositionEntry::unpack(slot.key.load(std::sync::atomic::Ordering::Relaxed), data);
+            if existing.depth != -1 && existing.key == hash {
+                let should_replace = entry.depth >= existing.depth || self.age(data) != 0;
+                #[cfg(feature = "search-diag")]
+                self.diag_store(start + offset, &existing, &entry, hash, should_replace);
+                if should_replace {
+                    self.write_slot(start + offset, &existing, entry, hash);
+                }
+                return;
             }
         }
 
-        if should_replace {
-            // A node that fails low has no best move of its own - a fail-hard all-node ends with
-            // none, and a stand pat stores none - and writing that over the move an earlier search
-            // of the same position found threw away the refutation the next visit would have tried
-            // first; the next iteration overwrote 8% of same-key entries that way. The move only
-            // ever orders moves, so keeping it cannot make a stored bound wrong.
-            // The static evaluation is a property of the position alone, whatever search stored
-            // the entry, so a store that carries none keeps the one the slot already holds.
-            let mut entry = entry;
-            if existing.key == hash && existing.depth != -1 {
-                if entry.best_move == 0 {
-                    entry.best_move = existing.best_move;
+        let mut victim: Option<(usize, i32)> = None;
+        for (offset, slot) in slots.iter().enumerate() {
+            let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
+            let depth = ((data >> 32) & 0xFF) as u8 as i8;
+            let worth = if depth == -1 {
+                i32::MIN
+            } else {
+                let age = self.age(data);
+                if entry.depth <= 0 && depth >= 1 && age == 0 {
+                    continue;
                 }
-                if entry.static_eval == NO_STATIC_EVAL {
-                    entry.static_eval = existing.static_eval;
-                }
+                depth as i32 - 8 * age as i32
+            };
+            if victim.is_none_or(|(_, best)| worth < best) {
+                victim = Some((offset, worth));
             }
-            // Invalidate the key before writing data to prevent a "torn read" by another thread.
-            slot.key.store(!hash, std::sync::atomic::Ordering::Release);
-            let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
-            slot.data.store(entry.pack() | (generation << GENERATION_SHIFT), std::sync::atomic::Ordering::Release);
-            // Restore the correct key after data is written.
-            slot.key.store(hash, std::sync::atomic::Ordering::Release);
         }
+
+        #[cfg(feature = "search-diag")]
+        if victim.is_none() {
+            let slot = &slots[0];
+            let existing = TranspositionEntry::unpack(slot.key.load(std::sync::atomic::Ordering::Relaxed),
+                slot.data.load(std::sync::atomic::Ordering::Relaxed));
+            self.diag_store(start, &existing, &entry, hash, false);
+        }
+
+        if let Some((offset, _)) = victim {
+            let slot = &slots[offset];
+            let existing = TranspositionEntry::unpack(slot.key.load(std::sync::atomic::Ordering::Relaxed),
+                slot.data.load(std::sync::atomic::Ordering::Relaxed));
+            #[cfg(feature = "search-diag")]
+            self.diag_store(start + offset, &existing, &entry, hash, true);
+            self.write_slot(start + offset, &existing, entry, hash);
+        }
+    }
+
+    #[cfg(feature = "search-diag")]
+    fn diag_store(&self, index: usize, existing: &TranspositionEntry, entry: &TranspositionEntry, hash: u64,
+        should_replace: bool) {
+        let generation = crate::search_diag::generation();
+        let outcome = match (existing.depth == -1, existing.key == hash, should_replace) {
+            (true, _, _) => 0,
+            (false, true, true) => 1,
+            (false, true, false) => 2,
+            (false, false, true) => 3,
+            (false, false, false) => 4,
+        };
+        let age = generation.saturating_sub(self.written[index].load(std::sync::atomic::Ordering::Relaxed));
+        crate::search_diag::record_tt_store(outcome, age, existing.depth > entry.depth);
+        if should_replace {
+            self.written[index].store(generation, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Writes `entry` into the slot at `index`, which held `existing`.
+    #[inline(always)]
+    fn write_slot(&self, index: usize, existing: &TranspositionEntry, entry: TranspositionEntry, hash: u64) {
+        let slot = &self.slots()[index];
+        // A node that fails low has no best move of its own - a fail-hard all-node ends with
+        // none, and a stand pat stores none - and writing that over the move an earlier search
+        // of the same position found threw away the refutation the next visit would have tried
+        // first; the next iteration overwrote 8% of same-key entries that way. The move only
+        // ever orders moves, so keeping it cannot make a stored bound wrong.
+        // The static evaluation is a property of the position alone, whatever search stored
+        // the entry, so a store that carries none keeps the one the slot already holds.
+        let mut entry = entry;
+        if existing.key == hash && existing.depth != -1 {
+            if entry.best_move == 0 {
+                entry.best_move = existing.best_move;
+            }
+            if entry.static_eval == NO_STATIC_EVAL {
+                entry.static_eval = existing.static_eval;
+            }
+        }
+        // Invalidate the key before writing data to prevent a "torn read" by another thread.
+        slot.key.store(!hash, std::sync::atomic::Ordering::Release);
+        let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
+        slot.data.store(entry.pack() | (generation << GENERATION_SHIFT), std::sync::atomic::Ordering::Release);
+        // Restore the correct key after data is written.
+        slot.key.store(hash, std::sync::atomic::Ordering::Release);
     }
 
     /// Starts the next search generation; called once per `go`.
@@ -452,9 +613,9 @@ impl ZobristTable {
     /// Stockfish counts it. An entry from an earlier search no longer counts, so the figure says how
     /// much of the table the current search uses, not how much was ever written.
     pub fn hashfull(&self) -> u16 {
-        let sample = self.table.len().min(1000);
+        let sample = self.len.min(1000);
         let current = self.generation.load(std::sync::atomic::Ordering::Relaxed) & GENERATION_MASK;
-        let used = self.table[..sample].iter()
+        let used = self.slots()[..sample].iter()
             .filter(|slot| {
                 let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
                 let depth = ((data >> 32) & 0xFF) as u8 as i8;
@@ -465,7 +626,7 @@ impl ZobristTable {
     }
 
     pub fn _size(&self) -> usize {
-        self.table.iter()
+        self.slots().iter()
             .map(|slot| {
                 let key = slot.key.load(std::sync::atomic::Ordering::Relaxed);
                 let data = slot.data.load(std::sync::atomic::Ordering::Relaxed);
@@ -486,7 +647,7 @@ impl ZobristTable {
         let default_entry = TranspositionEntry::default();
         let default_key = default_entry.key;
         let default_data = default_entry.pack();
-        for slot in &self.table {
+        for slot in self.slots() {
             slot.key.store(default_key, std::sync::atomic::Ordering::Relaxed);
             slot.data.store(default_data, std::sync::atomic::Ordering::Relaxed);
         }
@@ -954,7 +1115,7 @@ mod tests {
     fn zobrist_slot_index_is_in_range_test() {
         for capacity in [1usize, 2, 3, 17, 64, 1000, 4096] {
             let table = ZobristTable::with_capacity(capacity);
-            assert_eq!(table.table.len(), capacity);
+            assert_eq!(table.len(), capacity);
             for hash in [0u64, 1, 2, 3, u64::MAX, u64::MAX - 1, u64::MAX / 2, 1 << 63, 0x9E37_79B9_7F4A_7C15] {
                 let index = table.slot_index(hash);
                 assert!(index < capacity, "slot_index({hash}) = {index} is out of range for {capacity}");
@@ -1104,6 +1265,127 @@ mod tests {
 
         assert_ne!(hash1, hash2, "Positions differing in en passant target field must have distinct Zobrist hashes");
     }
+
+    // Matt-Magie step 89: the clustered table.
+
+    /// A table of two clusters: keys below 2^63 land in the first, keys from 2^63 in the second.
+    fn clustered_table() -> ZobristTable {
+        let table = ZobristTable::with_capacity(2 * CLUSTER_SLOTS);
+        table.set_ways(CLUSTER_SLOTS);
+        table
+    }
+
+    /// Five distinct keys of the first cluster.
+    const C1: [u64; 5] = [11, 22, 33, 44, 55];
+
+    fn depth_of(table: &ZobristTable, key: u64) -> Option<i8> {
+        table.get_entry(key).map(|e| e.depth)
+    }
+
+    #[test]
+    fn a_cluster_holds_four_keys_that_one_slot_could_not() {
+        let table = clustered_table();
+        assert_eq!(table.cluster_start(C1[0]), table.cluster_start(C1[3]));
+        assert_ne!(table.cluster_start(C1[0]), table.cluster_start(1 << 63));
+        for (n, &key) in C1[..4].iter().enumerate() {
+            table.insert_entry(key, entry(key, n as i16, 5, TranspositionType::Exact));
+        }
+        for (n, &key) in C1[..4].iter().enumerate() {
+            assert_eq!(table.get_entry(key).map(|e| e.eval), Some(n as i16), "key {} is in its cluster", key);
+        }
+
+        // The same keys in a one-way table of the same size: they share a slot and evict each other.
+        let single = ZobristTable::with_capacity(2 * CLUSTER_SLOTS);
+        for &key in &C1[..4] {
+            single.insert_entry(key, entry(key, 0, 5, TranspositionType::Exact));
+        }
+        assert_eq!(C1[..4].iter().filter(|&&k| single.get_entry(k).is_some()).count(), 1);
+    }
+
+    #[test]
+    fn a_full_cluster_gives_up_its_shallowest_current_entry() {
+        let table = clustered_table();
+        for (&key, depth) in C1[..4].iter().zip([6, 2, 6, 6]) {
+            table.insert_entry(key, entry(key, 0, depth, TranspositionType::Exact));
+        }
+        table.insert_entry(C1[4], entry(C1[4], 0, 4, TranspositionType::Exact));
+        assert_eq!(depth_of(&table, C1[4]), Some(4));
+        assert_eq!(depth_of(&table, C1[1]), None, "the depth-2 entry made room");
+        for &key in &[C1[0], C1[2], C1[3]] {
+            assert_eq!(depth_of(&table, key), Some(6));
+        }
+    }
+
+    #[test]
+    fn an_entry_from_an_earlier_search_goes_before_a_shallow_current_one() {
+        let table = clustered_table();
+        table.insert_entry(C1[0], entry(C1[0], 0, 9, TranspositionType::Exact));
+        table.new_search();
+        for &key in &C1[1..4] {
+            table.insert_entry(key, entry(key, 0, 2, TranspositionType::Exact));
+        }
+        // worth 9 - 8 * 1 = 1 against 2 for each current entry
+        table.insert_entry(C1[4], entry(C1[4], 0, 3, TranspositionType::Exact));
+        assert_eq!(depth_of(&table, C1[0]), None, "the deep entry of the previous search made room");
+        assert_eq!(depth_of(&table, C1[4]), Some(3));
+    }
+
+    #[test]
+    fn the_same_key_keeps_a_deeper_current_entry_and_replaces_an_old_one() {
+        let table = clustered_table();
+        let key = C1[0];
+        table.insert_entry(key, entry(key, 1, 6, TranspositionType::Exact));
+        table.insert_entry(key, entry(key, 2, 3, TranspositionType::Exact));
+        assert_eq!(table.get_entry(key).map(|e| (e.eval, e.depth)), Some((1, 6)), "shallower, same search: kept");
+        table.insert_entry(key, entry(key, 3, 6, TranspositionType::Exact));
+        assert_eq!(table.get_entry(key).map(|e| e.eval), Some(3), "as deep: replaced");
+        table.new_search();
+        table.insert_entry(key, entry(key, 4, 2, TranspositionType::Exact));
+        assert_eq!(table.get_entry(key).map(|e| (e.eval, e.depth)), Some((4, 2)), "earlier search: replaced");
+        let occupied = C1.iter().filter(|&&k| table.get_entry(k).is_some()).count();
+        assert_eq!(occupied, 1, "one slot per key, never two");
+    }
+
+    #[test]
+    fn a_quiescence_entry_never_displaces_a_current_main_search_entry() {
+        let table = clustered_table();
+        for &key in &C1[..4] {
+            table.insert_entry(key, entry(key, 0, 1, TranspositionType::Exact));
+        }
+        table.insert_entry(C1[4], entry(C1[4], 0, 0, TranspositionType::Exact));
+        assert_eq!(depth_of(&table, C1[4]), None, "dropped: every slot holds a current main-search entry");
+        table.new_search();
+        table.insert_entry(C1[4], entry(C1[4], 0, 0, TranspositionType::Exact));
+        assert_eq!(depth_of(&table, C1[4]), Some(0), "an entry of an earlier search may go");
+    }
+
+    #[test]
+    fn the_age_survives_the_generation_wrap() {
+        let table = clustered_table();
+        for _ in 0..63 {
+            table.new_search();
+        }
+        table.insert_entry(C1[0], entry(C1[0], 0, 9, TranspositionType::Exact));
+        let data = table.slots()[table.cluster_start(C1[0])].data.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(table.age(data), 0);
+        table.new_search();
+        assert_eq!(table.age(data), 1, "generation 63, then 0: one search ago");
+    }
+
+    #[test]
+    fn one_way_is_the_old_table_and_hashfull_reads_both() {
+        let table = ZobristTable::with_capacity(2 * CLUSTER_SLOTS);
+        table.set_ways(1);
+        table.insert_entry(C1[0], entry(C1[0], 0, 3, TranspositionType::Exact));
+        let slot = &table.slots()[table.slot_index(C1[0])];
+        assert_eq!(slot.key.load(std::sync::atomic::Ordering::Relaxed), C1[0], "stored in its own slot");
+        let clustered = clustered_table();
+        for &key in &C1[..4] {
+            clustered.insert_entry(key, entry(key, 0, 3, TranspositionType::Exact));
+        }
+        assert_eq!(clustered.hashfull(), 500, "4 of 8 slots written this search");
+    }
+
 }
 
 

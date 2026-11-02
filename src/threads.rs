@@ -80,6 +80,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name EnableIir type check default {}", defaults.enable_iir),
         format!("option name IirMinDepth type spin default {} min 1 max 32", defaults.iir_min_depth),
         format!("option name IirReduction type spin default {} min 0 max 4", defaults.iir_reduction),
+        format!("option name TtClusterSize type spin default {} min 1 max 4", defaults.tt_cluster_size),
         format!("option name EnableLmp type check default {}", defaults.enable_lmp),
         // // `lmp_max_depth` is live to 8 since `task.md` 21.2: the growth term is `depth^2`
         // // halved when the side to move is not improving, so depths 5 to 8 prune for the first
