@@ -270,8 +270,10 @@ const GENERATION_MASK: u64 = 0x3F;
 pub const CLUSTER_SLOTS: usize = 4;
 
 /// The number of ways a new table starts with, the default of `Config::tt_cluster_size`: 1 is the
-/// table up to v0.50.1, one slot per key; 4 probes and replaces within a cluster.
-pub const DEFAULT_TT_WAYS: usize = 1;
+/// table up to v0.50.1, one slot per key; 4 probes and replaces within a cluster. Clustered since
+/// Matt-Magie step 89: at 512 MB and 600 s + 2 s the main-search hit rate rose from 24.3% to 32.1%
+/// over six replayed games; at 64 MB and depth 10 the tree is about 3% larger.
+pub const DEFAULT_TT_WAYS: usize = CLUSTER_SLOTS;
 
 /// Four slots on one cache line.
 #[repr(C, align(64))]
@@ -816,6 +818,8 @@ mod tests {
     #[test]
     fn zobrist_replacement_policy_test() {
         let table = ZobristTable::with_capacity(2);
+        // The one-slot table these rules were written for (`TtClusterSize` 1).
+        table.set_ways(1);
         assert_slot_layout(&table);
 
         table.insert_entry(SLOT_A_1, entry(SLOT_A_1, 100, 3, TranspositionType::Exact));
@@ -915,6 +919,8 @@ mod tests {
     #[test]
     fn zobrist_qs_tt_collision_protection_test() {
         let table = ZobristTable::with_capacity(2);
+        // The one-slot table these rules were written for (`TtClusterSize` 1).
+        table.set_ways(1);
         assert_slot_layout(&table);
 
         // 1. Store a deep main-search entry (depth = 6).
@@ -1296,6 +1302,7 @@ mod tests {
 
         // The same keys in a one-way table of the same size: they share a slot and evict each other.
         let single = ZobristTable::with_capacity(2 * CLUSTER_SLOTS);
+        single.set_ways(1);
         for &key in &C1[..4] {
             single.insert_entry(key, entry(key, 0, 5, TranspositionType::Exact));
         }
