@@ -24,6 +24,11 @@ pub struct Config {
     /// of book guidance.
     pub book_max_ply: i32,
     pub max_zobrist_hash_entries: usize,
+    /// Matt-Magie step 89 (master), ported in step 90: slots probed and replaced per key in the
+    /// Transposition Table - 1, one slot per key as up to v0.50.1-NNUE, or 4, a cluster on one cache
+    /// line with replacement by depth and age (`zobrist::ZobristTable::set_ways`). Applied at every
+    /// `go`.
+    pub tt_cluster_size: usize,
     /// Default capacity: 1,000,000 entries (~16 MB).
     /// Proven sweet spot in tournament play (+30 Elo over 10M entries).
     /// Keeps pawn structure evaluations inside CPU cache and avoids TLB/DRAM thrashing.
@@ -415,6 +420,7 @@ impl Config {
             // 128 MB, the advertised `Hash` default. It was 50,000,000 entries, 800 MB written
             // before `uciok` on every start and replaced as soon as a GUI sent `Hash`.
             max_zobrist_hash_entries: 8_388_608,
+            tt_cluster_size: crate::zobrist::DEFAULT_TT_WAYS,
             max_pawn_hash_entries: 1_000_000, // 16 MB: Proven +30 Elo sweet spot (avoids CPU L3 & TLB thrashing)
             search_depth: 4, // only used as default for tests
             max_depth: 99,
@@ -1195,6 +1201,18 @@ mod tests {
         assert!(!config.enable_one_reply_extension);
     }
 
+    /// Matt-Magie step 89 / 90: the cluster size of the Transposition Table.
+    #[test]
+    fn test_tt_cluster_size_reaches_the_field_in_all_spellings() {
+        for spelling in ["TtClusterSize", "tt_cluster_size", "ttclustersize"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "4"), UciOptionEffect::Stored);
+            assert_eq!(config.tt_cluster_size, 4);
+        }
+        assert_eq!(Config::new().tt_cluster_size, crate::zobrist::DEFAULT_TT_WAYS);
+        assert_eq!(crate::zobrist::DEFAULT_TT_WAYS, 1, "commit 1 of step 90 keeps one slot per key");
+    }
+
     /// Matt-Magie step 83: the ProbCut options.
     #[test]
     fn test_probcut_options_reach_the_fields_in_all_spellings() {
@@ -1345,6 +1363,7 @@ impl Config {
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
+            "ttclustersize" => if let Ok(v) = value.parse::<usize>() { self.tt_cluster_size = v; },
             "enableprobcut" => self.enable_probcut = value.eq_ignore_ascii_case("true"),
             "probcutmargin" => if let Ok(v) = value.parse::<i16>() { self.probcut_margin = v; },
             "probcutreduction" => if let Ok(v) = value.parse::<i32>() { self.probcut_reduction = v; },
