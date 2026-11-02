@@ -6211,4 +6211,31 @@ mod tests {
         assert_ne!(on_tree, off_tree, "the shipped rule changes the tree");
     }
 
+
+    // Matt-Magie step 89: the clustered Transposition Table under a real search.
+
+    /// Best move and score of a `get_moves` search on a table with `ways` slots per key.
+    fn search_on_ways(fen: &str, depth: i32, ways: usize) -> (String, i16) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        let state = fresh_engine_state();
+        state.zobrist_table.read().unwrap().set_ways(ways);
+        let mut stats = Stats::new();
+        let result = service.search.get_moves(
+            &mut board, depth, true, &mut stats, &config, &service, &state,
+            std::time::Instant::now(), None, None,
+        );
+        (result.get_best_move_algebraic(), result.get_eval())
+    }
+
+    #[test]
+    fn test_the_clustered_table_finds_the_smothered_mate() {
+        let (one_move, one_score) = search_on_ways(SMOTHERED_MATE_FEN, 6, 1);
+        let (four_move, four_score) = search_on_ways(SMOTHERED_MATE_FEN, 6, crate::zobrist::CLUSTER_SLOTS);
+        assert_eq!(four_move, one_move);
+        assert_eq!(four_score, one_score, "the mate score does not depend on where the table keeps entries");
+    }
+
 }

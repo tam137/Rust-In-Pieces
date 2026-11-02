@@ -15,6 +15,7 @@ searches (0 = this search, 1, 2, 3 and more).
 Usage:
     scripts/replay_games_tt.py <search-diag binary> <pgn> --engine "RIP V0.49.7-NNUE" \
         [--games 20] [--hash 64] [--openings openings_wide.txt] [--start 1000] [--inc 100]
+        [--option TtClusterSize=4 ...]
 """
 import argparse
 import re
@@ -74,7 +75,7 @@ def opening_length(moves, openings):
 
 
 class Engine:
-    def __init__(self, binary, hash_mb):
+    def __init__(self, binary, hash_mb, options=()):
         self.proc = subprocess.Popen([binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, text=True, bufsize=1)
         self.diag = []
@@ -82,7 +83,7 @@ class Engine:
         threading.Thread(target=self._read_stderr, daemon=True).start()
         self.send("uci")
         self.wait("uciok")
-        for name, value in (("Hash", hash_mb), ("Threads", 1), ("OwnBook", "false")):
+        for name, value in (("Hash", hash_mb), ("Threads", 1), ("OwnBook", "false"), *options):
             self.send(f"setoption name {name} value {value}")
         self.send("isready")
         self.wait("readyok")
@@ -145,11 +146,13 @@ def main():
     parser.add_argument("--openings", default="openings_wide.txt")
     parser.add_argument("--start", type=int, default=1000)
     parser.add_argument("--inc", type=int, default=100)
+    parser.add_argument("--option", action="append", default=[], metavar="NAME=VALUE",
+                        help="an extra setoption, e.g. TtClusterSize=4 (Matt-Magie step 89); repeatable")
     args = parser.parse_args()
 
     openings = [line.split() for line in open(args.openings) if line.split()]
     chosen = [(h, t) for h, t in parse_games(args.pgn) if args.engine in (h.get("White"), h.get("Black"))][:args.games]
-    engine = Engine(args.binary, args.hash)
+    engine = Engine(args.binary, args.hash, [tuple(o.split("=", 1)) for o in args.option])
     rows = []  # (own move number, occupied share, age shares, stores, evictions, deeper evictions)
     for game_no, (headers, text) in enumerate(chosen, 1):
         moves = game_moves(text)
