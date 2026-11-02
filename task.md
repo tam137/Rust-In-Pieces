@@ -820,7 +820,7 @@ the reworked form with its tuning run, which needs the absolute SPSA step of 23.
 
 ## 25. The Transposition Table: one slot, no ageing, no cached static evaluation, and a division in the probe
 
-`[Impact: unknown]` `[Complexity: Medium to High]` `[unmeasured]` — `src/zobrist.rs`, backlog item
+`[Impact: +22 Elo under table pressure]` `[Complexity: Medium to High]` `[clusters and ageing shipped in v0.50.2, see 25.5]` — `src/zobrist.rs`, backlog item
 7. Four properties, two of throughput and two of search quality. **There is no version of this
 where all four land in one priced change.**
 
@@ -868,6 +868,28 @@ decides whether this is correct**: what is cached must be the raw evaluation bef
 or clamping, and a lazy early return is a bound in one direction and not a value — either store
 only full evaluations, or store the lazy value with the margin that produced it. Settle that
 before writing code.
+
+### 25.5 Clusters and ageing (Matt-Magie steps 88 and 89, 2026-11-01/02)
+
+* **Why now:** at the bots' conditions - 512 MB, 600 s + 2 s - the table is full from about move 15,
+  64-95% of its entries are three or more searches old, and every search evicts 150,000 to 640,000
+  deeper entries (`scripts/replay_games_tt.py`, six games each, HCE and NNUE). At 1s + 100ms and
+  64 MB it is never full, which is why nothing in this section showed in the usual runs.
+* **Shape (`TtClusterSize`, default 4):** four 16-byte entries per 64-byte cluster, one cache line
+  and one prefetch; probe all four; a store of the same position replaces when at least as deep or
+  from an earlier search; otherwise an empty slot, else the least `depth - 8 * age` (age in
+  searches from the six generation bits of v0.49.6, across their wrap); a quiescence entry never
+  displaces a main-search entry of the running search. `TtClusterSize=1` is the one-slot table of
+  v0.50.1 node for node (300/300 on both pools).
+* **Fill measurement** (512 MB, 600 s + 2 s, six replayed HCE games): main-search hit rate
+  **24.3% -> 32.1%**, quiescence 11.9% -> 17.0%; entries of the running search in moves 11-20
+  13% -> 26%.
+* **Cost without pressure** (64 MB, depth 10, 300 per pool): 2.6-2.9% more time, from a 3.2-3.3%
+  larger tree at an unchanged time per node; cause open.
+* **Games:** smoke gauntlet 53.5% / 45.5% / 95.0% against v0.50.1 / v0.49.6 / v0.34.0 at 64 MB.
+  Pressure SPRT against v0.50.1 at 1s + 150ms with **Hash 4 MB** for both (about the bots' fill):
+  **[0, 10] H1 after 2005 games, +22.0 Elo, paired 95% CI [+10, +34]** ([0, 5] LLR +2.50). The
+  confirmation at a longer time control runs with the NNUE port (step 90).
 
 ## 26. ProbCut
 
