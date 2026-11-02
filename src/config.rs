@@ -1361,7 +1361,7 @@ mod tests {
             assert_eq!(config.tt_cluster_size, 4);
         }
         assert_eq!(Config::new().tt_cluster_size, crate::zobrist::DEFAULT_TT_WAYS);
-        assert_eq!(crate::zobrist::DEFAULT_TT_WAYS, 1, "commit 1 of step 89 keeps one slot per key");
+        assert_eq!(crate::zobrist::DEFAULT_TT_WAYS, 4, "clustered since step 89");
     }
 
     /// Matt-Magie step 83: the ProbCut options.

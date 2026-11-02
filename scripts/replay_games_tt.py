@@ -183,6 +183,8 @@ def main():
             previous = {"store": store, "evict_deeper": int(diag["evict_deeper"])}
         print(f"game {game_no:2d}: {headers['White']} - {headers['Black']}, {own} own moves searched "
               f"(opening {skip} plies skipped, {unsearched} answered without a search)", file=sys.stderr)
+    with engine.lock:
+        last = dict(f.split("=", 1) for f in engine.diag[-1]) if engine.diag else {}
     engine.close()
 
     print(f"\n{args.engine}, Hash={args.hash} MB, {len(chosen)} games, clock {args.start} ms + {args.inc} ms")
@@ -201,6 +203,12 @@ def main():
         label = f"{lo}-{hi}" if hi < 999 else f"{lo}+"
         print(f"{label:>9} | {occ:7.1%} | {ages[0]:10.1%} | {ages[1]:5.1%} | {ages[2]:5.1%} | {ages[3]:6.1%} | "
               f"{stores:13,.0f} | {evict:17,.0f} | {deeper:15,.0f}   (n={n})")
+    # Matt-Magie step 89: the probe counters are cumulative over the process, so the last line holds
+    # the whole replay.
+    if "probe_main" in last:
+        for name in ("main", "qs"):
+            probes, hits = int(last[f"probe_{name}"]), int(last[f"hit_{name}"])
+            print(f"probes {name}: {probes:,}  hits {hits:,}  hit rate {hits / max(probes, 1):.2%}")
 
 
 if __name__ == "__main__":
