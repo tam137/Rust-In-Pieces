@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.2] - 2026-11-02
+
+- **Transposition Table in clusters of four with ageing** (Matt-Magie step 89, `task.md` 25.5): four entries on
+  one cache line are probed per key; a new entry takes an empty slot, else the one of least `depth - 8 * age`
+  (age in searches from the generation bits of v0.49.6); the same position is replaced when at least as deep or
+  older; quiescence entries never displace current main-search entries. Option `TtClusterSize` (4; 1 is the
+  one-slot table of v0.50.1, tree-identical).
+- At the bots' conditions (512 MB, 600 s + 2 s) the table is full from about move 15; there the main-search hit
+  rate rose from 24.3% to 32.1% over six replayed games. Without pressure (64 MB, depth 10) the tree is about
+  3% larger.
+- Pressure SPRT against v0.50.1 at 1s + 150ms with Hash 4 MB: [0, 10] H1 after 2005 games, +22.0 Elo, paired
+  95% CI [+10, +34] (an upper bound). Smoke gauntlet at 64 MB: 53.5% / 45.5% / 95.0% against v0.50.1 / v0.49.6 /
+  v0.34.0.
+- `scripts/replay_games_tt.py` takes `--option NAME=VALUE` and prints the probe hit rates.
+
 ## [V0.50.1] - 2026-10-31
 
 - ProbCut (Matt-Magie step 83, `task.md` 26): at a non-PV node out of check from depth 5, a capture whose
