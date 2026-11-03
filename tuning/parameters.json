@@ -295,7 +295,7 @@
         "max": 40.0
     },
     "lmr_divisor": {
-        "value": 140,
+        "value": 160,
         "min": 92,
         "max": 370
     },
