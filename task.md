@@ -2746,6 +2746,12 @@ needed a second sample.
 
 **Next:** a +2 step only on a clearer signal than this one; the clamp, not the flag, limits the rule.
 
+**NNUE port (Matt-Magie step 91, 2026-11-03): rejected.** Same rule on v0.50.2-NNUE, whose Late Move
+Reduction already reduces harder (divisor 140, move threshold 2): the extra ply passes the clamp in
+only 7.5% of the cut-node decisions (19% here), census -1.4% / -0.4% time, smoke gauntlet 48.5% / 46.0%
+/ 93.5%. SPRT against v0.50.2-NNUE: **-9.4 Elo, paired 95% CI [-19, +1] after 2005 games**, stopped on
+[0, 10] H0 with a negative estimate. Code on the local branch `lmr-cut-nnue`.
+
 
 ## 39. UCI pondering, off by default: shipped in v0.49.5 (2026-10-28)
 
