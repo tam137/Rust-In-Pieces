@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.2-NNUE] - 2026-11-03
+
+- **Transposition Table in clusters of four with ageing**, ported from master v0.50.2 (Matt-Magie step 90, `task.md`
+  25.5): four entries on one cache line are probed per key; a new entry takes an empty slot, else the one of least
+  `depth - 8 * age`; the same position is replaced when at least as deep or older; quiescence entries never displace
+  current main-search entries. Option `TtClusterSize` (4; 1 is the one-slot table of v0.50.1-NNUE, tree-identical
+  300/300 on both pools).
+- Pressure SPRT against v0.50.1-NNUE at 1s + 150ms with Hash 4 MB for both (about the fill of the bots' 512 MB at
+  600 s + 2 s), run to a fixed 2500 games by the owner: **+22.7 Elo, paired 95% CI [+14, +31]**, SPRT [0, 5] and
+  [0, 10] both H1. Smoke gauntlet at 64 MB: 50.0% / 52.0% / 94.0% against v0.50.1- / v0.50.0- / v0.34.0-NNUE.
+- Without table pressure the tree is about 3% larger (measured on master); a confirmation at a longer time control
+  has not been run.
+
 ## [V0.50.1-NNUE] - 2026-11-01
 
 - **ProbCut**, ported from master v0.50.1 (Matt-Magie step 85, `task.md` 26): at a non-PV node out of check from
