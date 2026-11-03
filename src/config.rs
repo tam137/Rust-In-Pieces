@@ -589,11 +589,12 @@ impl Config {
             killer_move_2_rank_bonus: 10000,
             counter_move_rank_bonus: 15000,
             lmr_move_threshold: 2,
-            lmr_divisor: 140,
+            // Matt-Magie step 91, stage B: 160 on trial (140 from an earlier SPSA run until v0.50.2-NNUE).
+            lmr_divisor: 160,
 
             lmr_table: {
                 let mut table = [[0i16; 64]; 64];
-                let divisor = 140.0 / 100.0;
+                let divisor = 160.0 / 100.0;
                 for (depth, row) in table.iter_mut().enumerate().skip(1) {
                     for (move_idx, item) in row.iter_mut().enumerate().take(64).skip(1) {
                         let d = depth as f64;
@@ -1182,7 +1183,7 @@ mod tests {
         assert_eq!(config.max_pawn_hash_entries, 1_000_000);
         assert_eq!(config.max_zobrist_hash_entries * 16, 128 * 1024 * 1024);
         assert!(config.use_nnue);
-        assert_eq!(config.lmr_divisor, 140);
+        assert_eq!(config.lmr_divisor, 160, "Matt-Magie step 91 stage B (140 until v0.50.2-NNUE)");
         assert_eq!(config.lmr_move_threshold, 2);
         assert_eq!(config.aspiration_window_initial_delta, 16);
         assert_eq!(config.aspiration_window_multiplier, 5);
