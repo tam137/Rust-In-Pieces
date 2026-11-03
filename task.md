@@ -888,8 +888,11 @@ before writing code.
   larger tree at an unchanged time per node; cause open.
 * **Games:** smoke gauntlet 53.5% / 45.5% / 95.0% against v0.50.1 / v0.49.6 / v0.34.0 at 64 MB.
   Pressure SPRT against v0.50.1 at 1s + 150ms with **Hash 4 MB** for both (about the bots' fill):
-  **[0, 10] H1 after 2005 games, +22.0 Elo, paired 95% CI [+10, +34]** ([0, 5] LLR +2.50). The
-  confirmation at a longer time control runs with the NNUE port (step 90).
+  **[0, 10] H1 after 2005 games, +22.0 Elo, paired 95% CI [+10, +34]** ([0, 5] LLR +2.50).
+* **NNUE port (step 90, v0.50.2-NNUE, 2026-11-03):** the same code (the table is identical on both
+  branches); one way tree-identical 300/300; pressure run against v0.50.1-NNUE at Hash 4 MB fixed by
+  the owner at 2500 games: **+22.7 Elo, paired 95% CI [+14, +31]**, SPRT [0, 5] and [0, 10] H1. A
+  confirmation at a longer time control has not been run.
 
 ## 26. ProbCut
 
