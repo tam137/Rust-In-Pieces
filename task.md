@@ -2757,7 +2757,9 @@ reduction is already at its edge, so the divisor moved the other way, measured r
 here (owner: the NNUE divisor may be tuned, never taken over blind). Census against 140 at depth 10:
 120 +10% / +11% time, 160 -12% / -16%, 185 -28% / -24%. **Divisor 160 against 140: +7.8 Elo, paired
 95% CI [+2, +13] over 7001 games** (fixed length set by the owner; SPRT [0, 5] and [0, 10] both H1),
-although it reaches depth 10 12-16% later: the 140 of the old SPSA run reduced too hard. Next: 175.
+although it reaches depth 10 12-16% later: the 140 of the old SPSA run reduced too hard. **175 against
+160: -2.3 Elo, paired 95% CI [-12, +7] after 2152 games**, stopped on [0, 10] H0 with a negative estimate;
+160 stays - the gain sits between 140 and 160, not beyond.
 
 
 ## 39. UCI pondering, off by default: shipped in v0.49.5 (2026-10-28)
