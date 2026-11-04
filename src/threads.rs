@@ -106,6 +106,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name EnableSingularNegativeExtension type check default {}", defaults.enable_singular_negative_extension),
         format!("option name EnableSingularCutNodeExtension type check default {}", defaults.enable_singular_cut_node_extension),
         format!("option name EnableLmrCutNode type check default {}", defaults.enable_lmr_cut_node),
+        format!("option name HistoryAgePerGo type check default {}", defaults.history_age_per_go),
         format!("option name EnableProbCut type check default {}", defaults.enable_probcut),
         format!("option name ProbCutMargin type spin default {} min 0 max 1000", defaults.probcut_margin),
         format!("option name ProbCutReduction type spin default {} min 1 max 8", defaults.probcut_reduction),

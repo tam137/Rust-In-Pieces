@@ -456,6 +456,10 @@ pub struct Config {
     /// Matt-Magie step 71: at an expected cut node a move the Late Move Reduction reduces anyway is
     /// reduced one ply more. No reduction is created where the damping left none.
     pub enable_lmr_cut_node: bool,
+    /// Matt-Magie step 92: the history is halved once per `go` (at the start of the iterative
+    /// deepening loop in `game_handler`) instead of once per iteration on entry to `get_moves`.
+    /// `ponderhit` continues the same search and does not halve again. See `SearchTables::age`.
+    pub history_age_per_go: bool,
     /// Matt-Magie step 83: ProbCut. At a non-PV node out of check with `depth >= probcut_min_depth`,
     /// a capture whose Static Exchange clears `beta + probcut_margin - static_eval` is searched
     /// against the raised bound `beta + probcut_margin`, first by a Quiescence Search and then at
@@ -776,6 +780,7 @@ impl Config {
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
             enable_lmr_cut_node: true,
+            history_age_per_go: false,
             // Matt-Magie step 83: on at the published margin. Depth-10 census over 300 positions per
             // pool against the rule off: 180 -> +1.6% / +8.9% time (wide / mixed), 140 -> -0.9% /
             // +5.8%, 220 -> +0.9% / +5.6%; 180 is the fastest on both pools.
@@ -1352,6 +1357,19 @@ mod tests {
             "on in the candidate of step 71 (census: -1.7% / +5.4% time to depth 10, played by the owner's word)");
     }
 
+    /// Matt-Magie step 92: the switch that moves the history halving from each iteration to each `go`.
+    #[test]
+    fn test_history_age_per_go_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["HistoryAgePerGo", "history_age_per_go", "historyagepergo"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.history_age_per_go);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.history_age_per_go);
+        }
+        assert!(!Config::new().history_age_per_go, "off until step 92 has been played");
+    }
+
     /// Matt-Magie step 89: the cluster size of the Transposition Table.
     #[test]
     fn test_tt_cluster_size_reaches_the_field_in_all_spellings() {
@@ -1587,6 +1605,7 @@ impl Config {
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
             "enablelmrcutnode" => self.enable_lmr_cut_node = value.eq_ignore_ascii_case("true"),
+            "historyagepergo" => self.history_age_per_go = value.eq_ignore_ascii_case("true"),
             "enableprobcut" => self.enable_probcut = value.eq_ignore_ascii_case("true"),
             "probcutmargin" => if let Ok(v) = value.parse::<i16>() { self.probcut_margin = v; },
             "probcutreduction" => if let Ok(v) = value.parse::<i32>() { self.probcut_reduction = v; },
