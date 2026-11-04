@@ -780,7 +780,10 @@ impl Config {
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
             enable_lmr_cut_node: true,
-            history_age_per_go: false,
+            // Matt-Magie step 92: on in the candidate. Census against off: +0.1% time and +1.0% nodes
+            // over 50 replayed games at depth 9 (the history carried from move to move); from cold
+            // tables at depth 10, -8.3% / -0.8% time (wide / mixed).
+            history_age_per_go: true,
             // Matt-Magie step 83: on at the published margin. Depth-10 census over 300 positions per
             // pool against the rule off: 180 -> +1.6% / +8.9% time (wide / mixed), 140 -> -0.9% /
             // +5.8%, 220 -> +0.9% / +5.6%; 180 is the fastest on both pools.
@@ -1367,7 +1370,7 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.history_age_per_go);
         }
-        assert!(!Config::new().history_age_per_go, "off until step 92 has been played");
+        assert!(Config::new().history_age_per_go, "on in the candidate of step 92");
     }
 
     /// Matt-Magie step 89: the cluster size of the Transposition Table.
