@@ -2752,6 +2752,13 @@ only 7.5% of the cut-node decisions (19% here), census -1.4% / -0.4% time, smoke
 / 93.5%. SPRT against v0.50.2-NNUE: **-9.4 Elo, paired 95% CI [-19, +1] after 2005 games**, stopped on
 [0, 10] H0 with a negative estimate. Code on the local branch `lmr-cut-nnue`.
 
+**The NNUE divisor instead (step 91 stage B, v0.50.3-NNUE, 2026-11-04).** The rejection said the NNUE
+reduction is already at its edge, so the divisor moved the other way, measured rather than copied from
+here (owner: the NNUE divisor may be tuned, never taken over blind). Census against 140 at depth 10:
+120 +10% / +11% time, 160 -12% / -16%, 185 -28% / -24%. **Divisor 160 against 140: +7.8 Elo, paired
+95% CI [+2, +13] over 7001 games** (fixed length set by the owner; SPRT [0, 5] and [0, 10] both H1),
+although it reaches depth 10 12-16% later: the 140 of the old SPSA run reduced too hard. Next: 175.
+
 
 ## 39. UCI pondering, off by default: shipped in v0.49.5 (2026-10-28)
 
