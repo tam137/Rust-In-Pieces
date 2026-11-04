@@ -95,13 +95,14 @@ impl SearchTables {
         self.correction_history.clear();
     }
 
-    /// Halves the history on entry to `get_moves`.
+    /// Halves the history. Called on entry to `get_moves`, or with `history_age_per_go` once at
+    /// the start of each `go` in `game_handler` instead (Matt-Magie step 92).
     ///
-    /// Note what that means: the iterative deepening loop calls `get_moves` once per depth, so
-    /// this runs once per *iteration*, not once per `go`. A depth-10 search therefore halves
+    /// Note what the first means: the iterative deepening loop calls `get_moves` once per depth,
+    /// so this runs once per *iteration*, not once per `go`. A depth-10 search therefore halves
     /// nine times, and what an early iteration learned is worth 2^-8 of a late one by the end.
     /// The table still carries ordering from one iteration into the next, which is the point of
-    /// `task.md` 23.1; halving once per `go` instead is an untested variant.
+    /// `task.md` 23.1; halving once per `go` is what `history_age_per_go` measures.
     ///
     /// Killers and counter moves are deliberately not aged: both are overwritten wholesale by
     /// the next cutoff at the same ply or from the same parent move, so a stale entry costs one
