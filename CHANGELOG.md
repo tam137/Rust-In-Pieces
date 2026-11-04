@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.50.3-NNUE] - 2026-11-04
+
+- **LMR divisor 140 -> 160** (Matt-Magie step 91, stage B): the Late Move Reduction reduces less. The 140 came from
+  an earlier SPSA run; the master value 185 was not taken over but measured as one candidate. Census against 140 at
+  depth 10: 160 reaches it 12-16% later, 185 24-28% later, 120 10-11% earlier.
+- Against v0.50.2-NNUE at 1s + 150ms, a run fixed by the owner at 7000 games: **+7.8 Elo, paired 95% CI [+2, +13]**
+  over 7001 games, SPRT [0, 5] and [0, 10] both H1. Smoke gauntlet: 51.5% / 57.5% / 93.5% against v0.50.2- /
+  v0.50.1- / v0.34.0-NNUE.
+- Stage A of the same step, master's extra ply at expected cut nodes, was rejected on this branch (-9.4 Elo
+  [-19, +1] after 2005 games) and is not part of this release.
+- `tuning/parameters.json` registers 160.
+
 ## [V0.50.2-NNUE] - 2026-11-03
 
 - **Transposition Table in clusters of four with ageing**, ported from master v0.50.2 (Matt-Magie step 90, `task.md`
