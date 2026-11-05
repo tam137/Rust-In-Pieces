@@ -200,7 +200,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Internal Iterative Reduction ships `false`: it was refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** here, which is a property of the Transposition Table and not of the rule. Worth exactly one re-measurement after backlog item 7, starting with the census share. **Re-measured 2026-11-01 on v0.50.1 without item 7** (Matt-Magie step 86, `EnableIir` with `IirReduction=0`, 100 positions per pool at depth 10): **44.2% / 43.0%** of the nodes at depth 4+ have no table move (depth 4: 60%, 5: 34%, 6: 30%, 7: 18%, 8: 14%, 9: 8%) - unchanged. The rule would still remove 38-41% of the generated moves at `iir_min_depth = 4` (15% / 0.3% at 8), so it stays off; the table has to change first. **Step 87 (2026-11-01/02): IIR at PV and expected cut nodes only**, as Stockfish has it (branch `iir-cut-pv`, option `IirCutPvOnly`): of the nodes without a table move 58% are all-nodes, 41% cut nodes (mostly first visits), 1% PV; from depth 6 it removes 10-12% of the generated moves. Against v0.50.1 at 1s + 150ms: **+2.2 Elo, 95% CI [-3, +8] over 10,854 games**, SPRT [0, 5] undecided, [0, 10] H0 - neutral, not the +5 the owner asks for; rejected, IIR stays off | negative result, section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 19 | property, established 2026-09-04 |
-| `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
+| ~~`SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go`~~ | **closed 2026-11-05**: shipped in v0.51.0 (`HistoryAgePerGo`), [0, 10] H1 after 3373 games, +11.8 Elo [+2, +21], section 40 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
 | The startup benchmark `calculate_benchmark` runs a depth-3 search on the real `EngineState`, so the tables carry its history until the first `ucinewgame` | latent, harmless under any GUI that sends `ucinewgame`; the Transposition Table already had this property |
 | Review leftovers, deferred: R4 `pv_nodes` behind a mutex and a SipHash map at every interior node (0.3% to 2%, 18 call sites), R7 a table move that is a promotion or en passant never gets the table band, R16c a `stop` that arrives before its `go` is lost | deferred, section 27 |
@@ -2799,4 +2799,29 @@ counted from the ponder start; after 3.0 s -> at once; `stop` right after `go po
 waits for the `ponderhit`. Protocol test with the same script: 40 games, no protocol error, no time loss, no hang;
 1249 ponderhits of 1915, 66.0%. Smoke gauntlet with the option off 48.5% / 55.0% / 93.0% against v0.49.5- /
 v0.49.4- / v0.34.0-NNUE. No SPRT.
+
+## 40. The history halved once per `go`: shipped in v0.51.0 (2026-11-05)
+
+Matt-Magie step 92, the open-list item of 23.1. `SearchTables::age` halves the butterfly history; `get_moves`
+called it once per iterative-deepening iteration, so a ten-iteration search divided what the previous moves had
+taught by about 1000, and the LMR history thresholds (0 / 0) read little more than a sign that had to be relearnt.
+
+**Code** (`0b130a4`, `ed45afd`): UCI option `HistoryAgePerGo` (check, default true). When on, `game_handler`
+ages the tables once right after a `go` (and a `go infinite`) is read and `get_moves` no longer ages them; when
+off, v0.50.2's behaviour. A ponder search and its `ponderhit` are one `go`. Tests red first: the sentinel
+`[white][0][63] = 1000` ends at 125 / 250 per iteration and at 500 per `go`.
+
+**Gates:** off **300/300 identical trees** against v0.50.2 on both pools. Cold searches (fresh tables per
+position) +8.3% / +0.8% time at depth 10 - expected, nothing carries over; the real case is the sequence census
+over replayed games at depth 9 with `ucinewgame` per game: time +0.06%, nodes +0.96%, median per game -1.99%,
+same best move 66%. Smoke gauntlet: 60.0% / 51.0% / 95.5% against v0.50.2 / v0.50.1 / v0.34.0.
+
+**SPRT** against v0.50.2, 1s + 150ms, Hash 64, `openings_wide`, [0, 5] with a [0, 10] guard and no stop before
+2500 games. Stopped by the owner at a fixed 2002 games (server needed for the NNUE bot): +9.7 Elo [-2, +22],
+both undecided; continued the next morning on the same PGN: **[0, 10] H1 after 3373 games, +11.8 Elo, paired
+95% CI [+2, +21]**, [0, 5] at +2.03 undecided; pairs 157 / 351 / 593 / 391 / 194, no time loss. The point
+estimate is an upper bound.
+
+**Not measured:** the magnitude and saturation of the history under the new decay (not readable over UCI).
+The NNUE branch has the same per-iteration `age`; a port is its own step.
 

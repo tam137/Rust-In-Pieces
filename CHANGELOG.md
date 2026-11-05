@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.51.0] - 2026-11-05
+
+- **The history is halved once per `go`, not once per iteration** (Matt-Magie step 92, `task.md` 40): the
+  butterfly history used to be aged in `get_moves`, i.e. at every iterative-deepening iteration, so a depth-10
+  search kept about 1/1000 of what the previous move had learnt. New UCI option `HistoryAgePerGo` (true); false
+  is v0.50.2's per-iteration decay, tree-identical (300/300 on both pools).
+- Census at depth 9 over replayed games: time +0.06%, nodes +1.0%, median per game -2.0%.
+- SPRT against v0.50.2 at 1s + 150ms: [0, 10] H1 after 3373 games, +11.8 Elo, paired 95% CI [+2, +21] (an upper
+  bound); [0, 5] undecided at +2.03. Smoke gauntlet: 60.0% / 51.0% / 95.5% against v0.50.2 / v0.50.1 / v0.34.0.
+
 ## [V0.50.2] - 2026-11-02
 
 - **Transposition Table in clusters of four with ageing** (Matt-Magie step 89, `task.md` 25.5): four entries on
