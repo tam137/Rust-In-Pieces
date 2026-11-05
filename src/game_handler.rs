@@ -90,6 +90,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                     crate::search_diag::new_search_generation();
                     engine_state.zobrist_table.read().unwrap().new_search();
                     engine_state.zobrist_table.read().unwrap().set_ways(active_config.tt_cluster_size);
+                    // Matt-Magie step 92: halve the history once for this `go`, not once per iteration.
+                    if active_config.history_age_per_go {
+                        engine_state.search_tables.lock().unwrap().age();
+                    }
                     let mut best_result: Option<SearchResult> = None;
                     // Score of the last completed iteration, used to seed the aspiration window.
                     let mut prev_score: Option<i16> = None;
@@ -206,6 +210,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         crate::search_diag::new_search_generation();
                         engine_state.zobrist_table.read().unwrap().new_search();
                         engine_state.zobrist_table.read().unwrap().set_ways(active_config.tt_cluster_size);
+                        // Matt-Magie step 92: halve the history once for this `go`, not once per iteration.
+                        if active_config.history_age_per_go {
+                            engine_state.search_tables.lock().unwrap().age();
+                        }
                         let mut best_result: Option<SearchResult> = None;
                         let max_depth = active_config.max_depth;
                         // Score of the last completed iteration, used to seed the aspiration window.
@@ -755,6 +763,40 @@ mod tests {
             }
             state.pondering.store(false, Ordering::SeqCst);
             assert!(ends_within(&handle, Duration::from_secs(10)), "{}: no bestmove after ponderhit", name);
+        }
+    }
+
+    /// Matt-Magie step 92: with `history_age_per_go` a `go` halves the history once, however many
+    /// iterations it runs, and a ponder search followed by `ponderhit` is still one `go`. The
+    /// sentinel sits on a1-h8 for White, a move no search from the start position can credit.
+    #[test]
+    fn test_a_go_halves_the_history_once_per_iteration_or_once_per_go() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+        const START: &str = "board rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let white = crate::model::history_side(true);
+        // `go depth 4` runs iterations 2, 3 and 4; `go ponder depth 3` runs 2 and 3.
+        let cases: [(&str, bool, bool, i32); 4] = [
+            ("go depth 4", false, false, 125),
+            ("go depth 4", true, false, 500),
+            ("go ponder depth 3", false, true, 250),
+            ("go ponder depth 3", true, true, 500),
+        ];
+        for (go, per_go, ponder, expected) in cases {
+            let (state, _log) = logging_engine_state();
+            state.search_tables.lock().unwrap().history_table[white][0][63] = 1000;
+            state.pondering.store(ponder, Ordering::SeqCst);
+            let mut config = Config::new();
+            config.use_book = false;
+            config.history_age_per_go = per_go;
+            let handle = run_game_loop(&state, config, &[START, go]);
+            if ponder {
+                std::thread::sleep(Duration::from_millis(300));
+                state.pondering.store(false, Ordering::SeqCst); // ponderhit
+            }
+            assert!(ends_within(&handle, Duration::from_secs(20)), "{}: no bestmove", go);
+            assert_eq!(state.search_tables.lock().unwrap().history_table[white][0][63], expected,
+                "{} with history_age_per_go = {}", go, per_go);
         }
     }
 
