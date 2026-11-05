@@ -375,6 +375,11 @@ pub struct Config {
     /// Matt-Magie step 70: at an expected cut node the negative Singular Extension is -2 instead
     /// of -1 (child depth `depth - 3`). Only sharpens `enable_singular_negative_extension`.
     pub enable_singular_cut_node_extension: bool,
+    /// Matt-Magie step 92 (master v0.51.0), ported in step 93: the history is halved once per `go`
+    /// (at the start of the iterative deepening loop in `game_handler`) instead of once per
+    /// iteration on entry to `get_moves`. `ponderhit` continues the same search and does not halve
+    /// again. See `SearchTables::age`.
+    pub history_age_per_go: bool,
     /// Matt-Magie step 83 (master v0.50.1), ported in step 85: ProbCut. At a non-PV node out of
     /// check with `depth >= probcut_min_depth`, a capture whose Static Exchange clears
     /// `beta + probcut_margin - static_eval` is searched against the raised bound
@@ -645,6 +650,7 @@ impl Config {
             enable_singular_multicut: true,
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
+            history_age_per_go: false,
             // Matt-Magie step 85: on at margin 140 (180 on master). Depth-10 census over 300
             // positions per pool against the rule off: 140 -> +3.5% / +0.6% time (wide / mixed),
             // 180 -> +0.0% / -1.0%, 220 -> +1.4% / -3.4%; 140 is the only margin not slower on
@@ -1135,6 +1141,19 @@ mod tests {
         assert!(Config::new().enable_singular_cut_node_extension, "on in the candidate of step 75");
     }
 
+    /// Matt-Magie step 93: the switch that moves the history halving from each iteration to each `go`.
+    #[test]
+    fn test_history_age_per_go_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["HistoryAgePerGo", "history_age_per_go", "historyagepergo"] {
+            let mut config = Config::new();
+            assert_eq!(config.apply_uci_option(spelling, "true"), UciOptionEffect::Stored);
+            assert!(config.history_age_per_go);
+            assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
+            assert!(!config.history_age_per_go);
+        }
+        assert!(!Config::new().history_age_per_go, "off until step 93 has been played");
+    }
+
     /// Matt-Magie step 72: the switch of the `ponder` token, off by default.
     #[test]
     fn test_ponder_option_reaches_the_field_in_all_spellings() {
@@ -1364,6 +1383,7 @@ impl Config {
             "enablesingularmulticut" => self.enable_singular_multicut = value.eq_ignore_ascii_case("true"),
             "enablesingularnegativeextension" => self.enable_singular_negative_extension = value.eq_ignore_ascii_case("true"),
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
+            "historyagepergo" => self.history_age_per_go = value.eq_ignore_ascii_case("true"),
             "ttclustersize" => if let Ok(v) = value.parse::<usize>() { self.tt_cluster_size = v; },
             "enableprobcut" => self.enable_probcut = value.eq_ignore_ascii_case("true"),
             "probcutmargin" => if let Ok(v) = value.parse::<i16>() { self.probcut_margin = v; },

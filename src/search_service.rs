@@ -111,11 +111,14 @@ impl SearchService {
         // The history is halved on entry, so an entry that stopped earning cutoffs decays
         // instead of holding its rank until the global overflow pass happens to fire. This is
         // one iterative deepening iteration, not one `go`, so that halving runs once per depth
-        // -- see `SearchTables::age`. The lock is taken once per call and never on a search
-        // path: the engine is single-threaded by construction, `threads.rs` rejects
-        // `setoption Threads`.
+        // -- see `SearchTables::age` -- unless `history_age_per_go` moves it to the start of the
+        // `go` in `game_handler` (Matt-Magie step 92 on `master`, step 93 here). The lock is taken
+        // once per call and never on a search path: the engine is single-threaded by construction,
+        // `threads.rs` rejects `setoption Threads`.
         let mut search_tables = engine_state.search_tables.lock().unwrap();
-        search_tables.age();
+        if !config.history_age_per_go {
+            search_tables.age();
+        }
         let tables = &mut *search_tables;
         let killer_moves = &mut *tables.killer_moves;
         let history_table = &mut *tables.history_table;
@@ -2743,6 +2746,32 @@ mod tests {
         assert!(!w.is_empty() && !b.is_empty(), "both sides learn: {} White, {} Black", w.len(), b.len());
         let limit = Config::for_tests().corr_hist_limit;
         assert!(w.iter().chain(b.iter()).all(|&e| (e as i32).abs() <= limit));
+    }
+
+    /// Matt-Magie step 93 (master step 92). A depth-1 search writes no history (the root loop in
+    /// `get_moves` does not, and its children drop into the Quiescence Search), so a sentinel entry
+    /// only moves by the ageing: halved on every call by default, untouched when
+    /// `history_age_per_go` moves the halving to the `go` in `game_handler`.
+    #[test]
+    fn test_get_moves_halves_the_history_unless_it_is_aged_per_go() {
+        let service = Service::new();
+        let white = crate::model::history_side(true);
+        for (per_go, expected) in [(false, 250), (true, 1000)] {
+            let state = fresh_engine_state();
+            state.search_tables.lock().unwrap().history_table[white][0][63] = 1000;
+            let mut config = Config::for_tests();
+            config.history_age_per_go = per_go;
+            let mut board = service.fen.set_fen(
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+            for _ in 0..2 {
+                service.search.get_moves(
+                    &mut board, 1, true, &mut Stats::new(), &config, &service,
+                    &state, std::time::Instant::now(), None, None,
+                );
+            }
+            assert_eq!(state.search_tables.lock().unwrap().history_table[white][0][63], expected,
+                "history_age_per_go = {}", per_go);
+        }
     }
 
     #[test]
