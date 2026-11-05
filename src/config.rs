@@ -650,7 +650,9 @@ impl Config {
             enable_singular_multicut: true,
             enable_singular_negative_extension: true,
             enable_singular_cut_node_extension: true,
-            history_age_per_go: false,
+            // Matt-Magie step 93: on in the candidate, as on `master` since v0.51.0 (step 92: [0, 10]
+            // H1 after 3373 games, +11.8 Elo against v0.50.2).
+            history_age_per_go: true,
             // Matt-Magie step 85: on at margin 140 (180 on master). Depth-10 census over 300
             // positions per pool against the rule off: 140 -> +3.5% / +0.6% time (wide / mixed),
             // 180 -> +0.0% / -1.0%, 220 -> +1.4% / -3.4%; 140 is the only margin not slower on
@@ -1151,7 +1153,7 @@ mod tests {
             assert_eq!(config.apply_uci_option(spelling, "false"), UciOptionEffect::Stored);
             assert!(!config.history_age_per_go);
         }
-        assert!(!Config::new().history_age_per_go, "off until step 93 has been played");
+        assert!(Config::new().history_age_per_go, "on in the candidate of step 93");
     }
 
     /// Matt-Magie step 72: the switch of the `ponder` token, off by default.
