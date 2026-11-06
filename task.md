@@ -2825,3 +2825,10 @@ estimate is an upper bound.
 **Not measured:** the magnitude and saturation of the history under the new decay (not readable over UCI).
 The NNUE branch has the same per-iteration `age`; a port is its own step.
 
+**On the NNUE branch: v0.51.0-NNUE** (2026-11-05/06, Matt-Magie step 93). Ported by hand (context conflicts only:
+the branch has no `enable_lmr_cut_node`). Option off: 300/300 identical trees against v0.50.3-NNUE on both pools.
+Smoke gauntlet 49.0% / 52.5% / 91.5% against v0.50.3- / v0.50.2- / v0.34.0-NNUE. SPRT against v0.50.3-NNUE at
+1s + 150ms, no stop before 2500 games: **[0, 10] H1 after 5614 games, +7.7 Elo, paired 95% CI [+2, +14]**, [0, 5]
+at +2.85. The [0, 10] guard crossed its bound once at about 1550 games (+15 Elo), before the minimum; the
+estimate then settled at +6 to +8.
+
