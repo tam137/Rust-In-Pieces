@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.51.0-NNUE] - 2026-11-06
+
+- **The history is halved once per `go`, not once per iteration** (Matt-Magie step 93, port of master v0.51.0,
+  `task.md` 40 on `master`): new UCI option `HistoryAgePerGo` (true); false is v0.50.3-NNUE's per-iteration
+  decay, tree-identical (300/300 on both pools).
+- SPRT against v0.50.3-NNUE at 1s + 150ms: [0, 10] H1 after 5614 games, **+7.7 Elo, paired 95% CI [+2, +14]**
+  (an upper bound); [0, 5] at +2.85, just short of its bound. Smoke gauntlet: 49.0% / 52.5% / 91.5% against
+  v0.50.3- / v0.50.2- / v0.34.0-NNUE.
+
 ## [V0.50.3-NNUE] - 2026-11-04
 
 - **LMR divisor 140 -> 160** (Matt-Magie step 91, stage B): the Late Move Reduction reduces less. The 140 came from
