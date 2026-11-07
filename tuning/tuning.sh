@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-MM_DIR="${MM_DIR:-/home/tam137/chess/mattmagie}"
+: "${MM_DIR:?set MM_DIR to the Matt-Magie working directory (<mm>), resolved once per session}"
 ENGINE_BIN="${ENGINE_BIN:-$MM_DIR/engines/suprah-0.51.0}"
 MM_BIN="${MM_BIN:-$MM_DIR/target/release/Matt-Magie}"
 OPENINGS="${OPENINGS:-$MM_DIR/openings_wide.txt}"

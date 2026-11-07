@@ -53,7 +53,7 @@ The tuner resumes from `tuning/spsa_state.json` only if its `fingerprint` matche
 ### 5. Compile and Deploy
 
 > [!IMPORTANT]
-> A **brand-new parameter** needs a recompiled engine released into `/home/tam137/chess/mattmagie/engines` before tuning. An old binary does not know the option; the preflight then aborts the run.
+> A **brand-new parameter** needs a recompiled engine released into `<mm>/engines` before tuning. An old binary does not know the option; the preflight then aborts the run.
 
 1. **Recompile and Deploy the Engine:**
    ```bash

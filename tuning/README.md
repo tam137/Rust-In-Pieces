@@ -45,14 +45,14 @@ Active parameters come from the group in `groups.json` (`--group`), or from `--p
 
 ## Usage
 
-Run from this directory:
+Run from this directory; `<mm>` is the Matt-Magie working directory, resolved once at session start:
 
 ```bash
 python3 spsa_tuner.py \
     --group search_and_ordering \
-    --engine /home/tam137/chess/mattmagie/engines/suprah-0.51.0 \
-    --mm /home/tam137/chess/mattmagie/target/release/Matt-Magie \
-    --openings /home/tam137/chess/mattmagie/openings_wide.txt \
+    --engine <mm>/engines/suprah-0.51.0 \
+    --mm <mm>/target/release/Matt-Magie \
+    --openings <mm>/openings_wide.txt \
     --iters 20000 \
     --workers 12
 ```
