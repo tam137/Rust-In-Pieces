@@ -1,27 +1,27 @@
 ---
 name: "spsa-harvest-results"
-description: "Workflow for downloading SPSA tuned parameters from the server and integrating them into the SupraH source code"
+description: "Workflow for collecting SPSA tuned parameters from the local Matt-Magie directory and integrating them into the SupraH source code"
 ---
 
 # SPSA Tuning Result Harvest Skill
 
-This skill defines the standard operating procedure for extracting the latest optimized parameters from a running or completed SPSA tuning session on the remote server and hardcoding them into the SupraH default configuration.
+This skill defines the standard operating procedure for extracting the latest optimized parameters from a running or completed SPSA tuning session on this machine and hardcoding them into the SupraH default configuration.
 
 ## Prerequisites
-- An active or completed SPSA tuning run on the remote server (`<REMOTE_MM_DIR>/tuning/spsa_state.json` or local `<mm>/tuning/spsa_state.json`).
+- An active or completed SPSA tuning run on this machine (`<mm>/tuning/spsa_state.json`).
+- `<mm>` is the Matt-Magie working directory, resolved once at session start (see the path policy in `AGENTS.md`).
 
 ## Workflow Steps
 
-### 1. Download the Latest Tuning State
-Connect to the remote server via SCP or SSH to retrieve the current mathematical state of the tuning process.
+### 1. Snapshot the Latest Tuning State
+Copy the current mathematical state of the tuning process into the repository. The snapshot keeps its historical name, which `scripts/apply_spsa.py` reads.
 
 ```bash
-# Example command to fetch the state file
-scp root@<SERVER_IP>:<REMOTE_MM_DIR>/tuning/spsa_state.json tuning/spsa_state_remote.json
+cp <mm>/tuning/spsa_state.json tuning/spsa_state_remote.json
 ```
 
 ### 2. Parse and Process the Tuned Parameters
-- Read the downloaded `spsa_state_remote.json`.
+- Read the snapshot `tuning/spsa_state_remote.json`.
 - Extract the `"k"` value to log which iteration these results belong to.
 - Extract the `"theta"` dictionary containing the raw tuned values.
 - **Rounding:** Since `spsa_tuner.py` works with floating-point math for gradients, but `config.rs` requires exact integers (`i16` or `i32`), round every value in `"theta"` to the nearest whole integer.
@@ -49,5 +49,5 @@ git commit -am "Apply SPSA tuned parameters from iteration <K>"
 ### 6. (Optional) Restart SPSA with New Baseline
 If tuning is meant to continue:
 - Update `tuning/parameters.json` so the `"value"` attributes match the newly baked-in defaults.
-- Wipe or archive the remote `spsa_history.csv` and `spsa_state.json`.
-- Deploy the newly compiled engine to the server to begin a fresh tuning run anchored at the new optimized baseline.
+- Wipe or archive `<mm>/tuning/spsa_history.csv` and `<mm>/tuning/spsa_state.json`.
+- Release the newly compiled engine with `./build_and_release.sh` and point `<mm>/tuning/tuning.sh` at it to begin a fresh tuning run anchored at the new optimized baseline.

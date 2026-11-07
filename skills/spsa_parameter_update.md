@@ -39,46 +39,46 @@ The `spsa_tuner.py` script relies on `tuning/parameters.json` to know which para
 ```
 
 ### 4. Handle Existing SPSA State
-If a tuning session is currently active on the server, modifying `parameters.json` is not enough, because `spsa_tuner.py` loads its current parameter set from `tuning/spsa_state.json`.
-- **Option A (Hot-Patch - REQUIRED for adjustments):** If you are just adding, fixing or adjusting parameters, **you must keep the tuning progress**. Manually edit `tuning/spsa_state.json` to inject the new/modified parameters into the `"theta"` dictionary. Also, manually add the new parameter column names to the header row of `tuning/spsa_history.csv` and pad all previous rows with their default values. **Do not reset to iteration 1 for mere parameter adjustments!**
-- **Option B (Full Reset - ONLY for new engine variants):** Delete `tuning/spsa_history.csv` and `tuning/spsa_state.json` to start a completely fresh tuning run from iteration 1. **This is strictly reserved for when a completely new engine variant is released.**
+If a tuning session is currently active, modifying `parameters.json` is not enough, because `spsa_tuner.py` loads its current parameter set from `<mm>/tuning/spsa_state.json`.
+- **Option A (Hot-Patch - REQUIRED for adjustments):** If you are just adding, fixing or adjusting parameters, **you must keep the tuning progress**. Manually edit `<mm>/tuning/spsa_state.json` to inject the new/modified parameters into the `"theta"` dictionary. Also, manually add the new parameter column names to the header row of `<mm>/tuning/spsa_history.csv` and pad all previous rows with their default values. **Do not reset to iteration 1 for mere parameter adjustments!**
+- **Option B (Full Reset - ONLY for new engine variants):** Delete `<mm>/tuning/spsa_history.csv` and `<mm>/tuning/spsa_state.json` to start a completely fresh tuning run from iteration 1. **This is strictly reserved for when a completely new engine variant is released.**
 
 ### 5. Compile and Deploy
 Once the code and tuning files are updated:
 
 > [!IMPORTANT]
 > **Why Engine Recompilation & Redeployment is Mandatory:**
-> If you are adding a **brand-new parameter** (such as `easy_move_margin` in the `Config` struct and UCI thread commands), the chess engine binary itself **MUST** be recompiled and redeployed to both local and remote directories before launching the tuner.
+> If you are adding a **brand-new parameter** (such as `easy_move_margin` in the `Config` struct and UCI thread commands), the chess engine binary itself **MUST** be recompiled and released into `<mm>/engines` before launching the tuner.
 > 
-> If you only upload `parameters.json` without compiling the new binary, `spsa_tuner.py` will send the new UCI option command (e.g. `setoption name EasyMoveMargin value 150`) to the old engine binary. Because the old binary does not recognize this new option, it will throw a UCI error or crash.
+> If you only copy `parameters.json` without compiling the new binary, `spsa_tuner.py` will send the new UCI option command (e.g. `setoption name EasyMoveMargin value 150`) to the old engine binary. Because the old binary does not recognize this new option, it will throw a UCI error or crash.
 > 
-> Recompiling and deploying a new engine version ensures that the engine fully supports and parses the new UCI option correctly on the remote ARM server.
+> Recompiling and deploying a new engine version ensures that the engine fully supports and parses the new UCI option correctly.
 
 1. **Recompile and Deploy the Engine:**
-   Run the automated build & release pipeline script to compile the binary and automatically deploy it locally and remotely:
+   Run the automated build & release pipeline script to compile the binary and deploy it into `<mm>/engines`:
    ```bash
    ./build_and_release.sh
    ```
 2. **Update tuning.sh:**
-   Open `tuning/tuning.sh` and update the `--engine` parameter to point to the newly released binary path (e.g., `../engines/suprah-X.Y.Z`), then upload it to the server:
+   Open `tuning/tuning.sh` and update the `--engine` parameter to point to the newly released binary path (e.g., `../engines/suprah-X.Y.Z`), then copy it into the Matt-Magie tuning directory:
    ```bash
-   scp tuning/tuning.sh root@<SERVER_IP>:<REMOTE_MM_DIR>/tuning/
+   cp tuning/tuning.sh <mm>/tuning/
    ```
-3. **Upload the updated parameter configurations:**
+3. **Copy the updated parameter configurations:**
    ```bash
-   scp tuning/parameters.json root@<SERVER_IP>:<REMOTE_MM_DIR>/tuning/
+   cp tuning/parameters.json <mm>/tuning/
    ```
-5. **Server Tuning Configuration Rules:**
+4. **Tuning Configuration Rules:**
    > [!IMPORTANT]
-   > - **Maximal 4 Workers auf dem Server:** Der Parameter `--workers` darf auf dem Server **maximal auf 4** gesetzt werden (`--workers 4`), um eine Überlastung der Server-Ressourcen zu vermeiden.
-   > - **Zwingende Gruppenangabe (`--group`):** `spsa_tuner.py` erfordert **immer** die Angabe von `--group <gruppenname>`. Mögliche Gruppen sind in `tuning/groups.json` definiert (`pawns`, `king_safety`, `pieces_and_outposts`, `rooks`, `tactics_and_threats`, `search_and_ordering`, `all`). Für ein vollständiges Tuning aller Parameter muss explizit `--group all` übergeben werden.
+   > - **At most 4 workers:** `--workers` must **not exceed 4** (`--workers 4`), so the tuning run does not starve the host of resources.
+   > - **Mandatory group (`--group`):** `spsa_tuner.py` **always** requires `--group <group_name>`. The available groups are defined in `tuning/groups.json` (`pawns`, `king_safety`, `pieces_and_outposts`, `rooks`, `tactics_and_threats`, `search_and_ordering`, `all`). A full tuning run over all parameters must pass `--group all` explicitly.
 
-6. **Restart SPSA on the Server:**
-   SSH into the server, stop the active SPSA process (Ctrl+C in tmux).
-   - **If Hot-Patching (Adjustments):** Upload the modified `spsa_state.json` and `spsa_history.csv`. Only delete temporary match PGNs (`rm -f <REMOTE_MM_DIR>/tuning/tmp_*.pgn`).
-   - **If Full Reset (New Engine Variant):** Clean up the remote state/history files along with temporary match PGNs:
+5. **Restart SPSA:**
+   Stop the active SPSA process (Ctrl+C in the `spsa_tuning` tmux session).
+   - **If Hot-Patching (Adjustments):** Keep the edited `spsa_state.json` and `spsa_history.csv` in `<mm>/tuning/`. Only delete temporary match PGNs (`rm -f <mm>/tuning/tmp_*.pgn`).
+   - **If Full Reset (New Engine Variant):** Clean up the state/history files along with temporary match PGNs:
      ```bash
-     rm -f <REMOTE_MM_DIR>/tuning/spsa_history.csv <REMOTE_MM_DIR>/tuning/spsa_state.json <REMOTE_MM_DIR>/tuning/tmp_*.pgn
+     rm -f <mm>/tuning/spsa_history.csv <mm>/tuning/spsa_state.json <mm>/tuning/tmp_*.pgn
      ```
    Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to resume or start the SPSA tuning run.
 
