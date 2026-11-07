@@ -148,35 +148,12 @@ if cp "target/release/suprah" "$COPY_TARGET" && chmod +x "$COPY_TARGET"; then
     rm -f Cargo.toml.bak CHANGELOG.md.bak
     echo -e "${GREEN}Success: Deployed to $COPY_TARGET!${NC}"
 
-    # Step 6: Remote ARM Server Compilation & Deployment
-    if [ -z "$EODSERVERIP" ]; then
-        echo -e "\n${YELLOW}Warning: Environment variable EODSERVERIP is not set.${NC}"
-        echo -e "Skipping native compilation and deployment on remote ARM server."
-        echo -e "To deploy to the ARM server, please run: export EODSERVERIP=\"<IP>\" before releasing."
-    else
-        echo -e "\n${YELLOW}[6/6] Starting remote ARM compilation and deployment to ${EODSERVERIP}...${NC}"
-        REMOTE_USER="root"
-        REMOTE_DIR="/root/mattmagie"
-        REMOTE_TMP_DIR="${REMOTE_DIR}/tmp_suprah_build"
-
-        # A. Package, upload, compile and deploy in a single SSH connection to avoid rate limiting / disconnections
-        echo -e "${YELLOW}Packaging, uploading, and compiling suprah on remote server natively...${NC}"
-        tar -cf - Cargo.toml src eval_models 2>/dev/null | ssh ${REMOTE_USER}@${EODSERVERIP} "mkdir -p ${REMOTE_TMP_DIR} && tar -xf - -C ${REMOTE_TMP_DIR} && source \$HOME/.cargo/env && cd ${REMOTE_TMP_DIR} && rm -f Cargo.lock && cargo build --release && mkdir -p ${REMOTE_DIR}/engines && cp target/release/suprah ${REMOTE_DIR}/engines/${ENGINE_FILENAME} && chmod +x ${REMOTE_DIR}/engines/${ENGINE_FILENAME} && cd / && rm -rf ${REMOTE_TMP_DIR}"
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}Error: Remote compilation and deployment failed!${NC}"
-            rollback
-            exit 1
-        fi
-        echo -e "${GREEN}Success: Remote compilation and deployment completed successfully!${NC}"
-    fi
+    # Releases are local-only: the former remote ARM deployment step was removed on 2026-11-07.
 
     # Git instructions (automatic commit and tag removed to ensure atomic commits after changelog enrichment/benchmarks)
     echo -e "\n${CYAN}================================================================${NC}"
     echo -e "${GREEN}${BOLD}RELEASE BUILD & DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
     echo -e "Engine ${BOLD}${ENGINE_FILENAME}${NC} is now ready for matchups."
-    if [ -n "$EODSERVERIP" ]; then
-        echo -e "ARM build deployed to remote server at ${EODSERVERIP}:/root/mattmagie/engines/${ENGINE_FILENAME}"
-    fi
     echo -e "\n${YELLOW}${BOLD}Next Manual Steps to Finalize Release:${NC}"
     echo -e "1. Run perft benchmarks and prepend them to perft.md."
     echo -e "2. Open CHANGELOG.md and manually enrich the release notes with detailed explanations."

@@ -249,11 +249,13 @@ if __name__ == "__main__":
     parser.add_argument("--inc", type=int, default=10, help="Increment per move in milliseconds")
     parser.add_argument("--mutate", type=float, default=10.0, help="Perturbation percentage per parameter (e.g., 10 for 10%%)")
     parser.add_argument("--lr", type=float, default=5.0, help="Learning rate as a percentage of mutation step size (e.g. 5 for 5%%)")
-    parser.add_argument("--logpath", default="/root/mattmagie/tuning/enginelogs")
+    parser.add_argument("--logpath", default="", help="Engine log directory (default: <mm>/tuning/enginelogs)")
     parser.add_argument("--book", default="", help="Path to PolyGlot opening book (.bin file)")
     parser.add_argument("--params", default="", help="Optional explicit comma-separated list of parameters to tune (overrides group)")
     parser.add_argument("--iters", type=int, default=100, help="Number of SPSA iterations to run")
     args = parser.parse_args()
+    if not args.logpath:
+        args.logpath = os.path.join(args.mm, "tuning", "enginelogs")
     
     # Load groups.json
     groups_file = os.path.join(os.path.dirname(__file__), "groups.json")

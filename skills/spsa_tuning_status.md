@@ -5,16 +5,17 @@ description: "Workflow for querying SPSA tuning status, checking tmux sessions, 
 
 # SPSA Tuning Status & Technical Plausibility Verification Skill
 
-This skill defines the standard operating procedure for monitoring an active SPSA tuning session on the remote server, displaying iteration statistics, and verifying technical and mathematical correctness.
+This skill defines the standard operating procedure for monitoring an active SPSA tuning session on this machine, displaying iteration statistics, and verifying technical and mathematical correctness.
 
 ## Prerequisites
-- An active SPSA tuning run on the remote server (`$EODSERVERIP` or `<SERVER_IP>`).
+- An active SPSA tuning run on this machine.
+- `<mm>` is the Matt-Magie working directory, resolved once at session start; export it as `MM_DIR` before running the script.
 - The tuner has parameter logging enabled (setting the `logpath` UCI option).
 
 ## Verification Workflow
 
 ### 1. Execute Automated Plausibility Report
-Run the automated verification script locally. This script connects to the remote server, captures the tmux window, parses SPSA state, downloads the latest engine log files, and performs safety/plausibility checks:
+Run the automated verification script locally. This script captures the tmux window, parses SPSA state, reads the latest engine log files, and performs safety/plausibility checks:
 
 ```bash
 python3 scripts/check_spsa_status.py
@@ -24,40 +25,40 @@ python3 scripts/check_spsa_status.py
 If manual verification is needed or in case of script failure, follow these steps:
 
 #### A. Inspect Tmux Running output
-Attach to or capture the remote tmux session to verify the script is printing progress cleanly and not throwing python errors:
+Attach to or capture the local tmux session to verify the script is printing progress cleanly and not throwing python errors:
 ```bash
-ssh root@$EODSERVERIP "tmux capture-pane -t spsa_tuning -p"
+tmux capture-pane -t spsa_tuning -p
 ```
 - **Check Progress**: Verify the current iteration (e.g. `Iter 4`) and progress of the game batch (e.g. `Progress: 12% (90/750)`).
 - **Check Command & Constraints**:
   - Look for the active command line (e.g. `python3 spsa_tuner.py --group pawns ...`).
   - **Mandatory `--group` Parameter**: Verify that a `--group` argument (e.g. `pawns`, `king_safety`, or `all`) is explicitly supplied.
-  - **Maximal 4 Workers auf dem Server**: Verify that `--workers` does **not exceed 4** (`--workers 4`).
+  - **Maximal 4 Workers**: Verify that `--workers` does **not exceed 4** (`--workers 4`).
 
 #### B. Fetch SPSA State
 Check the current state parameters being adjusted:
 ```bash
-ssh root@$EODSERVERIP "cat <REMOTE_MM_DIR>/tuning/spsa_state.json"
+cat <mm>/tuning/spsa_state.json
 ```
 This contains:
 - `k`: Current iteration number.
 - `theta`: Current baseline values of the parameters.
 
 #### C. Verify Engine Parameter Logs
-Inspect the latest engine log files inside the remote logs directory:
+Inspect the latest engine log files inside the logs directory:
 ```bash
 # List latest logs
-ssh root@$EODSERVERIP "ls -t <REMOTE_MM_DIR>/tuning/enginelogs/*.log | head -n 3"
+ls -t <mm>/tuning/enginelogs/*.log | head -n 3
 
 # Cat the content of the latest log file
-ssh root@$EODSERVERIP "cat <REMOTE_MM_DIR>/tuning/enginelogs/engine_<pid>.log"
+cat <mm>/tuning/enginelogs/engine_<pid>.log
 ```
 
 Verify the following:
-1. **logpath Option**: Look for the string `Received option: logpath = <REMOTE_MM_DIR>/tuning/enginelogs`. This confirms that the engine received the custom option and successfully initialized its custom file writer log callback.
+1. **logpath Option**: Look for the string `Received option: logpath = <mm>/tuning/enginelogs`. This confirms that the engine received the custom option and successfully initialized its custom file writer log callback.
 2. **Current Parameter Dump**: Look for `Current Engine Parameters:` followed by the list of parameters.
 3. **Parameter Plausibility Check**:
-   - Compare the parameter values in the log file with the `theta` values in the remote `spsa_state.json`.
+   - Compare the parameter values in the log file with the `theta` values in the `spsa_state.json`.
    - **Active Parameters**: The active parameters (those listed in `--params` in the command line, or all parameters if no `--params` was specified) should differ from the SPSA baseline `theta` by their perturbation step.
    - **Inactive Parameters**: The inactive parameters (those *not* listed in `--params`) **MUST be exactly equal** to their starting baseline defaults in `parameters.json` / `spsa_state.json`. If they differ, SPSA is incorrectly modifying non-targeted parameters.
 

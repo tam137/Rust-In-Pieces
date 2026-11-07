@@ -1,4 +1,11 @@
 import re
+import os
+import sys
+
+# The Matt-Magie directory differs between hosts (see the path policy in AGENTS.md): resolve it from MM_DIR.
+MM_DIR = os.environ.get("MM_DIR")
+if not MM_DIR:
+    sys.exit("Error: set MM_DIR to the Matt-Magie working directory.")
 
 # Exact map of positions present in book.rs
 # FEN strings -> list of allowed moves in book.rs
@@ -30,7 +37,7 @@ book_rs_fen_moves = {
 
 print("=== CHECKING GAMES IN PGN FOR MOVES ABSENT FROM BOOK.RS ===")
 
-with open("/home/mattmagie/mattmagie/all.pgn", "r", encoding="utf-8", errors="ignore") as f:
+with open(os.path.join(MM_DIR, "all.pgn"), "r", encoding="utf-8", errors="ignore") as f:
     content = f.read()
 
 games = content.split("[Event ")

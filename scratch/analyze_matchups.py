@@ -1,8 +1,12 @@
+import os
 import sys
 import re
 from collections import defaultdict
 
-log_file_path = "/home/mattmagie/mattmagie/mattmagie.log"
+MM_DIR = os.environ.get("MM_DIR")
+if not MM_DIR:
+    sys.exit("Error: set MM_DIR to the Matt-Magie working directory.")
+log_file_path = os.path.join(MM_DIR, "mattmagie.log")
 
 # Game session tracker
 # A new game starts with "Matt-Magie" start or loaded eng lines.
