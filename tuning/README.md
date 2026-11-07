@@ -45,7 +45,7 @@ Active parameters come from the group in `groups.json` (`--group`), or from `--p
 
 ## Usage
 
-Run from this directory:
+Run from this directory; `<mm>` is the Matt-Magie working directory, resolved once at session start:
 
 ```bash
 python3 spsa_tuner.py \
