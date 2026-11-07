@@ -89,3 +89,9 @@ On start an existing state is resumed at `k_done + 1`. A state whose fingerprint
 ## Failures
 
 A pair in which a game has no result is discarded: no update, counted in `discarded`, the iteration is still used up. The run aborts after 3 discarded pairs in a row, or once 100 pairs are played when more than 1% of the pairs are discarded.
+
+## Known limits
+
+- The preflight sees that an option name reached the engine, not that its value parsed: the engine logs `Received option` even when it ignores an unparsable value. Every registered parameter is an integer, so this does not arise today.
+- Early in a run `c_k` is about `2.4 * c_end` (at N = 5000); a parameter close to a bound is then perturbed on one side only, which shrinks its effective step. Fishtest behaves the same.
+- On resume the inactive parameters keep the values stored in the state; a changed default in `parameters.json` for an inactive parameter is not picked up.
