@@ -324,8 +324,11 @@ class MattMagieRunner:
         plus = format_options(job.plus, extra)
         minus = format_options(job.minus, extra)
         opening = self.openings[job.opening_idx] if self.openings else ""
-        g0 = self._game(f"k{job.k}_a", plus, minus, opening)   # theta+ White
-        g1 = self._game(f"k{job.k}_b", minus, plus, opening)   # theta+ Black
+        # The pid keeps two tuners on one run directory, and a Matt-Magie left over from an
+        # earlier process of this run (k repeats after a resume), out of each other's PGNs.
+        tag = f"p{os.getpid()}_k{job.k}"
+        g0 = self._game(f"{tag}_a", plus, minus, opening)   # theta+ White
+        g1 = self._game(f"{tag}_b", minus, plus, opening)   # theta+ Black
         return [g0, g1]
 
     def stop(self):
@@ -354,9 +357,9 @@ def run(tuner, runner, workers, max_consecutive_failures=3, max_failure_rate=0.0
                 job = tuner.next_job()
             inflight[pool.submit(runner.play_pair, job)] = job
 
-        for _ in range(workers):
-            submit()
         try:
+            for _ in range(workers):
+                submit()
             while inflight:
                 finished, _ = concurrent.futures.wait(inflight, return_when=concurrent.futures.FIRST_COMPLETED)
                 for fut in finished:
@@ -534,6 +537,13 @@ def main(argv=None):
               f"step_1 {s.step(1):.4f}  step_N {s.step(args.iters):.4f}")
     if args.dry_run:
         return
+    def as_interrupt(signum, frame):
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    # SIGTERM and a lost terminal stop the run like Ctrl-C: Matt-Magie runs in its own session
+    # and would otherwise keep playing (and keep appending to its PGN) after the tuner is gone.
+    signal.signal(signal.SIGTERM, as_interrupt)
+    signal.signal(signal.SIGHUP, as_interrupt)
     runner = MattMagieRunner(args.mm, args.engine, args.time, args.inc, args.hash, openings,
                              args.run_dir, args.logpath)
     try:

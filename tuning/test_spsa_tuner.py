@@ -157,17 +157,19 @@ class Updates(Base):
 
 class Pairs(Base):
     def test_pair_plays_one_opening_with_colours_swapped(self):
-        calls = []
+        calls, tags = [], []
 
         class Rec(st.MattMagieRunner):
             def _game(self, tag, white_opts, black_opts, opening):
                 calls.append((white_opts, black_opts, opening))
+                tags.append(tag)
                 return ("1-0", "")
 
         r = Rec.__new__(Rec)
         r.openings, r.hash_mb, r.logpath = ["e2e4 e7e5", "d2d4"], 16, ""
         r.play_pair(st.Job(1, {"x": 1}, {"x": 3}, {"x": 1}, 1))
         self.assertEqual(calls[0], ("x=3,Hash=16", "x=1,Hash=16", "d2d4"))
+        self.assertEqual(tags, [f"p{os.getpid()}_k1_a", f"p{os.getpid()}_k1_b"])
         self.assertEqual(calls[1], ("x=1,Hash=16", "x=3,Hash=16", "d2d4"))
 
     def test_result_is_counted_from_theta_plus_for_both_colours(self):
