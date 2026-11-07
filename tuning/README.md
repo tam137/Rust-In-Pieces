@@ -27,7 +27,7 @@ One iteration:
    theta_i += (a_k_i / c_k_i) * (W - L of theta+ in the pair) * delta_i
    ```
 
-Four pairs (`--workers`, at most 4) are in flight asynchronously. Each pair is drawn from the theta current when it was issued, and each update is applied as soon as its pair finishes.
+Up to `--workers` pairs (at most 12, i.e. 12 of the 16 cores of the local host) are in flight asynchronously. Each pair is drawn from the theta current when it was issued, and each update is applied as soon as its pair finishes.
 
 ## `parameters.json`
 

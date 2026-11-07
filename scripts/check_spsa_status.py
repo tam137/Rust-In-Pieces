@@ -50,7 +50,7 @@ def main():
             print(f"  {line}")
             if "--workers" in line:
                 w = line.split("--workers")[1].split()[0]
-                if w.isdigit() and int(w) > 4:
+                if w.isdigit() and int(w) > 12:
                     print(f"  {RED}--workers {w} exceeds 4{NC}")
     else:
         print(f"  {YELLOW}no spsa_tuner.py process running{NC}")
