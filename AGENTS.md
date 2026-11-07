@@ -31,7 +31,7 @@ Your goal is to help me design, optimize, and implement chess engine concepts at
 - **Documentation:** Write all docstrings and code comments in clear, technical English.
 
 ## Git & Version Control Policy
-- **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit, or when executed automatically inside the `./build_and_release.sh` pipeline script.
+- **Commits Rule:** Only create a Git commit if the USER explicitly asks/instructs the AI to perform a commit, or when executed automatically inside the `./build_and_release.sh` pipeline script. Approval of an implementation plan by the user includes commits on that plan's work branch; pushing still requires an explicit instruction.
 - **Commit Message Format:** Commit messages MUST consist of a **single line only**. Never write a multi-line commit body; the detailed technical rationale belongs exclusively in `CHANGELOG.md`, which is the single source of truth for release documentation.
   - Release commits follow the scheme `Release vX.Y.Z: <concise description>` (NNUE branch: `Release vX.Y.Z-NNUE: <concise description>`).
   - Keep the line short and descriptive, consistent with the existing commit history.
