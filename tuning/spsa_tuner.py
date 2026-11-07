@@ -480,7 +480,7 @@ def main(argv=None):
     ap.add_argument("--openings", required=True, help="opening lines, one line of UCI moves each")
     ap.add_argument("--iters", type=int, required=True, help="N, the number of game pairs")
     ap.add_argument("--r-end", type=float, default=0.002)
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--time", type=int, default=1000, help="time per game in ms")
     ap.add_argument("--inc", type=int, default=50,
                     help="increment per move in ms; at 10 ms the engine loses most games on time (step 94)")

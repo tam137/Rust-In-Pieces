@@ -8,7 +8,7 @@ MM_DIR="${MM_DIR:-/home/tam137/chess/mattmagie}"
 ENGINE_BIN="${ENGINE_BIN:-$MM_DIR/engines/suprah-0.51.0}"
 MM_BIN="${MM_BIN:-$MM_DIR/target/release/Matt-Magie}"
 OPENINGS="${OPENINGS:-$MM_DIR/openings_wide.txt}"
-WORKERS="${WORKERS:-4}"
+WORKERS="${WORKERS:-12}"
 ITERS="${ITERS:-20000}"
 
 echo "Starting SPSA tuning for singular group:"

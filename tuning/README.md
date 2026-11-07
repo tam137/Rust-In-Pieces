@@ -54,7 +54,7 @@ python3 spsa_tuner.py \
     --mm /home/tam137/chess/mattmagie/target/release/Matt-Magie \
     --openings /home/tam137/chess/mattmagie/openings_wide.txt \
     --iters 20000 \
-    --workers 4
+    --workers 12
 ```
 
 Options:
@@ -62,7 +62,7 @@ Options:
 - `--engine`, `--mm`, `--openings` (required): engine, Matt-Magie binary, opening lines (one line of UCI moves each).
 - `--iters` (required): `N`, the number of game pairs.
 - `--r-end` (default `0.002`).
-- `--workers` (default `4`, at most `4`).
+- `--workers` (default `12`, at most `12`: 12 of the 16 cores of the local host, owner 2026-11-07).
 - `--time`, `--inc`: time per game and increment per move in milliseconds (defaults `1000`, `50`; at 10 ms the engine lost 10 of 16 games on time, step 94). More than 2% time losses after 50 pairs abort the run.
 - `--hash` (default `16` MB), `--seed`.
 - `--param-file` (default `parameters.json`), `--start name=value,...`: starting theta other than `value` (e.g. a displaced value).
