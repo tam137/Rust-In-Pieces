@@ -27,7 +27,7 @@ tmux capture-pane -t spsa_tuning -p
 ```
 - **Progress line**: `k <k>/<N> +W =D -L disc <discarded> time <time losses> ill <illegal> <rate> pairs/h | <theta>`.
 - **Startup lines**: `preflight: <n> options confirmed by the engine` must be present; any `warning:` lines (value on a bound) deserve a look.
-- **Command constraints**: `--group` is given and `--workers` does **not exceed 4** (the tuner refuses more).
+- **Command constraints**: `--group` is given and `--workers` does **not exceed 12** (12 of 16 cores, owner 2026-11-07; the tuner refuses more).
 
 #### B. Read the state
 ```bash

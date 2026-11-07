@@ -42,7 +42,7 @@ import time
 GAMMA = 0.101
 ALPHA = 0.602
 STATE_VERSION = 2
-MAX_WORKERS = 4  # owner's rule: at most four games at a time on this host
+MAX_WORKERS = 12  # owner 2026-11-07: 12 of the 16 cores of the local host; one game uses about one core
 MAX_REDRAWS = 100
 
 

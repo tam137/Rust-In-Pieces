@@ -62,7 +62,7 @@ The tuner resumes from `tuning/spsa_state.json` only if its `fingerprint` matche
 2. **Point the run at it:** set `ENGINE_BIN` (or edit the default) in `tuning/tuning.sh`. The tuner runs from the repository's `tuning/` directory; nothing needs to be copied into the Matt-Magie directory.
 3. **Tuning Configuration Rules:**
    > [!IMPORTANT]
-   > - **At most 4 workers:** `--workers` must not exceed 4 (the tuner refuses more).
+   > - **At most 12 workers:** `--workers` must not exceed 12, i.e. 12 of the 16 cores of the local host (owner, 2026-11-07; the tuner refuses more). One game uses about one core.
    > - **Mandatory group (`--group`):** groups are defined in `tuning/groups.json`. `--params a,b,c` overrides the group's list (the group is then only a label).
    > - **`--iters`** is the number of game pairs N; `--r-end` defaults to 0.002. There are no `--mutate`, `--lr`, `--book` or `--games` options any more.
 4. **Restart SPSA:** stop the run (Ctrl+C in the `spsa_tuning` tmux session; in-flight pairs are discarded, the state is saved). Apply Option A or B, check with `--dry-run`, then launch `./tuning.sh` in the `spsa_tuning` tmux window.
