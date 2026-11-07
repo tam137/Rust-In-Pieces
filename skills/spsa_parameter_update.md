@@ -5,7 +5,7 @@ description: "Workflow for adding new SupraH evaluation parameters to the SPSA t
 
 # SPSA Tuning Parameter Update Skill
 
-This skill defines the standard operating procedure for integrating newly developed evaluation parameters into the automated SPSA tuning pipeline for the SupraH chess engine.
+This skill defines the standard operating procedure for integrating newly developed evaluation parameters into the SPSA tuning pipeline for the SupraH chess engine.
 
 ## Prerequisites
 - The developer has added new parameter fields to the `Config` struct in `src/config.rs`.
@@ -17,68 +17,52 @@ This skill defines the standard operating procedure for integrating newly develo
 Analyze `src/config.rs` to identify any newly added fields in the `Config` struct. Check both the struct definition and the `default()` implementation to understand the baseline values.
 
 ### 2. Verify UCI Compatibility
-Before a parameter can be tuned via SPSA, the engine must be able to receive it via the UCI `setoption` command.
-- Open `src/game_handler.rs`.
-- Locate the `setoption` parsing block.
-- **Action Required:** Ensure that every new parameter from `config.rs` has a corresponding matching string in the `match` statement that maps the UCI string to the `config` field.
+Before a parameter can be tuned, the engine must receive it via the UCI `setoption` command.
+- Open `src/game_handler.rs` and locate the `setoption` parsing block.
+- **Action Required:** Every new parameter needs a matching string in the `match` statement that maps the UCI name to the `config` field.
   - *Example:* `"king_open_file_malus" => config.king_open_file_malus = value as i16,`
+- The tuner's preflight checks this: it aborts if the engine log shows `Unknown option ignored: <name>` or no `Received option: <name> = <value>` line.
 
 ### 3. Update the Tuning JSON (`tuning/parameters.json`)
-The `spsa_tuner.py` script relies on `tuning/parameters.json` to know which parameters to perturb and what their absolute bounds are.
-- Open `tuning/parameters.json`.
-- Add a new JSON block for each new parameter.
-- Set the `value` to the default value defined in `config.rs`.
-- Determine reasonable `min` and `max` bounds (typically `value - 100` and `value + 100`, but capped appropriately so e.g. bonuses don't become negative if it breaks logic).
-  
+- Add a JSON block for each new parameter.
+- `value`: the default from `config.rs`.
+- `min`, `max`: hard bounds that keep the logic sane (e.g. a bonus must not become negative if that breaks the logic).
+- `c_end`: required for every parameter that is tuned. Choose roughly the change that costs a few Elo; it must be `>= 1` (integer parameters), and the range `max - min` must be at least `4 * c_end`. The tuner refuses to start otherwise.
+
 ```json
 "king_open_file_malus": {
     "value": 40,
     "min": 0,
-    "max": 150
+    "max": 150,
+    "c_end": 4
 }
 ```
 
+- Add the parameter to the fitting group in `tuning/groups.json` if it should be tuned with that group.
+
 ### 4. Handle Existing SPSA State
-If a tuning session is currently active, modifying `parameters.json` is not enough, because `spsa_tuner.py` loads its current parameter set from `<mm>/tuning/spsa_state.json`.
-- **Option A (Hot-Patch - REQUIRED for adjustments):** If you are just adding, fixing or adjusting parameters, **you must keep the tuning progress**. Manually edit `<mm>/tuning/spsa_state.json` to inject the new/modified parameters into the `"theta"` dictionary. Also, manually add the new parameter column names to the header row of `<mm>/tuning/spsa_history.csv` and pad all previous rows with their default values. **Do not reset to iteration 1 for mere parameter adjustments!**
-- **Option B (Full Reset - ONLY for new engine variants):** Delete `<mm>/tuning/spsa_history.csv` and `<mm>/tuning/spsa_state.json` to start a completely fresh tuning run from iteration 1. **This is strictly reserved for when a completely new engine variant is released.**
+The tuner resumes from `tuning/spsa_state.json` only if its `fingerprint` matches the run: group, active list, `n` (N), `r_end`, `c_end` of every active parameter, engine basename. Adding an active parameter, changing a `c_end` or releasing a new engine therefore makes the tuner refuse the state.
+- **Option A (Hot-Patch, keeps progress):** Edit the state by hand, consistently:
+  - `fingerprint`: update `active`, `c_end` (and `engine` for a new binary) to exactly what the new command line and `parameters.json` produce; `group`, `n`, `r_end` must match the command line.
+  - `theta`: add the new parameter with its start value.
+  - `k_done` and `counters` stay as they are; the schedules continue at `k_done + 1`.
+  - `spsa_history.csv`: the header must list the active parameters in the new order; add the new column to the header and pad the previous rows (e.g. with the start value), or archive the old file.
+  - Run `python3 spsa_tuner.py ... --dry-run` to confirm the state is accepted and the preflight passes.
+- **Option B (Full Reset):** Archive or delete `tuning/spsa_state.json` and `tuning/spsa_history.csv` and start from iteration 1. Use this for a new engine variant or a new run definition.
 
 ### 5. Compile and Deploy
-Once the code and tuning files are updated:
 
 > [!IMPORTANT]
-> **Why Engine Recompilation & Redeployment is Mandatory:**
-> If you are adding a **brand-new parameter** (such as `easy_move_margin` in the `Config` struct and UCI thread commands), the chess engine binary itself **MUST** be recompiled and released into `<mm>/engines` before launching the tuner.
-> 
-> If you only copy `parameters.json` without compiling the new binary, `spsa_tuner.py` will send the new UCI option command (e.g. `setoption name EasyMoveMargin value 150`) to the old engine binary. Because the old binary does not recognize this new option, it will throw a UCI error or crash.
-> 
-> Recompiling and deploying a new engine version ensures that the engine fully supports and parses the new UCI option correctly.
+> A **brand-new parameter** needs a recompiled engine released into `/home/tam137/chess/mattmagie/engines` before tuning. An old binary does not know the option; the preflight then aborts the run.
 
 1. **Recompile and Deploy the Engine:**
-   Run the automated build & release pipeline script to compile the binary and deploy it into `<mm>/engines`:
    ```bash
    ./build_and_release.sh
    ```
-2. **Update tuning.sh:**
-   Open `tuning/tuning.sh` and update the `--engine` parameter to point to the newly released binary path (e.g., `../engines/suprah-X.Y.Z`), then copy it into the Matt-Magie tuning directory:
-   ```bash
-   cp tuning/tuning.sh <mm>/tuning/
-   ```
-3. **Copy the updated parameter configurations:**
-   ```bash
-   cp tuning/parameters.json <mm>/tuning/
-   ```
-4. **Tuning Configuration Rules:**
+2. **Point the run at it:** set `ENGINE_BIN` (or edit the default) in `tuning/tuning.sh`. The tuner runs from the repository's `tuning/` directory; nothing needs to be copied into the Matt-Magie directory.
+3. **Tuning Configuration Rules:**
    > [!IMPORTANT]
-   > - **At most 4 workers:** `--workers` must **not exceed 4** (`--workers 4`), so the tuning run does not starve the host of resources.
-   > - **Mandatory group (`--group`):** `spsa_tuner.py` **always** requires `--group <group_name>`. The available groups are defined in `tuning/groups.json` (`pawns`, `king_safety`, `pieces_and_outposts`, `rooks`, `tactics_and_threats`, `search_and_ordering`, `all`). A full tuning run over all parameters must pass `--group all` explicitly.
-
-5. **Restart SPSA:**
-   Stop the active SPSA process (Ctrl+C in the `spsa_tuning` tmux session).
-   - **If Hot-Patching (Adjustments):** Keep the edited `spsa_state.json` and `spsa_history.csv` in `<mm>/tuning/`. Only delete temporary match PGNs (`rm -f <mm>/tuning/tmp_*.pgn`).
-   - **If Full Reset (New Engine Variant):** Clean up the state/history files along with temporary match PGNs:
-     ```bash
-     rm -f <mm>/tuning/spsa_history.csv <mm>/tuning/spsa_state.json <mm>/tuning/tmp_*.pgn
-     ```
-   Finally, launch `./tuning.sh` in the `spsa_tuning` tmux window to resume or start the SPSA tuning run.
-
+   > - **At most 4 workers:** `--workers` must not exceed 4 (the tuner refuses more).
+   > - **Mandatory group (`--group`):** groups are defined in `tuning/groups.json`. `--params a,b,c` overrides the group's list (the group is then only a label).
+   > - **`--iters`** is the number of game pairs N; `--r-end` defaults to 0.002. There are no `--mutate`, `--lr`, `--book` or `--games` options any more.
+4. **Restart SPSA:** stop the run (Ctrl+C in the `spsa_tuning` tmux session; in-flight pairs are discarded, the state is saved). Apply Option A or B, check with `--dry-run`, then launch `./tuning.sh` in the `spsa_tuning` tmux window.

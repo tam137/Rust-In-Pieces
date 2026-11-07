@@ -1,63 +1,91 @@
 # Simultaneous Perturbation Stochastic Approximation (SPSA) Tuning
 
-This directory contains the implementation of the SPSA algorithm used for tuning evaluation parameters of the Suprah chess engine. SPSA is a highly efficient stochastic optimization method specifically suited for objective functions that are costly to evaluate and highly noisy, such as playing hundreds of chess games.
+This directory contains the SPSA tuner (`spsa_tuner.py`) for the parameters of the Suprah chess engine. SPSA suits objective functions that are costly and very noisy to evaluate, such as the result of chess games. The tuner follows the form Fishtest uses: one iteration is one game pair.
 
 ## Core Concept
 
-Unlike traditional gradient descent, which requires perturbing each parameter individually to estimate partial derivatives (requiring `2 * N` evaluations for `N` parameters), SPSA estimates the gradient for all parameters simultaneously using only two evaluations (two engine variants playing against each other).
+SPSA perturbs all active parameters at once in a random direction and estimates the gradient from a single comparison of `theta+` against `theta-`, instead of perturbing each parameter on its own.
 
-By running this process iteratively, the optimizer finds the global maximum of the objective function (the win rate of the engine).
+## Algorithm
 
-## Technical Workflow
+Let `N` be the number of iterations (`--iters`, game pairs) and `k = 1..N` the iteration. Each active parameter `i` has an absolute final perturbation `c_end_i` (from `parameters.json`); `r_end` (`--r-end`, default `0.002`) is global.
 
-A single iteration of the SPSA tuning script (`spsa_tuner.py`) consists of the following technical steps:
+```
+gamma = 0.101, alpha = 0.602, A = 0.1 * N
+c_k_i = c_end_i * N^gamma / k^gamma
+a_k_i = r_end * c_end_i^2 * (A + N)^alpha / (A + k)^alpha
+```
 
-### 1. Simultaneous Perturbation
-For every active parameter, a random perturbation direction `delta` is chosen using a Bernoulli distribution (`+1` or `-1`). 
-The step size of the perturbation is dynamically calculated based on the current absolute value of the parameter. This dynamic scaling ensures that parameters with large values (e.g., 300) receive proportionally larger perturbations than parameters with very small values (e.g., 2).
+At the last iteration the perturbation is `c_end` and the step per unit of result is `r_end * c_end`.
 
-### 2. Clamping and Variant Creation
-Two parameter sets are generated:
-- `theta_plus`: The current parameters shifted by `+step_size * delta`.
-- `theta_minus`: The current parameters shifted by `-step_size * delta`.
+One iteration:
+1. Draw `delta_i = +1 / -1` for every active parameter.
+2. `theta+ = theta + c_k * delta`, `theta- = theta - c_k * delta`, both clamped to `[min, max]` and rounded to integers. If the two sets round to the same values the draw is repeated (counted as `redraws`).
+3. Play two games from the same opening line (a random line of `--openings`), colours swapped: `theta+` as White, then `theta+` as Black. Inactive parameters are sent at their `value`.
+4. Update every active parameter, then clamp to `[min, max]`:
+   ```
+   theta_i += (a_k_i / c_k_i) * (W - L of theta+ in the pair) * delta_i
+   ```
 
-Before these sets are finalized, every parameter is strictly clamped to its predefined `[min, max]` boundaries defined in `parameters.json`. This guarantees that the engine is never exposed to invalid or unstable parameter configurations.
+Four pairs (`--workers`, at most 4) are in flight asynchronously. Each pair is drawn from the theta current when it was issued, and each update is applied as soon as its pair finishes.
 
-### 3. Match Execution
-The script spawns a batch of matches (e.g., 2500 games) using a parallelized thread pool. `Matt-Magie` acts as the match manager. The games are played with alternating colors:
-- Even-indexed games: `theta_plus` plays as White, `theta_minus` as Black.
-- Odd-indexed games: `theta_minus` plays as White, `theta_plus` as Black.
+## `parameters.json`
 
-### 4. Binary Direction & Parameter Update
-Once the match batch is completed, the win rate (`score`) of `theta_plus` against `theta_minus` determines the step direction:
-- `direction = +1.0` if `score > 0.50` (win)
-- `direction = -1.0` if `score < 0.50` (loss)
-- `direction = 0.0` if `score == 0.50` (draw)
+One entry per engine option:
 
-The parameter is updated by a fixed percentage of the mutation step size (`--lr`, default `5%`):
-`update = (lr_pct / 100.0) * mutation_step * direction`
-The updated float parameters `theta` are then clamped to their legal boundaries (`min` / `max`).
+```json
+"king_open_file_malus": { "value": 40, "min": 0, "max": 150, "c_end": 4 }
+```
 
-### 5. State Persistence
-The current state of the tuning process (the iteration counter `k` and the parameter vector `theta`) is serialized into `spsa_state.json`. A history of all scores and parameter trajectories is appended to `spsa_history.csv`. This allows the tuning process to be safely interrupted and resumed at any time.
+- `value`: start value (and the fixed value of inactive parameters).
+- `min`, `max`: hard bounds.
+- `c_end`: absolute perturbation at the last iteration. Required for every active parameter; it must be `>= 1` and the range `max - min` must be at least `4 * c_end`. A value outside `[min, max]` is an error; a value on a bound is a warning.
+
+Active parameters come from the group in `groups.json` (`--group`), or from `--params a,b,c` (then the group is only a label).
 
 ## Usage
 
-The tuner is invoked via the command line, requiring paths to the engine and the match manager. 
+Run from this directory:
 
-Example usage (as seen in `tuning.sh`):
 ```bash
 python3 spsa_tuner.py \
-    --group all \
-    --engine ../engines/suprah-0.18.1 \
-    --mm ../target/release/Matt-Magie \
-    --games 2500 \
-    --workers 4 \
-    --time 1 \
-    --inc 10 \
-    --mutate 10.0 \
-    --lr 5.0
+    --group search_and_ordering \
+    --engine /home/tam137/chess/mattmagie/engines/suprah-0.51.0 \
+    --mm /home/tam137/chess/mattmagie/target/release/Matt-Magie \
+    --openings /home/tam137/chess/mattmagie/openings_wide.txt \
+    --iters 20000 \
+    --workers 4
 ```
 
-### Logging and Telemetry
-By default, the script passes a `logpath` argument to the UCI options of the engines. The engines initialize a custom file writer and log their complete active parameter sets for debugging and plausibility verification to `enginelogs/`.
+Options:
+- `--group` (required), `--params`: active parameters.
+- `--engine`, `--mm`, `--openings` (required): engine, Matt-Magie binary, opening lines (one line of UCI moves each).
+- `--iters` (required): `N`, the number of game pairs.
+- `--r-end` (default `0.002`).
+- `--workers` (default `4`, at most `4`).
+- `--time`, `--inc`: time per game and increment per move in milliseconds (defaults `1000`, `50`; at 10 ms the engine lost 10 of 16 games on time, step 94). More than 2% time losses after 50 pairs abort the run.
+- `--hash` (default `16` MB), `--seed`.
+- `--param-file` (default `parameters.json`), `--start name=value,...`: starting theta other than `value` (e.g. a displaced value).
+- `--state`, `--history`: default `spsa_state.json`, `spsa_history.csv` in this directory.
+- `--run-dir` (default `run/`): temporary PGNs.
+- `--logpath`: engine log directory; engine logs are off by default.
+- `--dry-run`: preflight and print the schedule (`c_1`, `c_N`, `step_1`, `step_N` per parameter), play nothing.
+
+`tuning.sh` and `tune_singular.sh` are example invocations.
+
+## Preflight
+
+Before playing, the tuner starts the engine once with a temporary log directory and sends every option a game sends (all parameters, each active one at a value other than its default, plus `Hash`). Each option must appear in the engine log as `Received option: <name> = <value>`; an `Unknown option ignored:` line or a missing line aborts the run. A parameter that never reaches the engine cannot be tuned.
+
+## State and History
+
+`spsa_state.json` (version 2) is written after every pair:
+- `version`, `fingerprint` (group, active list, `N`, `r_end`, `c_end` of the active parameters, engine basename), `seed`, `k_done` (pairs finished), `counters` (`pairs`, `discarded`, `wins`, `draws`, `losses`, `time_losses`, `illegal`, `redraws`), `theta` (all parameters, floats).
+
+On start an existing state is resumed at `k_done + 1`. A state whose fingerprint differs from the current run is refused (move it aside or edit it by hand). A version-1 state is moved to `spsa_state.v1.json` and a fresh run starts. Pairs in flight at an interruption (Ctrl+C) are discarded and reissued on resume.
+
+`spsa_history.csv` gets one row per applied pair: `k, opening, result, w, d, l, <active params>` (`result = w - l` of `theta+`, theta after the update). A fresh run rewrites it.
+
+## Failures
+
+A pair in which a game has no result is discarded: no update, counted in `discarded`, the iteration is still used up. The run aborts after 3 discarded pairs in a row, or once 100 pairs are played when more than 1% of the pairs are discarded.

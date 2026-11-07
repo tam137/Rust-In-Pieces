@@ -1314,7 +1314,9 @@ pub fn replace_registered_values(text: &str, theta: &[f64]) -> String {
             } else if trimmed.starts_with("\"min\":") && (value as f64) < field("min") {
                 new_body.push_str(&format!("{indent}\"min\": {value},\n"));
             } else if trimmed.starts_with("\"max\":") && (value as f64) > field("max") {
-                new_body.push_str(&format!("{indent}\"max\": {value}\n"));
+                // `max` is followed by `c_end` in a parameter registered for SPSA (step 94).
+                let comma = if trimmed.trim_end().ends_with(',') { "," } else { "" };
+                new_body.push_str(&format!("{indent}\"max\": {value}{comma}\n"));
             } else {
                 new_body.push_str(line);
             }
