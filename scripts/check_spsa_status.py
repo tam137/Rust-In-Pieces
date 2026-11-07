@@ -14,9 +14,9 @@ MAGENTA = "\033[0;35m"
 BOLD = "\033[1m"
 NC = "\033[0m"
 
-def fetch_all_data(server_ip):
-    # Bundles all commands to execute in a single SSH connection
-    script = """
+def fetch_all_data():
+    # Bundles all status commands into a single local shell call
+    script = r"""
 echo ""
 echo "=== CMD ==="
 ps aux | grep spsa_tuner.py | grep -v grep || echo "NO_CMD"
@@ -25,30 +25,25 @@ echo "=== TMUX ==="
 tmux capture-pane -t spsa_tuning -p 2>/dev/null || echo "NO_TMUX"
 echo ""
 echo "=== STATE ==="
-cat /root/mattmagie/tuning/spsa_state.json 2>/dev/null || echo "NO_STATE"
+cat "$MM_DIR/tuning/spsa_state.json" 2>/dev/null || echo "NO_STATE"
 echo ""
 echo "=== PARAMS ==="
-cat /root/mattmagie/tuning/parameters.json 2>/dev/null || echo "NO_PARAMS"
+cat "$MM_DIR/tuning/parameters.json" 2>/dev/null || echo "NO_PARAMS"
 echo ""
 echo "=== LOGS ==="
-files=$(ls -t /root/mattmagie/tuning/enginelogs 2>/dev/null | grep '\.log$' | head -n 3)
+files=$(ls -t "$MM_DIR/tuning/enginelogs" 2>/dev/null | grep '\.log$' | head -n 3)
 for f in $files; do
   echo ""
   echo "--- FILE: $f ---"
-  cat "/root/mattmagie/tuning/enginelogs/$f" 2>/dev/null
+  cat "$MM_DIR/tuning/enginelogs/$f" 2>/dev/null
   echo ""
   echo "--- END_FILE ---"
 done
 """
-    ssh_opts = [
-        "-o", "ControlMaster=auto",
-        "-o", "ControlPath=~/.ssh/control-%r@%h:%p",
-        "-o", "ControlPersist=10m",
-        "-o", "ConnectTimeout=10"
-    ]
-    res = subprocess.run(["ssh"] + ssh_opts + [f"root@{server_ip}", script], capture_output=True, text=True)
+    # Runs locally; MM_DIR is passed through the environment.
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     if res.returncode != 0:
-        print(f"{RED}Error: SSH command failed with return code {res.returncode}{NC}")
+        print(f"{RED}Error: status command failed with return code {res.returncode}{NC}")
         print(f"Stderr: {res.stderr.strip()}")
         return None
     return res.stdout
@@ -93,16 +88,18 @@ def parse_logs(logs_section):
     return log_files_content
 
 def main():
-    server_ip = os.environ.get("EODSERVERIP", "<SERVER_IP>")
+    if not os.environ.get("MM_DIR"):
+        print(f"{RED}Error: set MM_DIR to the Matt-Magie working directory.{NC}")
+        sys.exit(1)
     print(f"{CYAN}================================================================{NC}")
     print(f"{CYAN}{BOLD}              SPSA TUNING STATUS & VERIFICATION REPORT          {NC}")
     print(f"{CYAN}================================================================{NC}")
-    print(f"Target Server: {BOLD}{server_ip}{NC}\n")
+    print(f"Host: {BOLD}local{NC}\n")
 
-    print(f"{YELLOW}{BOLD}[1/4] Fetching remote SPSA data in a single SSH session...{NC}")
-    raw_data = fetch_all_data(server_ip)
+    print(f"{YELLOW}{BOLD}[1/4] Collecting local SPSA data...{NC}")
+    raw_data = fetch_all_data()
     if not raw_data:
-        print(f"{RED}Error: Failed to fetch SPSA data from server.{NC}\n")
+        print(f"{RED}Error: Failed to collect SPSA data.{NC}\n")
         sys.exit(1)
         
     sections = parse_sections(raw_data)
