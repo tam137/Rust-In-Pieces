@@ -1,271 +1,130 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
-import subprocess
-import re
+"""Status of an SPSA tuning run (tuning/spsa_tuner.py, state version 2).
 
-# ANSI colors
+Usage: python3 scripts/check_spsa_status.py [state.json]
+The state path can also be given as SPSA_STATE; default tuning/spsa_state.json in the repository.
+The history is read from spsa_history.csv next to the state (or SPSA_HISTORY).
+"""
+import csv
+import json
+import os
+import subprocess
+import sys
+
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
 YELLOW = "\033[0;33m"
 CYAN = "\033[0;36m"
-MAGENTA = "\033[0;35m"
 BOLD = "\033[1m"
 NC = "\033[0m"
 
-def fetch_all_data():
-    # Bundles all status commands into a single local shell call
-    script = r"""
-echo ""
-echo "=== CMD ==="
-ps aux | grep spsa_tuner.py | grep -v grep || echo "NO_CMD"
-echo ""
-echo "=== TMUX ==="
-tmux capture-pane -t spsa_tuning -p 2>/dev/null || echo "NO_TMUX"
-echo ""
-echo "=== STATE ==="
-cat "$MM_DIR/tuning/spsa_state.json" 2>/dev/null || echo "NO_STATE"
-echo ""
-echo "=== PARAMS ==="
-cat "$MM_DIR/tuning/parameters.json" 2>/dev/null || echo "NO_PARAMS"
-echo ""
-echo "=== LOGS ==="
-files=$(ls -t "$MM_DIR/tuning/enginelogs" 2>/dev/null | grep '\.log$' | head -n 3)
-for f in $files; do
-  echo ""
-  echo "--- FILE: $f ---"
-  cat "$MM_DIR/tuning/enginelogs/$f" 2>/dev/null
-  echo ""
-  echo "--- END_FILE ---"
-done
-"""
-    # Runs locally; MM_DIR is passed through the environment.
-    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
-    if res.returncode != 0:
-        print(f"{RED}Error: status command failed with return code {res.returncode}{NC}")
-        print(f"Stderr: {res.stderr.strip()}")
-        return None
-    return res.stdout
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TUNING = os.path.join(REPO, "tuning")
+HISTORY_ROWS = 5
 
-def parse_sections(stdout):
-    sections = {}
-    current_section = None
-    current_lines = []
-    
-    for line in stdout.splitlines():
-        if line.startswith("=== ") and line.endswith(" ==="):
-            if current_section is not None:
-                sections[current_section] = "\n".join(current_lines)
-            current_section = line[4:-4]
-            current_lines = []
-        else:
-            if current_section is not None:
-                current_lines.append(line)
-                
-    if current_section is not None:
-        sections[current_section] = "\n".join(current_lines)
-        
-    return sections
 
-def parse_logs(logs_section):
-    log_files_content = {}
-    current_file = None
-    file_lines = []
-    
-    for line in logs_section.splitlines():
-        if line.startswith("--- FILE: ") and line.endswith(" ---"):
-            current_file = line[10:-4]
-            file_lines = []
-        elif line.strip() == "--- END_FILE ---":
-            if current_file:
-                log_files_content[current_file] = "\n".join(file_lines)
-                current_file = None
-        else:
-            if current_file:
-                file_lines.append(line)
-                
-    return log_files_content
+def sh(cmd):
+    res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+    return res.stdout.strip()
+
+
+def header(title):
+    print(f"\n{YELLOW}{BOLD}{title}{NC}")
+
 
 def main():
-    if not os.environ.get("MM_DIR"):
-        print(f"{RED}Error: set MM_DIR to the Matt-Magie working directory.{NC}")
-        sys.exit(1)
-    print(f"{CYAN}================================================================{NC}")
-    print(f"{CYAN}{BOLD}              SPSA TUNING STATUS & VERIFICATION REPORT          {NC}")
-    print(f"{CYAN}================================================================{NC}")
-    print(f"Host: {BOLD}local{NC}\n")
+    state_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+        "SPSA_STATE", os.path.join(TUNING, "spsa_state.json"))
+    history_path = os.environ.get(
+        "SPSA_HISTORY", os.path.join(os.path.dirname(os.path.abspath(state_path)), "spsa_history.csv"))
+    params_path = os.path.join(TUNING, "parameters.json")
 
-    print(f"{YELLOW}{BOLD}[1/4] Collecting local SPSA data...{NC}")
-    raw_data = fetch_all_data()
-    if not raw_data:
-        print(f"{RED}Error: Failed to collect SPSA data.{NC}\n")
-        sys.exit(1)
-        
-    sections = parse_sections(raw_data)
-    
-    # 1. Verify tmux & command
-    cmd_output = sections.get("CMD", "")
-    tmux_output = sections.get("TMUX", "")
-    
-    # Parse active parameters from process list or tmux
-    full_cmd = cmd_output + "\n" + tmux_output
-    match = re.search(r'--params\s+([a-zA-Z0-9_,]+)', full_cmd)
-    if match:
-        active_params = [p.strip() for p in match.group(1).split(",") if p.strip()]
+    print(f"{CYAN}{BOLD}SPSA TUNING STATUS{NC}")
+    print(f"state:   {state_path}\nhistory: {history_path}")
+
+    header("Process")
+    procs = [l for l in sh("ps -eo args").splitlines()
+             if l.split() and "python" in os.path.basename(l.split()[0]) and "spsa_tuner.py" in l]
+    if procs:
+        for line in procs:
+            print(f"  {line}")
+            if "--workers" in line:
+                w = line.split("--workers")[1].split()[0]
+                if w.isdigit() and int(w) > 4:
+                    print(f"  {RED}--workers {w} exceeds 4{NC}")
     else:
-        active_params = None
+        print(f"  {YELLOW}no spsa_tuner.py process running{NC}")
+    pane = sh("tmux capture-pane -t spsa_tuning -p 2>/dev/null")
+    lines = [l for l in pane.splitlines() if l.strip()]
+    if lines:
+        print("  tmux spsa_tuning (last 5 lines):")
+        for l in lines[-5:]:
+            print(f"    > {l}")
 
-    if "NO_TMUX" in tmux_output or not tmux_output.strip():
-        print(f"{RED}Error: Could not capture tmux pane 'spsa_tuning'. Is the tuner running?{NC}\n")
-    else:
-        print(f"{GREEN}Success: Tmux pane captured!{NC}")
-        print("Last 10 lines of tmux output:")
-        lines = [l for l in tmux_output.split("\n") if l.strip()]
-        for line in lines[-10:]:
-            print(f"  > {line}")
-        print()
-        
-        if active_params:
-            print(f"Detected active parameters from SPSA command line:")
-            print(f"  {BOLD}{active_params}{NC}\n")
-        else:
-            print(f"No --params filter detected. Tuning ALL parameters by default.\n")
+    header("State")
+    if not os.path.exists(state_path):
+        print(f"  {YELLOW}no state at {state_path}{NC}")
+        return
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"  {RED}cannot read state: {e}{NC}")
+        return
+    if state.get("version") != 2:
+        print(f"  {RED}state version {state.get('version')} is not 2 (old tuner format){NC}")
+        return
+    fp = state.get("fingerprint", {})
+    n = fp.get("n", 0)
+    k_done = state.get("k_done", 0)
+    pct = 100.0 * k_done / n if n else 0.0
+    print(f"  group {fp.get('group')}  engine {fp.get('engine')}  r_end {fp.get('r_end')}  seed {state.get('seed')}")
+    print(f"  iteration {BOLD}{k_done}/{n}{NC} ({pct:.1f}%)")
 
-    # 2. SPSA State
-    print(f"{YELLOW}{BOLD}[2/4] Verifying remote SPSA state...{NC}")
-    state_json_str = sections.get("STATE", "")
-    state_data = None
-    if "NO_STATE" in state_json_str or not state_json_str.strip():
-        print(f"{YELLOW}spsa_state.json not found on server. Checking fallback to parameters.json...{NC}")
-        params_json_str = sections.get("PARAMS", "")
-        if "NO_PARAMS" not in params_json_str and params_json_str.strip():
-            try:
-                params_data = json.loads(params_json_str)
-                state_data = {
-                    "k": 1,
-                    "theta": {k: float(v["value"]) for k, v in params_data.items()}
-                }
-                print(f"{GREEN}Success: Loaded baseline parameters from parameters.json (Iteration 1){NC}")
-                print(f"Number of parameters tracked: {len(state_data.get('theta', {}))}\n")
-            except Exception as e:
-                print(f"{RED}Error parsing parameters.json fallback: {e}{NC}\n")
-        else:
-            print(f"{RED}Error: Could not read parameters.json fallback on server!{NC}\n")
-    else:
-        try:
-            state_data = json.loads(state_json_str)
-            print(f"{GREEN}Success: Read state at Iteration {state_data.get('k')}{NC}")
-            print(f"Number of parameters tracked: {len(state_data.get('theta', {}))}\n")
-        except Exception as e:
-            print(f"{RED}Error parsing spsa_state.json: {e}{NC}\n")
+    c = state.get("counters", {})
+    pairs = c.get("pairs", 0)
+    w, d, l = c.get("wins", 0), c.get("draws", 0), c.get("losses", 0)
+    disc = c.get("discarded", 0)
+    print(f"  pairs {pairs}  discarded {disc}  W/D/L {w}/{d}/{l}  "
+          f"time losses {c.get('time_losses', 0)}  illegal {c.get('illegal', 0)}  redraws {c.get('redraws', 0)}")
+    if disc and pairs and disc > 0.01 * pairs:
+        print(f"  {RED}discarded > 1% of pairs{NC}")
+    if c.get("illegal", 0):
+        print(f"  {RED}illegal moves recorded{NC}")
 
-    # Load local parameters.json for defaults
-    local_params_path = "tuning/parameters.json"
-    local_params = {}
-    if os.path.exists(local_params_path):
-        try:
-            with open(local_params_path, "r") as f:
-                local_params = json.load(f)
-        except Exception as e:
-            print(f"{RED}Warning: Could not read local parameters.json: {e}{NC}")
+    header("Theta of active parameters (vs value in parameters.json)")
+    try:
+        with open(params_path) as f:
+            defs = json.load(f)
+    except (OSError, ValueError):
+        defs = {}
+    theta = state.get("theta", {})
+    c_end = fp.get("c_end", {})
+    print(f"  {'parameter':40s} {'value':>7s} {'theta':>9s} {'diff':>8s} {'c_end':>6s}  range")
+    for p in fp.get("active", []):
+        d_ = defs.get(p, {})
+        base = d_.get("value")
+        t = theta.get(p)
+        diff = f"{t - base:+8.2f}" if t is not None and base is not None else f"{'?':>8s}"
+        flag = ""
+        if t is not None and d_ and t in (d_.get("min"), d_.get("max")):
+            flag = f" {RED}on bound{NC}"
+        print(f"  {p:40s} {str(base):>7s} {t if t is None else round(t, 2):>9} {diff} "
+              f"{str(c_end.get(p)):>6s}  [{d_.get('min')}, {d_.get('max')}]{flag}")
 
-    # 3. Check engine logs
-    print(f"{YELLOW}{BOLD}[3/4] Parsing and verifying engine logs...{NC}")
-    logs_section = sections.get("LOGS", "")
-    log_files_content = parse_logs(logs_section)
-    
-    if not log_files_content:
-        print(f"{RED}Error: No engine log files parsed from remote SPSA output.{NC}\n")
-        sys.exit(1)
-        
-    print(f"Found {len(log_files_content)} recent log files. Verifying:")
-    
-    successful_reads = 0
-    mismatches_found = False
-    logpath_missing_found = False
-    params_missing_found = False
+    header(f"History (last {HISTORY_ROWS} rows)")
+    if not os.path.exists(history_path):
+        print(f"  {YELLOW}no history{NC}")
+        return
+    with open(history_path, newline="") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        print(f"  {YELLOW}empty history{NC}")
+        return
+    print("  " + ", ".join(rows[0]))
+    for r in rows[1:][-HISTORY_ROWS:]:
+        print("  " + ", ".join(r))
 
-    for name, log_content in log_files_content.items():
-        print(f"\n  Checking log file: {BOLD}{name}{NC}")
-        if not log_content.strip():
-            print(f"    {YELLOW}Warning: Log content is empty (might be newly initialized){NC}")
-            continue
-
-        successful_reads += 1
-
-        # Check for Received Option
-        has_logpath_opt = "Received option: logpath" in log_content
-        if has_logpath_opt:
-            print(f"    {GREEN}✓ Found logpath option initialization{NC}")
-        else:
-            print(f"    {RED}✗ Missing logpath option initialization{NC}")
-            logpath_missing_found = True
-
-        # Parse parameters
-        param_pattern = re.compile(r"^\s*([a-zA-Z0-9_]+):\s*(-?\d+)\s*$")
-        logged_params = {}
-        in_params_section = False
-        for line in log_content.split("\n"):
-            if "Current Engine Parameters:" in line:
-                in_params_section = True
-                continue
-            if in_params_section:
-                m = param_pattern.match(line)
-                if m:
-                    param_name = m.group(1)
-                    param_val = int(m.group(2))
-                    logged_params[param_name] = param_val
-                elif line.strip() == "":
-                    in_params_section = False
-
-        if not logged_params:
-            print(f"    {RED}✗ Could not parse any engine parameters from log file!{NC}")
-            params_missing_found = True
-            continue
-        
-        print(f"    {GREEN}✓ Parsed {len(logged_params)} parameters from engine log{NC}")
-
-        # Check parameter values
-        if state_data:
-            theta = state_data.get("theta", {})
-            
-            # Check inactive parameters (must equal SPSA state theta / default)
-            if active_params is not None:
-                inactive_ok = True
-                for p_name, val in logged_params.items():
-                    if p_name not in active_params:
-                        expected_val = int(round(theta.get(p_name, local_params.get(p_name, {}).get("value", 0))))
-                        if val != expected_val:
-                            print(f"      {RED}✗ Inactive parameter mismatch: {p_name} = {val} (expected {expected_val}){NC}")
-                            inactive_ok = False
-                            mismatches_found = True
-                if inactive_ok:
-                    print(f"      {GREEN}✓ Verified all inactive parameters are fixed at baseline defaults{NC}")
-
-            # Display active parameters and their values/deviations
-            print(f"    Active parameters in log:")
-            active_list = active_params if active_params is not None else sorted(list(theta.keys()))
-            for p_name in active_list:
-                if p_name in logged_params:
-                    val = logged_params[p_name]
-                    base_val = theta.get(p_name, local_params.get(p_name, {}).get("value", 0))
-                    dev = val - base_val
-                    print(f"      - {p_name}: {val} (baseline: {base_val:.2f}, diff: {dev:+.2f})")
-                else:
-                    print(f"      - {p_name}: {RED}NOT FOUND IN LOG{NC}")
-                    params_missing_found = True
-
-    print()
-    # 4. Plausibility Summary
-    print(f"{YELLOW}{BOLD}[4/4] Plausibility Verification Summary...{NC}")
-    if successful_reads == 0:
-        print(f"{RED}{BOLD}✗ TECHNICAL CHECK FAILED:{NC} All engine log files were unreadable (empty or locked).")
-    elif logpath_missing_found or params_missing_found or mismatches_found:
-        print(f"{RED}{BOLD}✗ TECHNICAL CHECK FAILED:{NC} Mismatches or errors were found during SPSA log analysis.")
-    else:
-        print(f"{GREEN}{BOLD}✓ TECHNICAL CHECK PASSED:{NC} Remote SPSA parameters are being updated, filtered, and logged correctly.")
-    print(f"{CYAN}================================================================{NC}")
 
 if __name__ == "__main__":
     main()
