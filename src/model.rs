@@ -492,6 +492,15 @@ pub const fn history_side(white: bool) -> usize {
 /// moves, and against an unsigned table that saturates at zero it fired on unseen ones.
 pub const MAX_HISTORY: i32 = 16_384;
 
+/// Matt-Magie step 95: the size of a history bonus or malus at `depth`, in sixteenths:
+/// `(quad * depth^2 + lin * depth) / 16`, clamped to `[0, MAX_HISTORY]`. The sign is the caller's
+/// (a malus is applied negated), so a curve that goes negative is zero rather than a reversal.
+/// Quad 16 and lin 0 are exactly `depth * depth`.
+#[inline(always)]
+pub fn history_curve(quad: i32, lin: i32, depth: i32) -> i32 {
+    ((quad * depth * depth + lin * depth) / 16).clamp(0, MAX_HISTORY)
+}
+
 /// The gravity update, the single place a history entry is written, `task.md` 23.3.
 ///
 /// `*entry += bonus - entry * |bonus| / MAX_HISTORY` converges towards `+/- MAX_HISTORY` instead
@@ -2133,6 +2142,25 @@ mod tests {
         assert!(refuted.rank > demoted_capture,
             "the quiet band must stay above the demoted captures: {} vs {}",
             refuted.rank, demoted_capture);
+    }
+
+    #[test]
+    fn history_curve_defaults_are_the_square_of_the_depth_test() {
+        // Matt-Magie step 95: quad 16 and lin 0 in sixteenths are exactly `depth * depth`, the
+        // bonus and malus of v0.51.0, so the defaults leave every tree unchanged.
+        for depth in 0..=64 {
+            assert_eq!(super::history_curve(16, 0, depth), depth * depth, "depth {depth}");
+        }
+    }
+
+    #[test]
+    fn history_curve_reads_both_terms_in_sixteenths_and_stays_in_range_test() {
+        use super::{history_curve, MAX_HISTORY};
+        assert_eq!(history_curve(32, 0, 4), 32, "quad 32 is twice the square");
+        assert_eq!(history_curve(0, 16, 5), 5, "lin 16 is the depth");
+        assert_eq!(history_curve(8, 8, 4), (8 * 16 + 8 * 4) / 16);
+        assert_eq!(history_curve(0, -256, 10), 0, "a negative curve is clamped to zero, never a malus");
+        assert_eq!(history_curve(64, 256, 200), MAX_HISTORY, "and never past the cap");
     }
 
     #[test]

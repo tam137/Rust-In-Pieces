@@ -1844,7 +1844,12 @@ impl SearchService {
                     let to = current_turn.to as usize;
                     // `task.md` 23.3: the gravity update, so the entry converges towards the cap
                     // rather than growing until something rescales it.
-                    let bonus = depth * depth;
+                    // Matt-Magie step 95: bonus and malus are curves with their own parameters;
+                    // the defaults are `depth * depth` for both.
+                    let bonus = crate::model::history_curve(
+                        config.hist_bonus_quad, config.hist_bonus_lin, depth);
+                    let malus = crate::model::history_curve(
+                        config.hist_malus_quad, config.hist_malus_lin, depth);
                     crate::model::history_gravity(&mut history_table[side][from][to], bonus);
 
                     // History Malus for previously searched quiet moves. The same update with a
@@ -1857,7 +1862,7 @@ impl SearchService {
                                     let b_from = bad_move.from as usize;
                                     let b_to = bad_move.to as usize;
                                     crate::model::history_gravity(
-                                        &mut history_table[side][b_from][b_to], -bonus);
+                                        &mut history_table[side][b_from][b_to], -malus);
                                 }
                             }
                         }
@@ -2850,6 +2855,41 @@ mod tests {
         assert!(tables.history_table.iter().flatten().flatten()
                 .all(|&entry| entry.abs() <= crate::model::MAX_HISTORY),
             "the gravity update is the only writer, so no entry may leave the range");
+    }
+
+    /// Matt-Magie step 95: bonus and malus read their own curve parameters. A malus of zero leaves
+    /// no entry below zero, a bonus of zero leaves none above it; swapping the two at the call site
+    /// fails one of the two halves.
+    #[test]
+    fn test_the_history_bonus_and_malus_read_their_own_curves() {
+        let service = Service::new();
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let run = |config: &Config| {
+            let state = fresh_engine_state();
+            let mut board = service.fen.set_fen(fen);
+            let mut stats = Stats::new();
+            service.search.get_moves(
+                &mut board, 6, true, &mut stats, config, &service,
+                &state, std::time::Instant::now(), None, None,
+            );
+            let tables = state.search_tables.lock().unwrap();
+            let entries: Vec<i32> = tables.history_table.iter().flatten().flatten().copied().collect();
+            (entries.iter().filter(|&&e| e < 0).count(), entries.iter().filter(|&&e| e > 0).count())
+        };
+
+        let mut no_malus = Config::for_tests();
+        no_malus.hist_malus_quad = 0;
+        no_malus.hist_malus_lin = 0;
+        let (negative, positive) = run(&no_malus);
+        assert_eq!(negative, 0, "a zero malus curve must write no decrement");
+        assert!(positive > 0, "the bonus curve is untouched and still credits cutoffs");
+
+        let mut no_bonus = Config::for_tests();
+        no_bonus.hist_bonus_quad = 0;
+        no_bonus.hist_bonus_lin = 0;
+        let (negative, positive) = run(&no_bonus);
+        assert_eq!(positive, 0, "a zero bonus curve must credit nothing");
+        assert!(negative > 0, "the malus curve is untouched and still refutes quiet moves");
     }
 
     #[test]
