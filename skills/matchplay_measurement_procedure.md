@@ -107,6 +107,23 @@ variance is near 0.065. That is what makes small effects expensive here.
   `./mm.sh -t`), decided in advance before the match starts. The stopping rule and the effect size
   must never come from the same run.
 
+### Check at a Longer Time Control
+
+> [!IMPORTANT]
+> **Every change expected to shift playing strength must be judged for its effect at longer time
+> controls.** Measurements run at 1s + 150ms; the engine's real games are blitz and rapid, with
+> 50 to 100 times more time per move and a much greater depth. Search parameters can move their
+> optimum with depth: `lmr_divisor` 150 v 120 read +1.4 Elo at 1s + 50ms and +14.1 at 1s + 150ms
+> (`task.md` 41).
+
+* **Mandatory** for every value found by SPSA and for every changed search-parameter default;
+  recommended for any other strength change.
+* A **fixed-N control match at a longer control**, decided in advance: default 10s + 100ms,
+  2000 to 4000 games against the baseline, same opening pool and pairing.
+* It does not have to gain. A result whose paired 95% interval lies entirely below 0 blocks the
+  release; an interval that contains 0 lets it pass.
+* Record it in `task.md` and `CHANGELOG.md` next to the SPRT, with its control and game count.
+
 ---
 
 ## 5. Build the Variants

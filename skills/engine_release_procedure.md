@@ -52,6 +52,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 
 3. **Mandatory A/B Matchplay & Strength Measurement for Critikal Changes:** For complex modifications intended or expected to shift engine playing strength (e.g. new search pruning/extension heuristics, evaluation features, SPSA parameter tunings, or major architectural migrations), an **A/B tournament / match** against the baseline engine version MUST be executed and analyzed prior to release.
    - **Procedure & Execution:** All execution details (match setup, stopped SPRT gating vs. fixed-N effect size estimation, opening pool setup with openng book, hardware concurrency caps, health auditing via `scripts/match_health.py`, and paired Elo calculation via `scripts/pairing_elo.py`) MUST strictly follow the standardized [Matchplay Measurement Procedure](matchplay_measurement_procedure.md) skill.
+   - **Longer-control check:** values found by SPSA and changed search-parameter defaults MUST also pass the control match at a longer time control (section 4 of the [Matchplay Measurement Procedure](matchplay_measurement_procedure.md)) before the pipeline runs: a paired 95% interval entirely below 0 blocks the release.
 
 4. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh`.
 
