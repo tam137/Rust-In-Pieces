@@ -187,7 +187,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | The negative extension, the other half of the singular rebate, is untried | proposal, unmeasured |
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
-| `spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters | defect in the tuner, **measured by reading it** 2026-09-11, blocks 23.4's tuning group |
+| ~~`spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters~~ | **closed 2026-11-08**: the tuner was rewritten with an absolute per-parameter step `c_end` and Fishtest schedules, and recovered `lmr_divisor` from 120 to 155.5 at 1s + 150ms, section 41 |
 | The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
 | ~~The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification~~ | **closed 2026-10-13**: shipped in v0.46.3, the null child at `depth - (3 + depth / 3)` and no verification, SPRT [0, 10] H1 after 3308 games against v0.46.2, section 20 |
 | The published Null Move reduction's term `min((static_eval - beta) / 200, 3)`: **refused 2026-10-15** against v0.46.4. With Reverse Futility Pruning ahead of the null move it is at most 1 at depths 3 to 5 and only lowers a child from depth 5 on: 4.6% / 5.0% of null searches, -0.9% / -0.7% time to depth 10. SPRT [0, 10] H0 after 2834 games, -3.7 Elo [-14, +7] over 2847, [0, 5] undecided at -1.09. Code on the local branch `nmp-eval-term`. **Divisor 100 and a cap of 1 refused 2026-10-16** against v0.46.4: a shallower child on 9.3% / 9.8% of null searches, +2.6% / -1.3% time to depth 10 (`openings_wide` / `openings_mixed`); SPRT [0, 10] H0 after 2190 games, -5.8 Elo [-18, +6] over 2204, [0, 5] undecided at -1.17. Code on the local branch `nmp-eval-term-100` | negative result, section 20 |
@@ -759,7 +759,7 @@ reason is not the negative range.** `spsa_tuner.py:194` takes its perturbation a
 of it: the bounds handle negatives correctly, but the **step is proportional to the magnitude of
 the value**, so a parameter sitting at 0 gets a step of 1 and an update of a fraction of it and
 can never leave the neighbourhood of zero. Both LMR history thresholds are now exactly there. The
-tuner needs an absolute per-parameter step first — its own item, and the same mechanism that made
+tuner needed an absolute per-parameter step first (**done 2026-11-08, section 41**) — its own item, and the same mechanism that made
 SPSA useless for the singular parameters.
 
 `tuning/parameters.json` is brought in line with the shipped defaults meanwhile (`good` 0 over
@@ -2832,3 +2832,35 @@ Smoke gauntlet 49.0% / 52.5% / 91.5% against v0.50.3- / v0.50.2- / v0.34.0-NNUE.
 at +2.85. The [0, 10] guard crossed its bound once at about 1550 games (+15 Elo), before the minimum; the
 estimate then settled at +6 to +8.
 
+
+## 41. The SPSA tuner rewritten and its recovery test (Matt-Magie step 94, 2026-11-07/08)
+
+**Why.** The open-list defect of 23.4: the old tuner's perturbation was `max(1, round(|value| * 10%))`, so a
+parameter at 0 could never leave 0, and the update used only the sign of a 2500-game batch (about 1.75 steps per
+parameter per day at 1s + 10ms). Openings came from the Polyglot book, not as colour-swapped pairs; a game
+without a result was dropped silently; 25 of 91 parameters sat on a bound.
+
+**Tool, no engine change.** `tuning/spsa_tuner.py` rewritten in the Fishtest form: an absolute `c_end` per
+parameter in `tuning/parameters.json`, `c_k = c_end * N^0.101 / k^0.101`, `a_k = r_end * c_end^2 * (A + N)^0.602 /
+(A + k)^0.602` with `A = 0.1 N`; one iteration is one game pair from one line of `openings_wide.txt`, colours
+swapped; pairs run asynchronously; discarded pairs and time losses abort the run past a threshold; a preflight
+checks in the engine log that every option arrives. `c_end` is set for the 18 search parameters; the bounds of
+the two LMR history thresholds now open past 0. 29 `unittest` tests (red probes: proportional step, sign update,
+wrong colour, update of an inactive parameter, no discard each fail a test), an independent review.
+**1s + 10ms is unusable: the engine lost 10 of 16 games on time** (1s + 50ms: 0 of 16), so the default increment
+is 50 ms.
+
+**Recovery test.** Two displaced parameters at 1s + 50ms, `lmr_divisor` 300 and `rfp_margin_per_depth` 150,
+N = 3000 pairs, `r_end` 0.02: **not recovered** (307.6 / 148.7), although 185/90 beat 300/150 by **+41.5 Elo
+[+24, +59]** over 1000 games. The gradient read back from the history was 0 within its error on both axes, and
+direct matches at the start point agreed with it: `lmr_divisor` 273 v 327 -14.6 Elo [-32, +3], RFP 136 v 164
++14.9 [-3, +33]. The loss is not a slope at 300/150. At 1s + 50ms the aggressive side was flat too
+(`lmr_divisor` 150 v 120 +1.4 [-16, +19], RFP 75 v 55 +1.0 [-16, +18]). **At 1s + 150ms, Hash 64, 2000 games
+each: `lmr_divisor` 150 v 120 +14.1 Elo [+2, +26], RFP 75 v 55 +1.0 [-11, +13]** - the divisor is sensitive at
+the longer control, RFP is flat between 55 and 75 at both (compare 29.20: 74 v 90 +1.4 [-4, +6]). **Recovery of
+`lmr_divisor` alone from 120 at 1s + 150ms, RFP at 90, N = 3000 pairs: 120 -> 155.5** (bar >= 152), 6000 games,
+no discarded pair, no time loss. The tuner recovers a parameter with a measured slope.
+
+**For tuning.** These search parameters are flat over wide ranges at 1s + 50ms; tune at 1s + 150ms or longer.
+A clear reading of a difference of D Elo between theta+ and theta- needs about `(574 / D)^2` game pairs, so
+small effects cost days, not hours.
