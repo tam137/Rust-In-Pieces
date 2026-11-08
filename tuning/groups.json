@@ -197,5 +197,13 @@
         "singular_margin",
         "singular_tt_depth_margin",
         "singular_depth_reduction"
+    ],
+    "history": [
+        "hist_bonus_quad",
+        "hist_bonus_lin",
+        "hist_malus_quad",
+        "hist_malus_lin",
+        "lmr_history_good_threshold",
+        "lmr_history_bad_threshold"
     ]
 }

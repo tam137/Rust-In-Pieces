@@ -471,5 +471,29 @@
         "min": 0,
         "max": 8,
         "c_end": 1
+    },
+    "hist_bonus_quad": {
+        "value": 16,
+        "min": 4,
+        "max": 48,
+        "c_end": 2
+    },
+    "hist_bonus_lin": {
+        "value": 0,
+        "min": -256,
+        "max": 256,
+        "c_end": 8
+    },
+    "hist_malus_quad": {
+        "value": 16,
+        "min": 4,
+        "max": 48,
+        "c_end": 2
+    },
+    "hist_malus_lin": {
+        "value": 0,
+        "min": -256,
+        "max": 256,
+        "c_end": 8
     }
 }
