@@ -380,6 +380,14 @@ pub struct Config {
     /// iteration on entry to `get_moves`. `ponderhit` continues the same search and does not halve
     /// again. See `SearchTables::age`.
     pub history_age_per_go: bool,
+    /// Matt-Magie step 95 (master v0.52.0), ported in step 97: the history bonus and malus as
+    /// curves in sixteenths, `(quad * depth^2 + lin * depth) / 16` clamped to `[0, MAX_HISTORY]`,
+    /// each with its own parameters. Quad 16 and lin 0 are v0.51.0's `depth * depth`. See
+    /// `model::history_curve`.
+    pub hist_bonus_quad: i32,
+    pub hist_bonus_lin: i32,
+    pub hist_malus_quad: i32,
+    pub hist_malus_lin: i32,
     /// Matt-Magie step 83 (master v0.50.1), ported in step 85: ProbCut. At a non-PV node out of
     /// check with `depth >= probcut_min_depth`, a capture whose Static Exchange clears
     /// `beta + probcut_margin - static_eval` is searched against the raised bound
@@ -653,6 +661,11 @@ impl Config {
             // Matt-Magie step 93: on in the candidate, as on `master` since v0.51.0 (step 92: [0, 10]
             // H1 after 3373 games, +11.8 Elo against v0.50.2).
             history_age_per_go: true,
+            // Matt-Magie step 97: `depth * depth` for both, tree-identical to v0.51.0-NNUE.
+            hist_bonus_quad: 16,
+            hist_bonus_lin: 0,
+            hist_malus_quad: 16,
+            hist_malus_lin: 0,
             // Matt-Magie step 85: on at margin 140 (180 on master). Depth-10 census over 300
             // positions per pool against the rule off: 140 -> +3.5% / +0.6% time (wide / mixed),
             // 180 -> +0.0% / -1.0%, 220 -> +1.4% / -3.4%; 140 is the only margin not slower on
@@ -1156,6 +1169,33 @@ mod tests {
         assert!(Config::new().history_age_per_go, "on in the candidate of step 93");
     }
 
+    /// Matt-Magie step 95: the four history-curve parameters, defaults equal to `depth * depth`.
+    #[test]
+    fn test_history_curve_options_reach_their_fields_in_all_spellings() {
+        let defaults = Config::new();
+        assert_eq!((defaults.hist_bonus_quad, defaults.hist_bonus_lin, defaults.hist_malus_quad, defaults.hist_malus_lin),
+                   (16, 0, 16, 0), "the defaults are v0.51.0's `depth * depth` for both curves");
+        let cases: [(&str, &str, &str, fn(&Config) -> i32); 4] = [
+            ("HistBonusQuad", "hist_bonus_quad", "histbonusquad", |c| c.hist_bonus_quad),
+            ("HistBonusLin", "hist_bonus_lin", "histbonuslin", |c| c.hist_bonus_lin),
+            ("HistMalusQuad", "hist_malus_quad", "histmalusquad", |c| c.hist_malus_quad),
+            ("HistMalusLin", "hist_malus_lin", "histmaluslin", |c| c.hist_malus_lin),
+        ];
+        for (a, b, c, field) in cases {
+            for (n, spelling) in [a, b, c].into_iter().enumerate() {
+                let mut config = Config::new();
+                let value = -7 - n as i32;
+                assert_eq!(config.apply_uci_option(spelling, &value.to_string()), UciOptionEffect::Stored);
+                assert_eq!(field(&config), value, "{spelling}");
+            }
+        }
+        let options = crate::threads::uci_options(&defaults);
+        for name in ["HistBonusQuad", "HistBonusLin", "HistMalusQuad", "HistMalusLin"] {
+            assert!(options.iter().any(|l| l.starts_with(&format!("option name {name} type spin default"))),
+                    "{name} must be advertised");
+        }
+    }
+
     /// Matt-Magie step 72: the switch of the `ponder` token, off by default.
     #[test]
     fn test_ponder_option_reaches_the_field_in_all_spellings() {
@@ -1387,6 +1427,10 @@ impl Config {
             "enablesingularcutnodeextension" => self.enable_singular_cut_node_extension = value.eq_ignore_ascii_case("true"),
             "historyagepergo" => self.history_age_per_go = value.eq_ignore_ascii_case("true"),
             "ttclustersize" => if let Ok(v) = value.parse::<usize>() { self.tt_cluster_size = v; },
+            "histbonusquad" => if let Ok(v) = value.parse::<i32>() { self.hist_bonus_quad = v; },
+            "histbonuslin" => if let Ok(v) = value.parse::<i32>() { self.hist_bonus_lin = v; },
+            "histmalusquad" => if let Ok(v) = value.parse::<i32>() { self.hist_malus_quad = v; },
+            "histmaluslin" => if let Ok(v) = value.parse::<i32>() { self.hist_malus_lin = v; },
             "enableprobcut" => self.enable_probcut = value.eq_ignore_ascii_case("true"),
             "probcutmargin" => if let Ok(v) = value.parse::<i16>() { self.probcut_margin = v; },
             "probcutreduction" => if let Ok(v) = value.parse::<i32>() { self.probcut_reduction = v; },
