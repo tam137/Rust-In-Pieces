@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+- **Tooling, no engine change - the SPSA tuner rewritten** (Matt-Magie step 94, `task.md` 41): absolute
+  per-parameter step `c_end`, Fishtest schedules, one colour-swapped game pair per iteration from
+  `openings_wide.txt`, asynchronous pairs, abort rules for discarded pairs and time losses, a preflight that
+  every option reaches the engine, 29 tests. The old step was proportional to the value, so a parameter at 0
+  could never move. Recovery test at 1s + 150ms: `lmr_divisor` 120 -> 155.5 in 3000 pairs.
 
 ## [V0.51.0] - 2026-11-05
 
