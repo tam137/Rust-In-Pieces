@@ -408,13 +408,13 @@
         "c_end": 1
     },
     "lmr_history_good_threshold": {
-        "value": 99,
+        "value": 0,
         "min": -512,
         "max": 1024,
         "c_end": 32
     },
     "lmr_history_bad_threshold": {
-        "value": 128,
+        "value": 0,
         "min": -1024,
         "max": 512,
         "c_end": 32

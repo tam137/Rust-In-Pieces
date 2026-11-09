@@ -761,10 +761,10 @@ impl Config {
             aspiration_window_initial_delta: 15,
             aspiration_window_multiplier: 4,
             aspiration_window_max_delta: 1000,
-            // Matt-Magie step 95: tuned by SPSA with the history curves (20,000 pairs at 1s + 150ms).
-            // With bad above good every quiet move up to the good threshold is reduced one ply more.
-            lmr_history_good_threshold: 99,
-            lmr_history_bad_threshold: 128,
+            // Matt-Magie step 95b: the SPSA thresholds (99 / 128) are left out; the curves alone are
+            // tested against v0.51.0 (`task.md` 42).
+            lmr_history_good_threshold: 0,
+            lmr_history_bad_threshold: 0,
             rfp_margin_per_depth: 90,
             rfp_max_depth: 8,
             rfp_before_nmp: true,
@@ -1503,8 +1503,8 @@ mod tests {
         assert_eq!(config.rfp_margin_per_depth, 90);
         assert_eq!(config.rfp_max_depth, 8);
         assert!(config.rfp_before_nmp);
-        assert_eq!(config.lmr_history_good_threshold, 99, "step 95, SPSA");
-        assert_eq!(config.lmr_history_bad_threshold, 128, "step 95, SPSA");
+        assert_eq!(config.lmr_history_good_threshold, 0, "step 95b: the SPSA thresholds are left out");
+        assert_eq!(config.lmr_history_bad_threshold, 0, "step 95b: the SPSA thresholds are left out");
         assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
         assert!(!config.check_extension_require_safe);
