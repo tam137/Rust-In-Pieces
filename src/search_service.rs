@@ -3080,6 +3080,18 @@ mod tests {
     /// Runs a fixed-depth search with a caller-shaped configuration and reports the
     /// number of nodes it took. Fixed-depth searches are deterministic, so the counts
     /// are directly comparable between configurations.
+    /// Matt-Magie step 95: the history curves and LMR history thresholds of v0.51.0 (`depth^2` for
+    /// bonus and malus, both thresholds 0). Tests that pin a mechanism measured before the SPSA
+    /// result call this, so they keep testing that mechanism rather than the tuned values.
+    fn v051_history(config: &mut Config) {
+        config.hist_bonus_quad = 16;
+        config.hist_bonus_lin = 0;
+        config.hist_malus_quad = 16;
+        config.hist_malus_lin = 0;
+        config.lmr_history_good_threshold = 0;
+        config.lmr_history_bad_threshold = 0;
+    }
+
     fn search_nodes(fen: &str, depth: i32, shape: impl Fn(&mut Config)) -> usize {
         search_nodes_seeded(fen, depth, None, shape)
     }
@@ -4562,7 +4574,9 @@ mod tests {
     /// that spares promising quiet moves never ran.
     #[test]
     fn test_lmr_history_rebate_reads_the_sign_of_the_entry() {
-        let config = Config::new();
+        // Step 95 moved the defaults to 99 / 128; the rule itself is tested at v0.51.0's 0 / 0.
+        let mut config = Config::new();
+        v051_history(&mut config);
         assert_eq!(config.lmr_history_good_threshold, 0);
         assert_eq!(config.lmr_history_bad_threshold, 0);
 
@@ -4634,8 +4648,10 @@ mod tests {
 
     #[test]
     fn test_the_lmr_cut_node_rule_changes_the_tree_when_enabled() {
-        let without = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmr_cut_node = false);
-        let with = search_nodes(CHECK_RICH_FEN, 7, |c| c.enable_lmr_cut_node = true);
+        // Measured on v0.51.0's history (step 95: with the tuned values this position's tree
+        // happens not to differ at depth 7).
+        let without = search_nodes(CHECK_RICH_FEN, 7, |c| { v051_history(c); c.enable_lmr_cut_node = false; });
+        let with = search_nodes(CHECK_RICH_FEN, 7, |c| { v051_history(c); c.enable_lmr_cut_node = true; });
         assert_ne!(with, without,
             "the cut-node reduction must change the searched tree ({} with vs {} without)",
             with, without);
@@ -4862,6 +4878,9 @@ mod tests {
         // above were taken on: with it on, depth 9 reads 183833 against 131611.
         config_enabled.enable_correction_history = false;
         config_disabled.enable_correction_history = false;
+        // And on v0.51.0's history: the numbers predate the tuned curves of step 95.
+        v051_history(&mut config_enabled);
+        v051_history(&mut config_disabled);
 
         let mut stats_enabled = Stats::new();
         let mut stats_disabled = Stats::new();

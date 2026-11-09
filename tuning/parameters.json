@@ -408,13 +408,13 @@
         "c_end": 1
     },
     "lmr_history_good_threshold": {
-        "value": 0,
+        "value": 99,
         "min": -512,
         "max": 1024,
         "c_end": 32
     },
     "lmr_history_bad_threshold": {
-        "value": 0,
+        "value": 128,
         "min": -1024,
         "max": 512,
         "c_end": 32
@@ -473,25 +473,25 @@
         "c_end": 1
     },
     "hist_bonus_quad": {
-        "value": 16,
+        "value": 22,
         "min": 4,
         "max": 48,
         "c_end": 2
     },
     "hist_bonus_lin": {
-        "value": 0,
+        "value": -16,
         "min": -256,
         "max": 256,
         "c_end": 8
     },
     "hist_malus_quad": {
-        "value": 16,
+        "value": 15,
         "min": 4,
         "max": 48,
         "c_end": 2
     },
     "hist_malus_lin": {
-        "value": 0,
+        "value": 17,
         "min": -256,
         "max": 256,
         "c_end": 8
