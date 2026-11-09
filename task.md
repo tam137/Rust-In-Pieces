@@ -149,7 +149,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
 | ~~4~~ | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**, ~~the Reverse Futility depth bound~~ **done in v0.46.4** (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | **Done 2026-10-14.** The margin itself, 80 against a published 90 to 100: 90 refused on 2026-10-15, 70 on 2026-10-16, see 21.3 |
 | ~~5~~ | ~~The Null Move reduction and its verification search~~ **done in v0.46.3**; ~~the term in `static_eval - beta` of the published reduction~~ **refused 2026-10-15**; ~~the null child as a non-PV node~~ **refused 2026-10-16**; ~~the term at divisor 100 and a cap of 1~~ **refused 2026-10-16** | 20 | **Done.** The term: SPRT [0, 10] H0 after 2834 games against v0.46.4, -3.7 Elo [-14, +7]; code on the local branch `nmp-eval-term`. At 100 / 1: SPRT [0, 10] H0 after 2190 games, -5.8 Elo [-18, +6]; code on the local branch `nmp-eval-term-100`. The non-PV null child: SPRT [0, 10] H0 after 1984 games, -7.1 Elo [-19, +5]; code on the local branch `nmp-child-pv`, see 20 |
-| 6 | The history bonus and malus curves | 23.4 | Only after the signed table of v0.45.0, and only with its own SPSA group — which needs the tuner fixed first |
+| ~~6~~ | ~~The history bonus and malus curves~~ | 23.4, 42 | **Tuned 2026-11-08/09, not shipped (42):** SPSA over the curves and the LMR history thresholds, 20,000 pairs at 1s + 150ms; the result searched 21-28% faster to depth 10 and played even, SPRT [0, 10] H0 after 3827 games, -0.8 Elo [-10, +8]. The curve options are on `master` with tree-identical defaults; the curves without the thresholds are tested next |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
 | 8 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
@@ -188,7 +188,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Splitting the history by side halved the magnitude an entry reaches, and `lmr_history_good_threshold` (4000) and `lmr_history_bad_threshold` (550) were not moved with it — the tree grew 1.8% and 5.8% at fixed depth 10 | property, measured 2026-09-10, section 23.2; the re-tuning belongs to 23.4 |
 | ~~`lmr_history_good_threshold` fires on 0.06% of Late Move Reduction decisions~~ — the threshold is 0 since 2026-09-11 and the branch fires on 10.19%, the census having found nothing above `+2^13` to justify 4000 | defect, **closed 2026-10-07**: kept at 0, +2.7 Elo [-4, +9] over 6000 games, section 23.4 |
 | ~~`spsa_tuner.py:194` takes its step as `max(1, round(abs(value) * mutate_pct / 100))`, so a parameter sitting at 0 can never leave the neighbourhood of 0 whatever its range — both LMR history thresholds are now exactly there, and it is the same mechanism that made SPSA useless for the singular parameters~~ | **closed 2026-11-08**: the tuner was rewritten with an absolute per-parameter step `c_end` and Fishtest schedules, and recovered `lmr_divisor` from 120 to 155.5 at 1s + 150ms, section 41 |
-| The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation | proposal, unmeasured, section 23.4, blocked on the tuner row above |
+| ~~The history bonus and malus are both `depth * depth` through `history_gravity`, against a published form with a steeper malus than bonus, and `MAX_HISTORY` is a stipulation~~ | **tuned 2026-11-09, no gain**: options `HistBonusQuad/Lin`, `HistMalusQuad/Lin` on `master` (defaults `depth^2`), SPSA result 22 / -16 / 15 / 17 with LMR thresholds 99 / 128 played even, section 42 |
 | ~~The Null Move reduction is `2 + depth / 6` and is verified above depth 6, against a published `3 + depth / 3` with no verification~~ | **closed 2026-10-13**: shipped in v0.46.3, the null child at `depth - (3 + depth / 3)` and no verification, SPRT [0, 10] H1 after 3308 games against v0.46.2, section 20 |
 | The published Null Move reduction's term `min((static_eval - beta) / 200, 3)`: **refused 2026-10-15** against v0.46.4. With Reverse Futility Pruning ahead of the null move it is at most 1 at depths 3 to 5 and only lowers a child from depth 5 on: 4.6% / 5.0% of null searches, -0.9% / -0.7% time to depth 10. SPRT [0, 10] H0 after 2834 games, -3.7 Elo [-14, +7] over 2847, [0, 5] undecided at -1.09. Code on the local branch `nmp-eval-term`. **Divisor 100 and a cap of 1 refused 2026-10-16** against v0.46.4: a shallower child on 9.3% / 9.8% of null searches, +2.6% / -1.3% time to depth 10 (`openings_wide` / `openings_mixed`); SPRT [0, 10] H0 after 2190 games, -5.8 Elo [-18, +6] over 2204, [0, 5] undecided at -1.17. Code on the local branch `nmp-eval-term-100` | negative result, section 20 |
 | The null child inherits the parent's `is_pv` although it always searches a null window: the published non-PV null child was **refused 2026-10-16** against v0.46.4. Only 0.7% of null searches start at a PV node (depth 10, both pools); census +2.3% / -0.7% time to depth 10 (`openings_wide` / `openings_mixed`). SPRT [0, 10] H0 after 1984 games, -7.1 Elo [-19, +5] over 1998, [0, 5] undecided at -1.22. Code on the local branch `nmp-child-pv` | negative result, section 20 |
@@ -2865,3 +2865,23 @@ no discarded pair, no time loss. The tuner recovers a parameter with a measured 
 **For tuning.** These search parameters are flat over wide ranges at 1s + 50ms; tune at 1s + 150ms or longer.
 A clear reading of a difference of D Elo between theta+ and theta- needs about `(574 / D)^2` game pairs, so
 small effects cost days, not hours.
+
+## 42. The history curves tuned by SPSA: no gain (Matt-Magie step 95, 2026-11-08/09)
+
+**Options, on `master` (`1eec84d`).** Bonus and malus of the butterfly history are curves in sixteenths,
+`(quad * depth^2 + lin * depth) / 16` clamped to `[0, MAX_HISTORY]`, each with its own parameters: UCI
+`HistBonusQuad`, `HistBonusLin`, `HistMalusQuad`, `HistMalusLin`, defaults 16 / 0 / 16 / 0 = v0.51.0's
+`depth * depth`. 300/300 identical trees against v0.51.0 on `openings_wide` and `openings_mixed` at depth 10.
+Registered for the tuner with the group `history` (the four plus the two LMR history thresholds).
+
+**SPSA.** Group `history`, N = 20,000 pairs (40,000 games), `r_end` 0.01, 1s + 150ms, Hash 64; no discarded
+pair, no time loss. theta: bonus quad 21.9, bonus lin -16.4, malus quad 14.8, malus lin 16.9, LMR good
+threshold 98.8, bad threshold 127.8. Bonus quad, malus lin and both thresholds moved steadily past their `c_end`;
+with the bad threshold above the good one every quiet move up to 99 is reduced one ply more.
+
+**Candidate (rounded, branch `history-curves`, `df3397d`).** Census at depth 10 against v0.51.0: **21% / 25% less
+time** (`openings_wide` / `openings_mixed`), 21% / 28% fewer generated moves. Smoke gauntlet at 1s + 100ms: 44.0% /
+57.0% / 95.0% against v0.51.0 / v0.50.2 / v0.34.0 (under 45% against v0.51.0; the owner had the SPRT run). **SPRT
+against v0.51.0 at 1s + 150ms: [0, 10] H0 after 3827 games, -0.8 Elo, paired 95% [-10, +8]**, [0, 5] undecided;
+no time loss. Not shipped. The deeper search the thresholds buy is paid back in what they prune; a gain above
+about 8 Elo is excluded for this set. Next: the curves alone, LMR thresholds at 0 / 0.

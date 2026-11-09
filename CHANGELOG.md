@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `openings_wide.txt`, asynchronous pairs, abort rules for discarded pairs and time losses, a preflight that
   every option reaches the engine, 29 tests. The old step was proportional to the value, so a parameter at 0
   could never move. Recovery test at 1s + 150ms: `lmr_divisor` 120 -> 155.5 in 3000 pairs.
+- **History curve options, no engine change** (Matt-Magie step 95, `task.md` 42): `HistBonusQuad`, `HistBonusLin`,
+  `HistMalusQuad`, `HistMalusLin` make bonus and malus `(quad * depth^2 + lin * depth) / 16`; the defaults are
+  `depth * depth`, tree-identical to v0.51.0 (300/300 on both pools). Their SPSA result with the LMR history
+  thresholds played even against v0.51.0 (SPRT [0, 10] H0 after 3827 games, -0.8 Elo [-10, +8]) and is not shipped.
 
 ## [V0.51.0] - 2026-11-05
 
