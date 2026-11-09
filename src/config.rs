@@ -761,8 +761,10 @@ impl Config {
             aspiration_window_initial_delta: 15,
             aspiration_window_multiplier: 4,
             aspiration_window_max_delta: 1000,
-            lmr_history_good_threshold: 0,
-            lmr_history_bad_threshold: 0,
+            // Matt-Magie step 95: tuned by SPSA with the history curves (20,000 pairs at 1s + 150ms).
+            // With bad above good every quiet move up to the good threshold is reduced one ply more.
+            lmr_history_good_threshold: 99,
+            lmr_history_bad_threshold: 128,
             rfp_margin_per_depth: 90,
             rfp_max_depth: 8,
             rfp_before_nmp: true,
@@ -791,11 +793,12 @@ impl Config {
             // over 50 replayed games at depth 9 (the history carried from move to move); from cold
             // tables at depth 10, -8.3% / -0.8% time (wide / mixed).
             history_age_per_go: true,
-            // Matt-Magie step 95: `depth * depth` for both, tree-identical to v0.51.0.
-            hist_bonus_quad: 16,
-            hist_bonus_lin: 0,
-            hist_malus_quad: 16,
-            hist_malus_lin: 0,
+            // Matt-Magie step 95: tuned by SPSA (20,000 pairs at 1s + 150ms, `task.md` 42); quad 16 and
+            // lin 0 for both are v0.51.0's `depth * depth`.
+            hist_bonus_quad: 22,
+            hist_bonus_lin: -16,
+            hist_malus_quad: 15,
+            hist_malus_lin: 17,
             // Matt-Magie step 83: on at the published margin. Depth-10 census over 300 positions per
             // pool against the rule off: 180 -> +1.6% / +8.9% time (wide / mixed), 140 -> -0.9% /
             // +5.8%, 220 -> +0.9% / +5.6%; 180 is the fastest on both pools.
@@ -1390,7 +1393,7 @@ mod tests {
     fn test_history_curve_options_reach_their_fields_in_all_spellings() {
         let defaults = Config::new();
         assert_eq!((defaults.hist_bonus_quad, defaults.hist_bonus_lin, defaults.hist_malus_quad, defaults.hist_malus_lin),
-                   (16, 0, 16, 0), "the defaults are v0.51.0's `depth * depth` for both curves");
+                   (22, -16, 15, 17), "the SPSA result of step 95; 16/0/16/0 is v0.51.0's `depth * depth`");
         let cases: [(&str, &str, &str, fn(&Config) -> i32); 4] = [
             ("HistBonusQuad", "hist_bonus_quad", "histbonusquad", |c| c.hist_bonus_quad),
             ("HistBonusLin", "hist_bonus_lin", "histbonuslin", |c| c.hist_bonus_lin),
@@ -1500,8 +1503,8 @@ mod tests {
         assert_eq!(config.rfp_margin_per_depth, 90);
         assert_eq!(config.rfp_max_depth, 8);
         assert!(config.rfp_before_nmp);
-        assert_eq!(config.lmr_history_good_threshold, 0);
-        assert_eq!(config.lmr_history_bad_threshold, 0);
+        assert_eq!(config.lmr_history_good_threshold, 99, "step 95, SPSA");
+        assert_eq!(config.lmr_history_bad_threshold, 128, "step 95, SPSA");
         assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
         assert!(!config.check_extension_require_safe);
