@@ -149,7 +149,7 @@ two gauntlets were the first 50 lines of the file, because **`mm.sh` takes its o
 | ~~3~~ | ~~History cannot go negative, so a refuted quiet move and an unseen one both read 0~~ | 19 | **Done 2026-09-11**, shipped in v0.45.0 at **+9.6 Elo, 95% [+3, +16]** over 6000 games. The table is signed and updated by gravity, the malus is on, and `lmr_history_bad_threshold` is 0. The tree grew 12% and the games went the other way. See 23.3 |
 | ~~4~~ | ~~`improving` and the Late Move Pruning growth term~~ **done in v0.46.0**, ~~`improving` in the Late Move Reduction~~ **done in v0.46.1**, ~~the Reverse Futility depth bound~~ **done in v0.46.4** (21.3); `improving` in the RFP margin was refused twice on 2026-10-10, whole step and half step | 21 | **Done 2026-10-14.** The margin itself, 80 against a published 90 to 100: 90 refused on 2026-10-15, 70 on 2026-10-16, see 21.3 |
 | ~~5~~ | ~~The Null Move reduction and its verification search~~ **done in v0.46.3**; ~~the term in `static_eval - beta` of the published reduction~~ **refused 2026-10-15**; ~~the null child as a non-PV node~~ **refused 2026-10-16**; ~~the term at divisor 100 and a cap of 1~~ **refused 2026-10-16** | 20 | **Done.** The term: SPRT [0, 10] H0 after 2834 games against v0.46.4, -3.7 Elo [-14, +7]; code on the local branch `nmp-eval-term`. At 100 / 1: SPRT [0, 10] H0 after 2190 games, -5.8 Elo [-18, +6]; code on the local branch `nmp-eval-term-100`. The non-PV null child: SPRT [0, 10] H0 after 1984 games, -7.1 Elo [-19, +5]; code on the local branch `nmp-child-pv`, see 20 |
-| ~~6~~ | ~~The history bonus and malus curves~~ | 23.4, 42 | **Tuned 2026-11-08/09, not shipped (42):** SPSA over the curves and the LMR history thresholds, 20,000 pairs at 1s + 150ms; the result searched 21-28% faster to depth 10 and played even, SPRT [0, 10] H0 after 3827 games, -0.8 Elo [-10, +8]. The curve options are on `master` with tree-identical defaults; the curves without the thresholds are tested next |
+| ~~6~~ | ~~The history bonus and malus curves~~ | 23.4, 42 | **Tuned 2026-11-08/09, not shipped (42):** SPSA over the curves and the LMR history thresholds, 20,000 pairs at 1s + 150ms; the result searched 21-28% faster to depth 10 and played even, SPRT [0, 10] H0 after 3827 games, -0.8 Elo [-10, +8]. **The curves alone shipped in v0.52.0 (2026-11-10)**: SPRT [0, 5] H1 after 15,716 games, +5.4 Elo [+1, +10]; control at 10s + 100ms +5.3 [-1.5, +12.1]; the thresholds stay 0 / 0 |
 | 7 | Transposition Table: index, clusters, ageing, cached static eval | 25 | Large, and it touches the one structure every other item reads |
 | 8 | Continuation History replacing killers and counter moves | 24 | Two runs minimum: the untuned rework is known to measure worse |
 | 9 | ProbCut | 26 | The most speculative rule that still fires at the depth of play |
@@ -2884,4 +2884,12 @@ time** (`openings_wide` / `openings_mixed`), 21% / 28% fewer generated moves. Sm
 57.0% / 95.0% against v0.51.0 / v0.50.2 / v0.34.0 (under 45% against v0.51.0; the owner had the SPRT run). **SPRT
 against v0.51.0 at 1s + 150ms: [0, 10] H0 after 3827 games, -0.8 Elo, paired 95% [-10, +8]**, [0, 5] undecided;
 no time loss. Not shipped. The deeper search the thresholds buy is paid back in what they prune; a gain above
-about 8 Elo is excluded for this set. Next: the curves alone, LMR thresholds at 0 / 0.
+about 8 Elo is excluded for this set.
+
+**The curves alone, shipped in v0.52.0 (step 95b, 2026-11-09/10).** Bonus 22 / -16 and malus 15 / 17 with the LMR
+history thresholds left at 0 / 0 (candidate V0.52.0-rc2): census at depth 10 **-8.8% / -7.6% time**, -6.8% / -10.8%
+generated moves; smoke gauntlet 54.0% / 59.5% / 92.0% against v0.51.0 / v0.50.2 / v0.34.0. **SPRT against v0.51.0 at
+1s + 150ms: [0, 5] H1 after 15,716 games, +5.4 Elo, paired 95% [+1, +10]**, [0, 10] undecided (+5 sits between its
+hypotheses); no time loss. **Control at 10s + 100ms (section 4 of the measurement skill), 6000 games in two runs of
+3000 with rotated openings: +5.3 Elo [-1.5, +12.1]** (+2.5 and +8.1 per half) - the gain holds at ten times the
+time. The thresholds were what made the full SPSA set play even: they bought depth and gave it back in pruning.

@@ -5,17 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [Unreleased]
+## [V0.52.0] - 2026-11-10
 
-- **Tooling, no engine change - the SPSA tuner rewritten** (Matt-Magie step 94, `task.md` 41): absolute
-  per-parameter step `c_end`, Fishtest schedules, one colour-swapped game pair per iteration from
-  `openings_wide.txt`, asynchronous pairs, abort rules for discarded pairs and time losses, a preflight that
-  every option reaches the engine, 29 tests. The old step was proportional to the value, so a parameter at 0
-  could never move. Recovery test at 1s + 150ms: `lmr_divisor` 120 -> 155.5 in 3000 pairs.
-- **History curve options, no engine change** (Matt-Magie step 95, `task.md` 42): `HistBonusQuad`, `HistBonusLin`,
-  `HistMalusQuad`, `HistMalusLin` make bonus and malus `(quad * depth^2 + lin * depth) / 16`; the defaults are
-  `depth * depth`, tree-identical to v0.51.0 (300/300 on both pools). Their SPSA result with the LMR history
-  thresholds played even against v0.51.0 (SPRT [0, 10] H0 after 3827 games, -0.8 Elo [-10, +8]) and is not shipped.
+- **History bonus and malus as tuned curves** (Matt-Magie steps 95 / 95b, `task.md` 42): new UCI options
+  `HistBonusQuad`, `HistBonusLin`, `HistMalusQuad`, `HistMalusLin`, bonus and malus `(quad * depth^2 + lin * depth) / 16`.
+  Defaults from SPSA (20,000 pairs at 1s + 150ms): bonus 22 / -16, malus 15 / 17 (16 / 0 for both is v0.51.0's
+  `depth * depth`). The LMR history thresholds the same run proposed (99 / 128) are not shipped: with them the search
+  was 21-28% faster to depth 10 and played even (-0.8 Elo [-10, +8]); they stay 0 / 0.
+- SPRT against v0.51.0 at 1s + 150ms: [0, 5] H1 after 15,716 games, +5.4 Elo, paired 95% CI [+1, +10]. Control at
+  10s + 100ms, 6000 games: +5.3 Elo [-1.5, +12.1]. Smoke gauntlet 54.0% / 59.5% / 92.0% against v0.51.0 / v0.50.2 /
+  v0.34.0. Census: -8.8% / -7.6% time to depth 10.
+- Tooling: the SPSA tuner rewritten with an absolute per-parameter step and Fishtest schedules (step 94, `task.md`
+  41); `scripts/gate.py` runs census, gauntlet, SPRT and the longer-control check with one command, stop rules
+  changeable while it runs (step 96); new rule in the measurement skill: SPSA values and search-parameter defaults
+  pass a control match at a longer time control before release.
 
 ## [V0.51.0] - 2026-11-05
 
