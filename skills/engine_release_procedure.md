@@ -82,3 +82,41 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
      git tag -a "vX.Y.Z" -m "Release version vX.Y.Z"
      git push origin master --tags
      ```
+
+## 6. Updating the Lichess bots (ARM build on the bot host)
+
+The Lichess bots run on a separate ARM host, not on the measurement host. Engines are built there from a
+release tag; nothing is copied across architectures. Host, checkout and bot folders are environment
+variables, never written into a committed file:
+
+| Variable | Defined in | Meaning |
+| :--- | :--- | :--- |
+| `EOD_SERVER` | `~/costumenvs.sh` on the measurement host | SSH target of the bot host |
+| `RIP_ARM_REPO` | `~/costumenvs.sh` on the bot host | the checkout used for ARM builds |
+| `RIP_BOT_ENGINES_HCE` | `~/costumenvs.sh` on the bot host | engine folder of the HCE bot |
+| `RIP_BOT_ENGINES_NNUE` | `~/costumenvs.sh` on the bot host | engine folder of the NNUE bot |
+
+A non-interactive `ssh` does not read the shell profile, so every remote command starts with
+`source ~/costumenvs.sh` - and, where it builds, `. "$HOME/.cargo/env"`, which puts `cargo` on the path.
+
+- **Trigger:** the owner says "Lichess-Bot aktualisieren" (update the Lichess bot), naming HCE, NNUE or both,
+  and the version if it is not the latest release. That is the explicit instruction to switch the bot. Without
+  it, a build may be placed in the engine folder but `current-engine` is not touched.
+- **Sequence** (HCE shown; NNUE uses the tag `vX.Y.Z-NNUE`, the file name `suprah-X.Y.Z-nnue` and
+  `$RIP_BOT_ENGINES_NNUE`):
+  ```bash
+  source ~/costumenvs.sh
+  ssh "$EOD_SERVER" 'source ~/costumenvs.sh && . "$HOME/.cargo/env" && cd "$RIP_ARM_REPO" && git fetch --tags origin \
+      && git checkout --detach vX.Y.Z && nice -n 19 cargo build --release -j 4'
+  ssh "$EOD_SERVER" 'source ~/costumenvs.sh && test ! -e "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z" \
+      && cp "$RIP_ARM_REPO/target/release/suprah" "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z"'
+  ```
+  1. Build at low priority on half the cores: the bots keep playing during the build.
+  2. Never overwrite an existing binary in the engine folder.
+  3. Check the copy before switching: `id name` must read the release (`Rust-In-Pieces VX.Y.Z`, NNUE
+     `RIP VX.Y.Z-NNUE`), and `position startpos` / `go depth 10` must return a `bestmove`.
+  4. Switch: `ln -sfn "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z" "$(dirname "$RIP_BOT_ENGINES_HCE")/current-engine"`.
+     The bot starts the engine per game, so it takes effect from the next game; no restart.
+  5. Report the old and the new target of `current-engine`, so the switch can be undone with one `ln -sfn`.
+- **Never** commit or push from the bot host's checkout, and never change the bots' configuration, their
+  start scripts or the scheduler as part of this procedure - those need their own explicit instruction.
