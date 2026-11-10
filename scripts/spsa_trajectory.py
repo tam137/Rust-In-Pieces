@@ -13,7 +13,11 @@ Output:
   pairs since the previous checkpoint (a single row of SPSA theta is mostly noise), with the start
   value as the first row;
 - per parameter: the current theta, its start, the change and the change in units of `c_end`, the
-  parameter's absolute final perturbation, which is the scale the tuner's schedule is built on.
+  parameter's absolute final perturbation, which is the scale the tuner's schedule is built on;
+- and `z`, the change against a random walk made of the same per-pair steps: the drift divided by
+  the square root of the sum of the squared steps. Without a gradient the signs of the steps are
+  random and `z` stays around +-1; a real gradient makes it grow with the run. The windowed table
+  looks smooth either way, so it cannot tell the two apart; `|z| >= 2` is the reading for a signal.
 
 The start is the `value` of the parameter file. A run started with `--start` is shown against
 `value`, not against its displaced start.
@@ -26,6 +30,7 @@ import argparse
 import csv
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -70,6 +75,20 @@ def trajectory(series, points):
 def drift(theta, start, c_end):
     """The change from the start in units of the final perturbation `c_end`."""
     return (theta - start) / c_end
+
+
+def z_score(series, start):
+    """The drift of `series` (theta after each pair) from `start` over the random-walk sigma of
+    its own steps, or None without history or without any movement."""
+    if not series:
+        return None
+    previous, squares = start, 0.0
+    for value in series:
+        squares += (value - previous) ** 2
+        previous = value
+    if squares == 0.0:
+        return None
+    return (series[-1] - start) / math.sqrt(squares)
 
 
 def read_history(path, active):
@@ -143,6 +162,7 @@ def main(argv=None):
     # Table.
     names = active
     widths = [max(9, len(p)) for p in names]
+    series = {}
     if not os.path.exists(history):
         print("\n  no history")
     else:
@@ -165,7 +185,7 @@ def main(argv=None):
     theta = state.get("theta", {})
     name_w = max([9] + [len(p) for p in names])
     print(f"\n  {'parameter':<{name_w}s}  {'start':>7s}  {'now':>9s}  {'change':>8s}  {'in c_end':>8s}  "
-          f"{'c_end':>5s}  range")
+          f"{'z':>6s}  {'c_end':>5s}  range")
     for p in names:
         d = defs.get(p, {})
         start, now, ce = d.get("value"), theta.get(p), c_end.get(p, d.get("c_end"))
@@ -173,8 +193,11 @@ def main(argv=None):
             print(f"  {p:<{name_w}s}  (no start, theta or c_end)")
             continue
         flag = "  on bound" if now <= d.get("min") or now >= d.get("max") else ""
+        z = z_score(series.get(p, []), start)
+        z_s = f"{z:>+6.2f}" if z is not None else f"{'n/a':>6s}"
         print(f"  {p:<{name_w}s}  {start:>7}  {now:>9.2f}  {now - start:>+8.2f}  "
-              f"{drift(now, start, ce):>+8.2f}  {ce:>5}  [{d.get('min')}, {d.get('max')}]{flag}")
+              f"{drift(now, start, ce):>+8.2f}  {z_s}  {ce:>5}  [{d.get('min')}, {d.get('max')}]{flag}")
+    print("\n  z: the change over a random walk of the same per-pair steps; |z| >= 2 reads as a signal")
     return 0
 
 

@@ -74,6 +74,14 @@ class Trajectory(unittest.TestCase):
         self.assertEqual(rows[0], (10, 5.5))       # mean of pairs 1..10
         self.assertEqual(rows[-1], (100, 95.5))    # mean of pairs 91..100
 
+    def test_z_compares_the_drift_with_a_random_walk_of_the_same_steps(self):
+        # 100 steps of +0.5: drift 50, random-walk sigma sqrt(100 * 0.25) = 5, z = 10.
+        self.assertAlmostEqual(st.z_score([10.0 + 0.5 * i for i in range(1, 101)], 10.0), 10.0)
+        # Alternating steps cancel: drift 0, z 0.
+        self.assertAlmostEqual(st.z_score([11.0, 10.0] * 50, 10.0), 0.0)
+        self.assertIsNone(st.z_score([], 10.0))
+        self.assertIsNone(st.z_score([10.0, 10.0], 10.0), "no movement at all has no z")
+
     def test_drift_in_c_end_units(self):
         self.assertAlmostEqual(st.drift(14.0, 10, 2), 2.0)
         self.assertAlmostEqual(st.drift(-12.0, 0, 8), -1.5)
@@ -90,8 +98,9 @@ class Report(unittest.TestCase):
         self.assertIn("b an der Grenze", text)
         self.assertIn("start", text)
         # final line: a moved 2.0 (= 1.00 c_end), b moved -20 (= -2.50 c_end)
-        self.assertRegex(text, r"a\s+10\s+12\.00\s+\+2\.00\s+\+1\.00")
-        self.assertRegex(text, r"b\s+0\s+-20\.00\s+-20\.00\s+-2\.50")
+        # z: 200 steps of +0.01 (b: -0.1) -> drift / (step * sqrt(200)) = +-14.14
+        self.assertRegex(text, r"a\s+10\s+12\.00\s+\+2\.00\s+\+1\.00\s+\+14\.1")
+        self.assertRegex(text, r"b\s+0\s+-20\.00\s+-20\.00\s+-2\.50\s+-14\.1")
 
     def test_a_parameter_on_its_bound_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:
