@@ -96,6 +96,14 @@ variance is near 0.065. That is what makes small effects expensive here.
 
 ## 4. Stopped SPRT vs. Fixed-N Effect Size
 
+> [!TIP]
+> **`scripts/gate.py` runs a whole acceptance with one command** - census, smoke gauntlet, SPRT and
+> the control at a longer time control, with the rules of this section as defaults. Its stop rules
+> (`--min`, `--max`, `--elo0`, `--elo1`, `--guard`) are re-read every minute, so
+> `scripts/gate.py set <name> --min 3000` changes a running SPRT without touching the tournament,
+> and `scripts/gate.py status` reports the run from the candidate's side. Prefer it to hand-written
+> tournament files and watchdogs.
+
 > [!IMPORTANT]
 > **A stopped SPRT decides *whether to ship*, never *how much was gained*.**
 > A sequential test stops the moment evidence crosses a bound, which means it stops on favorable
