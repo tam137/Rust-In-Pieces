@@ -19,6 +19,14 @@ python3 scripts/check_spsa_status.py <state.json>   # or SPSA_STATE=<state.json>
 ```
 It prints the running command, the tmux pane, iteration `k_done/N`, the counters, theta of the active parameters against `value` in `parameters.json`, and the last history rows.
 
+The path the parameters took (Matt-Magie step 99):
+```bash
+python3 scripts/spsa_trajectory.py <state.json> [--param-file <parameters>]
+```
+It prints a header (k/N, pairs per hour, expected end, W/D/L of theta+ against theta-, time losses, illegal moves, discarded pairs, the watcher's alert file), a table of about ten checkpoints with the mean of theta over the pairs since the previous checkpoint, and per parameter the start, the current theta, the change and the change in units of `c_end`. History, log and alert default to `<prefix>_history.csv`, `<prefix>_spsa.log` and `<prefix>_alert.txt` next to `<prefix>_state.json`.
+
+A run with its own parameter file (for example a run on the NNUE branch, whose values differ from `master`) needs `--param-file`: without it both scripts compare theta against `value` in `tuning/parameters.json`, which is `master`'s start and not the run's.
+
 ### 2. Manual Verification Steps
 
 #### A. Inspect the tmux output
@@ -51,7 +59,13 @@ cat tuning/spsa_state.json
 > - **Failures:** `discarded` should stay near 0 (the tuner aborts after 3 in a row or > 1% once 100 pairs are played). Many `time_losses` mean the time control is too short for the host load; any `illegal` is an engine bug.
 > - Inactive parameters are sent at their `value`; the preflight already confirms every option reaches the engine. Engine logs exist only if the run was started with `--logpath`.
 
-### 4. Parameter Adjustment Rules
+### 4. Reporting to the Owner
+Every interim report on a running SPSA session, whenever the owner asks for the status:
+1. **Show the output of `scripts/spsa_trajectory.py` as a code block**: header, the trajectory table and the closing lines with the change in units of `c_end`. The trajectory is never left out; a table of the final values alone is not a status report. The owner does not see tool output, only the answer.
+2. **Follow it with three to five sentences of qualitative assessment**: compare each movement with the current perturbation `c_k` (about `2.7 * c_end` early in a run, `c_end` at its end), name what moves steadily and what runs back, and whether anything approaches a bound or the watcher's rules.
+3. This covers SPSA runs only. Acceptance runs (census, gauntlet, SPRT, control match) are reported with `scripts/gate.py status` and the rules of `matchplay_measurement_procedure.md`.
+
+### 5. Parameter Adjustment Rules
 > [!WARNING]
 > **Never delete the entire tuning session just to adjust parameters!**
 > - The tuner refuses to resume a state whose fingerprint differs from the command line (group, active list, N, `r_end`, `c_end`, engine basename). If an adjustment is needed, hot-patch the state by hand as described in `spsa_parameter_update.md`.
