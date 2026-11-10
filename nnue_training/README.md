@@ -1,0 +1,151 @@
+# NNUE Training Plan
+
+Plan for training this engine's own NNUE networks, data generation and training included, on a
+single workstation. Status: preparation. This document is the public plan; the step-by-step log
+lives with the match manager (`<mm>`), which is resolved once per session as described in
+`AGENTS.md`.
+
+## 1. Goal
+
+A network trained here end to end. The first network (**N1**) reproduces the properties of the
+current one exactly - architecture, quantisation, file size and output scale - so the whole
+pipeline is proven and the engine loads it without a code change. After that the layout is free:
+the expected playing strength decides. Every network is accepted only by an SPRT [0, 5] against the
+current NNUE release, with the usual [0, 10] guard and a control match at a longer time control
+(`skills/matchplay_measurement_procedure.md`, `scripts/gate.py`).
+
+## 2. The current network
+
+`eval_models/quantised.bin` was trained for the engine SleepMind and is used with permission. It
+was trained with the Rust trainer [bullet](https://github.com/jw1912/bullet). The specification
+below is read from `src/nnue_service.rs` and from that engine's published training configuration.
+
+| Property | Value |
+| :--- | :--- |
+| Inputs | 768 = 64 squares x 6 piece types x 2 colours, **10 king buckets**, horizontally mirrored (king on files e-h mirrors the board), bullet `ChessBucketsMirrored` |
+| Bucket layout (half board, 32 squares, rank 1 first) | `0 1 2 3 / 4 4 5 5 / 6 6 6 6 / 7 7 7 7 / 8 8 8 8 / 8 8 8 8 / 9 9 9 9 / 9 9 9 9` |
+| Hidden layer | **256** per perspective, **SCReLU**, two perspectives (side to move first) |
+| Output | one value, **8 output buckets** by piece count, `(pieces - 2) / 4` (bullet `MaterialCount<8>`) |
+| Factoriser | `l0f` (768 x hidden), merged into all 10 buckets when the net is saved |
+| Quantisation | `l0w`, `l0b` x255 (QA); `l1w` x64 (QB, transposed); `l1b` x255*64 |
+| Output scale | `NNUE_SCALE = 400` in the engine, `eval_scale = 400` in training |
+| File | i16 little endian, `l0w l0b l1w l1b`, padded to 64 bytes: **3,940,928 bytes** |
+| Optimiser | AdamW, `l0w` and `l0f` clipped to +-0.99 |
+| Learning rate | cosine decay from 0.001 to 0.001 * 0.3^5 |
+| Batches | 16,384 positions, 6,104 batches per superbatch (about 100 M positions) |
+| WDL proportion | probably 0.5 (unconfirmed) |
+| Superbatches, data size | unknown |
+
+The scale is the one property that must not move silently: every search margin in centipawns
+(RFP, futility, razoring, ProbCut, aspiration) is calibrated on it.
+
+## 3. Host
+
+16 hardware threads, x86-64 with AVX2 and AVX-512; 12 threads may be used for compute (data
+generation, matches, tuning). No discrete GPU: an integrated RDNA3 GPU (gfx1103).
+
+**ROCm on an unlisted RDNA3 iGPU** (verified 2026-11-10, ROCm 7.1 from the distribution's packages:
+`rocminfo hipcc libamdhip64-dev libhipblas-dev librocblas-dev`, user in the groups `render` and
+`video`). The distribution's rocBLAS ships no gfx1103 kernels; without an override a plain HIP
+kernel runs but hipBLAS fails. What works: **build device code for `--offload-arch=gfx1100` and run
+with `HSA_OVERRIDE_GFX_VERSION=11.0.0`**. A test kernel and an SGEMM 1024^3 against a CPU reference
+were correct (max. error 2.8e-4) at about 1.1 TFLOP/s. bullet's HIP kernels have to be built for
+gfx1100 the same way. bullet's CPU backend is meant for tests and small networks only.
+
+The x86 release builds set no `target-cpu`, so they use SSE2 only, and `src/nnue_service.rs` has no
+explicit SIMD paths. This matters for how wide a network can be (section 5).
+
+## 4. Stages
+
+### Stage 0 - Tools and compatibility
+1. ROCm installed and verified (section 3).
+2. Clone bullet outside the repository, **pin the commit**, build `bullet-utils` (CPU: convert,
+   interleave, shuffle) and the trainer with the `hip` feature for gfx1100.
+3. Trainer crate in `nnue_training/`: architecture N1 as in section 2, command-line arguments for
+   data, superbatches, start superbatch, weights to resume, name, WDL proportion and hidden size;
+   bullet pinned by commit.
+4. Mini run on a few million positions from a throwaway data set (generated with SleepMind's
+   existing generator, only to test the chain, then deleted): 1-2 superbatches; measure positions
+   per second on the iGPU, memory and stability over at least an hour. The file must have
+   3,940,928 bytes and load through `NNUENetwork::load_from_bytes`.
+5. Compatibility tests in the engine, first against the current network: sign (a queen up is
+   positive for White, negative from Black's side), colour flip (a position and its colour mirror
+   give the same score for the side to move), horizontal mirroring (king on d/e), output bucket per
+   piece count.
+6. Data and networks live in the match manager's working directory (`<mm>/nnue_data/`,
+   `<mm>/nnue_nets/`), never in the repository.
+
+### Stage A - Data generation mode
+- Behind a Cargo feature `datagen`; the release binary is unchanged.
+- Self-play at a fixed node count per move (start 5,000), one thread, small hash, tables cleared
+  per game.
+- Opening: 8-12 random legal plies from the start position; drop the game if |eval| > 400 cp after
+  them; the random plies are not recorded.
+- End: mate, stalemate, the match manager's draw rules; adjudication of a win at |eval| >= 2000 cp
+  and of a draw at |eval| <= 10 cp from move 40, each over several moves.
+- Record `fen | eval | wdl`, **score and result from White's point of view** (bullet's text
+  format), then `bullet-utils convert / interleave / shuffle`.
+- Filter: side to move in check, best move a capture or promotion, mate scores.
+- Seed per process; counters for games, dropped games, filtered positions, positions per second.
+- Tests: sign with Black to move, result mapping, filters, determinism for a fixed seed.
+- A start script for up to 12 processes under `scripts/`.
+- Labels: first from the NNUE engine (current network), later a comparison network from the HCE
+  engine.
+
+### Stage B - Trial run
+About 1 M positions on one process: throughput, share filtered, game length, result
+distribution, disk use; decode a sample back (legal FEN, sign, result). Fit the eval-to-result
+sigmoid on the sample; if the fit is far from 400 it is recorded, the scale stays 400 for N1.
+
+### Stage C - Data
+First round 300-500 M positions (at least 100 M for a test network), up to 12 processes, only while
+no measurement runs on the same cores.
+
+### Stage D - Training
+Configuration as in section 2, WDL 0.5, scale 400; first about one to two passes over the data,
+longer while the loss still falls; checkpoints every few superbatches. Checks: size, loading, the
+compatibility tests, reference positions against the old network.
+
+### Stage E - Acceptance
+Candidate with the new network embedded and otherwise identical; census, `scripts/gate.py` against
+the current NNUE release. If a network ships, the NNUE search margins and the LMR divisor are
+re-checked afterwards.
+
+### Stage F - Iterate
+New data with the new network, old plus new data; only then wider networks.
+
+## 5. Network choice
+
+Width is a trade: more neurons evaluate more precisely but cost time per node (accumulator updates
+and the output grow linearly with the width) and need more data. Two limits apply here: the data
+twelve threads can produce, and inference without a SIMD target. Reference point: SleepMind went
+from 256 to 768 neurons and measured +39 Elo at 60s + 0.6s, together with about 1.5 B positions,
+WDL 0.5 and scale 295 - not the width alone.
+
+| Net | Layout | Data (rough) | Inference cost | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **N1** | (768x10 mirrored -> 256)x2 -> 1x8, SCReLU, scale 400 | 300-500 M | as today | baseline; proves the chain, no code change |
+| **N2** | the same with **512** hidden | >= 1 B | about 2x accumulator and output | the expected main gain once inference is faster |
+| N3 | 768 or 1024 hidden | >= 1.5-2 B | about 3-4x | only if N2 clearly gains |
+| later | a second layer, more output buckets | much more | code and data | separate plan |
+
+N1 comes first and unchanged: a pipeline error (sign, mirroring, scale) is otherwise
+indistinguishable from a poor choice of network. Two engine steps come before N2, independent of
+training:
+
+- **I1 - SIMD in inference:** `target-cpu` (for example `x86-64-v3`) for the x86 builds or explicit
+  AVX2 paths for the accumulator and the SCReLU output; ARM builds have NEON anyway. Tree-identical,
+  nodes per second measured, own SPRT; the target has to match every machine the builds run on.
+- **I2 - Cost before training:** builds with 512 and 768 hidden and random weights, nodes per
+  second against 256, so the Elo a wider net has to recover is known before it is trained.
+  Needs `NNUE_HIDDEN_SIZE` per build and a size check on load; measured after I1.
+
+## 6. Risks
+
+- Format or perspective errors make a network worthless without an obvious symptom: stage 0 and
+  stage B are mandatory before compute goes into data.
+- The iGPU path is unofficial; if it fails, training needs a separate plan (for example a CPU
+  trainer using AVX-512) before data is produced.
+- Too little data gives a weaker first network: add data before changing the architecture.
+- Data generation shares cores with measurements and must not run beside an SPRT.
+- Nothing in this repository names hosts, absolute paths or credentials.
