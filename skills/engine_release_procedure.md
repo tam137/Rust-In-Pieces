@@ -80,8 +80,10 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
      git add Cargo.toml CHANGELOG.md skills/engine_release_procedure.md
      git commit -m "Release vX.Y.Z: <Detailed description of release changes>"
      git tag -a "vX.Y.Z" -m "Release version vX.Y.Z"
-     git push origin master --tags
+     git push origin master vX.Y.Z
      ```
+     Push the branch and the one release tag by name, **never `--tags`**: the local repository holds tags that
+     must not reach the remote. Check with `git ls-remote --tags origin` that nothing else arrived.
 
 ## 6. Updating the Lichess bots (ARM build on the bot host)
 

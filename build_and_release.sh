@@ -153,7 +153,7 @@ if cp "target/release/suprah" "$COPY_TARGET" && chmod +x "$COPY_TARGET"; then
     echo -e "   ${BOLD}git add Cargo.toml CHANGELOG.md perft.md${NC}"
     echo -e "   ${BOLD}git commit -m \"Release v$NEW_VERSION: <Detailed Description>\"${NC}"
     echo -e "   ${BOLD}git tag -a \"v$NEW_VERSION\" -m \"Release version v$NEW_VERSION\"${NC}"
-    echo -e "   ${BOLD}git push origin master --tags${NC}"
+    echo -e "   ${BOLD}git push origin master v$NEW_VERSION   (never --tags)${NC}"
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
