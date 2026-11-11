@@ -22,6 +22,8 @@ mod time_check;
 mod magic;
 mod pst;
 pub mod polyglot;
+#[cfg(feature = "datagen")]
+mod datagen;
 
 
 
@@ -40,6 +42,16 @@ use model::RIP_COULDN_JOIN_THREAD;
 
 fn main() {
     crate::magic::init();
+
+    // Matt-Magie step 102: `suprah datagen ...` writes self-play training data instead of
+    // speaking UCI. Only in builds with the `datagen` feature.
+    #[cfg(feature = "datagen")]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.first().map(String::as_str) == Some("datagen") {
+            std::process::exit(datagen::main(&args[1..]));
+        }
+    }
 
 
 

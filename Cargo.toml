@@ -19,3 +19,6 @@ search-diag = []
 # Matt-Magie step 79, phase A: cycles of the network accumulator and the steps no evaluation needs.
 # Off by default; see `src/nnue_prof.rs`.
 nnue-prof = []
+# Matt-Magie step 102, stage A: `suprah datagen` self-play training data for the NNUE trainer.
+# Off by default; the release binary does not contain it. See `src/datagen.rs`.
+datagen = []
