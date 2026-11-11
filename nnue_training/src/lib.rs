@@ -138,7 +138,9 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
         if matches!(option.as_str(), "-h" | "--help") {
             return Ok(Command::Help);
         }
-        let value = iter.next().ok_or_else(|| format!("option {option} needs a value"))?;
+        let value = iter
+            .next()
+            .ok_or_else(|| format!("option {option} needs a value"))?;
         match option.as_str() {
             "-d" | "--data" => cfg.data.push(value.clone()),
             "-s" | "--superbatches" => cfg.superbatches = number(option, value)?,
@@ -162,7 +164,9 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
 }
 
 fn number<T: std::str::FromStr>(option: &str, value: &str) -> Result<T, String> {
-    value.parse().map_err(|_| format!("option {option}: invalid value {value:?}"))
+    value
+        .parse()
+        .map_err(|_| format!("option {option}: invalid value {value:?}"))
 }
 
 fn validate(cfg: &Config) -> Result<(), String> {
@@ -181,8 +185,12 @@ fn validate(cfg: &Config) -> Result<(), String> {
     if cfg.eval_scale <= 0.0 {
         return Err("--scale must be positive".to_string());
     }
-    if cfg.hidden == 0 || cfg.batches_per_superbatch == 0 || cfg.threads == 0 || cfg.save_rate == 0 {
-        return Err("--hidden, --batches-per-superbatch, --threads and --save-rate must be at least 1".to_string());
+    if cfg.hidden == 0 || cfg.batches_per_superbatch == 0 || cfg.threads == 0 || cfg.save_rate == 0
+    {
+        return Err(
+            "--hidden, --batches-per-superbatch, --threads and --save-rate must be at least 1"
+                .to_string(),
+        );
     }
     if cfg.resume.is_some() && cfg.load_weights.is_some() {
         return Err("--resume and --load-weights exclude each other".to_string());
@@ -246,7 +254,8 @@ mod tests {
         for hidden in [32, 256, 512, 768, 1024] {
             assert_eq!(expected_quantised_bytes(hidden) % FILE_ALIGNMENT, 0);
         }
-        let raw_512 = 2 * (INPUT_BUCKETS * INPUT_SIZE * 512 + 512 + OUTPUT_BUCKETS * 2 * 512 + OUTPUT_BUCKETS);
+        let raw_512 = 2
+            * (INPUT_BUCKETS * INPUT_SIZE * 512 + 512 + OUTPUT_BUCKETS * 2 * 512 + OUTPUT_BUCKETS);
         assert!(expected_quantised_bytes(512) >= raw_512);
         assert!(expected_quantised_bytes(512) < raw_512 + FILE_ALIGNMENT);
     }
@@ -266,16 +275,41 @@ mod tests {
     #[test]
     fn all_options_are_parsed() {
         let cfg = train(&[
-            "-d", "a.data", "--data", "b.data", "-s", "40", "--start", "11",
-            "--resume", "ck/n1-10", "-n", "n1", "--output-dir", "nets", "--wdl", "0.3",
-            "--hidden", "512", "--scale", "400", "-t", "6", "--save-rate", "5",
-            "--batches-per-superbatch", "100",
+            "-d",
+            "a.data",
+            "--data",
+            "b.data",
+            "-s",
+            "40",
+            "--start",
+            "11",
+            "--resume",
+            "ck/n1-10",
+            "-n",
+            "n1",
+            "--output-dir",
+            "nets",
+            "--wdl",
+            "0.3",
+            "--hidden",
+            "512",
+            "--scale",
+            "400",
+            "-t",
+            "6",
+            "--save-rate",
+            "5",
+            "--batches-per-superbatch",
+            "100",
         ]);
         assert_eq!(cfg.data, vec!["a.data".to_string(), "b.data".to_string()]);
         assert_eq!((cfg.superbatches, cfg.start_superbatch), (40, 11));
         assert_eq!(cfg.resume.as_deref(), Some("ck/n1-10"));
         assert_eq!((cfg.name.as_str(), cfg.output_dir.as_str()), ("n1", "nets"));
-        assert_eq!((cfg.wdl, cfg.hidden, cfg.threads, cfg.save_rate), (0.3, 512, 6, 5));
+        assert_eq!(
+            (cfg.wdl, cfg.hidden, cfg.threads, cfg.save_rate),
+            (0.3, 512, 6, 5)
+        );
         assert_eq!(cfg.batches_per_superbatch, 100);
         assert_eq!(cfg.final_checkpoint_dir(), "nets/n1-40");
     }
@@ -289,16 +323,25 @@ mod tests {
     #[test]
     fn invalid_input_is_rejected() {
         let bad: [&[&str]; 10] = [
-            &["--superbatches", "8"],                                  // no data
-            &["--data", "a.data"],                                     // no superbatches
-            &["--data", "a.data", "-s", "eight"],                      // not a number
-            &["--data", "a.data", "-s", "8", "--wdl", "1.5"],          // wdl outside [0, 1]
-            &["--data", "a.data", "-s", "8", "--start", "9"],          // start after end
-            &["--data", "a.data", "-s", "8", "--hidden", "0"],         // empty layer
-            &["--data", "a.data", "-s", "8", "--unknown", "1"],        // unknown option
-            &["--data", "a.data", "-s"],                               // missing value
-            &["--data", "a.data", "-s", "8", "--resume", "x", "--load-weights", "y"], // both
-            &["--data", "a.data", "-s", "8", "--save-rate", "0"],      // never saves
+            &["--superbatches", "8"],                           // no data
+            &["--data", "a.data"],                              // no superbatches
+            &["--data", "a.data", "-s", "eight"],               // not a number
+            &["--data", "a.data", "-s", "8", "--wdl", "1.5"],   // wdl outside [0, 1]
+            &["--data", "a.data", "-s", "8", "--start", "9"],   // start after end
+            &["--data", "a.data", "-s", "8", "--hidden", "0"],  // empty layer
+            &["--data", "a.data", "-s", "8", "--unknown", "1"], // unknown option
+            &["--data", "a.data", "-s"],                        // missing value
+            &[
+                "--data",
+                "a.data",
+                "-s",
+                "8",
+                "--resume",
+                "x",
+                "--load-weights",
+                "y",
+            ], // both
+            &["--data", "a.data", "-s", "8", "--save-rate", "0"], // never saves
         ];
         for case in bad {
             assert!(parse_args(&args(case)).is_err(), "accepted {case:?}");

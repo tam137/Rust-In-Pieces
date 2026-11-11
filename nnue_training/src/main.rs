@@ -25,8 +25,8 @@ use bullet::{
     value::{ValueTrainerBuilder, loader::DirectSequentialDataLoader},
 };
 use suprah_nnue_trainer::{
-    BATCH_SIZE, BUCKET_LAYOUT, Command, Config, INITIAL_LR, INPUT_BUCKETS, INPUT_SIZE, OUTPUT_BUCKETS, QA, QB,
-    USAGE, expected_quantised_bytes, parse_args,
+    BATCH_SIZE, BUCKET_LAYOUT, Command, Config, INITIAL_LR, INPUT_BUCKETS, INPUT_SIZE,
+    OUTPUT_BUCKETS, QA, QB, USAGE, expected_quantised_bytes, parse_args,
 };
 
 /// Bound of the feature-transformer weights; tighter than bullet's default because the
@@ -75,17 +75,25 @@ fn train(cfg: &Config) {
             SavedFormat::id("l0w")
                 .transform(|store, weights| {
                     let factoriser = store.get("l0f").values.repeat(NUM_INPUT_BUCKETS);
-                    weights.into_iter().zip(factoriser).map(|(w, f)| w + f).collect()
+                    weights
+                        .into_iter()
+                        .zip(factoriser)
+                        .map(|(w, f)| w + f)
+                        .collect()
                 })
                 .round()
                 .quantise::<i16>(QA),
             SavedFormat::id("l0b").round().quantise::<i16>(QA),
-            SavedFormat::id("l1w").round().quantise::<i16>(QB).transpose(),
+            SavedFormat::id("l1w")
+                .round()
+                .quantise::<i16>(QB)
+                .transpose(),
             SavedFormat::id("l1b").round().quantise::<i16>(QA * QB),
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
-            let l0f = builder.new_weights("l0f", Shape::new(hidden, INPUT_SIZE), InitSettings::Zeroed);
+            let l0f =
+                builder.new_weights("l0f", Shape::new(hidden, INPUT_SIZE), InitSettings::Zeroed);
             let expanded_factoriser = l0f.repeat(NUM_INPUT_BUCKETS);
 
             let mut l0 = builder.new_affine("l0", INPUT_SIZE * NUM_INPUT_BUCKETS, hidden);
@@ -95,21 +103,26 @@ fn train(cfg: &Config) {
 
             let stm_hidden = l0.forward(stm_inputs).screlu();
             let ntm_hidden = l0.forward(ntm_inputs).screlu();
-            l1.forward(stm_hidden.concat(ntm_hidden)).select(output_buckets)
+            l1.forward(stm_hidden.concat(ntm_hidden))
+                .select(output_buckets)
         });
 
-    let clip = AdamWParams { max_weight: FT_WEIGHT_CLIP, min_weight: -FT_WEIGHT_CLIP, ..Default::default() };
+    let clip = AdamWParams {
+        max_weight: FT_WEIGHT_CLIP,
+        min_weight: -FT_WEIGHT_CLIP,
+        ..Default::default()
+    };
     trainer.optimiser.set_params_for_weight("l0w", clip);
     trainer.optimiser.set_params_for_weight("l0f", clip);
 
     if let Some(dir) = &cfg.resume {
         trainer.load_from_checkpoint(dir);
     }
-    if let Some(file) = &cfg.load_weights {
-        if let Err(e) = trainer.optimiser.load_weights_from_file(file) {
-            eprintln!("error: cannot load weights from {file}: {e:?}");
-            std::process::exit(1);
-        }
+    if let Some(file) = &cfg.load_weights
+        && let Err(e) = trainer.optimiser.load_weights_from_file(file)
+    {
+        eprintln!("error: cannot load weights from {file}: {e:?}");
+        std::process::exit(1);
     }
 
     let schedule = TrainingSchedule {
@@ -146,7 +159,9 @@ fn train(cfg: &Config) {
 /// The quantised file of the last checkpoint must have exactly the size the engine expects.
 fn check_final_net(cfg: &Config) -> Result<(), String> {
     let path = format!("{}/quantised.bin", cfg.final_checkpoint_dir());
-    let actual = std::fs::metadata(&path).map_err(|e| format!("{path}: {e}"))?.len() as usize;
+    let actual = std::fs::metadata(&path)
+        .map_err(|e| format!("{path}: {e}"))?
+        .len() as usize;
     let expected = expected_quantised_bytes(cfg.hidden);
     if actual != expected {
         return Err(format!("{path}: {actual} bytes, expected {expected}"));
@@ -158,11 +173,23 @@ fn check_final_net(cfg: &Config) -> Result<(), String> {
 fn print_config(cfg: &Config) {
     println!("=== Suprah NNUE trainer ===");
     println!("Data            : {}", cfg.data.join(", "));
-    println!("Superbatches    : {} to {} ({} batches of {BATCH_SIZE})", cfg.start_superbatch, cfg.superbatches, cfg.batches_per_superbatch);
-    println!("Layout          : (768x{INPUT_BUCKETS} mirrored -> {})x2 -> 1x{OUTPUT_BUCKETS}, SCReLU", cfg.hidden);
+    println!(
+        "Superbatches    : {} to {} ({} batches of {BATCH_SIZE})",
+        cfg.start_superbatch, cfg.superbatches, cfg.batches_per_superbatch
+    );
+    println!(
+        "Layout          : (768x{INPUT_BUCKETS} mirrored -> {})x2 -> 1x{OUTPUT_BUCKETS}, SCReLU",
+        cfg.hidden
+    );
     println!("WDL / scale     : {} / {}", cfg.wdl, cfg.eval_scale);
-    println!("Learning rate   : cosine {INITIAL_LR} -> {:e}", cfg.final_lr());
-    println!("Output          : {}/{}-<superbatch>/ every {} superbatches", cfg.output_dir, cfg.name, cfg.save_rate);
+    println!(
+        "Learning rate   : cosine {INITIAL_LR} -> {:e}",
+        cfg.final_lr()
+    );
+    println!(
+        "Output          : {}/{}-<superbatch>/ every {} superbatches",
+        cfg.output_dir, cfg.name, cfg.save_rate
+    );
     if let Some(dir) = &cfg.resume {
         println!("Resume from     : {dir}");
     }
