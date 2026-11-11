@@ -125,13 +125,40 @@ impl Config {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Train(Config),
+    /// Print the trainer's evaluation of reference positions for a checkpoint; no training.
+    Evaluate(EvalRequest),
     Help,
+}
+
+/// Evaluation of reference positions with a trained checkpoint (`--eval-fens`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvalRequest {
+    /// Checkpoint directory (`--resume`).
+    pub checkpoint: String,
+    /// File with one FEN per line; empty lines and lines starting with `#` are skipped.
+    pub fens: String,
+    pub hidden: usize,
+    pub eval_scale: f32,
+}
+
+/// FENs of a reference file: trimmed, without empty lines and `#` comments.
+pub fn reference_fens(text: &str) -> Vec<&str> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect()
+}
+
+/// One output line: the FEN and the score in centipawns from the side to move's point of view.
+pub fn format_reference_line(fen: &str, raw_output: f32, eval_scale: f32) -> String {
+    format!("{fen} | {:.2}", raw_output * eval_scale)
 }
 
 /// Parses the arguments after the program name. Unknown options, missing or malformed values
 /// and inconsistent settings are errors; nothing is silently replaced by a default.
 pub fn parse_args(args: &[String]) -> Result<Command, String> {
     let mut cfg = Config::default();
+    let mut eval_fens = None;
     let mut iter = args.iter();
 
     while let Some(option) = iter.next() {
@@ -155,12 +182,37 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
             "--scale" => cfg.eval_scale = number(option, value)?,
             "-t" | "--threads" => cfg.threads = number(option, value)?,
             "--save-rate" => cfg.save_rate = number(option, value)?,
+            "--eval-fens" => eval_fens = Some(value.clone()),
             _ => return Err(format!("unknown option {option}")),
         }
     }
 
+    if let Some(fens) = eval_fens {
+        return evaluation_request(cfg, fens).map(Command::Evaluate);
+    }
+
     validate(&cfg)?;
     Ok(Command::Train(cfg))
+}
+
+fn evaluation_request(cfg: Config, fens: String) -> Result<EvalRequest, String> {
+    let checkpoint = cfg
+        .resume
+        .ok_or("--eval-fens needs the checkpoint to evaluate (--resume)")?;
+    if cfg.load_weights.is_some() {
+        return Err(
+            "--eval-fens takes the checkpoint from --resume, not --load-weights".to_string(),
+        );
+    }
+    if cfg.hidden == 0 || cfg.eval_scale <= 0.0 {
+        return Err("--hidden must be at least 1 and --scale positive".to_string());
+    }
+    Ok(EvalRequest {
+        checkpoint,
+        fens,
+        hidden: cfg.hidden,
+        eval_scale: cfg.eval_scale,
+    })
 }
 
 fn number<T: std::str::FromStr>(option: &str, value: &str) -> Result<T, String> {
@@ -218,6 +270,9 @@ Options:
       --scale <X>                   Evaluation scale in centipawns [default: 400]
   -t, --threads <N>                 Data loader threads [default: 4]
       --save-rate <N>               Checkpoint every N superbatches [default: 10]
+      --eval-fens <FILE>            Evaluate the FENs of FILE with the checkpoint given by
+                                    --resume and print `fen | centipawns (side to move)`;
+                                    no training (reference for the engine's NNUE tests)
   -h, --help                        Show this help
 
 The engine loads networks with 256 hidden neurons and scale 400; other values need engine changes.
@@ -312,6 +367,49 @@ mod tests {
         );
         assert_eq!(cfg.batches_per_superbatch, 100);
         assert_eq!(cfg.final_checkpoint_dir(), "nets/n1-40");
+    }
+
+    #[test]
+    fn eval_fens_needs_a_checkpoint_and_no_schedule() {
+        let request = match parse_args(&args(&["--eval-fens", "ref.txt", "--resume", "ck/n1-8"])) {
+            Ok(Command::Evaluate(request)) => request,
+            other => panic!("expected an evaluation request, got {other:?}"),
+        };
+        assert_eq!(request.fens, "ref.txt");
+        assert_eq!(request.checkpoint, "ck/n1-8");
+        assert_eq!((request.hidden, request.eval_scale), (256, 400.0));
+        assert!(parse_args(&args(&["--eval-fens", "ref.txt"])).is_err());
+        assert!(
+            parse_args(&args(&[
+                "--eval-fens",
+                "ref.txt",
+                "--load-weights",
+                "w.bin"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn reference_files_skip_comments_and_blank_lines() {
+        let text =
+            "# header\n\n  4k3/8/8/8/8/8/8/3QK3 w - - 0 1  \n# note\n8/8/8/8/8/8/8/K6k b - - 0 1\n";
+        assert_eq!(
+            reference_fens(text),
+            vec![
+                "4k3/8/8/8/8/8/8/3QK3 w - - 0 1",
+                "8/8/8/8/8/8/8/K6k b - - 0 1"
+            ]
+        );
+    }
+
+    #[test]
+    fn reference_lines_carry_centipawns_for_the_side_to_move() {
+        assert_eq!(
+            format_reference_line("8/8/8/8/8/8/8/K6k b - - 0 1", 0.25, 400.0),
+            "8/8/8/8/8/8/8/K6k b - - 0 1 | 100.00"
+        );
+        assert_eq!(format_reference_line("x", -1.5, 400.0), "x | -600.00");
     }
 
     #[test]
