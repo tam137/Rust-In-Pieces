@@ -79,6 +79,11 @@ explicit SIMD paths. This matters for how wide a network can be (section 5).
    `<mm>/nnue_nets/`), never in the repository.
 
 ### Stage A - Data generation mode
+**Done (2026-11-11):** `src/datagen.rs` behind the feature `datagen`, start script
+`scripts/run_datagen.sh`; usage in section 9. Decisions: win adjudication at 2000 cp over 4 plies,
+draw adjudication from move 40 at |score| <= 10 cp over 8 plies, move limit 400, no Syzygy yet,
+one single-threaded process per core, 2^20 hash entries, tables cleared per game.
+
 - Behind a Cargo feature `datagen`; the release binary is unchanged.
 - Self-play with a node limit per move given as an argument; start value **5,000 soft nodes**
   (the search stops after the iteration in which the limit is reached instead of inside it), one
@@ -226,3 +231,19 @@ NNUE_TEST_NET=<checkpoint>/quantised.bin NNUE_TEST_REFERENCE=reference.txt \
 A test network trained on 5 M throwaway positions (1 B positions seen) passed all five; the largest
 difference to the trainer was 23.4 cp (quantisation). A reference with negated scores fails, and a
 barely trained network fails the material test.
+
+## 9. Data generation
+
+```bash
+cargo build --release --features datagen --target-dir target/datagen
+target/datagen/release/suprah datagen --help
+scripts/run_datagen.sh target/datagen/release/suprah <mm>/nnue_data/<batch> 12 <games> <base seed>
+```
+
+The feature build gets its own target directory so the release binary in `target/release` is
+never replaced by it; without the feature the binary ignores `datagen` and speaks UCI. Each
+process appends whole games to `part_<i>.txt` (`fen | score | result`, both from White's view)
+and reports games, dropped games, positions, the share of filtered positions, the result
+distribution, plies per game and positions per second. Equal seeds give equal data; give every
+batch a new base seed. The text files go through `bullet-utils convert --from text`,
+`interleave` and `shuffle` before training.
