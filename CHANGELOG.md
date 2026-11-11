@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.52.0-NNUE] - 2026-11-11
+
+- **History bonus and malus as curves, tuned by SPSA on this branch** (Matt-Magie steps 97 / 98; the options are a
+  port of master v0.52.0): UCI `HistBonusQuad`, `HistBonusLin`, `HistMalusQuad`, `HistMalusLin`, bonus and malus
+  `(quad * depth^2 + lin * depth) / 16`; defaults 20 / 16 / 20 / 7 (16 / 0 / 16 / 0 is v0.51.0-NNUE's `depth^2`).
+  **`lmr_history_bad_threshold` 550 -> 276**: fewer late quiet moves get the extra ply of reduction.
+- SPSA over the four curve parameters and the threshold: 20,000 pairs at 1s + 150ms; only the threshold moved
+  beyond noise. master's values (22 / -16 / 15 / 17 at threshold 550) played even here: -0.2 Elo [-8, +7] over
+  3325 games. The threshold alone: -0.3 Elo [-8, +8] over 3008 games.
+- Against v0.51.0-NNUE at 1s + 150ms: +2.8 Elo, paired 95% [-2, +7] over 10,138 games ([0, 5] undecided, stopped
+  by the owner). **Control at 10s + 100ms, 3000 games: +6.1 Elo [-1.5, +13.8].** Released on the owner's rule of
+  about +5 Elo at the longer control. Census: +6.6% / +7.8% time to depth 10. Smoke gauntlet 51.0% / 53.0% / 94.0%
+  against v0.51.0- / v0.50.3- / v0.34.0-NNUE.
+
 ## [V0.51.0-NNUE] - 2026-11-06
 
 - **The history is halved once per `go`, not once per iteration** (Matt-Magie step 93, port of master v0.51.0,
