@@ -59,11 +59,16 @@ explicit SIMD paths. This matters for how wide a network can be (section 5).
 
 ### Stage 0 - Tools and compatibility
 1. ROCm installed and verified (section 3).
-2. Clone bullet outside the repository, **pin the commit**, build `bullet-utils` (CPU: convert,
-   interleave, shuffle) and the trainer with the `hip` feature for gfx1100.
-3. Trainer crate in `nnue_training/`: architecture N1 as in section 2, command-line arguments for
-   data, superbatches, start superbatch, weights to resume, name, WDL proportion and hidden size;
-   bullet pinned by commit.
+2. **Done (2026-11-11):** bullet cloned outside the repository and pinned to
+   `4e9317ffb07ee01b3ae5202d083526fc1d90fa2f` (2025-12-16), the revision the current network was
+   trained with; later revisions replaced the HIP backend and changed the trainer API.
+   `bullet-utils` built for the CPU. bullet's HIP kernels take their target from `GCN_ARCH_NAME`;
+   built for gfx1100 and run with the override from section 3, a small example network trains on
+   the iGPU at about 1.6 M positions per second.
+3. **Done (2026-11-11):** trainer crate in this directory (section 7): architecture N1 as in
+   section 2, command-line arguments for data, superbatches, start superbatch, resuming, name,
+   WDL proportion, hidden size and scale; bullet pinned by revision and `Cargo.lock`. A smoke run
+   on the iGPU writes a 3,940,928-byte network and resumes from a checkpoint.
 4. Mini run on a few million positions from a throwaway data set (generated with SleepMind's
    existing generator, only to test the chain, then deleted): 1-2 superbatches; measure positions
    per second on the iGPU, memory and stability over at least an hour. The file must have
@@ -149,3 +154,34 @@ training:
 - Too little data gives a weaker first network: add data before changing the architecture.
 - Data generation shares cores with measurements and must not run beside an SPRT.
 - Nothing in this repository names hosts, absolute paths or credentials.
+
+## 7. Trainer
+
+`nnue_training/` is a Cargo workspace of its own, so the engine build never compiles bullet or a
+GPU backend. Exactly one backend feature has to be selected:
+
+```bash
+cd nnue_training
+cargo test --features cpu                                     # unit tests, no GPU needed
+HIP_PATH=/usr GCN_ARCH_NAME=gfx1100 cargo build --release --features hip
+```
+
+`HIP_PATH` is the ROCm prefix (`/usr` for the distribution's packages) and `GCN_ARCH_NAME` the
+device-code target; on the RDNA3 iGPU of section 3 the binary runs with
+`HSA_OVERRIDE_GFX_VERSION=11.0.0`.
+
+Data goes in as shuffled bullet binary files (`bullet-utils convert --from text`, `interleave`,
+`shuffle`). A run of eight superbatches of about 100 M positions each:
+
+```bash
+HSA_OVERRIDE_GFX_VERSION=11.0.0 target/release/suprah-nnue-trainer \
+    --data <mm>/nnue_data/n1.data --superbatches 8 --name n1 --output-dir <mm>/nnue_nets
+```
+
+Checkpoints land in `<output-dir>/<name>-<superbatch>/` (`quantised.bin` for the engine,
+`raw.bin`, `optimiser_state/`); `--resume <checkpoint> --start <next superbatch>` continues a run.
+After the last superbatch the trainer checks that `quantised.bin` has the size the engine expects
+for the chosen hidden size and exits with an error otherwise. `--help` lists all options. The
+defaults are N1: 256 hidden neurons, scale 400, WDL 0.5, cosine learning rate from 0.001 to
+0.001 * 0.3^5. A different hidden size or scale trains, but the engine loads it only after the
+code change of section 5.
