@@ -112,11 +112,25 @@ one single-threaded process per core, 2^20 hash entries, tables cleared per game
   engine.
 
 ### Stage B - Trial run
+**Done (2026-11-11):** one process, 16,000 games, 1,224,181 positions at about 560 positions per
+second. 37 % of the started games were dropped after the opening (cheap, about 10 plies each),
+27 % of the searched positions filtered. Games: 41.5 % White wins, 19.6 % draws, 39.0 % Black wins,
+75 plies on average; 11 % of the positions have six pieces or fewer. The score agrees in sign with
+a material lead of three pawns or more in 98.3 % of the cases, and the mean result rises
+monotonically with the score (0.08 below -600 cp, 0.92 above +600 cp). The maximum-likelihood
+sigmoid scale is 417, close to 400, so the scale stays. `bullet-utils convert` accepts the file;
+text takes 64 bytes per position.
+
 About 1 M positions on one process: throughput, share filtered, game length, result
 distribution, disk use; decode a sample back (legal FEN, sign, result). Fit the eval-to-result
 sigmoid on the sample; if the fit is far from 400 it is recorded, the scale stays 400 for N1.
 
 ### Stage C - Data
+**Running (from 2026-11-11):** twelve processes give about 5,100 positions per second (18 M per
+hour). A first batch of about 100 M positions is followed by an interim network, the compatibility
+tests and a short gauntlet against the current NNUE release; only if the pipeline holds in play
+does generation continue to about 400 M.
+
 First round 300-500 M positions (at least 100 M for a test network), up to 12 processes, only while
 no measurement runs on the same cores.
 
