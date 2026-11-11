@@ -73,19 +73,28 @@ explicit SIMD paths. This matters for how wide a network can be (section 5).
    existing generator, only to test the chain, then deleted): 1-2 superbatches; measure positions
    per second on the iGPU, memory and stability over at least an hour. The file must have
    3,940,928 bytes and load through `NNUENetwork::load_from_bytes`.
-5. Compatibility tests in the engine, first against the current network: sign (a queen up is
-   positive for White, negative from Black's side), colour flip (a position and its colour mirror
-   give the same score for the side to move), horizontal mirroring (king on d/e), output bucket per
-   piece count.
+5. **Done (2026-11-11):** compatibility tests in the engine (`src/nnue_compat_tests.rs`, section
+   8), green for the current network and for a trained test network.
 6. Data and networks live in the match manager's working directory (`<mm>/nnue_data/`,
    `<mm>/nnue_nets/`), never in the repository.
 
 ### Stage A - Data generation mode
 - Behind a Cargo feature `datagen`; the release binary is unchanged.
-- Self-play at a fixed node count per move (start 5,000), one thread, small hash, tables cleared
-  per game.
-- Opening: 8-12 random legal plies from the start position; drop the game if |eval| > 400 cp after
-  them; the random plies are not recorded.
+- Self-play with a node limit per move given as an argument; start value **5,000 soft nodes**
+  (the search stops after the iteration in which the limit is reached instead of inside it), one
+  thread, small hash, tables cleared per game. 5,000 matches the data of the current network, so N1
+  tests only the pipeline and the amount of data.
+- More nodes give better labels but proportionally fewer positions per day; where the trade turns
+  is only measurable. Later (stage F): two networks from about 100 M positions each, 5,000 against
+  15,000-20,000 nodes **at equal compute**, decided by an SPRT.
+- Openings: **no opening book.** The match manager's opening lists (about 1,800 lines) are far too
+  few for 100 M games and stay reserved for measurements, so an SPRT does not partly measure
+  memorisation. Instead 8-12 random legal plies from the start position, each ply random with
+  probability 50 % and otherwise the search move; drop the game if |eval| > 400 cp after them; the
+  random plies are not recorded, early positions are filtered by move number (duplicates). A large
+  EPD book (also Chess960 start positions) for data generation only is an option for later.
+- Optional Syzygy tablebases (3-5 pieces) for exact endgame results.
+- Check the draw adjudication: the throwaway data set has 61 % draws (21 % / 18 % wins).
 - End: mate, stalemate, the match manager's draw rules; adjudication of a win at |eval| >= 2000 cp
   and of a draw at |eval| <= 10 cp from move 40, each over several moves.
 - Record `fen | eval | wdl`, **score and result from White's point of view** (bullet's text
@@ -166,6 +175,11 @@ cargo test --features cpu                                     # unit tests, no G
 HIP_PATH=/usr GCN_ARCH_NAME=gfx1100 cargo build --release --features hip
 ```
 
+**Only one GPU process at a time.** On the RDNA3 iGPU a second compute process (even a short
+evaluation) next to a running training hung the GPU scheduler; the driver reset the GPU and the
+training aborted with `hipErrorLaunchFailure` (2026-11-11). Evaluations beside a training run use a
+CPU build: `cargo build --release --features cpu --target-dir target/cpu`.
+
 `HIP_PATH` is the ROCm prefix (`/usr` for the distribution's packages) and `GCN_ARCH_NAME` the
 device-code target; on the RDNA3 iGPU of section 3 the binary runs with
 `HSA_OVERRIDE_GFX_VERSION=11.0.0`.
@@ -185,3 +199,30 @@ for the chosen hidden size and exits with an error otherwise. `--help` lists all
 defaults are N1: 256 hidden neurons, scale 400, WDL 0.5, cosine learning rate from 0.001 to
 0.001 * 0.3^5. A different hidden size or scale trains, but the engine loads it only after the
 code change of section 5.
+
+## 8. Compatibility tests
+
+The engine checks every network against the trainer before it is embedded
+(`src/nnue_compat_tests.rs`; the network is the embedded one or the file named by `NNUE_TEST_NET`):
+
+| Test | Checks | Catches |
+| :--- | :--- | :--- |
+| colour flip | a position and its colour mirror give exactly the negated score | engine feature transform (holds for any weights) |
+| horizontal mirror | a position without castling rights and its file mirror give exactly the same score | engine king-bucket mirroring (holds for any weights) |
+| material sign | a queen or rook up is clearly positive for its owner, both sides to move, output buckets 0-7 | networks trained with a wrong perspective, square order or output layout |
+| output bucket | the engine's bucket equals bullet's `MaterialCount<8>` | bucket formula drift |
+| trainer reference | the engine's quantised score of `nnue_training/reference_fens.txt` equals the trainer's floating-point score within 15 cp + 5 % | any mismatch between trainer and engine: layout, quantisation, transposition, scale |
+
+The reference comparison needs the trainer's output for the same checkpoint and is therefore
+`#[ignore]`d by default:
+
+```bash
+nnue_training/target/cpu/release/suprah-nnue-trainer \
+    --eval-fens nnue_training/reference_fens.txt --resume <checkpoint> > reference.txt
+NNUE_TEST_NET=<checkpoint>/quantised.bin NNUE_TEST_REFERENCE=reference.txt \
+    cargo test --release nnue_compat -- --include-ignored
+```
+
+A test network trained on 5 M throwaway positions (1 B positions seen) passed all five; the largest
+difference to the trainer was 23.4 cp (quantisation). A reference with negated scores fails, and a
+barely trained network fails the material test.

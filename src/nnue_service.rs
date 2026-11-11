@@ -1010,3 +1010,7 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+#[path = "nnue_compat_tests.rs"]
+mod compat_tests;

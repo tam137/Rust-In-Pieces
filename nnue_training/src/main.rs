@@ -22,21 +22,41 @@ use bullet::{
         schedule::{TrainingSchedule, TrainingSteps, lr, wdl},
         settings::LocalSettings,
     },
-    value::{ValueTrainerBuilder, loader::DirectSequentialDataLoader},
+    value::{ValueTrainer, ValueTrainerBuilder, loader::DirectSequentialDataLoader},
 };
 use suprah_nnue_trainer::{
-    BATCH_SIZE, BUCKET_LAYOUT, Command, Config, INITIAL_LR, INPUT_BUCKETS, INPUT_SIZE,
-    OUTPUT_BUCKETS, QA, QB, USAGE, expected_quantised_bytes, parse_args,
+    BATCH_SIZE, BUCKET_LAYOUT, Command, Config, EvalRequest, INITIAL_LR, INPUT_BUCKETS, INPUT_SIZE,
+    OUTPUT_BUCKETS, QA, QB, USAGE, expected_quantised_bytes, format_reference_line, parse_args,
+    reference_fens,
 };
 
 /// Bound of the feature-transformer weights; tighter than bullet's default because the
 /// factoriser is added to every bucket.
 const FT_WEIGHT_CLIP: f32 = 0.99;
 
+/// Threads of the CPU backend (feature `cpu`); one, because single-position evaluation
+/// (`--eval-fens`) expects one output per device. The GPU backends ignore it.
+#[cfg(feature = "cpu")]
+const CPU_BACKEND_THREADS: usize = 1;
+
+const NUM_INPUT_BUCKETS: usize = get_num_buckets(&BUCKET_LAYOUT);
+const _: () = assert!(NUM_INPUT_BUCKETS == INPUT_BUCKETS);
+
+/// The trainer for the N1 architecture with `hidden` neurons per perspective.
+type Trainer = ValueTrainer<
+    <AdamW as bullet::nn::optimiser::OptimiserType>::Optimiser,
+    ChessBucketsMirrored,
+    MaterialCount<OUTPUT_BUCKETS>,
+>;
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cfg = match parse_args(&args) {
         Ok(Command::Train(cfg)) => cfg,
+        Ok(Command::Evaluate(request)) => {
+            evaluate(&request);
+            return;
+        }
         Ok(Command::Help) => {
             print!("{USAGE}");
             return;
@@ -61,12 +81,13 @@ fn main() {
     }
 }
 
-fn train(cfg: &Config) {
-    const NUM_INPUT_BUCKETS: usize = get_num_buckets(&BUCKET_LAYOUT);
-    const _: () = assert!(NUM_INPUT_BUCKETS == INPUT_BUCKETS);
-    let hidden = cfg.hidden;
+fn build_trainer(hidden: usize) -> Trainer {
+    let builder = ValueTrainerBuilder::default();
+    // The CPU backend runs as one device per thread and needs the count up front.
+    #[cfg(feature = "cpu")]
+    let builder = builder.use_threads(CPU_BACKEND_THREADS);
 
-    let mut trainer = ValueTrainerBuilder::default()
+    let mut trainer = builder
         .dual_perspective()
         .optimiser(AdamW)
         .inputs(ChessBucketsMirrored::new(BUCKET_LAYOUT))
@@ -114,6 +135,25 @@ fn train(cfg: &Config) {
     };
     trainer.optimiser.set_params_for_weight("l0w", clip);
     trainer.optimiser.set_params_for_weight("l0f", clip);
+    trainer
+}
+
+/// Prints the floating-point evaluation of every reference FEN for a checkpoint.
+fn evaluate(request: &EvalRequest) {
+    let text = std::fs::read_to_string(&request.fens).unwrap_or_else(|e| {
+        eprintln!("error: {}: {e}", request.fens);
+        std::process::exit(1);
+    });
+    let mut trainer = build_trainer(request.hidden);
+    trainer.load_from_checkpoint(&request.checkpoint);
+    for fen in reference_fens(&text) {
+        let raw = trainer.eval(fen);
+        println!("{}", format_reference_line(fen, raw, request.eval_scale));
+    }
+}
+
+fn train(cfg: &Config) {
+    let mut trainer = build_trainer(cfg.hidden);
 
     if let Some(dir) = &cfg.resume {
         trainer.load_from_checkpoint(dir);
