@@ -214,9 +214,9 @@ The engine checks every network against the trainer before it is embedded
 | :--- | :--- | :--- |
 | colour flip | a position and its colour mirror give exactly the negated score | engine feature transform (holds for any weights) |
 | horizontal mirror | a position without castling rights and its file mirror give exactly the same score | engine king-bucket mirroring (holds for any weights) |
-| material sign | a queen or rook up is clearly positive for its owner, both sides to move, output buckets 0-7 | networks trained with a wrong perspective, square order or output layout |
+| material sign | extra material is positive for its owner, both sides to move, output buckets 0-7; +300 cp where pawns or pieces remain, the sign only for bare-king endings (rare in the data) | networks trained with a wrong perspective, square order or output layout |
 | output bucket | the engine's bucket equals bullet's `MaterialCount<8>` | bucket formula drift |
-| trainer reference | the engine's quantised score of `nnue_training/reference_fens.txt` equals the trainer's floating-point score within 15 cp + 5 % | any mismatch between trainer and engine: layout, quantisation, transposition, scale |
+| trainer reference | the engine's quantised score of `nnue_training/reference_fens.txt` equals the trainer's floating-point score within 40 cp + 5 % (rounding the output weights to 1/64 alone moves scores by tens of centipawns; pipeline errors move them by hundreds) | any mismatch between trainer and engine: layout, quantisation, transposition, scale |
 
 The reference comparison needs the trainer's output for the same checkpoint and is therefore
 `#[ignore]`d by default:
@@ -228,9 +228,11 @@ NNUE_TEST_NET=<checkpoint>/quantised.bin NNUE_TEST_REFERENCE=reference.txt \
     cargo test --release nnue_compat -- --include-ignored
 ```
 
-A test network trained on 5 M throwaway positions (1 B positions seen) passed all five; the largest
-difference to the trainer was 23.4 cp (quantisation). A reference with negated scores fails, and a
-barely trained network fails the material test.
+Test networks trained on 5 M throwaway positions (1 B and 3 B positions seen) passed all of them;
+the largest differences to the trainer were 23.4 and 22.4 cp. A reference with negated scores
+fails, and a barely trained network fails the material test. The overtrained network valued
+K+Q v K at +215 and K+R v K at +50 - the trainer gives the same numbers, so this is the data, not
+the pipeline.
 
 ## 9. Data generation
 
