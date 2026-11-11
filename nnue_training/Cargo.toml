@@ -1,0 +1,25 @@
+[package]
+name = "suprah-nnue-trainer"
+version = "0.1.0"
+edition = "2024"
+description = "Trains the engine's NNUE networks with bullet"
+publish = false
+
+# A workspace of its own: the engine build never compiles the trainer or its GPU dependencies.
+[workspace]
+
+[dependencies]
+# Pinned: the network shipped today was trained with exactly this bullet revision, and newer
+# revisions changed the trainer API. Change the pin only together with a retrained reference net.
+bullet = { git = "https://github.com/jw1912/bullet", rev = "4e9317ffb07ee01b3ae5202d083526fc1d90fa2f", package = "bullet_lib", default-features = false }
+
+[features]
+# Exactly one backend has to be selected.
+# `hip`: AMD GPUs through ROCm (needs HIP_PATH and GCN_ARCH_NAME at build time, see README.md).
+hip = ["bullet/hip"]
+# `cpu`: no GPU needed; for the unit tests and tiny smoke runs only.
+cpu = ["bullet/cpu"]
+
+[[bin]]
+name = "suprah-nnue-trainer"
+path = "src/main.rs"

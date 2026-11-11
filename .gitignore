@@ -1,6 +1,8 @@
 target
 .idea/
 Cargo.lock
+# The trainer pins its whole dependency tree (bullet and its GPU backends).
+!nnue_training/Cargo.lock
 .vscode/
 buildVersions/
 log.txt
