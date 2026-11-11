@@ -247,7 +247,11 @@ pub struct Config {
     /// Both are compared against a signed history entry bounded by `model::MAX_HISTORY`,
     /// `task.md` 23.3 on `master`.
     ///
-    /// **This branch keeps `lmr_history_bad_threshold` at 550 and `master` sets it to 0.** The
+    /// **Matt-Magie step 98: SPSA on this branch moved `lmr_history_bad_threshold` from 550 to 276**
+    /// (20,000 pairs at 1s + 150ms, tuned together with the history curves; 550 is v0.51.0-NNUE).
+    /// The history below explains the 550.
+    ///
+    /// **This branch kept `lmr_history_bad_threshold` at 550 and `master` sets it to 0.** The
     /// 550 is one of the protected SPSA values of `skills/nnue_porting_and_release_procedure.md`,
     /// so the port brings the mechanism and not the calibration — and the two are not the same
     /// change. On `master`'s census of 300 pool positions at depth 10, a threshold of 0 fires on
@@ -634,7 +638,8 @@ impl Config {
             aspiration_window_multiplier: 5,
             aspiration_window_max_delta: 1000,
             lmr_history_good_threshold: 4000,
-            lmr_history_bad_threshold: 550,
+            // Matt-Magie step 98: SPSA, 550 -> 276.
+            lmr_history_bad_threshold: 276,
             rfp_margin_per_depth: 80,
             rfp_max_depth: 8,
             rfp_before_nmp: true,
@@ -661,11 +666,12 @@ impl Config {
             // Matt-Magie step 93: on in the candidate, as on `master` since v0.51.0 (step 92: [0, 10]
             // H1 after 3373 games, +11.8 Elo against v0.50.2).
             history_age_per_go: true,
-            // Matt-Magie step 97: `depth * depth` for both, tree-identical to v0.51.0-NNUE.
-            hist_bonus_quad: 16,
-            hist_bonus_lin: 0,
-            hist_malus_quad: 16,
-            hist_malus_lin: 0,
+            // Matt-Magie step 98: SPSA on this branch (20,000 pairs at 1s + 150ms, rounded);
+            // quad 16 and lin 0 for both are v0.51.0-NNUE's `depth * depth`.
+            hist_bonus_quad: 20,
+            hist_bonus_lin: 16,
+            hist_malus_quad: 20,
+            hist_malus_lin: 7,
             // Matt-Magie step 85: on at margin 140 (180 on master). Depth-10 census over 300
             // positions per pool against the rule off: 140 -> +3.5% / +0.6% time (wide / mixed),
             // 180 -> +0.0% / -1.0%, 220 -> +1.4% / -3.4%; 140 is the only margin not slower on
@@ -1174,7 +1180,7 @@ mod tests {
     fn test_history_curve_options_reach_their_fields_in_all_spellings() {
         let defaults = Config::new();
         assert_eq!((defaults.hist_bonus_quad, defaults.hist_bonus_lin, defaults.hist_malus_quad, defaults.hist_malus_lin),
-                   (16, 0, 16, 0), "the defaults are v0.51.0's `depth * depth` for both curves");
+                   (20, 16, 20, 7), "the SPSA result of step 98; 16/0/16/0 is `depth * depth`");
         let cases: [(&str, &str, &str, fn(&Config) -> i32); 4] = [
             ("HistBonusQuad", "hist_bonus_quad", "histbonusquad", |c| c.hist_bonus_quad),
             ("HistBonusLin", "hist_bonus_lin", "histbonuslin", |c| c.hist_bonus_lin),
@@ -1253,7 +1259,7 @@ mod tests {
         assert_eq!(config.rfp_max_depth, 8);
         assert!(config.rfp_before_nmp);
         assert_eq!(config.lmr_history_good_threshold, 4000);
-        assert_eq!(config.lmr_history_bad_threshold, 550);
+        assert_eq!(config.lmr_history_bad_threshold, 276, "step 98: SPSA, 550 before");
         assert!(!config.enable_check_extension);
         assert_eq!(config.check_extension_max_ply, 64);
         assert!(!config.check_extension_require_safe);

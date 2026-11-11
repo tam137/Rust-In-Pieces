@@ -405,7 +405,7 @@
         "max": 8000
     },
     "lmr_history_bad_threshold": {
-        "value": 550,
+        "value": 276,
         "min": 250,
         "max": 1000
     },
