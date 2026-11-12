@@ -55,6 +55,9 @@ pub struct DatagenConfig {
     pub hash_entries: usize,
     /// Print counters every this many games (0 = only at the end).
     pub report_every: u64,
+    /// Share of the recordable positions that is written, in (0, 1]: fewer positions per game,
+    /// so a data budget spreads over more independent games.
+    pub sample: f64,
 }
 
 impl Default for DatagenConfig {
@@ -76,9 +79,13 @@ impl Default for DatagenConfig {
             max_moves: 400,
             hash_entries: 1 << 20,
             report_every: 100,
+            sample: 1.0,
         }
     }
 }
+
+/// Mixed into the seed of the `--sample` generator so it differs from the game generator.
+const SAMPLE_SEED_SALT: u64 = 0x5341_4d50_4c45_0001;
 
 pub const USAGE: &str = "\
 Suprah self-play data generation (bullet text format, scores and results from White's view)
@@ -98,6 +105,8 @@ Options:
   --max-moves <N>         Draw at this full move number [default: 400]
   --hash <ENTRIES>        Transposition table entries [default: 1048576]
   --report <N>            Print counters every N games, 0 = at the end only [default: 100]
+  --sample <P>            Write each recordable position with probability P, in (0, 1];
+                          the games stay the same, only fewer positions per game [default: 1]
   -h, --help              Show this help
 ";
 
@@ -123,6 +132,7 @@ pub fn parse_args(args: &[String]) -> Result<Option<DatagenConfig>, String> {
             "--max-moves" => cfg.max_moves = number(option, value)?,
             "--hash" => cfg.hash_entries = number(option, value)?,
             "--report" => cfg.report_every = number(option, value)?,
+            "--sample" => cfg.sample = number(option, value)?,
             "--random-plies" => {
                 let [min, max] = parts[..] else {
                     return Err(format!("{option} expects A-B, got {value:?}"));
@@ -162,6 +172,9 @@ pub fn parse_args(args: &[String]) -> Result<Option<DatagenConfig>, String> {
         return Err(
             "--nodes, --games, --hash and the adjudication plies must be at least 1".to_string(),
         );
+    }
+    if !(cfg.sample > 0.0 && cfg.sample <= 1.0) {
+        return Err("--sample must lie in (0, 1]".to_string());
     }
     if cfg.random_plies_min > cfg.random_plies_max || cfg.random_prob > 100 {
         return Err("--random-plies needs A <= B and --random-prob at most 100".to_string());
@@ -324,6 +337,8 @@ pub struct Counters {
     pub dropped: u64,
     pub positions: u64,
     pub filtered: u64,
+    /// Recordable positions left out by `--sample`.
+    pub skipped: u64,
     pub plies: u64,
     pub white_wins: u64,
     pub draws: u64,
@@ -335,6 +350,8 @@ pub struct GameRecord {
     pub lines: Option<Vec<String>>,
     pub plies: u32,
     pub filtered: u32,
+    /// Recordable positions left out by `--sample`.
+    pub skipped: u32,
     pub outcome: Option<Outcome>,
 }
 
@@ -345,6 +362,8 @@ pub struct Generator {
     service: Service,
     state: Arc<EngineState>,
     rng: StdRng,
+    /// Draws only the `--sample` decisions, so the games do not depend on the sample rate.
+    sample_rng: StdRng,
     /// Keeps the engine's log channel open; the search only logs on failures.
     _log: std::sync::mpsc::Receiver<String>,
 }
@@ -370,12 +389,14 @@ impl Generator {
         config.print_info_string_during_search = false;
         config.max_zobrist_hash_entries = cfg.hash_entries;
         let rng = StdRng::seed_from_u64(cfg.seed);
+        let sample_rng = StdRng::seed_from_u64(cfg.seed ^ SAMPLE_SEED_SALT);
         Self {
             cfg,
             config,
             service: Service::new(),
             state,
             rng,
+            sample_rng,
             _log: log,
         }
     }
@@ -480,7 +501,7 @@ impl Generator {
             .gen_range(self.cfg.random_plies_min..=self.cfg.random_plies_max);
         let mut adjudicator = Adjudicator::new(&self.cfg);
         let mut positions: Vec<(String, i16)> = Vec::new();
-        let (mut ply, mut halfmove_clock, mut filtered) = (0u32, 0u32, 0u32);
+        let (mut ply, mut halfmove_clock, mut filtered, mut skipped) = (0u32, 0u32, 0u32, 0u32);
 
         let outcome = loop {
             let (moves, in_check) = self.legal_moves(&mut board);
@@ -508,14 +529,18 @@ impl Generator {
                         lines: None,
                         plies: ply,
                         filtered,
+                        skipped,
                         outcome: None,
                     };
                 }
-                if is_recordable(in_check, &turn, score) {
+                if !is_recordable(in_check, &turn, score) {
+                    filtered += 1;
+                } else if self.cfg.sample < 1.0 && self.sample_rng.r#gen::<f64>() >= self.cfg.sample
+                {
+                    skipped += 1;
+                } else {
                     let fen = self.service.fen.get_fen(&board);
                     positions.push((fen_with_clocks(&fen, halfmove_clock, full_move(ply)), score));
-                } else {
-                    filtered += 1;
                 }
                 if let Some(outcome) = adjudicator.observe(score, full_move(ply) as i32) {
                     break outcome;
@@ -541,6 +566,7 @@ impl Generator {
             lines: Some(lines),
             plies: ply,
             filtered,
+            skipped,
             outcome: Some(outcome),
         }
     }
@@ -550,6 +576,7 @@ impl Counters {
     fn add(&mut self, game: &GameRecord) {
         self.plies += game.plies as u64;
         self.filtered += game.filtered as u64;
+        self.skipped += game.skipped as u64;
         let Some(lines) = &game.lines else {
             self.dropped += 1;
             return;
@@ -566,14 +593,15 @@ impl Counters {
 
     fn report(&self, seconds: f64) -> String {
         let games = self.games.max(1) as f64;
-        let searched = (self.positions + self.filtered).max(1) as f64;
+        let searched = (self.positions + self.filtered + self.skipped).max(1) as f64;
         format!(
-            "games {} | dropped {} | positions {} | filtered {:.1} % | W/D/L {:.1}/{:.1}/{:.1} % | \
+            "games {} | dropped {} | positions {} | filtered {:.1} % | sampled out {:.1} % | W/D/L {:.1}/{:.1}/{:.1} % | \
              plies/game {:.0} | {:.0} pos/s",
             self.games,
             self.dropped,
             self.positions,
             100.0 * self.filtered as f64 / searched,
+            100.0 * self.skipped as f64 / searched,
             100.0 * self.white_wins as f64 / games,
             100.0 * self.draws as f64 / games,
             100.0 * self.black_wins as f64 / games,
@@ -960,5 +988,60 @@ mod tests {
             2 * counters.positions
         );
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn sample_is_parsed_and_checked() {
+        assert_eq!(
+            parse_args(&args(&["--out", "d.txt"]))
+                .unwrap()
+                .unwrap()
+                .sample,
+            1.0
+        );
+        let cfg = parse_args(&args(&["--out", "d.txt", "--sample", "0.33"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.sample, 0.33);
+        for bad in ["0", "-0.5", "1.5", "x"] {
+            assert!(
+                parse_args(&args(&["--out", "d.txt", "--sample", bad])).is_err(),
+                "accepted {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn sampling_keeps_the_games_and_writes_a_subset() {
+        let collect = |sample: f64| {
+            let mut generator = Generator::new(DatagenConfig { sample, ..small(7) });
+            let (mut lines, mut skipped, mut played) = (Vec::new(), 0u32, 0);
+            while played < 3 {
+                let game = generator.play_game();
+                if let Some(game_lines) = game.lines {
+                    lines.extend(game_lines);
+                    skipped += game.skipped;
+                    played += 1;
+                }
+            }
+            (lines, skipped)
+        };
+        let (full, none_skipped) = collect(1.0);
+        let (part, skipped) = collect(0.33);
+        assert_eq!(none_skipped, 0);
+        assert_eq!(
+            part.len() as u32 + skipped,
+            full.len() as u32,
+            "the same games are played"
+        );
+        assert!(
+            part.iter().all(|line| full.contains(line)),
+            "sampled lines come from the full data"
+        );
+        let share = part.len() as f64 / full.len() as f64;
+        assert!(
+            (0.2..0.47).contains(&share),
+            "kept {share:.2} of the positions"
+        );
     }
 }
