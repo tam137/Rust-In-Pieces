@@ -126,6 +126,14 @@ distribution, disk use; decode a sample back (legal FEN, sign, result). Fit the 
 sigmoid on the sample; if the fit is far from 400 it is recorded, the scale stays 400 for N1.
 
 ### Stage C - Data
+**Interim result (2026-11-12):** a network from the first 100 M positions (1.3 M games) with WDL
+0.5 lost badly (16-18 % in a 200-game gauntlet against the current release); the same data with
+WDL 0.0 reached 40.5 % / 30.0 %. On fresh positions the WDL-0.5 network matched the search score
+far worse (mean error 153 cp against 86 cp for the current network) and fit its own training games
+much better than fresh ones. Next: positions from more games - `datagen --sample 0.33` writes a
+third of the recordable positions of each game (same games for the same seed, so the output is a
+subset of the full data), and the first batch is thinned the same way.
+
 **Running (from 2026-11-11):** twelve processes give about 5,100 positions per second (18 M per
 hour). A first batch of about 100 M positions is followed by an interim network, the compatibility
 tests and a short gauntlet against the current NNUE release; only if the pipeline holds in play
