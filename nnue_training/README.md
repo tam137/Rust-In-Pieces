@@ -271,3 +271,29 @@ and reports games, dropped games, positions, the share of filtered positions, th
 distribution, plies per game and positions per second. Equal seeds give equal data; give every
 batch a new base seed. The text files go through `bullet-utils convert --from text`,
 `interleave` and `shuffle` before training.
+
+## 10. Provenance
+
+Every data batch, training set and network gets a JSON manifest, so a network can always be traced
+back to the data, settings and tools that made it (`scripts/nnue_manifest.py`, tests in
+`scripts/test_nnue_manifest.py`):
+
+```bash
+scripts/nnue_manifest.py data <mm>/nnue_data/<batch> --engine-commit <hash> --arch x86-64 --binary <datagen binary>
+scripts/nnue_manifest.py set <mm>/nnue_data/<set>.data --source <mm>/nnue_data/<batch> ... --tool "<how it was built>"
+scripts/nnue_manifest.py net <checkpoint dir> --log <trainer log> --set <mm>/nnue_data/<set>.data --trainer-commit <hash>
+scripts/nnue_manifest.py result <checkpoint dir> gauntlet "<result>"
+scripts/nnue_manifest.py register <mm>
+```
+
+- **Data batch** (`<batch>/MANIFEST.json`): datagen settings and seeds from the part logs, games and
+  dropped games, line count and sha256 per part, whether every process finished, the generating
+  commit, architecture and binary hash; a batch derived from others names its sources and rule.
+- **Training set** (`<set>.data.json`): source batches (with the hash of their manifests), record
+  count, sha256 of the `.data` file and how it was built.
+- **Network** (`<checkpoint>/MANIFEST.json`): training settings parsed from the trainer log, the
+  training set's sha256, the hash of `quantised.bin`, and results appended as they come.
+- `register` renders all manifests into one table (`<mm>/nnue_register.md`).
+
+Games and dropped games come from each part's last log line; for a part that was stopped before
+its target that is the last progress report. Positions are always counted from the files.
