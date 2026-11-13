@@ -76,7 +76,8 @@ def parse_counter_line(line):
         "positions": r"positions (\d+)",
         "filtered_percent": r"filtered ([\d.]+) %",
         "sampled_out_percent": r"sampled out ([\d.]+) %",
-        "plies_per_game": r"plies/game (\d+)",
+        "plies_per_game": r"(?<!book )plies/game (\d+)",
+        "book_plies_per_game": r"book plies/game ([\d.]+)",
         "positions_per_second": r"(\d+) pos/s",
     }
     for key, pattern in patterns.items():

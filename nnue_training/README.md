@@ -264,6 +264,12 @@ target/datagen/release/suprah datagen --help
 scripts/run_datagen.sh target/datagen/release/suprah <mm>/nnue_data/<batch> 12 <games> <base seed>
 ```
 
+Openings: by default 8-12 plies, each random with probability 50 % and otherwise searched.
+`--book <polyglot>` opens with book moves instead - weighted by the book and drawn from the seed, for
+4-16 plies (`--book-plies`, fewer when the book has no move) - followed by 2-4 random-phase plies
+(`--book-random-plies`); the opening is never recorded. Without `--book` the output is identical to
+earlier versions for the same seed. Use books that are not the source of the measurement openings.
+
 The feature build gets its own target directory so the release binary in `target/release` is
 never replaced by it; without the feature the binary ignores `datagen` and speaks UCI. Each
 process appends whole games to `part_<i>.txt` (`fen | score | result`, both from White's view)

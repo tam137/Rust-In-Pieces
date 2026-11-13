@@ -64,6 +64,12 @@ class ParseLines(unittest.TestCase):
         self.assertEqual(new["sampled_out_percent"], 49.0)
         self.assertEqual(new["plies_per_game"], 75)
 
+    def test_book_plies_are_read_and_do_not_shadow_plies_per_game(self):
+        line = REPORT_NEW.replace("plies/game 75 |", "plies/game 75 | book plies/game 8.1 |")
+        c = nm.parse_counter_line(line)
+        self.assertEqual((c["plies_per_game"], c["book_plies_per_game"]), (75, 8.1))
+        self.assertNotIn("book_plies_per_game", nm.parse_counter_line(REPORT_NEW))
+
     def test_other_lines_are_not_counters(self):
         self.assertIsNone(nm.parse_counter_line("started 12 processes"))
 
