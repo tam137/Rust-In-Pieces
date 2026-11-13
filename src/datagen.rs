@@ -58,6 +58,14 @@ pub struct DatagenConfig {
     /// Share of the recordable positions that is written, in (0, 1]: fewer positions per game,
     /// so a data budget spreads over more independent games.
     pub sample: f64,
+    /// Polyglot book for the opening; `None` keeps the random opening.
+    pub book: Option<String>,
+    /// Range of book plies per game (the book phase ends earlier when the book has no move).
+    pub book_plies_min: u32,
+    pub book_plies_max: u32,
+    /// Range of random-phase plies after the book (random with `random_prob`, else searched).
+    pub book_random_min: u32,
+    pub book_random_max: u32,
 }
 
 impl Default for DatagenConfig {
@@ -80,6 +88,11 @@ impl Default for DatagenConfig {
             hash_entries: 1 << 20,
             report_every: 100,
             sample: 1.0,
+            book: None,
+            book_plies_min: 4,
+            book_plies_max: 16,
+            book_random_min: 2,
+            book_random_max: 4,
         }
     }
 }
@@ -107,6 +120,10 @@ Options:
   --report <N>            Print counters every N games, 0 = at the end only [default: 100]
   --sample <P>            Write each recordable position with probability P, in (0, 1];
                           the games stay the same, only fewer positions per game [default: 1]
+  --book <FILE>           Polyglot book: open with book moves (weighted by the book, drawn from the
+                          seed) instead of --random-plies; not recorded
+  --book-plies <A-B>      Book plies per game, fewer when the book ends [default: 4-16]
+  --book-random-plies <A-B>  Random-phase plies after the book [default: 2-4]
   -h, --help              Show this help
 ";
 
@@ -133,6 +150,21 @@ pub fn parse_args(args: &[String]) -> Result<Option<DatagenConfig>, String> {
             "--hash" => cfg.hash_entries = number(option, value)?,
             "--report" => cfg.report_every = number(option, value)?,
             "--sample" => cfg.sample = number(option, value)?,
+            "--book" => cfg.book = Some(value.clone()),
+            "--book-plies" => {
+                let [min, max] = parts[..] else {
+                    return Err(format!("{option} expects A-B, got {value:?}"));
+                };
+                (cfg.book_plies_min, cfg.book_plies_max) =
+                    (number(option, min)?, number(option, max)?);
+            }
+            "--book-random-plies" => {
+                let [min, max] = parts[..] else {
+                    return Err(format!("{option} expects A-B, got {value:?}"));
+                };
+                (cfg.book_random_min, cfg.book_random_max) =
+                    (number(option, min)?, number(option, max)?);
+            }
             "--random-plies" => {
                 let [min, max] = parts[..] else {
                     return Err(format!("{option} expects A-B, got {value:?}"));
@@ -176,6 +208,9 @@ pub fn parse_args(args: &[String]) -> Result<Option<DatagenConfig>, String> {
     if !(cfg.sample > 0.0 && cfg.sample <= 1.0) {
         return Err("--sample must lie in (0, 1]".to_string());
     }
+    if cfg.book_plies_min > cfg.book_plies_max || cfg.book_random_min > cfg.book_random_max {
+        return Err("--book-plies and --book-random-plies need A <= B".to_string());
+    }
     if cfg.random_plies_min > cfg.random_plies_max || cfg.random_prob > 100 {
         return Err("--random-plies needs A <= B and --random-prob at most 100".to_string());
     }
@@ -186,6 +221,16 @@ fn number<T: std::str::FromStr>(option: &str, value: &str) -> Result<T, String> 
     value
         .parse()
         .map_err(|_| format!("option {option}: invalid value {value:?}"))
+}
+
+/// Loads a Polyglot opening book.
+pub fn load_book(path: &str) -> Result<crate::polyglot::PolyglotBook, String> {
+    let book =
+        crate::polyglot::PolyglotBook::load(path).map_err(|e| format!("book {path}: {e}"))?;
+    if book.len() == 0 {
+        return Err(format!("book {path}: no entries"));
+    }
+    Ok(book)
 }
 
 /// Result of a finished game.
@@ -339,6 +384,8 @@ pub struct Counters {
     pub filtered: u64,
     /// Recordable positions left out by `--sample`.
     pub skipped: u64,
+    /// Book plies played in all games (dropped ones included).
+    pub book_plies: u64,
     pub plies: u64,
     pub white_wins: u64,
     pub draws: u64,
@@ -353,6 +400,8 @@ pub struct GameRecord {
     /// Recordable positions left out by `--sample`.
     pub skipped: u32,
     pub outcome: Option<Outcome>,
+    /// Book moves that opened the game (empty without `--book`).
+    pub opening: Vec<String>,
 }
 
 /// One data generation process: the engine with its own tables and random numbers.
@@ -364,6 +413,7 @@ pub struct Generator {
     rng: StdRng,
     /// Draws only the `--sample` decisions, so the games do not depend on the sample rate.
     sample_rng: StdRng,
+    book: Option<crate::polyglot::PolyglotBook>,
     /// Keeps the engine's log channel open; the search only logs on failures.
     _log: std::sync::mpsc::Receiver<String>,
 }
@@ -390,6 +440,10 @@ impl Generator {
         config.max_zobrist_hash_entries = cfg.hash_entries;
         let rng = StdRng::seed_from_u64(cfg.seed);
         let sample_rng = StdRng::seed_from_u64(cfg.seed ^ SAMPLE_SEED_SALT);
+        let book = cfg
+            .book
+            .as_deref()
+            .map(|path| load_book(path).unwrap_or_else(|e| panic!("{e}")));
         Self {
             cfg,
             config,
@@ -397,6 +451,7 @@ impl Generator {
             state,
             rng,
             sample_rng,
+            book,
             _log: log,
         }
     }
@@ -492,13 +547,58 @@ impl Generator {
         best.expect("the search returned no move in a position with legal moves")
     }
 
+    /// A book move for the position, drawn by book weight from the game generator, or `None`
+    /// when the book has no (legal) move here.
+    fn book_move(&mut self, board: &Board, moves: &MoveList) -> Option<(Turn, String)> {
+        let book = self.book.as_ref()?;
+        let entries = book.find_entries(board);
+        if entries.is_empty() {
+            return None;
+        }
+        let total: u32 = entries.iter().map(|e| e.weight as u32).sum();
+        let entry = if total == 0 {
+            &entries[self.rng.gen_range(0..entries.len())]
+        } else {
+            let mut pick = self.rng.gen_range(0..total);
+            entries
+                .iter()
+                .find(|e| {
+                    if pick < e.weight as u32 {
+                        true
+                    } else {
+                        pick -= e.weight as u32;
+                        false
+                    }
+                })
+                .unwrap_or(&entries[0])
+        };
+        let mv = crate::polyglot::normalise_castling(board, &entry.to_algebraic());
+        moves.moves[..moves.len]
+            .iter()
+            .find(|t| t.to_algebraic() == mv)
+            .map(|t| (*t, mv))
+    }
+
     /// Plays one game from the start position.
     pub fn play_game(&mut self) -> GameRecord {
         self.new_game();
         let mut board = self.service.fen.set_init_board();
-        let random_plies = self
-            .rng
-            .gen_range(self.cfg.random_plies_min..=self.cfg.random_plies_max);
+        // Without a book the opening ends after a random number of random-phase plies (drawn
+        // first, exactly as before the book existed); with a book it ends a few random-phase
+        // plies after the book phase, which is decided move by move.
+        let mut book_left = 0;
+        let mut opening_end = if self.book.is_some() {
+            book_left = self
+                .rng
+                .gen_range(self.cfg.book_plies_min..=self.cfg.book_plies_max);
+            None
+        } else {
+            Some(
+                self.rng
+                    .gen_range(self.cfg.random_plies_min..=self.cfg.random_plies_max),
+            )
+        };
+        let mut opening: Vec<String> = Vec::new();
         let mut adjudicator = Adjudicator::new(&self.cfg);
         let mut positions: Vec<(String, i16)> = Vec::new();
         let (mut ply, mut halfmove_clock, mut filtered, mut skipped) = (0u32, 0u32, 0u32, 0u32);
@@ -516,7 +616,26 @@ impl Generator {
                 break outcome;
             }
 
-            let turn = if ply < random_plies {
+            let mut book_turn = None;
+            if opening_end.is_none() {
+                if book_left > 0
+                    && let Some((turn, mv)) = self.book_move(&board, &moves)
+                {
+                    book_left -= 1;
+                    opening.push(mv);
+                    book_turn = Some(turn);
+                } else {
+                    let extra = self
+                        .rng
+                        .gen_range(self.cfg.book_random_min..=self.cfg.book_random_max);
+                    opening_end = Some(ply + extra);
+                }
+            }
+            let random_plies = opening_end.unwrap_or(u32::MAX);
+
+            let turn = if let Some(turn) = book_turn {
+                turn
+            } else if ply < random_plies {
                 if self.rng.gen_range(0..100) < self.cfg.random_prob {
                     moves.moves[self.rng.gen_range(0..moves.len)]
                 } else {
@@ -531,6 +650,7 @@ impl Generator {
                         filtered,
                         skipped,
                         outcome: None,
+                        opening,
                     };
                 }
                 if !is_recordable(in_check, &turn, score) {
@@ -568,6 +688,7 @@ impl Generator {
             filtered,
             skipped,
             outcome: Some(outcome),
+            opening,
         }
     }
 }
@@ -577,6 +698,7 @@ impl Counters {
         self.plies += game.plies as u64;
         self.filtered += game.filtered as u64;
         self.skipped += game.skipped as u64;
+        self.book_plies += game.opening.len() as u64;
         let Some(lines) = &game.lines else {
             self.dropped += 1;
             return;
@@ -596,7 +718,7 @@ impl Counters {
         let searched = (self.positions + self.filtered + self.skipped).max(1) as f64;
         format!(
             "games {} | dropped {} | positions {} | filtered {:.1} % | sampled out {:.1} % | W/D/L {:.1}/{:.1}/{:.1} % | \
-             plies/game {:.0} | {:.0} pos/s",
+             plies/game {:.0} | book plies/game {:.1} | {:.0} pos/s",
             self.games,
             self.dropped,
             self.positions,
@@ -606,6 +728,7 @@ impl Counters {
             100.0 * self.draws as f64 / games,
             100.0 * self.black_wins as f64 / games,
             self.plies as f64 / (self.games + self.dropped).max(1) as f64,
+            self.book_plies as f64 / (self.games + self.dropped).max(1) as f64,
             self.positions as f64 / seconds.max(1e-9),
         )
     }
@@ -654,6 +777,12 @@ pub fn main(args: &[String]) -> i32 {
             return 2;
         }
     };
+    if let Some(path) = &cfg.book
+        && let Err(message) = load_book(path)
+    {
+        eprintln!("error: {message}");
+        return 2;
+    }
     eprintln!("datagen: {cfg:?}");
     match run(cfg) {
         Ok(_) => 0,
@@ -1042,6 +1171,122 @@ mod tests {
         assert!(
             (0.2..0.47).contains(&share),
             "kept {share:.2} of the positions"
+        );
+    }
+
+    #[test]
+    fn book_options_are_parsed_and_checked() {
+        let cfg = parse_args(&args(&["--out", "d.txt"])).unwrap().unwrap();
+        assert_eq!(cfg.book, None);
+        assert_eq!((cfg.book_plies_min, cfg.book_plies_max), (4, 16));
+        assert_eq!((cfg.book_random_min, cfg.book_random_max), (2, 4));
+        let cfg = parse_args(&args(&[
+            "--out",
+            "d.txt",
+            "--book",
+            "b.bin",
+            "--book-plies",
+            "6-10",
+            "--book-random-plies",
+            "1-3",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(cfg.book.as_deref(), Some("b.bin"));
+        assert_eq!(
+            (
+                cfg.book_plies_min,
+                cfg.book_plies_max,
+                cfg.book_random_min,
+                cfg.book_random_max
+            ),
+            (6, 10, 1, 3)
+        );
+        for bad in [
+            &["--out", "d.txt", "--book-plies", "9-3"][..],
+            &["--out", "d.txt", "--book-random-plies", "4-2"],
+        ] {
+            assert!(parse_args(&args(bad)).is_err(), "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_missing_book_is_an_error() {
+        assert!(load_book("no/such/book.bin").is_err());
+        assert!(load_book("Performance.bin").is_ok());
+    }
+
+    fn book_cfg(seed: u64) -> DatagenConfig {
+        DatagenConfig {
+            book: Some("Performance.bin".to_string()),
+            book_plies_min: 6,
+            book_plies_max: 6,
+            ..small(seed)
+        }
+    }
+
+    #[test]
+    fn book_games_open_with_book_moves_and_record_only_after_the_opening() {
+        let mut generator = Generator::new(book_cfg(11));
+        let book = load_book("Performance.bin").unwrap();
+        let mut checked = 0;
+        while checked < 3 {
+            let game = generator.play_game();
+            // Every book move is a book entry of the position it was played in.
+            let mut board = FenService.set_init_board();
+            assert!(
+                !game.opening.is_empty() && game.opening.len() <= 6,
+                "{:?}",
+                game.opening
+            );
+            for mv in &game.opening {
+                let candidates: Vec<String> = book
+                    .find_entries(&board)
+                    .iter()
+                    .map(|e| crate::polyglot::normalise_castling(&board, &e.to_algebraic()))
+                    .collect();
+                assert!(
+                    candidates.contains(mv),
+                    "{mv} is not a book move here: {candidates:?}"
+                );
+                board.do_move(&crate::notation_util::NotationUtil::get_turn_from_notation(
+                    mv,
+                ));
+            }
+            if let Some(lines) = game.lines {
+                let first_recorded =
+                    game.opening.len() as u32 + DatagenConfig::default().book_random_min;
+                for line in &lines {
+                    let f: Vec<&str> = line.split(' ').collect();
+                    let ply = 2 * (f[5].parse::<u32>().unwrap() - 1) + u32::from(f[1] == "b");
+                    assert!(ply >= first_recorded, "opening ply {ply} recorded: {line}");
+                }
+                checked += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn book_games_are_reproducible_and_differ_from_random_openings() {
+        let collect = |cfg: DatagenConfig| {
+            let mut generator = Generator::new(cfg);
+            (0..4)
+                .map(|_| generator.play_game().opening)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            collect(book_cfg(5)),
+            collect(book_cfg(5)),
+            "same seed, same openings"
+        );
+        assert_ne!(
+            collect(book_cfg(5)),
+            collect(book_cfg(6)),
+            "other seed, other openings"
+        );
+        assert!(
+            collect(small(5)).iter().all(Vec::is_empty),
+            "no book, no book moves"
         );
     }
 }

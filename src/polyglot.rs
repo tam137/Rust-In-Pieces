@@ -257,7 +257,7 @@ impl PolyglotEntry {
 ///
 /// A rook moving from e1 to h1 encodes identically, so the rewrite only applies when the piece
 /// standing on the origin square really is the king.
-fn normalise_castling(board: &Board, mv: &str) -> String {
+pub(crate) fn normalise_castling(board: &Board, mv: &str) -> String {
     const WHITE_KING_PIECE: u8 = 15;
     const BLACK_KING_PIECE: u8 = 25;
 
