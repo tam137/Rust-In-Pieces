@@ -122,3 +122,27 @@ A non-interactive `ssh` does not read the shell profile, so every remote command
   5. Report the old and the new target of `current-engine`, so the switch can be undone with one `ln -sfn`.
 - **Never** commit or push from the bot host's checkout, and never change the bots' configuration, their
   start scripts or the scheduler as part of this procedure - those need their own explicit instruction.
+
+## 7. Publishing release binaries (GitHub release)
+
+Public binaries for Windows and Linux are built by the workflow `.github/workflows/release-binaries.yml`,
+never on a local machine: a local build is tuned to its host and may not run on other CPUs.
+
+- **When:** only on the USER's request, after the release tag (`vX.Y.Z` or `vX.Y.Z-NNUE`) is on the remote.
+  The workflow lives on `master` and checks the tag out itself, so NNUE tags need no copy of it on their branch.
+- **Start and watch:**
+  ```bash
+  gh workflow run release-binaries.yml -f tag=vX.Y.Z
+  gh run watch "$(gh run list --workflow release-binaries.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+  ```
+- **What it does:** builds four binaries - Windows and Linux, each for `x86-64-v3` (AVX2 / BMI2) and generic
+  `x86-64` (Windows with a static C runtime) - runs `scripts/uci_smoke_test.py` on every one of them on its own
+  runner (exact `id name`, `readyok`, a `bestmove` at depth 10 and under `wtime`/`btime`/`movestogo`, clean
+  `quit`), and creates a **draft** release with the four files, `SHA256SUMS`, a file-selection table and the
+  tag's `CHANGELOG.md` section. Any failing step stops the run before a draft exists.
+- **Files:** `rust-in-pieces-<version>-<windows|linux>-<x86-64-v3|x86-64>[.exe]`; for NNUE the version carries
+  the suffix, e.g. `rust-in-pieces-0.52.0-nnue-windows-x86-64-v3.exe`.
+- **Check the draft:** four binaries plus `SHA256SUMS`; download one Linux binary, verify it against
+  `SHA256SUMS` and run the smoke test on it locally.
+- **Publish:** the USER publishes the draft. Never publish it on your own.
+- `Cargo.lock` is not tracked, so the workflow resolves dependencies afresh within `Cargo.toml`'s ranges.
