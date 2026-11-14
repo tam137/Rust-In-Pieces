@@ -24,6 +24,8 @@ mod time_check;
 mod magic;
 mod pst;
 pub mod polyglot;
+#[cfg(feature = "datagen")]
+mod datagen;
 
 
 
@@ -52,7 +54,15 @@ fn main() {
         }
     }
 
-
+    // Matt-Magie step 102: `suprah datagen ...` writes self-play training data instead of
+    // speaking UCI. Only in builds with the `datagen` feature.
+    #[cfg(feature = "datagen")]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.first().map(String::as_str) == Some("datagen") {
+            std::process::exit(datagen::main(&args[1..]));
+        }
+    }
 
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();
