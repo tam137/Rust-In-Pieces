@@ -60,6 +60,21 @@ Optimal move ordering is crucial for triggering Alpha-Beta cutoffs as early as p
 
 ---
 
+## Download
+
+Prebuilt binaries for Windows and Linux are attached to the [GitHub releases](https://github.com/tam137/Rust-In-Pieces/releases). Each release comes in two engines: the hand-crafted evaluation (`vX.Y.Z`, UCI name `Rust-In-Pieces VX.Y.Z`) and the NNUE evaluation (`vX.Y.Z-NNUE`, UCI name `RIP VX.Y.Z-NNUE`).
+
+| File | For |
+| :--- | :--- |
+| `rust-in-pieces-<version>-windows-x86-64-v3.exe` | Windows, CPUs with AVX2 and BMI2 (Intel Haswell / AMD Excavator and newer) |
+| `rust-in-pieces-<version>-windows-x86-64.exe` | Windows, any 64-bit x86 CPU (about 20-30% slower) |
+| `rust-in-pieces-<version>-linux-x86-64-v3` | Linux, CPUs with AVX2 and BMI2 |
+| `rust-in-pieces-<version>-linux-x86-64` | Linux, any 64-bit x86 CPU (about 20-30% slower) |
+
+Every binary is a single self-contained file: the neural network and the opening book are embedded. The main UCI options are `Hash`, `Threads` and `Move Overhead`; set `OwnBook` to `false` when playing from your own opening set. `SHA256SUMS` in each release lists the checksums.
+
+---
+
 ## UCI Protocol & Command Specification
 
 Rust-In-Pieces fully adheres to the standard Universal Chess Interface (UCI) protocol, enabling seamless integration into GUIs like Arena, Cute Chess, or Banksia.
@@ -129,7 +144,7 @@ To compile the optimized production release binary locally:
 ```bash
 cargo build --release
 ```
-The resulting binary will be located in `target/release/rust-in-pieces`.
+The resulting binary will be located in `target/release/suprah`.
 
 ### Automated Release Pipeline
 To bump versions, run all unit tests, update `CHANGELOG.md`, and compile production binaries, run:

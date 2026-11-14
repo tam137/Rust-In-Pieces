@@ -1,0 +1,136 @@
+# Builds Windows and Linux binaries for an existing release tag (HCE `vX.Y.Z` or NNUE
+# `vX.Y.Z-NNUE`), smoke-tests every binary over UCI on its own runner, and attaches them
+# with SHA256SUMS to a draft GitHub release. Started by hand; the draft is published by a
+# maintainer after review. See skills/engine_release_procedure.md, section 7.
+name: release-binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, e.g. v0.52.0 or v0.52.0-NNUE"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      id_name: ${{ steps.meta.outputs.id_name }}
+      title: ${{ steps.meta.outputs.title }}
+    steps:
+      - id: meta
+        shell: bash
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-NNUE)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z or vX.Y.Z-NNUE)"; exit 1
+          fi
+          ver="${TAG#v}"
+          if [[ "$TAG" == *-NNUE ]]; then
+            echo "id_name=RIP V$ver" >> "$GITHUB_OUTPUT"
+            echo "title=Rust-In-Pieces ${ver%-NNUE} NNUE" >> "$GITHUB_OUTPUT"
+          else
+            echo "id_name=Rust-In-Pieces V$ver" >> "$GITHUB_OUTPUT"
+            echo "title=Rust-In-Pieces $ver" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${ver,,}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: windows-2022, platform: windows, cpu: x86-64-v3, ext: .exe, flags: "-C target-feature=+crt-static" }
+          - { os: windows-2022, platform: windows, cpu: x86-64,    ext: .exe, flags: "-C target-feature=+crt-static" }
+          - { os: ubuntu-22.04, platform: linux,   cpu: x86-64-v3, ext: "",   flags: "" }
+          - { os: ubuntu-22.04, platform: linux,   cpu: x86-64,    ext: "",   flags: "" }
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: -C target-cpu=${{ matrix.cpu }} ${{ matrix.flags }}
+      ASSET: rust-in-pieces-${{ needs.meta.outputs.version }}-${{ matrix.platform }}-${{ matrix.cpu }}${{ matrix.ext }}
+      ID_NAME: ${{ needs.meta.outputs.id_name }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: engine
+      - name: Check out the smoke test from the workflow's branch
+        uses: actions/checkout@v4.2.2
+        with:
+          path: tools
+          sparse-checkout: scripts/uci_smoke_test.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install the stable toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build
+        shell: bash
+        working-directory: engine
+        run: cargo build --release
+      - name: Smoke test
+        shell: bash
+        run: |
+          cp "engine/target/release/suprah${{ matrix.ext }}" "$ASSET"
+          python tools/scripts/uci_smoke_test.py "$ASSET" --expect-name "$ID_NAME"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ env.ASSET }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      TITLE: ${{ needs.meta.outputs.title }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and release notes
+        shell: bash
+        run: |
+          (cd dist && sha256sum rust-in-pieces-* > SHA256SUMS && cat SHA256SUMS)
+          header="## [V${TAG#v}]"
+          awk -v h="$header" 'index($0, h) == 1 {on = 1; next} on && /^## \[/ {exit} on' CHANGELOG.md > changes.md
+          if [[ ! -s changes.md ]]; then echo "::error::no CHANGELOG.md section '$header'"; exit 1; fi
+          {
+            echo "UCI chess engine. Pick the binary for your system:"
+            echo
+            echo "| File | For |"
+            echo "|---|---|"
+            echo "| \`rust-in-pieces-$VERSION-windows-x86-64-v3.exe\` | Windows, CPUs with AVX2 and BMI2 (Intel Haswell / AMD Excavator and newer) |"
+            echo "| \`rust-in-pieces-$VERSION-windows-x86-64.exe\` | Windows, any 64-bit x86 CPU (slower) |"
+            echo "| \`rust-in-pieces-$VERSION-linux-x86-64-v3\` | Linux, CPUs with AVX2 and BMI2 |"
+            echo "| \`rust-in-pieces-$VERSION-linux-x86-64\` | Linux, any 64-bit x86 CPU (slower) |"
+            echo
+            echo "Single self-contained file; the evaluation and the opening book are embedded. Disable \`OwnBook\` when playing from your own openings."
+            echo
+            echo "## Changes"
+            cat changes.md
+          } > notes.md
+      - name: Create the draft release
+        shell: bash
+        run: |
+          gh release create "$TAG" dist/* --draft --verify-tag --title "$TITLE" --notes-file notes.md
