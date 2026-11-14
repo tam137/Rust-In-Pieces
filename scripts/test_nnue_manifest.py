@@ -49,6 +49,13 @@ class ParseLines(unittest.TestCase):
         self.assertEqual(cfg["out"], "part_1.txt")  # file name only, no host path
         self.assertEqual(cfg["nodes"], 5000)
 
+    def test_option_values_and_book_paths(self):
+        line = CONFIG_LINE.replace(" }", ', book: Some("/x/y/codekiddy.bin"), book_plies_min: 4 }')
+        cfg = nm.parse_config_line(line)
+        self.assertEqual(cfg["book"], "codekiddy.bin")  # file name only
+        self.assertEqual(cfg["book_plies_min"], 4)
+        self.assertIsNone(nm.parse_config_line(CONFIG_LINE.replace(" }", ", book: None }"))["book"])
+
     def test_a_config_line_without_sample_is_the_old_generator(self):
         line = CONFIG_LINE.replace(", sample: 0.33", "")
         self.assertNotIn("sample", nm.parse_config_line(line))

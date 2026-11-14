@@ -47,9 +47,13 @@ def parse_config_line(line):
     """`datagen: DatagenConfig { key: value, ... }` (Rust Debug) -> dict; `out` keeps the file name."""
     body = line[line.index("{") + 1: line.rindex("}")]
     cfg = {}
-    for key, value in re.findall(r'(\w+): ("(?:[^"\\]|\\.)*"|[^,]+)', body):
+    for key, value in re.findall(r'(\w+): (Some\("(?:[^"\\]|\\.)*"\)|"(?:[^"\\]|\\.)*"|[^,]+)', body):
         value = value.strip()
-        if value.startswith('"'):
+        if value.startswith('Some("'):
+            value = os.path.basename(value[6:-2])  # a path: keep the file name only
+        elif value == "None":
+            value = None
+        elif value.startswith('"'):
             value = value[1:-1]
         else:
             try:
