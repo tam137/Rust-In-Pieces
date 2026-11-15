@@ -289,7 +289,9 @@ scripts/nnue_manifest.py data <mm>/nnue_data/<batch> --engine-commit <hash> --ar
 scripts/nnue_manifest.py set <mm>/nnue_data/<set>.data --source <mm>/nnue_data/<batch> ... --tool "<how it was built>"
 scripts/nnue_manifest.py net <checkpoint dir> --log <trainer log> --set <mm>/nnue_data/<set>.data --trainer-commit <hash>
 scripts/nnue_manifest.py result <checkpoint dir> gauntlet "<result>"
+scripts/nnue_manifest.py describe <checkpoint dir> "<what is special about this net>"
 scripts/nnue_manifest.py register <mm>
+scripts/nnue_manifest.py nets <mm> [--ref <engine>] [--all]
 ```
 
 - **Data batch** (`<batch>/MANIFEST.json`): datagen settings and seeds from the part logs, games and
@@ -300,6 +302,12 @@ scripts/nnue_manifest.py register <mm>
 - **Network** (`<checkpoint>/MANIFEST.json`): training settings parsed from the trainer log, the
   training set's sha256, the hash of `quantised.bin`, and results appended as they come.
 - `register` renders all manifests into one table (`<mm>/nnue_register.md`).
+- `nets` prints a compact overview of all networks: checkpoint date, Elo with paired 95 % interval
+  from the latest match against the reference engine (`--ref`, default the current NNUE release),
+  training set, WDL, superbatch, hidden size and the one-sentence `summary` set by `describe` (or
+  `net --summary`). Measured nets come first, strongest first; other matches and gauntlets are
+  listed below each row, offline checks only with `--all`. Elo values are comparable only for the
+  same reference and time control.
 
 Games and dropped games come from each part's last log line; for a part that was stopped before
 its target that is the last progress report. Positions are always counted from the files.

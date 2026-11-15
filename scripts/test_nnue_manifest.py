@@ -204,6 +204,80 @@ class Register(unittest.TestCase):
         self.assertIn("gauntlet: 40 %", text)
 
 
+class MatchResults(unittest.TestCase):
+    REF = ("1200 Partien gegen v0.52.0-NNUE (1s+150ms, gepaart): 15:32:44 games 1209 Elo -29.4 [-43.1, -15.8] "
+           "LLR -3.25 guard -6.97 (min 1200 max 1200)")
+    DIRECT = ("5000 Partien gegen all281w00 (1s+150ms, gepaart): 14:39:01 games 5005 Elo +6.1 [-0.4, +12.6] "
+              "LLR +1.66 guard +1.02 (min 5000 max 5000)")
+
+    def test_elo_interval_games_opponent_and_time_control_are_read(self):
+        r = nm.parse_match(self.REF)
+        self.assertEqual((r["elo"], r["lo"], r["hi"], r["games"]), (-29.4, -43.1, -15.8, 1209))
+        self.assertEqual((r["opponent"], r["tc"]), ("v0.52.0-NNUE", "1s+150ms"))
+
+    def test_a_positive_direct_comparison(self):
+        r = nm.parse_match(self.DIRECT)
+        self.assertEqual((r["elo"], r["lo"], r["hi"], r["opponent"]), (6.1, -0.4, 12.6, "all281w00"))
+
+    def test_text_without_elo_is_no_match(self):
+        self.assertIsNone(nm.parse_match("13,0 % / 16,5 % gegen v0.52.0-/v0.51.0-NNUE (je 100)"))
+
+    def test_the_latest_reference_match_is_chosen(self):
+        net = {"results": [{"kind": "match", "value": self.DIRECT},
+                           {"kind": "match", "value": self.REF.replace("Elo -29.4", "Elo -30.0")},
+                           {"kind": "match", "value": self.REF}]}
+        self.assertEqual(nm.reference_match(net, "v0.52.0-NNUE")["elo"], -29.4)
+        self.assertIsNone(nm.reference_match(net, "v0.99.0-NNUE"))
+
+
+class NetOverview(unittest.TestCase):
+    @staticmethod
+    def net(name, elo=None, created="2026-11-13T10:00:00", **extra):
+        results = []
+        if elo is not None:
+            results.append({"kind": "match", "value": f"gegen v0.52.0-NNUE (1s+150ms): games 1200 Elo {elo:+.1f} "
+                                                      f"[{elo - 14:+.1f}, {elo + 14:+.1f}]"})
+        return {"kind": "net", "name": name, "checkpoint_modified": created, "set_name": "m187.data",
+                "training": {"wdl": 0.0, "superbatch_end": 19, "hidden": 256}, "results": results, **extra}
+
+    def test_rows_are_sorted_by_elo_and_unmeasured_nets_come_last(self):
+        objs = [self.net("weak", -80.0), self.net("old"), self.net("best", -7.5), {"kind": "set", "name": "x"}]
+        self.assertEqual([r["name"] for r in nm.net_rows(objs, "v0.52.0-NNUE")], ["best", "weak", "old"])
+
+    def test_the_table_shows_date_elo_summary_and_other_measurements(self):
+        net = self.net("allrndw00-28", -3.0, created="2026-11-15T09:00:00", summary="Buchdaten durch r3a ersetzt")
+        net["results"].append({"kind": "match", "value": MatchResults.DIRECT})
+        net["results"].append({"kind": "offline", "value": "Korr. 0,94"})
+        text = nm.render_nets(nm.net_rows([net], "v0.52.0-NNUE"), "v0.52.0-NNUE")
+        for part in ("allrndw00-28", "2026-11-15", "-3.0 [-17.0, +11.0]", "Buchdaten durch r3a ersetzt",
+                     "vs all281w00 +6.1 [-0.4, +12.6]"):
+            self.assertIn(part, text)
+        self.assertNotIn("Korr. 0,94", text)
+        self.assertIn("Korr. 0,94", nm.render_nets(nm.net_rows([net], "v0.52.0-NNUE"), "v0.52.0-NNUE", True))
+
+    def test_the_superbatch_is_the_checkpoint_not_the_planned_run_end(self):
+        net = self.net("n1i-10")
+        net["training"]["superbatch_end"] = 20
+        self.assertEqual(nm.net_rows([net], "v0.52.0-NNUE")[0]["sb"], 10)
+
+    def test_gauntlets_are_shown_for_nets_without_a_reference_match(self):
+        net = self.net("w00-10")
+        net["results"].append({"kind": "gauntlet", "value": "40,5 % / 30,0 % gegen v0.52.0-/v0.51.0-NNUE (je 100)"})
+        self.assertIn("gauntlet 40,5 % / 30,0 % gegen v0.52.0-/v0.51.0-NNUE",
+                      nm.render_nets(nm.net_rows([net], "v0.52.0-NNUE"), "v0.52.0-NNUE"))
+
+    def test_the_register_has_date_elo_and_summary(self):
+        text = nm.render_register([self.net("m187w02-19", -29.4, summary="WDL 0,2")])
+        for part in ("2026-11-13", "-29.4", "WDL 0,2"):
+            self.assertIn(part, text)
+
+    def test_describe_sets_the_summary(self):
+        with tempfile.TemporaryDirectory() as ck:
+            nm.write_json(os.path.join(ck, "MANIFEST.json"), {"kind": "net", "name": "x"})
+            nm.main(["describe", ck, "Erstes Netz"])
+            self.assertEqual(nm.read_json(os.path.join(ck, "MANIFEST.json"))["summary"], "Erstes Netz")
+
+
 class JsonRoundTrip(unittest.TestCase):
     def test_write_and_read(self):
         with tempfile.TemporaryDirectory() as root:

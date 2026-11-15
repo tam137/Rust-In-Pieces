@@ -11,16 +11,19 @@ traced back to the exact data it was trained on:
 - a **network** (a trainer checkpoint directory): training settings parsed from the trainer log,
   the training set's sha256, the sha256 of `quantised.bin`, and results added later.
 
-`register` renders all manifests below a match-manager directory into one markdown table.
+`register` renders all manifests below a match-manager directory into one markdown table; `nets` prints a
+compact overview of all networks, strongest first, measured against a reference engine.
 
 Usage:
     scripts/nnue_manifest.py data <batch dir> [--derived-from NAME ...] [--rule TEXT] [--note TEXT]
                                   [--binary FILE | --binary-sha256 HASH] [--engine-commit HASH] [--arch NAME]
     scripts/nnue_manifest.py set <file.data> --source <batch dir> ... [--tool TEXT] [--note TEXT]
     scripts/nnue_manifest.py net <checkpoint dir> --log <trainer log> --set <file.data>
-                                 [--trainer-commit HASH] [--engine NAME] [--note TEXT]
+                                 [--trainer-commit HASH] [--engine NAME] [--note TEXT] [--summary TEXT]
     scripts/nnue_manifest.py result <checkpoint dir> <kind> <value> [--date YYYY-MM-DD]
-    scripts/nnue_manifest.py register <mm dir> [--out FILE]
+    scripts/nnue_manifest.py describe <checkpoint dir> <one-sentence summary>
+    scripts/nnue_manifest.py register <mm dir> [--out FILE] [--ref ENGINE]
+    scripts/nnue_manifest.py nets <mm dir> [--ref ENGINE] [--all]
 
 Manifests are written next to the object: `<batch dir>/MANIFEST.json`, `<file.data>.json`,
 `<checkpoint dir>/MANIFEST.json`. Paths are given on the command line; nothing is hard-coded.
@@ -37,6 +40,7 @@ import re
 import sys
 
 SCHEMA = 1
+DEFAULT_REF = "v0.52.0-NNUE"  # engine whose embedded net is the yardstick in `nets` and `register`
 RECORD_BYTES = 32  # bullet's ChessBoard record
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -266,7 +270,7 @@ def set_manifest(data_path, sources, tool=None, note=None):
 
 
 def net_manifest(checkpoint_dir, log_path, set_sha256=None, set_name=None, trainer_commit=None, engine=None,
-                 note=None):
+                 note=None, summary=None):
     """Describe a trainer checkpoint (one network)."""
     quantised = os.path.join(checkpoint_dir, "quantised.bin")
     with open(log_path, errors="replace") as f:
@@ -290,12 +294,113 @@ def net_manifest(checkpoint_dir, log_path, set_sha256=None, set_name=None, train
         manifest["engine"] = engine
     if note:
         manifest["note"] = note
+    if summary:
+        manifest["summary"] = summary
     return manifest
 
 
 def add_result(manifest, kind, value, when=None):
     manifest.setdefault("results", []).append(
         {"kind": kind, "value": value, "date": when or datetime.date.today().isoformat()})
+
+
+# --- match results --------------------------------------------------------------------------
+
+NUM = r"([+-]?\d+(?:\.\d+)?)"
+MATCH_ELO = re.compile(rf"Elo {NUM} \[{NUM}, {NUM}\]")
+MATCH_GAMES = re.compile(r"games (\d+)")
+MATCH_OPPONENT = re.compile(r"gegen ([^\s,(:]+)")
+MATCH_TC = re.compile(r"(\d+(?:[.,]\d+)?s\+\d+ms)")
+MATCH_VIEW = re.compile(r"aus Sicht (\w+)")
+
+
+def parse_match(value):
+    """Match result text (gate.py status line plus a German prefix) -> Elo, interval, games, opponent, tc."""
+    elo = MATCH_ELO.search(value)
+    if not elo:
+        return None
+    found = {"elo": float(elo[1]), "lo": float(elo[2]), "hi": float(elo[3])}
+    for key, pattern in (("games", MATCH_GAMES), ("opponent", MATCH_OPPONENT), ("tc", MATCH_TC),
+                         ("view", MATCH_VIEW)):
+        m = pattern.search(value)
+        found[key] = (int(m[1]) if key == "games" else m[1]) if m else None
+    return found
+
+
+def reference_match(net, ref):
+    """The latest match of `net` against the reference engine, or None."""
+    found = None
+    for r in net.get("results", []):
+        m = parse_match(r["value"])
+        if m and m["opponent"] and m["opponent"].lower() == ref.lower():
+            found = m
+    return found
+
+
+def fmt_elo(m):
+    return f"{m['elo']:+.1f} [{m['lo']:+.1f}, {m['hi']:+.1f}]" if m else "–"
+
+
+def other_results(net, ref, everything=False):
+    """Short lines for all results except the reference match (offline checks only with `everything`)."""
+    lines = []
+    for r in net.get("results", []):
+        m = parse_match(r["value"])
+        if m and m["opponent"] and m["opponent"].lower() == ref.lower():
+            continue
+        if m:
+            view = f" (from {m['view']}'s view)" if m["view"] else ""
+            lines.append(f"vs {m['opponent']} {fmt_elo(m)}, {m['games']} games, {m['tc'] or '?'}{view}")
+        elif r["kind"] == "gauntlet":
+            lines.append(f"gauntlet {r['value'].split(' (')[0]}")
+        elif everything:
+            lines.append(f"{r['kind']}: {r['value']}")
+    return lines
+
+
+def checkpoint_superbatch(net):
+    """Superbatch of the checkpoint itself (`<name>-<sb>`); the log only knows where the run was meant to end."""
+    suffix = net["name"].rsplit("-", 1)[-1]
+    return int(suffix) if suffix.isdigit() else net.get("training", {}).get("superbatch_end")
+
+
+def net_date(net):
+    return (net.get("checkpoint_modified") or net.get("created") or "")[:10]
+
+
+def net_rows(objs, ref):
+    """One row per network: measured nets strongest first, then unmeasured nets newest first."""
+    rows = []
+    for o in objs:
+        if o.get("kind") != "net":
+            continue
+        t = o.get("training", {})
+        rows.append({"name": o["name"], "date": net_date(o), "match": reference_match(o, ref),
+                     "set": o.get("set_name", ""), "wdl": t.get("wdl"), "sb": checkpoint_superbatch(o),
+                     "hidden": t.get("hidden"), "summary": o.get("summary", ""), "net": o})
+    measured = sorted((r for r in rows if r["match"]), key=lambda r: -r["match"]["elo"])
+    unmeasured = sorted((r for r in rows if not r["match"]), key=lambda r: r["date"], reverse=True)
+    return measured + unmeasured
+
+
+def render_nets(rows, ref, everything=False):
+    """Plain-text table for the terminal; further results indented below each row."""
+    head = ["net", "date", f"Elo vs {ref} [95 %]", "games", "tc", "set", "WDL", "SB", "hidden", "summary"]
+    table = []
+    for r in rows:
+        m = r["match"]
+        table.append([r["name"], r["date"], fmt_elo(m), str(m["games"]) if m else "–", (m or {}).get("tc") or "–",
+                      r["set"], str(r["wdl"]), str(r["sb"]), str(r["hidden"]), r["summary"] or "–"])
+    widths = [max(len(x) for x in col) for col in zip(head, *table)]
+
+    def line(cells):
+        return "  ".join(c.ljust(w) for c, w in zip(cells, widths)).rstrip()
+
+    out = [line(head), line(["-" * w for w in widths])]
+    for r, cells in zip(rows, table):
+        out.append(line(cells))
+        out += [f"    · {x}" for x in other_results(r["net"], ref, everything)]
+    return "\n".join(out) + "\n"
 
 
 # --- register ---------------------------------------------------------------------------------
@@ -306,7 +411,7 @@ def fmt_count(n):
     return f"{n / 1e6:.1f} M" if n >= 1e6 else str(n)
 
 
-def render_register(objs):
+def render_register(objs, ref=DEFAULT_REF):
     data = [o for o in objs if o.get("kind") == "data"]
     sets = [o for o in objs if o.get("kind") == "set"]
     nets = [o for o in objs if o.get("kind") == "net"]
@@ -325,12 +430,14 @@ def render_register(objs):
         src = ", ".join(s["name"] for s in o.get("sources", []))
         lines.append(f"| {o['name']} | {fmt_count(o.get('positions'))} | {src} | {o.get('sha256', '')[:12]} | "
                      f"{o.get('note', '')} |")
-    lines += ["", "## Networks", "", "| name | set | WDL | superbatches | quantised sha256 | results | note |",
-              "| :--- | :--- | ---: | ---: | :--- | :--- | :--- |"]
+    lines += ["", "## Networks", "", f"| name | date | Elo vs {ref} | summary | set | WDL | superbatches | "
+              "quantised sha256 | results | note |",
+              "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | :--- | :--- | :--- |"]
     for o in nets:
         t = o.get("training", {})
         results = "; ".join(f"{r['kind']}: {r['value']}" for r in o.get("results", []))
-        lines.append(f"| {o['name']} | {o.get('set_name', '')} | {t.get('wdl', '')} | {t.get('superbatch_end', '')} | "
+        lines.append(f"| {o['name']} | {net_date(o)} | {fmt_elo(reference_match(o, ref))} | {o.get('summary', '')} | "
+                     f"{o.get('set_name', '')} | {t.get('wdl', '')} | {t.get('superbatch_end', '')} | "
                      f"{o.get('quantised_sha256', '')[:12]} | {results} | {o.get('note', '')} |")
     return "\n".join(lines) + "\n"
 
@@ -375,6 +482,7 @@ def main(argv=None):
     n.add_argument("--trainer-commit")
     n.add_argument("--engine")
     n.add_argument("--note")
+    n.add_argument("--summary", help="one sentence: what is special about this network")
 
     r = sub.add_parser("result")
     r.add_argument("checkpoint")
@@ -382,9 +490,19 @@ def main(argv=None):
     r.add_argument("value")
     r.add_argument("--date")
 
+    c = sub.add_parser("describe")
+    c.add_argument("checkpoint")
+    c.add_argument("summary")
+
     g = sub.add_parser("register")
     g.add_argument("mm")
     g.add_argument("--out")
+    g.add_argument("--ref", default=DEFAULT_REF)
+
+    v = sub.add_parser("nets")
+    v.add_argument("mm")
+    v.add_argument("--ref", default=DEFAULT_REF, help="engine whose matches give the Elo column")
+    v.add_argument("--all", action="store_true", help="also list offline checks")
 
     a = p.parse_args(argv)
     if a.cmd == "data":
@@ -403,7 +521,8 @@ def main(argv=None):
         print(f"{m['name']}: {m['positions']} positions from {len(sources)} batches")
     elif a.cmd == "net":
         sm = read_json(a.set + ".json")
-        m = net_manifest(a.checkpoint, a.log, sm["sha256"], sm["name"], a.trainer_commit, a.engine, a.note)
+        m = net_manifest(a.checkpoint, a.log, sm["sha256"], sm["name"], a.trainer_commit, a.engine, a.note,
+                         a.summary)
         write_json(os.path.join(a.checkpoint, "MANIFEST.json"), m)
         print(f"{m['name']}: WDL {m['training'].get('wdl')}, set {m['set_name']}")
     elif a.cmd == "result":
@@ -412,11 +531,19 @@ def main(argv=None):
         add_result(m, a.kind, a.value, a.date)
         write_json(path, m)
         print(f"{m['name']}: {len(m['results'])} results")
+    elif a.cmd == "describe":
+        path = os.path.join(a.checkpoint, "MANIFEST.json")
+        m = read_json(path)
+        m["summary"] = a.summary
+        write_json(path, m)
+        print(f"{m['name']}: {a.summary}")
     elif a.cmd == "register":
         out = a.out or os.path.join(a.mm, "nnue_register.md")
         with open(out, "w") as f:
-            f.write(render_register(collect(a.mm)))
+            f.write(render_register(collect(a.mm), a.ref))
         print(f"wrote {out}")
+    elif a.cmd == "nets":
+        print(render_nets(net_rows(collect(a.mm), a.ref), a.ref, a.all), end="")
     return 0
 
 
