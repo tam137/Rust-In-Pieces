@@ -4975,13 +4975,15 @@ mod tests {
 
     /// White is a queen and two rooks against two pawns up, and the queen stands en prise to the
     /// pawn on d6; `h6` gives the black king air, so `Rb8` is check and not mate. The network
-    /// evaluates the node at 4472, so against a `beta` of 3300 the surplus clears the depth-4
-    /// margin of 320; a null move hands Black `dxe5`, and what is left after the queen (about
-    /// 2540) falls below it, so the null search fails. `master` pins the same property on a
+    /// (rnd416w01, v0.53.0-NNUE) evaluates the node at 6006, so against a `beta` of 4800 the
+    /// surplus clears the depth-4 margin of 320; a null move hands Black `dxe5`, and what is left
+    /// after the queen (between 3700 and 3850) falls below it, so the null search fails. The
+    /// fixture depends on the embedded network: with the v0.52.0 network the node read 4472, the
+    /// queen-down line about 2540, and `beta` was 3300. `master` pins the same property on a
     /// position without `h6`, where `Rb8` mates - harmless there, because the classical
     /// evaluation lets the rule cut before any move is searched.
     const QUEEN_EN_PRISE_FEN: &str = "6k1/5pp1/3p3p/4Q3/8/8/5PPP/RR4K1 w - - 0 1";
-    const QUEEN_EN_PRISE_BETA: i16 = 3300;
+    const QUEEN_EN_PRISE_BETA: i16 = 4800;
 
     /// `task.md` 21.3: the order of Reverse Futility and Null Move Pruning decides no cut. At a
     /// node the null search cannot cut, because passing loses the queen, Reverse Futility Pruning

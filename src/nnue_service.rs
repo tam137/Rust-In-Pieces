@@ -112,6 +112,36 @@ impl NNUENetwork {
     }
 }
 
+/// Default value of the `NnueModelPath` option. It selects the embedded network, as does an empty path.
+pub const DEFAULT_MODEL_PATH: &str = "eval_models/quantised.bin";
+
+/// Training-run name of the embedded network, kept next to it in `eval_models/quantised.name`.
+const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised.name");
+
+/// True when `model_path` selects the embedded network rather than a file.
+pub fn uses_embedded_net(model_path: &str) -> bool {
+    model_path.is_empty() || model_path == DEFAULT_MODEL_PATH
+}
+
+/// 32-bit FNV-1a over the network file: tells two networks apart even when their names match.
+pub fn net_fingerprint(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5u32, |hash, &byte| (hash ^ byte as u32).wrapping_mul(0x0100_0193))
+}
+
+/// One line naming the network that `model_path` selects, for the UCI `info string` after `uci` and
+/// after `setoption name NnueModelPath`: name, origin and fingerprint.
+pub fn describe_net(model_path: &str) -> String {
+    if uses_embedded_net(model_path) {
+        return format!("NNUE net {} (embedded, fnv {:08x})",
+            EMBEDDED_NET_NAME.trim(), net_fingerprint(NNUENetwork::EMBEDDED_NET_BYTES));
+    }
+    // The path as given: a trainer checkpoint is always `quantised.bin`, its folder names the run.
+    match std::fs::read(model_path) {
+        Ok(bytes) => format!("NNUE net {} (file, fnv {:08x})", model_path, net_fingerprint(&bytes)),
+        Err(e) => format!("NNUE net {} (file not readable: {})", model_path, e),
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct NNUEAccumulator {
     pub white: [i16; NNUE_HIDDEN_SIZE],
@@ -739,6 +769,42 @@ mod tests {
         let eval = NNUEService::evaluate(&board, &net);
         // Startpos evaluation should be reasonable (close to 0 cp)
         assert!(eval.abs() < 200, "Startpos NNUE eval should be reasonable, got: {}", eval);
+    }
+
+    #[test]
+    fn the_fingerprint_is_fnv1a() {
+        assert_eq!(net_fingerprint(b""), 0x811c_9dc5);
+        assert_eq!(net_fingerprint(b"a"), 0xe40c_292c);
+        assert_eq!(net_fingerprint(b"foobar"), 0xbf9c_f968);
+    }
+
+    #[test]
+    fn the_default_and_the_empty_path_select_the_embedded_net() {
+        assert!(uses_embedded_net(DEFAULT_MODEL_PATH));
+        assert!(uses_embedded_net(""));
+        assert!(!uses_embedded_net("nets/other.bin"));
+    }
+
+    #[test]
+    fn the_embedded_net_is_described_by_its_name_and_fingerprint() {
+        let name = EMBEDDED_NET_NAME.trim();
+        assert!(!name.is_empty() && !name.contains('\n'), "quantised.name must hold one name");
+        let expected = format!("NNUE net {} (embedded, fnv {:08x})", name,
+            net_fingerprint(NNUENetwork::EMBEDDED_NET_BYTES));
+        assert_eq!(describe_net(DEFAULT_MODEL_PATH), expected);
+        assert_eq!(describe_net(""), expected);
+    }
+
+    #[test]
+    fn a_net_file_is_described_by_its_path_and_fingerprint() {
+        let path = std::env::temp_dir().join(format!("rip_describe_net_{}.bin", std::process::id()));
+        std::fs::write(&path, b"foobar").unwrap();
+        let path = path.to_str().unwrap();
+        let described = describe_net(path);
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(described, format!("NNUE net {} (file, fnv bf9cf968)", path));
+        assert!(describe_net("eval_models/non_existent_model_file.bin").starts_with(
+            "NNUE net eval_models/non_existent_model_file.bin (file not readable: "));
     }
 
     #[test]

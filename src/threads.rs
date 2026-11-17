@@ -115,8 +115,16 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name EnableCorrectionHistoryNonPawn type check default {}", defaults.enable_correction_history_non_pawn),
         format!("option name CorrHistNonPawnDiv type spin default {} min 1 max 128", defaults.corr_hist_non_pawn_div),
         format!("option name UseNNUE type check default {}", defaults.use_nnue),
-        "option name NnueModelPath type string default eval_models/quantised.bin".to_string(),
+        format!("option name NnueModelPath type string default {}", defaults.nnue_model_path),
     ]
+}
+
+/// Value of a `setoption name <id> value <x>` token: everything after the keyword `value`, which
+/// may contain spaces (a file path). `None` when the token has no value.
+fn uci_option_value(token: &str) -> Option<String> {
+    let parts: Vec<&str> = token.split_whitespace().collect();
+    let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("value"))?;
+    Some(parts[idx + 1..].join(" "))
 }
 
 pub fn std_reader(sender: mpsc::Sender<String>, _config: &Config) {
@@ -151,6 +159,7 @@ pub fn uci_command_processor(
     let benchmark_value = time_check::calculate_benchmark(&engine_state);
 
     let mut active_use_nnue = config.use_nnue;
+    let mut active_model_path = config.nnue_model_path.clone();
 
     while let Ok(uci_token) = rx_std_in.recv() {
         let logger = engine_state.log_sender.clone();
@@ -168,6 +177,9 @@ pub fn uci_command_processor(
                     let defaults = Config::new();
                     stdout.write(&name_str);
                     stdout.write("id author Jan Lange");
+                    if active_use_nnue {
+                        stdout.write(&format!("info string {}", crate::nnue_service::describe_net(&active_model_path)));
+                    }
                     for option in uci_options(&defaults) {
                         stdout.write(&option);
                     }
@@ -265,6 +277,16 @@ pub fn uci_command_processor(
                         // to `Config::apply_uci_option` on the game thread, so the token still has
                         // to be forwarded - without this the engine renames itself and keeps
                         // evaluating with the network it claims to have switched off.
+                        tx_game_command.send(uci_token.clone()).ok();
+                    } else if token_lower.contains("name nnuemodelpath") {
+                        // Forwarded like every other option; answered here so the GUI sees which
+                        // network the next search will use.
+                        if let Some(path) = uci_option_value(&uci_token) {
+                            active_model_path = path;
+                        }
+                        if active_use_nnue {
+                            stdout.write(&format!("info string {}", crate::nnue_service::describe_net(&active_model_path)));
+                        }
                         tx_game_command.send(uci_token.clone()).ok();
                     } else if token_lower.contains("name threads") && token_lower.contains("value") {
                         let parts: Vec<&str> = uci_token.split_whitespace().collect();
@@ -439,6 +461,21 @@ mod tests {
         state.stop_flag.store(true, Ordering::SeqCst);
         assert_eq!(process(state.clone(), &["go infinite"]), vec!["infinite".to_string()]);
         assert!(!state.stop_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn the_option_value_is_everything_after_the_keyword_value() {
+        assert_eq!(super::uci_option_value("setoption name NnueModelPath value nets/a b.bin"), Some("nets/a b.bin".to_string()));
+        assert_eq!(super::uci_option_value("setoption name NnueModelPath VALUE x.bin"), Some("x.bin".to_string()));
+        assert_eq!(super::uci_option_value("setoption name NnueModelPath value"), Some(String::new()));
+        assert_eq!(super::uci_option_value("setoption name Ponder"), None);
+    }
+
+    #[test]
+    fn a_new_model_path_is_still_forwarded_to_the_game_thread() {
+        let (state, _log) = engine_state();
+        let token = "setoption name NnueModelPath value eval_models/quantised.bin";
+        assert_eq!(process(state, &[token]), vec![token.to_string()]);
     }
 
     #[test]
