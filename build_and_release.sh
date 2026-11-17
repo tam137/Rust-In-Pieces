@@ -26,6 +26,10 @@ if [ ! -f "$MM_ROOT/mm.sh" ]; then
 fi
 TARGET_DIR="$MM_ROOT/engines"
 
+# Release naming: the NNUE branch tags, headers and publishes its releases as <version>-NNUE.
+source scripts/release_naming.sh
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
 # Step 1: Run all tests
 echo -e "\n${YELLOW}[1/6] Running tests...${NC}"
 cargo test
@@ -79,6 +83,8 @@ fi
 
 echo -e "Current Version: ${BOLD}$CURRENT_VERSION${NC}"
 echo -e "New Version:     ${GREEN}${BOLD}$NEW_VERSION${NC}"
+RELEASE_NAME=$(release_name "$NEW_VERSION" "$GIT_BRANCH")
+echo -e "Release Name:    ${GREEN}${BOLD}$RELEASE_NAME${NC} (tag v$RELEASE_NAME, CHANGELOG header [V$RELEASE_NAME])"
 
 # Replace version in Cargo.toml
 sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
@@ -108,7 +114,7 @@ if idx != -1:
 else:
     with open('CHANGELOG.md', 'a') as f:
         f.write('\n\n' + entry)
-" "$NEW_VERSION" "$DATE" "$CHANGES"
+" "$RELEASE_NAME" "$DATE" "$CHANGES"
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Success: CHANGELOG.md updated successfully!${NC}"
@@ -135,9 +141,8 @@ echo -e "\n${YELLOW}[5/6] Deploying release to Matt-Magie engines directory...${
 mkdir -p "$TARGET_DIR"
 
 # Determine engine binary filename suffix based on branch
-GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 BINARY_SUFFIX=""
-if [ "$GIT_BRANCH" = "feature/nnue-evaluation" ]; then
+if [ "$GIT_BRANCH" = "$NNUE_RELEASE_BRANCH" ]; then
     BINARY_SUFFIX="-nnue"
 fi
 ENGINE_FILENAME="suprah-${NEW_VERSION}${BINARY_SUFFIX}"
@@ -159,9 +164,9 @@ if cp "target/release/suprah" "$COPY_TARGET" && chmod +x "$COPY_TARGET"; then
     echo -e "2. Open CHANGELOG.md and manually enrich the release notes with detailed explanations."
     echo -e "3. Create Git commit and tag manually:"
     echo -e "   ${BOLD}git add Cargo.toml CHANGELOG.md perft.md${NC}"
-    echo -e "   ${BOLD}git commit -m \"Release v$NEW_VERSION: <Detailed Description>\"${NC}"
-    echo -e "   ${BOLD}git tag -a \"v$NEW_VERSION\" -m \"Release version v$NEW_VERSION\"${NC}"
-    echo -e "   ${BOLD}git push origin feature/nnue-evaluation v$NEW_VERSION   (never --tags; the tag push publishes the GitHub release)${NC}"
+    echo -e "   ${BOLD}git commit -m \"Release v$RELEASE_NAME: <Detailed Description>\"${NC}"
+    echo -e "   ${BOLD}git tag -a \"v$RELEASE_NAME\" -m \"Release version v$RELEASE_NAME\"${NC}"
+    echo -e "   ${BOLD}git push origin feature/nnue-evaluation v$RELEASE_NAME   (never --tags; the tag push publishes the GitHub release)${NC}"
     echo -e "${CYAN}================================================================${NC}"
 else
     echo -e "${RED}Error: Failed to copy binary to $COPY_TARGET!${NC}"
