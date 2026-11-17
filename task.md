@@ -175,6 +175,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
+| `Board` updates the PST sums on every move although NNUE mode never reads them | dead work, throughput only, unmeasured, section 6.1 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
@@ -391,6 +392,61 @@ NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `
     - `[x]` Validate incremental accumulator against full recomputation across move types, king bucket transitions, and deep search trees (100% bit-identical).
     - `[ ]` AVX2 / SSE4.1 / NEON intrinsics for accumulator updates and the SCReLU forward pass.
     - `[ ]` Merge to `master` and set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
+
+### 6.1 Skip the incremental PST in NNUE mode
+
+`[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17, unmeasured.
+
+**The finding.** `Board` keeps `pst_mg` / `pst_eg` incrementally: summed in `Board::new`, saved
+and updated on every `make_move` (moved piece, capture, promotion, all four castlings), stored
+in `MoveInformation::old_pst_mg` / `old_pst_eg` and restored in `undo_move`. The only readers
+are `EvalService::cheap_eval` and the classical evaluation in `EvalService::evaluate`, and both
+sit behind the NNUE return (`if config.use_nnue && self.nnue_net.loaded`); `cheap_eval` has no
+other caller. With the network active, which is the default here, the work is dead on every
+move of every search. Search, move ordering, SEE and `datagen` do not read the PST.
+`pawn_key` and `non_pawn_key` are **not** dead: the Correction History indexes by them.
+
+**What it is worth.** Little: a handful of L1 lookups and adds per move, and `MoveInformation`
+shrinks from 56 to 48 bytes by arithmetic. The NNUE accumulator update per move is many times
+that. Expect under 1-2% wall time; the Elo is below what matchplay can resolve. The reason to do
+it is that dead work leaves the hot path at no risk to the tree.
+
+**Constraints.**
+1. `UseNNUE` switches at runtime (`setoption`), so the classical evaluation must see correct
+   PST sums immediately after `UseNNUE false`. A compile-time switch is ruled out.
+2. `Board` does not know the `Config`; the decision has to be handed in.
+3. `src/model.rs` is shared with `master` (port, never merge). Divergence in `make_move` costs
+   effort on every future port.
+
+**The design (Option A, chosen).**
+- `Board` gets `track_pst: bool`. The PST lines of `make_move` and `undo_move` run only when it
+  is set; the branch is constant for a whole search and predicts perfectly.
+- `Board::set_pst_tracking(on)` recomputes `pst_mg` / `pst_eg` from the bitboards when tracking
+  is switched on, so a stale sum can never be read.
+- The search sets it at its start to `!(config.use_nnue && eval.nnue_net.loaded)`, the same
+  condition `EvalService::evaluate` branches on.
+- `debug_assert!(board.track_pst)` at both classical read sites.
+- The change ports to `master` unchanged with the flag always `true`, keeping `src/model.rs`
+  identical on both branches.
+
+**Rejected.** Option B, removing the incremental PST on this branch and computing it on demand
+in the classical evaluation: no branch and no stale state, but `src/model.rs` and
+`src/eval_service.rs` would diverge from `master` in the most frequently edited function, for a
+gain this small. Option C, a generic `make_move<const PST: bool>`: saves one predictable branch
+at the cost of threading the parameter through the whole search.
+
+* **Tasks**:
+    - `[ ]` Test: with tracking on, after move sequences covering captures, all four castlings,
+      en passant and promotions, the PST sums equal a full recomputation, also after `undo_move`.
+    - `[ ]` Test: with tracking off, a do/undo sequence leaves bitboards, `cached_hash`,
+      `pawn_key` and `non_pawn_key` identical to the same sequence with tracking on.
+    - `[ ]` Test: moves made with tracking off, then tracking switched on, yield correct sums.
+    - `[ ]` Test: `UseNNUE` flipped from `true` to `false` mid-session gives the same classical
+      evaluation as a freshly built board.
+    - `[ ]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
+      sites in `src/eval_service.rs`.
+    - `[ ]` Acceptance: `scripts/measure_throughput.py` against v0.53.0-NNUE. **Node identity is
+      mandatory** (rule 5); report the wall-time difference. No game run; patch release.
 
 ## 7. En passant
 
