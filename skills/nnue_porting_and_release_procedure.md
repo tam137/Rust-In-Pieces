@@ -84,9 +84,9 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
 - **NNUE only, never ported to `master`**: `nnue_training/` (trainer crate), `scripts/nnue_manifest.py`, `scripts/test_nnue_manifest.py`, `src/nnue_compat_tests.rs`.
 
 ### 8. Release Workflow (Shared, kept byte-identical on both branches)
-- `.github/workflows/release-binaries.yml` and `scripts/uci_smoke_test.py` exist on both branches with identical content: GitHub runs a tag push with the workflow file of the tagged commit, so an NNUE tag only builds and publishes when this branch carries the workflow. A change to either file is ported unchanged to the other branch in the same session; check with:
+- `.github/workflows/release-binaries.yml`, `scripts/uci_smoke_test.py`, `scripts/changelog_section.py` and `scripts/test_changelog_section.py` exist on both branches with identical content: GitHub runs a tag push with the workflow file of the tagged commit, so an NNUE tag only builds and publishes when this branch carries the workflow. A change to any of them is ported unchanged to the other branch in the same session; check with:
   ```bash
-  git diff master feature/nnue-evaluation -- .github/ scripts/uci_smoke_test.py
+  git diff master feature/nnue-evaluation -- .github/ scripts/uci_smoke_test.py scripts/changelog_section.py scripts/test_changelog_section.py
   ```
 
 ---
