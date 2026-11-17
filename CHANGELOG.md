@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.53.0-NNUE] - 2026-11-17
+
+- **New embedded net `rnd416w01`** (Matt-Magie step 102, first net trained on this project's own data, architecture
+  unchanged): about 16M self-play games from random openings (185.7M positions sampled at 0.33), WDL 0.1, 42
+  superbatches. The same data at WDL 0.0 (`rnd416w00`) played +14.1 Elo [+10.0, +18.2] against v0.52.0-NNUE over
+  12,034 games at 1s + 150ms; `rnd416w01` against `rnd416w00` directly: +3.2 Elo [-0.9, +7.3] over 12,005 games.
+- **The engine names its net**: after `id author`, and after every `setoption name NnueModelPath`, an
+  `info string NNUE net <name> (embedded|file, fnv <hash>)` line; the name of the embedded net comes from
+  `eval_models/quantised.name`, the hash is FNV-1a over the net bytes. The option's default is now printed as
+  `eval_models/quantised.bin`.
+- The queen-en-prise RFP test fixture's beta 3300 -> 4800: it sits between the new net's static eval of the node
+  and its eval after the queen is lost (net-dependent, no engine change).
+- **Control at 10s + 100ms against v0.52.0-NNUE, 3000 games: +17.3 Elo, paired 95% [+9.1, +25.4]**, no time
+  losses. Smoke gauntlet 57.0% / 57.0% against v0.52.0- / v0.51.0-NNUE.
+
+
 ## [V0.52.0-NNUE] - 2026-11-11
 
 - **History bonus and malus as curves, tuned by SPSA on this branch** (Matt-Magie steps 97 / 98; the options are a

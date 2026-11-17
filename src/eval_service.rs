@@ -99,7 +99,7 @@ impl EvalService {
 
     pub fn new(config: &Config) -> Self {
         let nnue_net = if config.use_nnue {
-            if config.nnue_model_path.is_empty() || config.nnue_model_path == "eval_models/quantised.bin" {
+            if crate::nnue_service::uses_embedded_net(&config.nnue_model_path) {
                 match crate::nnue_service::NNUENetwork::load_embedded() {
                     Ok(net) => net,
                     Err(e) => {
