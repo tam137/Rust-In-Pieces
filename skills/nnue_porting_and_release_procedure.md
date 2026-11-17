@@ -75,6 +75,12 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
 - Maintain clean per-depth logs (`Depth {:2} completed | ...`) and total time in `bestmove`.
 - Ensure `setoption` match arms cover all SPSA parameters (`aspiration_window_*`, `rfp_*`, `lmr_history_*`, `usennue`, `nnuemodelpath`).
 
+### 7. Release Workflow (Shared, kept byte-identical on both branches)
+- `.github/workflows/release-binaries.yml` and `scripts/uci_smoke_test.py` exist on both branches with identical content: GitHub runs a tag push with the workflow file of the tagged commit, so an NNUE tag only builds and publishes when this branch carries the workflow. A change to either file is ported unchanged to the other branch in the same session; check with:
+  ```bash
+  git diff master feature/nnue-evaluation -- .github/ scripts/uci_smoke_test.py
+  ```
+
 ---
 
 ## Phase 3: Verification & Release
@@ -102,5 +108,8 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
    git add Cargo.toml CHANGELOG.md scripts/ src/ skills/
    git commit -m "Release v<VERSION>-NNUE: <Detailed Description>"
    git tag -a "v<VERSION>-NNUE" -m "Release version v<VERSION>-NNUE"
-   git push origin feature/nnue-evaluation --tags
+   git push origin feature/nnue-evaluation v<VERSION>-NNUE
    ```
+   Push the one release tag by name, never `--tags`. **The tag push publishes a public GitHub release**
+   with Windows and Linux binaries (workflow `release-binaries`, see `engine_release_procedure.md`,
+   section 7); watch the run and check the release afterwards.

@@ -1,22 +1,37 @@
 # Builds Windows and Linux binaries for an existing release tag (HCE `vX.Y.Z` or NNUE
 # `vX.Y.Z-NNUE`), smoke-tests every binary over UCI on its own runner, and attaches them
-# with SHA256SUMS to a draft GitHub release. Started by hand; the draft is published by a
-# maintainer after review. See skills/engine_release_procedure.md, section 7.
+# with SHA256SUMS to a published GitHub release. Runs on every pushed release tag; started by
+# hand only to rebuild an older tag or retry a failed run (optionally as a draft). GitHub runs
+# a tag push with the workflow file of the tagged commit, so this file and
+# scripts/uci_smoke_test.py are kept identical on master and feature/nnue-evaluation.
+# See skills/engine_release_procedure.md, section 7.
 name: release-binaries
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
         description: "Existing release tag, e.g. v0.52.0 or v0.52.0-NNUE"
         required: true
         type: string
+      draft:
+        description: "Create a draft instead of publishing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 env:
-  TAG: ${{ inputs.tag }}
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+concurrency:
+  group: release-binaries-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   meta:
@@ -59,17 +74,17 @@ jobs:
       ID_NAME: ${{ needs.meta.outputs.id_name }}
     steps:
       - name: Check out the release tag
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ env.TAG }}
           path: engine
-      - name: Check out the smoke test from the workflow's branch
-        uses: actions/checkout@v4.2.2
+      - name: Check out the smoke test from the workflow's ref
+        uses: actions/checkout@v7.0.1
         with:
           path: tools
           sparse-checkout: scripts/uci_smoke_test.py
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.12"
       - name: Install the stable toolchain
@@ -84,7 +99,7 @@ jobs:
         run: |
           cp "engine/target/release/suprah${{ matrix.ext }}" "$ASSET"
           python tools/scripts/uci_smoke_test.py "$ASSET" --expect-name "$ID_NAME"
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ env.ASSET }}
           path: ${{ env.ASSET }}
@@ -101,10 +116,10 @@ jobs:
       TITLE: ${{ needs.meta.outputs.title }}
     steps:
       - name: Check out the release tag
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
         with:
-          ref: refs/tags/${{ inputs.tag }}
-      - uses: actions/download-artifact@v4.3.0
+          ref: refs/tags/${{ env.TAG }}
+      - uses: actions/download-artifact@v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -130,7 +145,13 @@ jobs:
             echo "## Changes"
             cat changes.md
           } > notes.md
-      - name: Create the draft release
+      # Publishes directly unless a manual run asked for a draft. An existing release for the
+      # tag makes `gh release create` fail, so a rerun never overwrites a published release.
+      - name: Create the release
         shell: bash
+        env:
+          DRAFT: ${{ inputs.draft && 'true' || 'false' }}
         run: |
-          gh release create "$TAG" dist/* --draft --verify-tag --title "$TITLE" --notes-file notes.md
+          draft=()
+          [[ "$DRAFT" == true ]] && draft=(--draft)
+          gh release create "$TAG" dist/* "${draft[@]}" --verify-tag --title "$TITLE" --notes-file notes.md

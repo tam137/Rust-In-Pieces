@@ -128,21 +128,32 @@ A non-interactive `ssh` does not read the shell profile, so every remote command
 Public binaries for Windows and Linux are built by the workflow `.github/workflows/release-binaries.yml`,
 never on a local machine: a local build is tuned to its host and may not run on other CPUs.
 
-- **When:** only on the USER's request, after the release tag (`vX.Y.Z` or `vX.Y.Z-NNUE`) is on the remote.
-  The workflow lives on `master` and checks the tag out itself, so NNUE tags need no copy of it on their branch.
-- **Start and watch:**
+- **When:** automatically, on every push of a release tag (`vX.Y.Z` or `vX.Y.Z-NNUE`). **Pushing a release
+  tag publishes a public GitHub release** once all builds and smoke tests pass, so push a tag only for a
+  finished release with its `CHANGELOG.md` section in place, and push it by name (never `--tags`: GitHub
+  starts no workflow at all when more than three tags arrive in one push).
+- **Both branches carry the workflow:** GitHub runs a tag push with the workflow file of the tagged commit.
+  `.github/workflows/release-binaries.yml` and `scripts/uci_smoke_test.py` must therefore be identical on
+  `master` and `feature/nnue-evaluation`; a change to either is ported in the same session (see the NNUE
+  porting SOP).
+- **Watch the run started by the tag push:**
   ```bash
-  gh workflow run release-binaries.yml -f tag=vX.Y.Z
   gh run watch "$(gh run list --workflow release-binaries.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+  ```
+- **Manual runs** (rebuild an older tag, or retry after a failure that has been fixed): only on the USER's
+  request. `-f draft=true` creates a draft instead of publishing. A tag that already has a release (draft or
+  published) fails at the last step; nothing is overwritten.
+  ```bash
+  gh workflow run release-binaries.yml -f tag=vX.Y.Z [-f draft=true]
   ```
 - **What it does:** builds four binaries - Windows and Linux, each for `x86-64-v3` (AVX2 / BMI2) and generic
   `x86-64` (Windows with a static C runtime) - runs `scripts/uci_smoke_test.py` on every one of them on its own
   runner (exact `id name`, `readyok`, a `bestmove` at depth 10 and under `wtime`/`btime`/`movestogo`, clean
-  `quit`), and creates a **draft** release with the four files, `SHA256SUMS`, a file-selection table and the
-  tag's `CHANGELOG.md` section. Any failing step stops the run before a draft exists.
+  `quit`), and publishes a release with the four files, `SHA256SUMS`, a file-selection table and the
+  tag's `CHANGELOG.md` section. Any failing step stops the run before a release exists.
 - **Files:** `rust-in-pieces-<version>-<windows|linux>-<x86-64-v3|x86-64>[.exe]`; for NNUE the version carries
   the suffix, e.g. `rust-in-pieces-0.52.0-nnue-windows-x86-64-v3.exe`.
-- **Check the draft:** four binaries plus `SHA256SUMS`; download one Linux binary, verify it against
+- **Check the release:** four binaries plus `SHA256SUMS`; download one Linux binary, verify it against
   `SHA256SUMS` and run the smoke test on it locally.
-- **Publish:** the USER publishes the draft. Never publish it on your own.
+- **Drafts:** a draft from a manual run is published by the USER. Never publish a draft on your own.
 - `Cargo.lock` is not tracked, so the workflow resolves dependencies afresh within `Cargo.toml`'s ranges.
