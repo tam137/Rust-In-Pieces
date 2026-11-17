@@ -228,6 +228,29 @@ defaults are N1: 256 hidden neurons, scale 400, WDL 0.5, cosine learning rate fr
 0.001 * 0.3^5. A different hidden size or scale trains, but the engine loads it only after the
 code change of section 5.
 
+### Helper scripts
+
+`nnue_training/scripts/` wraps the steps above; every script prints its usage when called without
+arguments, and paths come in as arguments or environment variables.
+
+| Script | Purpose |
+| :--- | :--- |
+| `build_set.sh <set> <data dir> <source>... [--note TEXT]` | `bullet-utils convert` per part file, `interleave`, `shuffle` into `<set>.data`, then the set manifest (section 10). Needs `BULLET_UTILS`. |
+| `train_resilient.sh <name> <wdl> <superbatches> <data> [save]` | Runs the trainer and resumes from the newest checkpoint after a crash (up to `MAX_TRIES`, default 10); keeps only the final checkpoint afterwards. Starts the two helpers below. `TRAINER`, `OUT_DIR`, `NET_BYTES`, `GPU_WATCH=0`, `CACHE_TRIM=0`. |
+| `gpu_watch.sh <name> <pid> [interval] [out dir]` | Read-only log of the trainer's GPU queue evictions (KFD `evicted_ms`), GTT/VRAM use, memory and page-migration counters; a report per GPU reset. |
+| `cache_trim.py <file> <pid> <log> [interval]` | Drops the training file's page cache every 20 s (`posix_fadvise(DONTNEED)`). |
+
+**GPU resets on the RDNA3 iGPU (2026-11-13 to 2026-11-17).** Training runs died with
+`hipErrorLaunchFailure` after the driver reset the GPU, in bursts of several per hour. The kernel
+log showed the same sequence every time: the GPU's scheduler firmware (MES) did not answer while
+the driver evicted the trainer's compute queue (`MES failed to respond to msg=REMOVE_QUEUE`,
+`Failed to evict queue`). `gpu_watch.sh` showed what triggers the evictions: with the training file
+filling the page cache, the kernel kept compacting memory and migrating pages, and every 5-second
+interval with an eviction (26 of 26) also had page migrations. Dropping the file's page cache with
+`cache_trim.py` kept several GB free: page migrations stopped, evictions fell from 26 to 1 and
+resets from 4 in 21 minutes to none, at unchanged throughput. Setting
+`vm.compaction_proactiveness=0` alone was not enough; it stops only the background compaction.
+
 ## 8. Compatibility tests
 
 The engine checks every network against the trainer before it is embedded
