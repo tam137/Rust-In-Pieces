@@ -75,6 +75,14 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
 - Maintain clean per-depth logs (`Depth {:2} completed | ...`) and total time in `bestmove`.
 - Ensure `setoption` match arms cover all SPSA parameters (`aspiration_window_*`, `rfp_*`, `lmr_history_*`, `usennue`, `nnuemodelpath`).
 
+### 7. Training Data Generation (Shared) vs. Trainer (NNUE Only)
+- **Shared, kept byte-identical on both branches**: `src/datagen.rs` and `scripts/run_datagen.sh` (Cargo feature `datagen`). A change to either is made on one branch and ported unchanged to the other; check with:
+  ```bash
+  git diff master feature/nnue-evaluation -- src/datagen.rs scripts/run_datagen.sh
+  ```
+  `master` produces HCE-scored data (comparison net), this branch NNUE-scored data.
+- **NNUE only, never ported to `master`**: `nnue_training/` (trainer crate), `scripts/nnue_manifest.py`, `scripts/test_nnue_manifest.py`, `src/nnue_compat_tests.rs`.
+
 ---
 
 ## Phase 3: Verification & Release

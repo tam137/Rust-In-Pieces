@@ -109,7 +109,8 @@ one single-threaded process per core, 2^20 hash entries, tables cleared per game
 - Tests: sign with Black to move, result mapping, filters, determinism for a fixed seed.
 - A start script for up to 12 processes under `scripts/`.
 - Labels: first from the NNUE engine (current network), later a comparison network from the HCE
-  engine.
+  engine. The HCE data comes from a `datagen` build of `master`, which carries the same
+  `src/datagen.rs` and `scripts/run_datagen.sh` (since 2026-11-17).
 
 ### Stage B - Trial run
 **Done (2026-11-11):** one process, 16,000 games, 1,224,181 positions at about 560 positions per
