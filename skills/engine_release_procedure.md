@@ -34,6 +34,17 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
    > **This gauntlet is a smoke test, not a measurement.** Its only job is to catch a candidate
    > that is grossly broken — the class of defect a self-A/B cannot see.
 
+   > [!WARNING]
+   > **Give the candidate a version string no opponent carries, before it plays.** The engine
+   > answers `id name` with `env!("CARGO_PKG_VERSION")`, and `build_and_release.sh` is what bumps
+   > that — so a candidate built from the working tree still calls itself by the *released*
+   > version it is being measured against, and Matt-Magie writes both sides of that pairing into
+   > the PGN under one name. The pairing is then unreadable and the run is wasted. Tag the
+   > candidate the way section 5 of the [Matchplay Measurement Procedure](matchplay_measurement_procedure.md)
+   > tags an A/B variant (`sed -i` the version to `X.Y.Z-rc`, build, `git checkout -- Cargo.toml`),
+   > and verify with `id name` before starting. Cost the first time this was missed, 2026-09-09:
+   > one discarded gauntlet at 152 of 200 games.
+
    Evaluate **per pairing**, never by the scoreboard rating: the Matt-Magie scoreboard is an
    iterative Bradley-Terry model normalised to a pool average of 2000, so a rating depends on
    which engines happen to be in the PGN and two ratings from different pools are not comparable.
@@ -41,6 +52,7 @@ Whenever a release is explicitly requested by the USER (applicable for both **Pa
 
 3. **Mandatory A/B Matchplay & Strength Measurement for Critikal Changes:** For complex modifications intended or expected to shift engine playing strength (e.g. new search pruning/extension heuristics, evaluation features, SPSA parameter tunings, or major architectural migrations), an **A/B tournament / match** against the baseline engine version MUST be executed and analyzed prior to release.
    - **Procedure & Execution:** All execution details (match setup, stopped SPRT gating vs. fixed-N effect size estimation, opening pool setup with openng book, hardware concurrency caps, health auditing via `scripts/match_health.py`, and paired Elo calculation via `scripts/pairing_elo.py`) MUST strictly follow the standardized [Matchplay Measurement Procedure](matchplay_measurement_procedure.md) skill.
+   - **Longer-control check:** values found by SPSA and changed search-parameter defaults MUST also pass the control match at a longer time control (section 4 of the [Matchplay Measurement Procedure](matchplay_measurement_procedure.md)) before the pipeline runs: a paired 95% interval entirely below 0 blocks the release.
 
 4. **Run Build & Release Pipeline:** Proceed to run the release script: `./build_and_release.sh`.
 
@@ -68,5 +80,84 @@ The `./build_and_release.sh` script automates version bumping (`Cargo.toml`), up
      git add Cargo.toml CHANGELOG.md skills/engine_release_procedure.md
      git commit -m "Release vX.Y.Z: <Detailed description of release changes>"
      git tag -a "vX.Y.Z" -m "Release version vX.Y.Z"
-     git push origin master --tags
+     git push origin master vX.Y.Z
      ```
+     Push the branch and the one release tag by name, **never `--tags`**: the local repository holds tags that
+     must not reach the remote. Check with `git ls-remote --tags origin` that nothing else arrived.
+
+## 6. Updating the Lichess bots (ARM build on the bot host)
+
+The Lichess bots run on a separate ARM host, not on the measurement host. Engines are built there from a
+release tag; nothing is copied across architectures. Host, checkout and bot folders are environment
+variables, never written into a committed file:
+
+| Variable | Defined in | Meaning |
+| :--- | :--- | :--- |
+| `EOD_SERVER` | `~/costumenvs.sh` on the measurement host | SSH target of the bot host |
+| `RIP_ARM_REPO` | `~/costumenvs.sh` on the bot host | the checkout used for ARM builds |
+| `RIP_BOT_ENGINES_HCE` | `~/costumenvs.sh` on the bot host | engine folder of the HCE bot |
+| `RIP_BOT_ENGINES_NNUE` | `~/costumenvs.sh` on the bot host | engine folder of the NNUE bot |
+
+A non-interactive `ssh` does not read the shell profile, so every remote command starts with
+`source ~/costumenvs.sh` - and, where it builds, `. "$HOME/.cargo/env"`, which puts `cargo` on the path.
+
+- **Trigger:** the owner says "Lichess-Bot aktualisieren" (update the Lichess bot), naming HCE, NNUE or both,
+  and the version if it is not the latest release. That is the explicit instruction to switch the bot. Without
+  it, a build may be placed in the engine folder but `current-engine` is not touched.
+- **Sequence** (HCE shown; NNUE uses the tag `vX.Y.Z-NNUE`, the file name `suprah-X.Y.Z-nnue` and
+  `$RIP_BOT_ENGINES_NNUE`):
+  ```bash
+  source ~/costumenvs.sh
+  ssh "$EOD_SERVER" 'source ~/costumenvs.sh && . "$HOME/.cargo/env" && cd "$RIP_ARM_REPO" && git fetch --tags origin \
+      && git checkout --detach vX.Y.Z && nice -n 19 cargo build --release -j 4'
+  ssh "$EOD_SERVER" 'source ~/costumenvs.sh && test ! -e "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z" \
+      && cp "$RIP_ARM_REPO/target/release/suprah" "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z"'
+  ```
+  1. Build at low priority on half the cores: the bots keep playing during the build.
+  2. Never overwrite an existing binary in the engine folder.
+  3. Check the copy before switching: `id name` must read the release (`Rust-In-Pieces VX.Y.Z`, NNUE
+     `RIP VX.Y.Z-NNUE`), and `position startpos` / `go depth 10` must return a `bestmove`.
+  4. Switch: `ln -sfn "$RIP_BOT_ENGINES_HCE/suprah-X.Y.Z" "$(dirname "$RIP_BOT_ENGINES_HCE")/current-engine"`.
+     The bot starts the engine per game, so it takes effect from the next game; no restart.
+  5. Report the old and the new target of `current-engine`, so the switch can be undone with one `ln -sfn`.
+- **Never** commit or push from the bot host's checkout, and never change the bots' configuration, their
+  start scripts or the scheduler as part of this procedure - those need their own explicit instruction.
+
+## 7. Publishing release binaries (GitHub release)
+
+Public binaries for Windows and Linux are built by the workflow `.github/workflows/release-binaries.yml`,
+never on a local machine: a local build is tuned to its host and may not run on other CPUs.
+
+- **When:** automatically, on every push of a release tag (`vX.Y.Z` or `vX.Y.Z-NNUE`). **Pushing a release
+  tag publishes a public GitHub release** once all builds and smoke tests pass, so push a tag only for a
+  finished release with its enriched `CHANGELOG.md` section, and push it by name (never `--tags`: GitHub
+  starts no workflow at all when more than three tags arrive in one push).
+- **Both branches carry the workflow:** GitHub runs a tag push with the workflow file of the tagged commit.
+  `.github/workflows/release-binaries.yml`, `scripts/uci_smoke_test.py` and `scripts/changelog_section.py`
+  must therefore be identical on `master` and `feature/nnue-evaluation`; a change to any of them is ported in
+  the same session (see the NNUE porting SOP).
+- **CHANGELOG guard:** the first job runs `scripts/changelog_section.py` and stops the run before any build
+  when the tag's section is missing, empty or still the stub `build_and_release.sh` writes
+  (`- Release updates and improvements`). Fix: enrich the section, commit, move the tag to that commit
+  (`git tag -f -a`, `git push -f origin <tag>`; nothing was published), or start a manual run once it is fixed.
+- **Watch the run started by the tag push:**
+  ```bash
+  gh run watch "$(gh run list --workflow release-binaries.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+  ```
+- **Manual runs** (rebuild an older tag, or retry after a failure that has been fixed): only on the USER's
+  request. `-f draft=true` creates a draft instead of publishing. A tag that already has a release (draft or
+  published) fails at the last step; nothing is overwritten.
+  ```bash
+  gh workflow run release-binaries.yml -f tag=vX.Y.Z [-f draft=true]
+  ```
+- **What it does:** checks the `CHANGELOG.md` section, builds four binaries - Windows and Linux, each for `x86-64-v3` (AVX2 / BMI2) and generic
+  `x86-64` (Windows with a static C runtime) - runs `scripts/uci_smoke_test.py` on every one of them on its own
+  runner (exact `id name`, `readyok`, a `bestmove` at depth 10 and under `wtime`/`btime`/`movestogo`, clean
+  `quit`), and publishes a release with the four files, `SHA256SUMS`, a file-selection table and the
+  tag's `CHANGELOG.md` section. Any failing step stops the run before a release exists.
+- **Files:** `rust-in-pieces-<version>-<windows|linux>-<x86-64-v3|x86-64>[.exe]`; for NNUE the version carries
+  the suffix, e.g. `rust-in-pieces-0.52.0-nnue-windows-x86-64-v3.exe`.
+- **Check the release:** four binaries plus `SHA256SUMS`; download one Linux binary, verify it against
+  `SHA256SUMS` and run the smoke test on it locally.
+- **Drafts:** a draft from a manual run is published by the USER. Never publish a draft on your own.
+- `Cargo.lock` is not tracked, so the workflow resolves dependencies afresh within `Cargo.toml`'s ranges.
