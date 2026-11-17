@@ -46,6 +46,7 @@ The Suprah repository is structured logically to separate core engine implementa
 *   **`src/` (Core Chess Engine)**: Contains the main Rust chess engine source code (Rust 2024 Edition).
 *   **`tuning/` (Tuning Data & Configurations)**: Directory holding parameter tuning state, SPSA histories, and tuning logic.
 *   **`eval_models/` (Neural Network Evaluation Models)**: Contains neural network models (e.g. NNUE) used for position evaluation.
+*   **`nnue_training/` (NNUE Trainer, `feature/nnue-evaluation` only)**: A Cargo workspace of its own that trains the networks with bullet from `datagen` self-play data; it is never ported to `master`.
 *   **`scripts/` (Development & Evaluation Utilities)**: Official developer helper scripts for testing, maintenance, and benchmarking. Governed strictly by [`scripts/AGENTS.md`](scripts/AGENTS.md).
 *   **`skills/` (Standard Operating Procedures - SOPs)**: Standardized guidelines for specific development tasks.
 *   **`CHANGELOG.md`**: Detailed technical changelogs detailing version releases, fixes, and architectural upgrades.

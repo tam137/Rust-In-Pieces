@@ -157,6 +157,20 @@ To bump versions, run all unit tests, update `CHANGELOG.md`, and compile product
 cargo build --target x86_64-pc-windows-gnu --release
 ```
 
+### Training Data Generation (`datagen`)
+The engine can write self-play training data for an NNUE network instead of speaking UCI. The mode is
+compiled only with the Cargo feature `datagen`; the release binary does not contain it. On this branch
+the positions are scored by the hand-crafted evaluation, which yields the data for an HCE comparison net.
+Build it into its own target directory so `target/release/suprah` is never replaced:
+```bash
+cargo build --release --features datagen --target-dir target/datagen
+target/datagen/release/suprah datagen --help
+scripts/run_datagen.sh target/datagen/release/suprah <output dir> <processes> <games per process> <base seed>
+```
+`src/datagen.rs` and `scripts/run_datagen.sh` are kept identical on `master` and `feature/nnue-evaluation`.
+The trainer itself (`nnue_training/`) lives only on `feature/nnue-evaluation`; its README documents the
+data format, the training run and the net manifests.
+
 ---
 
 ## License
