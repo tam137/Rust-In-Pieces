@@ -130,12 +130,16 @@ never on a local machine: a local build is tuned to its host and may not run on 
 
 - **When:** automatically, on every push of a release tag (`vX.Y.Z` or `vX.Y.Z-NNUE`). **Pushing a release
   tag publishes a public GitHub release** once all builds and smoke tests pass, so push a tag only for a
-  finished release with its `CHANGELOG.md` section in place, and push it by name (never `--tags`: GitHub
+  finished release with its enriched `CHANGELOG.md` section, and push it by name (never `--tags`: GitHub
   starts no workflow at all when more than three tags arrive in one push).
 - **Both branches carry the workflow:** GitHub runs a tag push with the workflow file of the tagged commit.
-  `.github/workflows/release-binaries.yml` and `scripts/uci_smoke_test.py` must therefore be identical on
-  `master` and `feature/nnue-evaluation`; a change to either is ported in the same session (see the NNUE
-  porting SOP).
+  `.github/workflows/release-binaries.yml`, `scripts/uci_smoke_test.py` and `scripts/changelog_section.py`
+  must therefore be identical on `master` and `feature/nnue-evaluation`; a change to any of them is ported in
+  the same session (see the NNUE porting SOP).
+- **CHANGELOG guard:** the first job runs `scripts/changelog_section.py` and stops the run before any build
+  when the tag's section is missing, empty or still the stub `build_and_release.sh` writes
+  (`- Release updates and improvements`). Fix: enrich the section, commit, move the tag to that commit
+  (`git tag -f -a`, `git push -f origin <tag>`; nothing was published), or start a manual run once it is fixed.
 - **Watch the run started by the tag push:**
   ```bash
   gh run watch "$(gh run list --workflow release-binaries.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
@@ -146,7 +150,7 @@ never on a local machine: a local build is tuned to its host and may not run on 
   ```bash
   gh workflow run release-binaries.yml -f tag=vX.Y.Z [-f draft=true]
   ```
-- **What it does:** builds four binaries - Windows and Linux, each for `x86-64-v3` (AVX2 / BMI2) and generic
+- **What it does:** checks the `CHANGELOG.md` section, builds four binaries - Windows and Linux, each for `x86-64-v3` (AVX2 / BMI2) and generic
   `x86-64` (Windows with a static C runtime) - runs `scripts/uci_smoke_test.py` on every one of them on its own
   runner (exact `id name`, `readyok`, a `bestmove` at depth 10 and under `wtime`/`btime`/`movestogo`, clean
   `quit`), and publishes a release with the four files, `SHA256SUMS`, a file-selection table and the

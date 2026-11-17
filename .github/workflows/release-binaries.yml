@@ -2,8 +2,10 @@
 # `vX.Y.Z-NNUE`), smoke-tests every binary over UCI on its own runner, and attaches them
 # with SHA256SUMS to a published GitHub release. Runs on every pushed release tag; started by
 # hand only to rebuild an older tag or retry a failed run (optionally as a draft). GitHub runs
-# a tag push with the workflow file of the tagged commit, so this file and
-# scripts/uci_smoke_test.py are kept identical on master and feature/nnue-evaluation.
+# a tag push with the workflow file of the tagged commit, so this file,
+# scripts/uci_smoke_test.py and scripts/changelog_section.py are kept identical on master
+# and feature/nnue-evaluation. A missing or not yet enriched CHANGELOG.md section stops the
+# run before any build.
 # See skills/engine_release_procedure.md, section 7.
 name: release-binaries
 
@@ -56,6 +58,23 @@ jobs:
             echo "title=Rust-In-Pieces $ver" >> "$GITHUB_OUTPUT"
           fi
           echo "version=${ver,,}" >> "$GITHUB_OUTPUT"
+      - name: Check out CHANGELOG.md of the release tag
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          path: engine
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - name: Check out the release tools from the workflow's ref
+        uses: actions/checkout@v7.0.1
+        with:
+          path: tools
+          sparse-checkout: scripts/changelog_section.py
+          sparse-checkout-cone-mode: false
+      # Fails before any build when the section is missing, empty or still the pipeline stub.
+      - name: Check the CHANGELOG.md section
+        shell: bash
+        run: python3 tools/scripts/changelog_section.py "$TAG" engine/CHANGELOG.md
 
   build:
     needs: meta
@@ -112,6 +131,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.meta.outputs.version }}
       TITLE: ${{ needs.meta.outputs.title }}
     steps:
@@ -119,6 +139,13 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           ref: refs/tags/${{ env.TAG }}
+          path: engine
+      - name: Check out the release tools from the workflow's ref
+        uses: actions/checkout@v7.0.1
+        with:
+          path: tools
+          sparse-checkout: scripts/changelog_section.py
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v8.0.2
         with:
           path: dist
@@ -127,9 +154,7 @@ jobs:
         shell: bash
         run: |
           (cd dist && sha256sum rust-in-pieces-* > SHA256SUMS && cat SHA256SUMS)
-          header="## [V${TAG#v}]"
-          awk -v h="$header" 'index($0, h) == 1 {on = 1; next} on && /^## \[/ {exit} on' CHANGELOG.md > changes.md
-          if [[ ! -s changes.md ]]; then echo "::error::no CHANGELOG.md section '$header'"; exit 1; fi
+          python3 tools/scripts/changelog_section.py "$TAG" engine/CHANGELOG.md > changes.md
           {
             echo "UCI chess engine. Pick the binary for your system:"
             echo
