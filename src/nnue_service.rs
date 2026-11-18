@@ -1013,6 +1013,34 @@ mod tests {
             "{checks} rebuilds, {first_uses} first uses of a bucket");
     }
 
+    /// The largest differences a Finny entry can see, in both directions, on the same king squares:
+    /// a full board after bare kings (30 features added) and bare kings after a full board (30
+    /// removed), then a position that adds and removes at once.
+    #[test]
+    fn a_finny_rebuild_equals_a_full_rebuild_for_the_largest_differences() {
+        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let fen = FenService;
+        let sequence = [
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "1q2k1r1/2p2p1p/1n1p2b1/pP1Pp3/Q1B1P1n1/2N2N2/P4PPP/2R1K2R w - - 0 1",
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+        ];
+        let mut finny = FinnyTable::new();
+        for fen_str in sequence {
+            let board = fen.set_fen(fen_str);
+            for perspective in [0, 1] {
+                let mut cached = [0i16; NNUE_HIDDEN_SIZE];
+                let mut full = [0i16; NNUE_HIDDEN_SIZE];
+                NNUEService::refresh_perspective_cached(&board, &net, perspective, &mut cached, &mut finny);
+                NNUEService::refresh_perspective(&board, &net, perspective, &mut full);
+                assert_eq!(cached, full, "{fen_str}, perspective {perspective}");
+            }
+        }
+    }
+
     #[test]
     fn test_incremental_accumulator_quiet_and_captures() {
         let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
