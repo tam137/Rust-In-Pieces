@@ -176,7 +176,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | `Board` updates the PST sums on every move although NNUE mode never reads them | built on `perf/nnue-inference` (+0.7% / +0.9%), unreleased; **port to `master` open**, section 6.1 |
-| `build_and_release.sh` builds without `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships, so local x86 measurements run a different binary | measurement mechanic, established 2026-11-18, section 6.2 |
+| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed on `perf/nnue-inference` (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); rebuild the x86 gauntlet opponents once; **port to `master` open**, section 6.2 |
 | The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) are unreleased | awaiting smoke gauntlet and merge, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
@@ -513,10 +513,19 @@ predecessor in separate sessions, so the direct comparison is the number to quot
   so the gather and the variable-count inner loops cost more than the saved load/store pairs.
   Reverted; its test of the largest differences was kept (`14e88a6`).
 
-**Found on the way, open:** the `x86-64-v3` build is **about 11% faster** than the default build
-on this host (6694 ms against 7645 ms for the same corpus). `build_and_release.sh` builds without
-`target-cpu`, so local matchplay and throughput runs on x86 measure a binary that is not the one
-CI ships, and understate every SIMD gain.
+**Found on the way, done on the branch:** the `x86-64-v3` build is **about 11% faster** than the
+default build on this host (6694 ms against 7645 ms for the same corpus), and `build_and_release.sh`
+built without `target-cpu`, so local x86 runs measured a binary CI does not ship and understated
+every SIMD gain. Now `scripts/build_flags.sh` holds the flags - `x86-64-v3` on x86-64, none on ARM
+(NEON is baseline), `SUPRAH_TARGET_CPU` overrides, empty switches it off, a CPU without AVX2 stops
+the build - and `build_and_release.sh` tests and builds with them. **Every engine in one run must
+be built the same way**, so the opponents released before this change are rebuilt once on the
+x86 match host: `MM_DIR=<mm> scripts/rebuild_engines.sh <tag> ...` builds each tag in a temporary
+worktree into `<mm>/engines` under its usual name and keeps the old binary once in
+`<mm>/engines/baseline-x86-64/`. A v0.54.0-NNUE rebuild searched v0.54.0-NNUE's tree (14/14). The
+measurement SOP, section 5, carries the rule. **Port to `master` open:** `scripts/build_flags.sh`,
+its test, `scripts/rebuild_engines.sh` and the SOP paragraph go over unchanged; `build_and_release.sh`
+differs between the branches, so only its `build_flags` block is ported.
 
 ## 7. En passant
 
