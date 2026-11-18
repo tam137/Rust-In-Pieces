@@ -304,19 +304,24 @@ fn apply_delta(
     }
 }
 
+/// Feature piece type and colour per board piece code (`10..=15` White, `20..=25` Black, units
+/// pawn, rook, knight, bishop, queen, king), indexed by the code: one load instead of a division.
+const PIECE_FEATURES: [(u8, u8); 32] = {
+    let mut table = [(0u8, 0u8); 32];
+    let types = [0u8, 3, 1, 2, 4, 5];
+    let mut unit = 0;
+    while unit < 6 {
+        table[10 + unit] = (types[unit], 0);
+        table[20 + unit] = (types[unit], 1);
+        unit += 1;
+    }
+    table
+};
+
 #[inline(always)]
 pub fn piece_to_type_and_color(piece: u8) -> (usize, usize) {
-    let color = if piece >= 20 { 1 } else { 0 };
-    let piece_type = match piece % 10 {
-        0 => 0, // Pawn
-        1 => 3, // Rook
-        2 => 1, // Knight
-        3 => 2, // Bishop
-        4 => 4, // Queen
-        5 => 5, // King
-        _ => 0,
-    };
-    (piece_type, color)
+    let (piece_type, color) = PIECE_FEATURES[(piece & 31) as usize];
+    (piece_type as usize, color as usize)
 }
 
 /// The twelve piece bitboards in board order, with the piece type and colour the features use.
@@ -463,10 +468,7 @@ impl NNUEService {
     }
 
     pub fn get_output_bucket(board: &Board) -> usize {
-        let mut piece_count = 0;
-        for i in 0..12 {
-            piece_count += board.bitboards[i].count_ones() as usize;
-        }
+        let piece_count = board.occupied.count_ones();
         let bucket = (piece_count as i32 - 2) / 4;
         bucket.clamp(0, (NNUE_OUTPUT_BUCKETS - 1) as i32) as usize
     }
@@ -1039,6 +1041,39 @@ mod tests {
                 assert_eq!(cached, full, "{fen_str}, perspective {perspective}");
             }
         }
+    }
+
+    /// The piece table returns what the `% 10` decoding returned for every piece code on the board.
+    #[test]
+    fn the_piece_table_decodes_every_piece_code() {
+        let decode = |piece: u8| {
+            let piece_type = match piece % 10 { 0 => 0, 1 => 3, 2 => 1, 3 => 2, 4 => 4, 5 => 5, _ => 0 };
+            (piece_type, if piece >= 20 { 1 } else { 0 })
+        };
+        for piece in (10..=15).chain(20..=25) {
+            assert_eq!(piece_to_type_and_color(piece), decode(piece), "piece {piece}");
+        }
+    }
+
+    /// The output bucket from the occupancy equals the one from the twelve piece bitboards, after
+    /// every move of random games, captures and promotions included.
+    #[test]
+    fn the_output_bucket_counts_every_piece_on_the_board() {
+        let reference = |board: &Board| {
+            let count: i32 = board.bitboards.iter().map(|bb| bb.count_ones() as i32).sum();
+            ((count - 2) / 4).clamp(0, NNUE_OUTPUT_BUCKETS as i32 - 1) as usize
+        };
+        let mut checked = 0;
+        for mut board in crate::eval_service::tests::random_positions(16, 120, 0x5EED_0B0C) {
+            assert_eq!(NNUEService::get_output_bucket(&board), reference(&board));
+            for turn in crate::move_gen_service::tests::generate_valid_moves_list(&mut board) {
+                let mi = board.do_move(&turn);
+                assert_eq!(NNUEService::get_output_bucket(&board), reference(&board), "{}", turn.to_algebraic());
+                board.undo_move(&turn, mi);
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "only {checked} moves checked");
     }
 
     #[test]
