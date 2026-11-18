@@ -5512,9 +5512,11 @@ mod tests {
     /// a half down, so neither Reverse Futility Pruning nor Null Move Pruning reaches `beta` 0, and
     /// the capture clears every ProbCut threshold.
     const PROBCUT_WIN_FEN: &str = "4k3/8/8/3q4/8/8/3R4/4K3 w - - 0 1";
-    /// The rook takes the undefended queen as above, but the reply `Bxh4+` takes the knight back:
-    /// the Static Exchange of the capture is a queen, what the searches find is far less.
-    const PROBCUT_COUNTER_FEN: &str = "4k3/8/5b2/3q4/7N/8/3R4/4K3 w - - 0 1";
+    /// The rook takes the undefended queen as above, but the reply `Bxh4+` takes the other rook
+    /// back: the Static Exchange of the capture is a queen, what the searches find is far less.
+    /// (A knight on `h4` until v0.54.0-NNUE; the rnd516w01 network reads that node at -740, which
+    /// leaves no margin both above the searches and within the Static Exchange.)
+    const PROBCUT_COUNTER_FEN: &str = "4k3/8/5b2/3q4/7R/8/3R4/4K3 w - - 0 1";
     /// The same material with the queen out of the rook's reach and no capture on the board.
     const PROBCUT_QUIET_FEN: &str = "4k3/8/8/q7/8/8/3R4/4K3 w - - 0 1";
 
@@ -5647,9 +5649,9 @@ mod tests {
 
         // A margin the Static Exchange clears but the searches do not: the capture is tried and
         // the node is searched as without ProbCut, because neither search reaches the raised bound.
-        // With the network, as this branch plays: static evaluation -276, and the Quiescence Search
-        // and the reduced search after `Rxd5` both read +180 against `beta` 0. Margin 300 clears
-        // the Static Exchange (threshold 576 against a queen) but not the searches. (Master uses
+        // With the network, as this branch plays (rnd516w01): static evaluation -486, and the
+        // searches after `Rxd5` read between +140 and +204 against `beta` 0. Margin 300 clears
+        // the Static Exchange (threshold 786 against a queen) but not the searches. (Master uses
         // the classical evaluation, `beta` -150 and margin 200; this branch's classical evaluation
         // scores the rook against the bishop at about +700 and leaves no room for the test.)
         let margin_300 = |c: &mut Config| {

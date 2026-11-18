@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.54.0-NNUE] - 2026-11-18
+
+- **New embedded net `rnd516w01`** (Matt-Magie step 102, architecture unchanged): all of this project's self-play
+  data so far, 515.9M positions: the 415.9M of the set behind `rnd416w01` plus the new batch r4 (100.1M positions,
+  4.1M games from random openings), WDL 0.1, 52 superbatches. The engine names it as
+  `info string NNUE net rnd516w01 (embedded, fnv 7b34e3f1)`.
+- Against v0.53.0-NNUE at 1s + 150ms: **+12.1 Elo, paired 95% [+8.0, +16.2]** over 12,011 games, no time losses.
+- **Control at 10s + 100ms against v0.53.0-NNUE, 3000 games: +11.8 Elo, paired 95% [+4.1, +19.5]**, no time
+  losses. Smoke gauntlet 55.0% against v0.53.0-NNUE.
+- The ProbCut test fixture whose capture is taken back now loses a rook on `h4` instead of a knight: the new net
+  reads the knight position at -740, which leaves no margin between the searches and the Static Exchange
+  (net-dependent, no engine change).
+
+
+
 ## [V0.53.0-NNUE] - 2026-11-17
 
 - **New embedded net `rnd416w01`** (Matt-Magie step 102, first net trained on this project's own data, architecture
