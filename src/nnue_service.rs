@@ -209,6 +209,7 @@ struct KingBucket {
     mirrored: bool,
 }
 
+#[inline(always)]
 fn get_king_bucket(king_square: usize, perspective: usize) -> KingBucket {
     let transformed_sq = if perspective == 1 { king_square ^ 56 } else { king_square };
     KingBucket {
@@ -217,6 +218,7 @@ fn get_king_bucket(king_square: usize, perspective: usize) -> KingBucket {
     }
 }
 
+#[inline(always)]
 fn get_feature_index(
     perspective: usize,
     piece_type: usize,
@@ -255,6 +257,21 @@ fn sub_weights(acc: &mut [i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SI
     }
 }
 
+/// The feature transformer row of `piece` on `sq` for one perspective. Forced inline: as a closure
+/// body it was compiled out of line, one call per changed feature ahead of every vector loop.
+#[inline(always)]
+fn feature_weights<'a>(
+    net: &'a NNUENetwork,
+    perspective: usize,
+    piece: u8,
+    sq: usize,
+    king_bucket: &KingBucket,
+) -> &'a [i16; NNUE_HIDDEN_SIZE] {
+    let (pt, pc) = piece_to_type_and_color(piece);
+    let (bucket, idx) = get_feature_index(perspective, pt, pc, sq, king_bucket);
+    &net.ft_weights[bucket][idx]
+}
+
 /// `out = parent - removed + added` for one perspective in one pass (Matt-Magie step 79, N1). The
 /// terms are taken in the order the separate passes took them - every removed feature subtracted,
 /// then every added one added - so each value is the one they produced.
@@ -268,11 +285,7 @@ fn apply_delta(
     king_bucket: &KingBucket,
     net: &NNUENetwork,
 ) {
-    let weights = |&(piece, sq): &(u8, usize)| {
-        let (pt, pc) = piece_to_type_and_color(piece);
-        let (bucket, idx) = get_feature_index(perspective, pt, pc, sq, king_bucket);
-        &net.ft_weights[bucket][idx]
-    };
+    let weights = |&(piece, sq): &(u8, usize)| feature_weights(net, perspective, piece, sq, king_bucket);
     match (removed, added) {
         ([r0], [a0]) => {
             let (r0, a0) = (weights(r0), weights(a0));

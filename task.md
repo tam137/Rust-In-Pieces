@@ -393,6 +393,13 @@ NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `
     - `[x]` Thread `[NNUEAccumulator; MAX_PLY]` down `SearchService::minimax` and update incrementally in move loops (quiet, capture, castling, en passant, promotions).
     - `[x]` Validate incremental accumulator against full recomputation across move types, king bucket transitions, and deep search trees (100% bit-identical).
     - `[ ]` AVX2 / SSE4.1 / NEON intrinsics for accumulator updates and the SCReLU forward pass.
+      **On x86 the autovectorizer already emits what intrinsics would** (disassembly of the
+      `x86-64-v3` build on branch `perf/nnue-inference`, 2026-11-18): `apply_delta` runs each
+      perspective fully unrolled in 16 ymm registers, aligned `vmovdqa` loads, `vpsubw` / `vpaddw`,
+      one store into the child slot; the SCReLU loop uses `vpmaddwd` since the 16-bit product of
+      6.2. Do not hand-write AVX2 for these two loops. **Open on ARM only:** check the NEON code the
+      compiler emits for the same loops on the ARM host, ideally with an `nnue-prof` profile there
+      first, before writing any NEON intrinsics.
     - `[ ]` Merge to `master` and set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
 
 ### 6.1 Skip the incremental PST in NNUE mode
@@ -468,7 +475,8 @@ numbers in the CHANGELOG do not compare with these.
 | SCReLU as `(clamp(v) * w)` in i16 times `clamp(v)` in i32 (the `pmaddwd` / `smlal` shape); the loader refuses any output weight beyond +-128, the largest for which `255 * w` fits i16 | **+3.3%** | **+1.7%** | shipped on the branch, `7b2dbec` |
 | Output weights as `[[[i16; 256]; 2]; 8]`, fixed rows instead of slices; feature transformer, biases, output rows and `NNUEAccumulator` 64-byte aligned | -0.6% | +0.7% | null, kept on the branch (`134ed63`) as the precondition for the intrinsics of section 6 |
 | Output bucket from `occupied.count_ones()`, piece decoding by a 32-entry table instead of `% 10` | +1.0% | +0.5% | shipped on the branch, `ee3ce06` |
-| **Total, v0.54.0-NNUE -> branch head** | **+7.7%** | **+4.6%** | 13/14 positions faster in both builds |
+| Feature row lookup of `apply_delta` forced inline: as a closure it compiled to 2-4 out-of-line calls per perspective ahead of the vector loop (0 after) | +0.4% | +0.2% | null, kept on the branch: no cost, cleaner code generation |
+| **Total, v0.54.0-NNUE -> `ee3ce06`** | **+7.7%** | **+4.6%** | 13/14 positions faster in both builds |
 
 The total exceeds the sum of the steps; the steps were each measured against their own
 predecessor in separate sessions, so the direct comparison is the number to quote.
