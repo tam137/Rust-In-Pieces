@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.54.1-NNUE] - 2026-11-18
+
+- **New embedded net `rnd516w02`** (Matt-Magie step 102, architecture unchanged): the WDL variant of v0.54.0-NNUE's
+  `rnd516w01` - the same 515.9M-position set and 52 superbatches, WDL 0.2 instead of 0.1. The engine names it as
+  `info string NNUE net rnd516w02 (embedded, fnv c6dfa88a)`.
+- Against v0.54.0-NNUE at 1s + 150ms: **+3.4 Elo, paired 95% [-0.7, +7.5]** over 12,001 games, no time losses - not
+  separated from v0.54.0-NNUE. Released as decided before the match, whatever its result; no control at a longer
+  time control.
+
+
 ## [V0.54.0-NNUE] - 2026-11-18
 
 - **New embedded net `rnd516w01`** (Matt-Magie step 102, architecture unchanged): all of this project's self-play
