@@ -14,6 +14,11 @@ pub const NNUE_QA: i32 = 255;
 pub const NNUE_QB: i32 = 64;
 pub const NNUE_SCALE: i32 = 400;
 
+/// Largest output weight magnitude for which `clamp(v) * w`, `v` clamped to `[0, NNUE_QA]`, fits
+/// an `i16` (255 * 128 = 32640). Nets beyond it are refused at load time, so the forward pass can
+/// take that product in 16 bits. bullet clips the output layer to +-1.98, which quantises to +-127.
+const MAX_OUTPUT_WEIGHT: u16 = (i16::MAX as i32 / NNUE_QA) as u16;
+
 const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     0, 1, 2, 3, 3, 2, 1, 0,  // Rank 1
     4, 4, 5, 5, 5, 5, 4, 4,  // Rank 2
@@ -99,6 +104,13 @@ impl NNUENetwork {
 
         read_i16_slice(net.output_biases.as_mut_slice())
             .map_err(|e| format!("Failed to read output biases: {}", e))?;
+
+        if let Some(&w) = net.output_weights.iter().flatten().find(|w| w.unsigned_abs() > MAX_OUTPUT_WEIGHT) {
+            return Err(format!(
+                "NNUE output weight {} is outside +-{}: the SCReLU product clamp(v) * w would overflow 16 bits",
+                w, MAX_OUTPUT_WEIGHT
+            ));
+        }
 
         net.loaded = true;
         Ok(net)
@@ -426,12 +438,16 @@ impl NNUEService {
         bucket.clamp(0, (NNUE_OUTPUT_BUCKETS - 1) as i32) as usize
     }
 
+    /// `sum(clamp(v)^2 * w)`, taken as `(clamp(v) * w) * clamp(v)`: the first product in 16 bits,
+    /// exact because the loader refuses any `|w| > MAX_OUTPUT_WEIGHT`, the second widened to 32.
+    /// That is the shape of `pmaddwd` / `smlal`, eight or more lanes of i16 per instruction instead
+    /// of two 32-bit multiplies per neuron, and its value is the 32-bit formula's bit for bit.
     fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
-            let val = acc[i] as i32;
-            let clamped = val.clamp(0, NNUE_QA);
-            sum += clamped * clamped * (weights[i] as i32);
+            let clamped = acc[i].clamp(0, NNUE_QA as i16);
+            let product = clamped.wrapping_mul(weights[i]);
+            sum = sum.wrapping_add(product as i32 * clamped as i32);
         }
         sum
     }
@@ -769,6 +785,69 @@ mod tests {
         let eval = NNUEService::evaluate(&board, &net);
         // Startpos evaluation should be reasonable (close to 0 cp)
         assert!(eval.abs() < 200, "Startpos NNUE eval should be reasonable, got: {}", eval);
+    }
+
+    /// Byte offset of the output weights in a network file: after the feature transformer weights
+    /// and biases.
+    const OUTPUT_WEIGHTS_OFFSET: usize = (NNUE_INPUT_BUCKETS * NNUE_INPUT_SIZE * NNUE_HIDDEN_SIZE + NNUE_HIDDEN_SIZE) * 2;
+
+    fn embedded_net_with_output_weight(value: i16) -> Vec<u8> {
+        let mut bytes = NNUENetwork::EMBEDDED_NET_BYTES.to_vec();
+        let at = OUTPUT_WEIGHTS_OFFSET + 2 * (3 * 2 * NNUE_HIDDEN_SIZE + 17);
+        bytes[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        bytes
+    }
+
+    /// The SCReLU dot product as `clamp(v)^2 * w` in 32 bits, the formula the fast path must match.
+    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16]) -> i32 {
+        let mut sum: i32 = 0;
+        for i in 0..NNUE_HIDDEN_SIZE {
+            let clamped = (acc[i] as i32).clamp(0, NNUE_QA);
+            sum = sum.wrapping_add(clamped * clamped * weights[i] as i32);
+        }
+        sum
+    }
+
+    /// The fast path multiplies `clamp(v) * w` in 16 bits, which is exact only while
+    /// `255 * |w| <= i16::MAX`: a net with an output weight of 128 loads, one of 129 does not.
+    #[test]
+    fn a_net_whose_output_weights_overflow_the_16_bit_product_is_rejected() {
+        assert!(NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(128)).is_ok());
+        assert!(NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(-128)).is_ok());
+        for bad in [129, -129, i16::MAX, i16::MIN] {
+            let err = NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(bad)).err()
+                .unwrap_or_else(|| panic!("output weight {bad} must be rejected"));
+            assert!(err.contains("output weight"), "unexpected error: {err}");
+        }
+    }
+
+    /// The 16-bit product SCReLU equals `clamp(v)^2 * w` in 32 bits for every accumulator value
+    /// class - below 0, the clamp bounds, above 255, the i16 extremes - and the weight bounds.
+    #[test]
+    fn the_screlu_dot_equals_the_32_bit_reference() {
+        let mut state = 0x5EED_5C2E_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let edges_acc = [i16::MIN, -1, 0, 1, 254, 255, 256, i16::MAX];
+        let edges_w = [-128i16, -127, -1, 0, 1, 127, 128];
+        for round in 0..2000 {
+            let mut acc = [0i16; NNUE_HIDDEN_SIZE];
+            let mut weights = [0i16; NNUE_HIDDEN_SIZE];
+            for i in 0..NNUE_HIDDEN_SIZE {
+                let r = next();
+                acc[i] = if round % 4 == 0 { edges_acc[(r % 8) as usize] } else { (r as i16) % 600 - 150 };
+                weights[i] = if round % 3 == 0 { edges_w[((r >> 20) % 7) as usize] } else { ((r >> 32) % 257) as i16 - 128 };
+            }
+            assert_eq!(NNUEService::screlu_dot(&acc, &weights), screlu_dot_reference(&acc, &weights), "round {round}");
+        }
+        let full = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
+        for w in [128i16, -128] {
+            assert_eq!(NNUEService::screlu_dot(&full, &[w; NNUE_HIDDEN_SIZE]), screlu_dot_reference(&full, &[w; NNUE_HIDDEN_SIZE]));
+        }
     }
 
     #[test]
