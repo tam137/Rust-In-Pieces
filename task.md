@@ -1,7 +1,7 @@
 # Suprah Engine Strength Enhancement Roadmap (`task.md`)
 
 What to build next in **Suprah**, and the record of what has already been tried and failed.
-Read "Negative results" before proposing anything: eight of the ideas in this document were built,
+Read "Negative results" before proposing anything: ten of the ideas in this document were built,
 measured and put back. Three of them looked excellent on every metric except games won: the staged
 `MovePicker` was correct, cut the generated moves in half and was still slower, and Internal
 Iterative Reduction removed two thirds of the tree and scored 35.5% against the release it was
@@ -176,6 +176,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
 | `Board` updates the PST sums on every move although NNUE mode never reads them | dead work, throughput only, unmeasured, section 6.1 |
+| `build_and_release.sh` builds without `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships, so local x86 measurements run a different binary | measurement mechanic, established 2026-11-18, section 6.2 |
+| The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) are unreleased | awaiting smoke gauntlet and merge, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
@@ -447,6 +449,45 @@ at the cost of threading the parameter through the whole search.
       sites in `src/eval_service.rs`.
     - `[ ]` Acceptance: `scripts/measure_throughput.py` against v0.53.0-NNUE. **Node identity is
       mandatory** (rule 5); report the wall-time difference. No game run; patch release.
+
+### 6.2 Inference micro-optimisations without intrinsics (branch `perf/nnue-inference`)
+
+`[Impact: Medium]` `[Complexity: Low]` — built and measured 2026-11-18 on an x86-64 host with 20
+cores, on top of v0.54.0-NNUE; **unreleased**, awaiting the smoke gauntlet and the merge into
+`feature/nnue-evaluation`.
+
+**How it was measured.** `scripts/measure_throughput.py` at **depth 16**, best of 5 (7 for the
+total), the default build (as `build_and_release.sh` builds) and a `-C target-cpu=x86-64-v3` build
+(as CI ships) side by side, each run paired with an A/A control of the baseline against itself.
+Depth 10 is useless on this host: the whole corpus takes about 460 ms and the noise swamps any
+effect. The controls read -1.1% to +0.9%. Every step kept **14/14 identical trees**. The aarch64
+numbers in the CHANGELOG do not compare with these.
+
+| Step | Default | v3 | Outcome |
+| :--- | ---: | ---: | :--- |
+| SCReLU as `(clamp(v) * w)` in i16 times `clamp(v)` in i32 (the `pmaddwd` / `smlal` shape); the loader refuses any output weight beyond +-128, the largest for which `255 * w` fits i16 | **+3.3%** | **+1.7%** | shipped on the branch, `7b2dbec` |
+| Output weights as `[[[i16; 256]; 2]; 8]`, fixed rows instead of slices; feature transformer, biases, output rows and `NNUEAccumulator` 64-byte aligned | -0.6% | +0.7% | null, kept on the branch (`134ed63`) as the precondition for the intrinsics of section 6 |
+| Output bucket from `occupied.count_ones()`, piece decoding by a 32-entry table instead of `% 10` | +1.0% | +0.5% | shipped on the branch, `ee3ce06` |
+| **Total, v0.54.0-NNUE -> branch head** | **+7.7%** | **+4.6%** | 13/14 positions faster in both builds |
+
+The total exceeds the sum of the steps; the steps were each measured against their own
+predecessor in separate sessions, so the direct comparison is the number to quote.
+
+**Negative results, not to be reopened without a new idea:**
+
+- **Release profile** `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`: **+-0.0% default,
+  -0.7% v3**, inside the control. The engine is one crate and its hot paths are already
+  `#[inline(always)]`; the profile only quadruples the build time. Not committed.
+- **Finny refresh in one pass** — gather every changed row, then fold them into the entry in
+  64-lane register tiles written to the entry and the output at once: **-0.3% default, -1.7% v3**,
+  1/14 positions faster on v3. The refreshes are about 4% of the search and average 6.2 features,
+  so the gather and the variable-count inner loops cost more than the saved load/store pairs.
+  Reverted; its test of the largest differences was kept (`14e88a6`).
+
+**Found on the way, open:** the `x86-64-v3` build is **about 11% faster** than the default build
+on this host (6694 ms against 7645 ms for the same corpus). `build_and_release.sh` builds without
+`target-cpu`, so local matchplay and throughput runs on x86 measure a binary that is not the one
+CI ships, and understate every SIMD gain.
 
 ## 7. En passant
 
