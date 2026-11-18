@@ -175,7 +175,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
-| `Board` updates the PST sums on every move although NNUE mode never reads them | dead work, throughput only, unmeasured, section 6.1 |
+| `Board` updates the PST sums on every move although NNUE mode never reads them | built on `perf/nnue-inference` (+0.7% / +0.9%), unreleased; **port to `master` open**, section 6.1 |
 | `build_and_release.sh` builds without `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships, so local x86 measurements run a different binary | measurement mechanic, established 2026-11-18, section 6.2 |
 | The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) are unreleased | awaiting smoke gauntlet and merge, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
@@ -404,7 +404,12 @@ NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `
 
 ### 6.1 Skip the incremental PST in NNUE mode
 
-`[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17, unmeasured.
+`[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17. **Built and
+measured 2026-11-18 on branch `perf/nnue-inference`, unreleased** — see "As built" below. **Port
+to `master` afterwards** (constraint 3): `src/model.rs` and the two read sites in
+`src/eval_service.rs` go over unchanged; on `master` `get_moves` never switches tracking off
+(it sets `!network`, which is `true` there while `use_nnue` is off), so the behaviour there is the
+old one and the files stay identical on both branches.
 
 **The finding.** `Board` keeps `pst_mg` / `pst_eg` incrementally: summed in `Board::new`, saved
 and updated on every `make_move` (moved piece, capture, promotion, all four castlings), stored
@@ -444,18 +449,34 @@ in the classical evaluation: no branch and no stale state, but `src/model.rs` an
 gain this small. Option C, a generic `make_move<const PST: bool>`: saves one predictable branch
 at the cost of threading the parameter through the whole search.
 
+**As built (two departures from the design above).**
+- The classical read sites call `Board::pst_sums()`, which returns the incremental sums while
+  tracking and recomputes them from the bitboards otherwise, **instead of a `debug_assert`**. The
+  runtime switch to HCE is then correct unconditionally, also for an evaluation outside a search
+  (`eval`, adjudication) on a board a network search left untracked, at no cost in NNUE mode.
+- The scattered PST lines of `make_move` are gathered into one `Board::update_pst`, called under
+  a single `if self.track_pst`. `undo_move` still restores the saved sums unconditionally (a copy),
+  so `MoveInformation` keeps its size.
+
+**Measured** (x86-64, 20 cores, depth 16, best of 5, against the previous branch head): **+0.7%
+default build, +0.9% `x86-64-v3`**, control +0.4%, 14/14 identical trees. HCE mode: 14/14
+identical trees at depth 12, -0.1%. As expected, the gain sits at the edge of what the corpus
+resolves.
+
 * **Tasks**:
-    - `[ ]` Test: with tracking on, after move sequences covering captures, all four castlings,
+    - `[x]` Test: with tracking on, after move sequences covering captures, all four castlings,
       en passant and promotions, the PST sums equal a full recomputation, also after `undo_move`.
-    - `[ ]` Test: with tracking off, a do/undo sequence leaves bitboards, `cached_hash`,
+    - `[x]` Test: with tracking off, a do/undo sequence leaves bitboards, `cached_hash`,
       `pawn_key` and `non_pawn_key` identical to the same sequence with tracking on.
-    - `[ ]` Test: moves made with tracking off, then tracking switched on, yield correct sums.
-    - `[ ]` Test: `UseNNUE` flipped from `true` to `false` mid-session gives the same classical
+    - `[x]` Test: moves made with tracking off, then tracking switched on, yield correct sums.
+    - `[x]` Test: `UseNNUE` flipped from `true` to `false` mid-session gives the same classical
       evaluation as a freshly built board.
-    - `[ ]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
+    - `[x]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
       sites in `src/eval_service.rs`.
-    - `[ ]` Acceptance: `scripts/measure_throughput.py` against v0.53.0-NNUE. **Node identity is
-      mandatory** (rule 5); report the wall-time difference. No game run; patch release.
+    - `[x]` Acceptance: node identity and wall time, see "Measured".
+    - `[ ]` Release with the rest of branch `perf/nnue-inference` (6.2).
+    - `[ ]` **Port to `master`**: `src/model.rs`, `src/eval_service.rs` read sites and the
+      `set_pst_tracking` line of `get_moves`; HCE tree identity and throughput there.
 
 ### 6.2 Inference micro-optimisations without intrinsics (branch `perf/nnue-inference`)
 
