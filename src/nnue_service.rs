@@ -30,11 +30,39 @@ const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     9, 9, 9, 9, 9, 9, 9, 9,  // Rank 8
 ];
 
+/// `T` on a 64-byte boundary. Every row of the network is 512 bytes, so a cache-line aligned array
+/// of rows puts each row on its own eight lines instead of nine, and no vector load splits a line.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(C, align(64))]
+pub struct CacheAligned<T>(pub T);
+
+impl<T> std::ops::Deref for CacheAligned<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for CacheAligned<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+/// A zeroed, cache-line aligned `T` on the heap, built in place: the feature transformer is 3.9 MB
+/// and must never pass through the stack.
+fn zeroed_aligned_box<T: Copy>() -> Box<CacheAligned<T>> {
+    // SAFETY: only instantiated with arrays of `i16`, for which all-zero bytes are a valid value.
+    unsafe { Box::<CacheAligned<T>>::new_zeroed().assume_init() }
+}
+
 #[derive(Clone)]
 pub struct NNUENetwork {
-    pub ft_weights: Box<[[[i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS]>,
-    pub ft_biases: Box<[i16; NNUE_HIDDEN_SIZE]>,
-    pub output_weights: Box<[[i16; 2 * NNUE_HIDDEN_SIZE]; NNUE_OUTPUT_BUCKETS]>,
+    pub ft_weights: Box<CacheAligned<[[[i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS]>>,
+    pub ft_biases: Box<CacheAligned<[i16; NNUE_HIDDEN_SIZE]>>,
+    /// Per output bucket, the side to move's half `[0]` and the other side's `[1]`; the file stores
+    /// them in that order, so this is the file's layout split at `NNUE_HIDDEN_SIZE`.
+    pub output_weights: Box<CacheAligned<[[[i16; NNUE_HIDDEN_SIZE]; 2]; NNUE_OUTPUT_BUCKETS]>>,
     pub output_biases: Box<[i16; NNUE_OUTPUT_BUCKETS]>,
     pub loaded: bool,
 }
@@ -44,10 +72,10 @@ impl NNUENetwork {
 
     pub fn new_empty() -> Self {
         Self {
-            ft_weights: vec![[[0i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
-            ft_biases: vec![0i16; NNUE_HIDDEN_SIZE].into_boxed_slice().try_into().unwrap(),
-            output_weights: vec![[0i16; 2 * NNUE_HIDDEN_SIZE]; NNUE_OUTPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
-            output_biases: vec![0i16; NNUE_OUTPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
+            ft_weights: zeroed_aligned_box(),
+            ft_biases: zeroed_aligned_box(),
+            output_weights: zeroed_aligned_box(),
+            output_biases: Box::new([0i16; NNUE_OUTPUT_BUCKETS]),
             loaded: false,
         }
     }
@@ -94,18 +122,20 @@ impl NNUENetwork {
             }
         }
 
-        read_i16_slice(net.ft_biases.as_mut_slice())
+        read_i16_slice(&mut net.ft_biases.0)
             .map_err(|e| format!("Failed to read feature transformer biases: {}", e))?;
 
         for bucket in 0..NNUE_OUTPUT_BUCKETS {
-            read_i16_slice(&mut net.output_weights[bucket])
-                .map_err(|e| format!("Failed to read output weights for bucket {}: {}", bucket, e))?;
+            for half in 0..2 {
+                read_i16_slice(&mut net.output_weights[bucket][half])
+                    .map_err(|e| format!("Failed to read output weights for bucket {}: {}", bucket, e))?;
+            }
         }
 
         read_i16_slice(net.output_biases.as_mut_slice())
             .map_err(|e| format!("Failed to read output biases: {}", e))?;
 
-        if let Some(&w) = net.output_weights.iter().flatten().find(|w| w.unsigned_abs() > MAX_OUTPUT_WEIGHT) {
+        if let Some(&w) = net.output_weights.iter().flatten().flatten().find(|w| w.unsigned_abs() > MAX_OUTPUT_WEIGHT) {
             return Err(format!(
                 "NNUE output weight {} is outside +-{}: the SCReLU product clamp(v) * w would overflow 16 bits",
                 w, MAX_OUTPUT_WEIGHT
@@ -154,7 +184,10 @@ pub fn describe_net(model_path: &str) -> String {
     }
 }
 
+/// Both perspectives, each 512 bytes from a cache-line boundary, so every slot of the search's
+/// stack starts on one too.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(C, align(64))]
 pub struct NNUEAccumulator {
     pub white: [i16; NNUE_HIDDEN_SIZE],
     pub black: [i16; NNUE_HIDDEN_SIZE],
@@ -388,8 +421,8 @@ impl NNUEService {
         let white_bucket = get_king_bucket(white_king_sq, 0);
         let black_bucket = get_king_bucket(black_king_sq, 1);
 
-        acc.white.copy_from_slice(net.ft_biases.as_ref());
-        acc.black.copy_from_slice(net.ft_biases.as_ref());
+        acc.white.copy_from_slice(&net.ft_biases.0);
+        acc.black.copy_from_slice(&net.ft_biases.0);
 
         let pieces_list = [
             (board.bitboards[WHITE_PAWN], 0, 0),
@@ -442,7 +475,7 @@ impl NNUEService {
     /// exact because the loader refuses any `|w| > MAX_OUTPUT_WEIGHT`, the second widened to 32.
     /// That is the shape of `pmaddwd` / `smlal`, eight or more lanes of i16 per instruction instead
     /// of two 32-bit multiplies per neuron, and its value is the 32-bit formula's bit for bit.
-    fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16]) -> i32 {
+    fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
             let clamped = acc[i].clamp(0, NNUE_QA as i16);
@@ -473,7 +506,7 @@ impl NNUEService {
         }
 
         let king_bucket = get_king_bucket(king_sq, perspective);
-        out.copy_from_slice(net.ft_biases.as_ref());
+        out.copy_from_slice(&net.ft_biases.0);
 
         let pieces_list = [
             (board.bitboards[WHITE_PAWN], 0, 0),
@@ -740,9 +773,7 @@ impl NNUEService {
             (&acc.black, &acc.white)
         };
 
-        let weights = &net.output_weights[output_bucket];
-        let us_weights = &weights[0..NNUE_HIDDEN_SIZE];
-        let them_weights = &weights[NNUE_HIDDEN_SIZE..2 * NNUE_HIDDEN_SIZE];
+        let [us_weights, them_weights] = &net.output_weights[output_bucket];
 
         let mut output = Self::screlu_dot(us_acc, us_weights) + Self::screlu_dot(them_acc, them_weights);
         output /= NNUE_QA;
@@ -799,7 +830,7 @@ mod tests {
     }
 
     /// The SCReLU dot product as `clamp(v)^2 * w` in 32 bits, the formula the fast path must match.
-    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16]) -> i32 {
+    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
             let clamped = (acc[i] as i32).clamp(0, NNUE_QA);
@@ -847,6 +878,29 @@ mod tests {
         let full = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
         for w in [128i16, -128] {
             assert_eq!(NNUEService::screlu_dot(&full, &[w; NNUE_HIDDEN_SIZE]), screlu_dot_reference(&full, &[w; NNUE_HIDDEN_SIZE]));
+        }
+    }
+
+    /// Every 512-byte row the vector loops read starts on a cache line: the feature transformer
+    /// rows, the biases, both output halves and both accumulator perspectives, also in the stack.
+    #[test]
+    fn the_network_rows_and_the_accumulators_are_cache_line_aligned() {
+        let net = NNUENetwork::load_embedded().unwrap();
+        let aligned = |p: *const i16| p as usize % 64 == 0;
+        for bucket in [0, 7, NNUE_INPUT_BUCKETS - 1] {
+            for input in [0, 1, 383, NNUE_INPUT_SIZE - 1] {
+                assert!(aligned(net.ft_weights[bucket][input].as_ptr()), "ft row {bucket}/{input}");
+            }
+        }
+        assert!(aligned(net.ft_biases.as_ptr()));
+        for bucket in 0..NNUE_OUTPUT_BUCKETS {
+            for half in 0..2 {
+                assert!(aligned(net.output_weights[bucket][half].as_ptr()), "output {bucket}/{half}");
+            }
+        }
+        let stack = Box::new(AccStack::new());
+        for ply in [0, 1, 2, crate::search_service::MAX_PLY - 1] {
+            assert!(aligned(stack[ply].white.as_ptr()) && aligned(stack[ply].black.as_ptr()), "ply {ply}");
         }
     }
 
