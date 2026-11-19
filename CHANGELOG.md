@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.54.2-NNUE] - 2026-11-20
+
+- **NNUE inference speedups** (branch `perf/nnue-inference`, `task.md` 6.1 and 6.2), search tree unchanged
+  (14/14 identical trees): SCReLU in the 16-bit multiply-add shape (the loader refuses output weights beyond
+  +-128), 64-byte aligned network rows and accumulators, output bucket from the occupancy, piece decoding
+  by table, PST sums tracked only when the classical evaluation reads them. Net unchanged (`rnd516w02`).
+- **x86-64 builds use `-C target-cpu=x86-64-v3`** (`scripts/build_flags.sh`, as CI ships); a CPU without
+  AVX2 stops the build. `scripts/rebuild_engines.sh` rebuilds older release tags the same way, so match
+  opponents are built alike. ARM builds are unchanged.
+- Throughput at depth 16 (x86-64, 16 threads, 2026-11-20): **+4.9%** against v0.54.1-NNUE built the same
+  way, **+19.8%** against the v0.54.1-NNUE binary built without `target-cpu`; with 11 engines searching
+  alongside, +7.2% and +22.3%.
+- **Against v0.54.1-NNUE (x86-64-v3 rebuild) at 1s + 150ms: +13.7 Elo, paired 95% [+8.2, +19.1]** over
+  6,001 games; against the v0.54.1-NNUE binary built without `target-cpu`: **+46.5 Elo, [+41.0, +52.0]**
+  over 6,014 games. Fixed game counts, no time losses. Smoke gauntlet 54.0% against v0.54.1-NNUE and
+  48.5% against v0.54.0-NNUE.
+
+
+
 ## [V0.54.1-NNUE] - 2026-11-18
 
 - **New embedded net `rnd516w02`** (Matt-Magie step 102, architecture unchanged): the WDL variant of v0.54.0-NNUE's

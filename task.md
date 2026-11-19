@@ -175,9 +175,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
-| `Board` updates the PST sums on every move although NNUE mode never reads them | built on `perf/nnue-inference` (+0.7% / +0.9%), unreleased; **port to `master` open**, section 6.1 |
-| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed on `perf/nnue-inference` (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); rebuild the x86 gauntlet opponents once; **port to `master` open**, section 6.2 |
-| The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) are unreleased | awaiting smoke gauntlet and merge, section 6.2 |
+| `Board` updates the PST sums on every move although NNUE mode never reads them | released in v0.54.2-NNUE (+0.7% / +0.9%); **port to `master` open**, section 6.1 |
+| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed in v0.54.2-NNUE (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); v0.54.0-NNUE and v0.54.1-NNUE rebuilt on the x86 match host; **port to `master` open**, section 6.2 |
+| The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) | released in v0.54.2-NNUE: +13.7 Elo [+8.2, +19.1] against v0.54.1-NNUE built alike; NEON check on ARM open, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
@@ -405,7 +405,7 @@ NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `
 ### 6.1 Skip the incremental PST in NNUE mode
 
 `[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17. **Built and
-measured 2026-11-18 on branch `perf/nnue-inference`, unreleased** — see "As built" below. **Port
+measured 2026-11-18 on branch `perf/nnue-inference`, released in v0.54.2-NNUE** — see "As built" below. **Port
 to `master` afterwards** (constraint 3): `src/model.rs` and the two read sites in
 `src/eval_service.rs` go over unchanged; on `master` `get_moves` never switches tracking off
 (it sets `!network`, which is `true` there while `use_nnue` is off), so the behaviour there is the
@@ -474,15 +474,21 @@ resolves.
     - `[x]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
       sites in `src/eval_service.rs`.
     - `[x]` Acceptance: node identity and wall time, see "Measured".
-    - `[ ]` Release with the rest of branch `perf/nnue-inference` (6.2).
+    - `[x]` Release with the rest of branch `perf/nnue-inference` (6.2): v0.54.2-NNUE.
     - `[ ]` **Port to `master`**: `src/model.rs`, `src/eval_service.rs` read sites and the
       `set_pst_tracking` line of `get_moves`; HCE tree identity and throughput there.
 
 ### 6.2 Inference micro-optimisations without intrinsics (branch `perf/nnue-inference`)
 
 `[Impact: Medium]` `[Complexity: Low]` — built and measured 2026-11-18 on an x86-64 host with 20
-cores, on top of v0.54.0-NNUE; **unreleased**, awaiting the smoke gauntlet and the merge into
-`feature/nnue-evaluation`.
+cores, on top of v0.54.0-NNUE; **released in v0.54.2-NNUE (2026-11-20)**.
+
+**Release measurement** (x86-64, 16 threads, 1s + 150ms, fixed 6,000 games each, 6 games at a time per
+run): against v0.54.1-NNUE rebuilt with `x86-64-v3` **+13.7 Elo, paired 95% [+8.2, +19.1]**; against the
+v0.54.1-NNUE binary built without `target-cpu` **+46.5 Elo, [+41.0, +52.0]**. Throughput on the same host at
+depth 16: +4.9% / +19.8% quiet, +7.2% / +22.3% with 11 engines searching alongside (8 physical cores, so a
+12-game match shares cores). The Elo per percent of speed is high at this time control; the ARM gain is
+unmeasured.
 
 **How it was measured.** `scripts/measure_throughput.py` at **depth 16**, best of 5 (7 for the
 total), the default build (as `build_and_release.sh` builds) and a `-C target-cpu=x86-64-v3` build
