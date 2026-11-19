@@ -802,8 +802,13 @@ pub struct Board {
     /// The key of every non-pawn piece of each colour, king included, indexed by
     /// [`history_side`]; see [`zobrist::gen_non_pawn_hash`] (Matt-Magie step 66).
     pub non_pawn_key: [u64; 2],
+    /// Piece-square sums, kept incrementally by `do_move` only while `track_pst` is set. Read them
+    /// through [`Self::pst_sums`], which is right either way.
     pub pst_mg: i16,
     pub pst_eg: i16,
+    /// Whether `do_move` keeps `pst_mg` / `pst_eg` (task 6.1). Only the classical evaluation reads
+    /// them, so a search with the network switches it off; see [`Self::set_pst_tracking`].
+    pub track_pst: bool,
     pub _white_king_on_board: bool,
     pub _black_king_on_board: bool,
 }
@@ -853,17 +858,7 @@ impl Board {
             }
         }
 
-        let mut pst_mg: i16 = 0;
-        let mut pst_eg: i16 = 0;
-        for (i, &bb_val) in bitboards.iter().enumerate() {
-            let mut bb = bb_val;
-            while bb != 0 {
-                let square = bb.trailing_zeros() as usize;
-                pst_mg += crate::pst::PST_MG[i][square];
-                pst_eg += crate::pst::PST_EG[i][square];
-                bb &= bb - 1;
-            }
-        }
+        let (pst_mg, pst_eg) = Self::compute_pst(&bitboards);
 
         let mut board = Board {
             bitboards,
@@ -888,6 +883,7 @@ impl Board {
             non_pawn_key: [0; 2],
             pst_mg,
             pst_eg,
+            track_pst: true,
             _white_king_on_board,
             _black_king_on_board,
         };
@@ -945,6 +941,69 @@ impl Board {
         self.make_move(turn, Some(table))
     }
 
+    /// The middlegame and endgame piece-square sums of `bitboards`, from scratch.
+    pub fn compute_pst(bitboards: &[u64; 12]) -> (i16, i16) {
+        let (mut pst_mg, mut pst_eg) = (0i16, 0i16);
+        for (i, &bb_val) in bitboards.iter().enumerate() {
+            let mut bb = bb_val;
+            while bb != 0 {
+                let square = bb.trailing_zeros() as usize;
+                pst_mg += crate::pst::PST_MG[i][square];
+                pst_eg += crate::pst::PST_EG[i][square];
+                bb &= bb - 1;
+            }
+        }
+        (pst_mg, pst_eg)
+    }
+
+    /// The piece-square sums of this position: the incremental ones while tracking, otherwise
+    /// recomputed, so the classical evaluation is right even on a board a network search left.
+    #[inline(always)]
+    pub fn pst_sums(&self) -> (i16, i16) {
+        if self.track_pst { (self.pst_mg, self.pst_eg) } else { Self::compute_pst(&self.bitboards) }
+    }
+
+    /// Switches the incremental piece-square sums on or off (task 6.1). Switching on recomputes
+    /// them, so sums gone stale while tracking was off are never read. The search sets this once
+    /// at its start, from the same condition the evaluation branches on.
+    pub fn set_pst_tracking(&mut self, on: bool) {
+        if on {
+            (self.pst_mg, self.pst_eg) = Self::compute_pst(&self.bitboards);
+        }
+        self.track_pst = on;
+    }
+
+    /// The piece-square change of one move, applied to the incremental sums: the mover leaves
+    /// `from` and arrives on `to` (as the promoted piece on a promotion), a captured piece leaves
+    /// `to` or, en passant, the square behind it, and a castling rook changes squares. Runs before
+    /// the side to move flips.
+    #[inline(always)]
+    fn update_pst(&mut self, turn: &Turn, moved_piece: u8, moved_bb_idx: usize, actual_capture: u8, is_en_passant: bool) {
+        use crate::pst::{PST_EG, PST_MG};
+        let (from, to) = (turn.from as usize, turn.to as usize);
+        let arrived_idx = if turn.is_promotion() { Board::piece_to_bb_idx(turn.promotion) } else { moved_bb_idx };
+        self.pst_mg += PST_MG[arrived_idx][to] - PST_MG[moved_bb_idx][from];
+        self.pst_eg += PST_EG[arrived_idx][to] - PST_EG[moved_bb_idx][from];
+
+        if actual_capture != 0 {
+            let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
+            let victim_sq = if !is_en_passant { to } else if self.white_to_move { to - 8 } else { to + 8 };
+            self.pst_mg -= PST_MG[capture_bb_idx][victim_sq];
+            self.pst_eg -= PST_EG[capture_bb_idx][victim_sq];
+        }
+
+        if (moved_piece == 15 || moved_piece == 25) && (to as i8 - from as i8).abs() == 2 {
+            let (rook, rook_from, rook_to) = match to {
+                6 => (WHITE_ROOK, 7, 5),
+                2 => (WHITE_ROOK, 0, 3),
+                62 => (BLACK_ROOK, 63, 61),
+                _ => (BLACK_ROOK, 56, 59),
+            };
+            self.pst_mg += PST_MG[rook][rook_to] - PST_MG[rook][rook_from];
+            self.pst_eg += PST_EG[rook][rook_to] - PST_EG[rook][rook_from];
+        }
+    }
+
     #[inline(always)]
     fn make_move(&mut self, turn: &Turn, prefetch: Option<&crate::zobrist::ZobristTable>) -> MoveInformation {
         let old_cached_hash = self.cached_hash;
@@ -990,17 +1049,11 @@ impl Board {
 
         let moved_bb_idx = Board::piece_to_bb_idx(moved_piece);
 
-        // Incremental PST updates
-        self.pst_mg -= crate::pst::PST_MG[moved_bb_idx][from as usize];
-        self.pst_eg -= crate::pst::PST_EG[moved_bb_idx][from as usize];
+        let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante);
 
-        if turn.is_promotion() {
-            let promo_bb_idx = Board::piece_to_bb_idx(turn.promotion);
-            self.pst_mg += crate::pst::PST_MG[promo_bb_idx][to as usize];
-            self.pst_eg += crate::pst::PST_EG[promo_bb_idx][to as usize];
-        } else {
-            self.pst_mg += crate::pst::PST_MG[moved_bb_idx][to as usize];
-            self.pst_eg += crate::pst::PST_EG[moved_bb_idx][to as usize];
+        // Incremental PST updates, dead work while a network search does not read them.
+        if self.track_pst {
+            self.update_pst(turn, moved_piece, moved_bb_idx, actual_capture, is_en_passant);
         }
 
         // Update mailbox
@@ -1022,14 +1075,9 @@ impl Board {
 
         // Handle capture
         if actual_capture != 0 {
-            // Check if it was an en passant capture
-            let is_en_passant = (moved_piece == 10 || moved_piece == 20) && (to as i8 == old_field_for_en_passante);
             let capture_bb_idx = Board::piece_to_bb_idx(actual_capture);
             if is_en_passant {
                 let victim_sq = if self.white_to_move { to - 8 } else { to + 8 };
-                self.pst_mg -= crate::pst::PST_MG[capture_bb_idx][victim_sq as usize];
-                self.pst_eg -= crate::pst::PST_EG[capture_bb_idx][victim_sq as usize];
-                
                 if self.white_to_move {
                     self.bitboards[BLACK_PAWN] &= !(1u64 << victim_sq);
                     self.mailbox[victim_sq as usize] = 0;
@@ -1038,8 +1086,6 @@ impl Board {
                     self.mailbox[victim_sq as usize] = 0;
                 }
             } else {
-                self.pst_mg -= crate::pst::PST_MG[capture_bb_idx][to as usize];
-                self.pst_eg -= crate::pst::PST_EG[capture_bb_idx][to as usize];
                 self.bitboards[capture_bb_idx] &= !to_mask;
             }
         }
@@ -1050,37 +1096,21 @@ impl Board {
             if is_castling {
                 match to {
                     6 => { // White short
-                        self.pst_mg -= crate::pst::PST_MG[WHITE_ROOK][7];
-                        self.pst_eg -= crate::pst::PST_EG[WHITE_ROOK][7];
-                        self.pst_mg += crate::pst::PST_MG[WHITE_ROOK][5];
-                        self.pst_eg += crate::pst::PST_EG[WHITE_ROOK][5];
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 7) | (1u64 << 5);
                         self.mailbox[7] = 0;
                         self.mailbox[5] = 11;
                     }
                     2 => { // White long
-                        self.pst_mg -= crate::pst::PST_MG[WHITE_ROOK][0];
-                        self.pst_eg -= crate::pst::PST_EG[WHITE_ROOK][0];
-                        self.pst_mg += crate::pst::PST_MG[WHITE_ROOK][3];
-                        self.pst_eg += crate::pst::PST_EG[WHITE_ROOK][3];
                         self.bitboards[WHITE_ROOK] ^= (1u64 << 0) | (1u64 << 3);
                         self.mailbox[0] = 0;
                         self.mailbox[3] = 11;
                     }
                     62 => { // Black short
-                        self.pst_mg -= crate::pst::PST_MG[BLACK_ROOK][63];
-                        self.pst_eg -= crate::pst::PST_EG[BLACK_ROOK][63];
-                        self.pst_mg += crate::pst::PST_MG[BLACK_ROOK][61];
-                        self.pst_eg += crate::pst::PST_EG[BLACK_ROOK][61];
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 63) | (1u64 << 61);
                         self.mailbox[63] = 0;
                         self.mailbox[61] = 21;
                     }
                     58 => { // Black long
-                        self.pst_mg -= crate::pst::PST_MG[BLACK_ROOK][56];
-                        self.pst_eg -= crate::pst::PST_EG[BLACK_ROOK][56];
-                        self.pst_mg += crate::pst::PST_MG[BLACK_ROOK][59];
-                        self.pst_eg += crate::pst::PST_EG[BLACK_ROOK][59];
                         self.bitboards[BLACK_ROOK] ^= (1u64 << 56) | (1u64 << 59);
                         self.mailbox[56] = 0;
                         self.mailbox[59] = 21;
@@ -1646,6 +1676,88 @@ mod tests {
     use crate::notation_util::NotationUtil;
     use crate::service::Service;
     use super::UciGame;
+
+    /// The PST sums of `board` recomputed from its bitboards.
+    fn recomputed_pst(board: &super::Board) -> (i16, i16) {
+        super::Board::compute_pst(&board.bitboards)
+    }
+
+    /// Positions holding every move kind that touches the PST: the four castlings, en passant,
+    /// quiet and capturing promotions, plus the positions of random games.
+    fn pst_positions() -> Vec<super::Board> {
+        let fen = Service::new().fen;
+        let mut boards: Vec<super::Board> = [
+            "r3k2r/pppq1ppp/2np1n2/2b1p1B1/2B1P1b1/2NP1N2/PPPQ1PPP/R3K2R w KQkq - 4 7",
+            "r3k2r/pppq1ppp/2np1n2/2b1p1B1/2B1P1b1/2NP1N2/PPPQ1PPP/R3K2R b KQkq - 4 7",
+            "rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+            "rnbqkbnr/pppp1ppp/8/8/3Pp3/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 2",
+            "r1bqk2r/ppppPppp/2n5/8/8/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 6",
+            "rnbqkb1r/pppp1ppp/8/8/8/8/PPPPpPPP/RNBQKB1R b KQkq - 0 6",
+        ].iter().map(|f| fen.set_fen(f)).collect();
+        boards.extend(crate::eval_service::tests::random_positions(12, 120, 0x5EED_0061));
+        boards
+    }
+
+    /// Task 6.1: with tracking on, the incremental PST sums equal a full recomputation after every
+    /// legal move of every sample position - castlings, en passant and promotions included - and
+    /// again after the move is undone.
+    #[test]
+    fn tracked_pst_sums_equal_a_recomputation_after_every_move_and_undo() {
+        let (mut moves, mut castles, mut promotions, mut en_passant) = (0, 0, 0, 0);
+        for mut board in pst_positions() {
+            assert!(board.track_pst, "a new board tracks the PST");
+            let before = (board.pst_mg, board.pst_eg);
+            for turn in crate::move_gen_service::tests::generate_valid_moves_list(&mut board) {
+                let mi = board.do_move(&turn);
+                assert_eq!((board.pst_mg, board.pst_eg), recomputed_pst(&board), "{}", turn.to_algebraic());
+                let king = mi.moved_piece == 15 || mi.moved_piece == 25;
+                if king && (turn.to as i8 - turn.from as i8).abs() == 2 { castles += 1; }
+                if turn.is_promotion() { promotions += 1; }
+                if (mi.moved_piece == 10 || mi.moved_piece == 20) && turn.to as i8 == mi.en_passante { en_passant += 1; }
+                board.undo_move(&turn, mi);
+                assert_eq!((board.pst_mg, board.pst_eg), before, "after undoing {}", turn.to_algebraic());
+                moves += 1;
+            }
+        }
+        assert!(moves > 1000 && castles >= 4 && promotions > 0 && en_passant >= 2,
+            "{moves} moves, {castles} castlings, {promotions} promotions, {en_passant} en passant");
+    }
+
+    /// Task 6.1: tracking off leaves everything but the PST sums untouched - bitboards, mailbox,
+    /// the three hash keys and the repetition history are those of the same moves with tracking on.
+    #[test]
+    fn untracked_moves_change_nothing_but_the_pst_sums() {
+        for board in pst_positions() {
+            let (mut tracked, mut untracked) = (board.clone(), board.clone());
+            untracked.set_pst_tracking(false);
+            let turns = crate::move_gen_service::tests::generate_valid_moves_list(&mut tracked);
+            for turn in turns {
+                let (mi_t, mi_u) = (tracked.do_move(&turn), untracked.do_move(&turn));
+                assert!(tracked == untracked && tracked.mailbox == untracked.mailbox
+                    && tracked.cached_hash == untracked.cached_hash, "{}", turn.to_algebraic());
+                tracked.undo_move(&turn, mi_t);
+                untracked.undo_move(&turn, mi_u);
+                assert!(tracked == untracked && tracked.cached_hash == untracked.cached_hash);
+            }
+        }
+    }
+
+    /// Task 6.1: the sums read through `pst_sums` are right whether tracking is on or off, and
+    /// switching tracking back on after untracked moves restores correct cached sums.
+    #[test]
+    fn pst_sums_are_right_with_tracking_off_and_after_switching_it_back_on() {
+        let mut board = Service::new().fen.set_fen(crate::model::INIT_BOARD_FEN);
+        board.set_pst_tracking(false);
+        for mv in ["e2e4", "d7d5", "e4d5", "g8f6", "g1f3", "f6d5", "f1c4", "c8g4", "e1g1"] {
+            let turn = NotationUtil::get_turn_from_notation(mv);
+            let _ = board.do_move(&turn);
+            assert!(!board.track_pst);
+            assert_eq!(board.pst_sums(), recomputed_pst(&board), "untracked after {mv}");
+        }
+        board.set_pst_tracking(true);
+        assert_eq!((board.pst_mg, board.pst_eg), recomputed_pst(&board));
+        assert_eq!(board.pst_sums(), recomputed_pst(&board));
+    }
 
 
     #[test]

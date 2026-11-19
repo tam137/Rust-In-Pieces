@@ -14,6 +14,11 @@ pub const NNUE_QA: i32 = 255;
 pub const NNUE_QB: i32 = 64;
 pub const NNUE_SCALE: i32 = 400;
 
+/// Largest output weight magnitude for which `clamp(v) * w`, `v` clamped to `[0, NNUE_QA]`, fits
+/// an `i16` (255 * 128 = 32640). Nets beyond it are refused at load time, so the forward pass can
+/// take that product in 16 bits. bullet clips the output layer to +-1.98, which quantises to +-127.
+const MAX_OUTPUT_WEIGHT: u16 = (i16::MAX as i32 / NNUE_QA) as u16;
+
 const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     0, 1, 2, 3, 3, 2, 1, 0,  // Rank 1
     4, 4, 5, 5, 5, 5, 4, 4,  // Rank 2
@@ -25,11 +30,39 @@ const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     9, 9, 9, 9, 9, 9, 9, 9,  // Rank 8
 ];
 
+/// `T` on a 64-byte boundary. Every row of the network is 512 bytes, so a cache-line aligned array
+/// of rows puts each row on its own eight lines instead of nine, and no vector load splits a line.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(C, align(64))]
+pub struct CacheAligned<T>(pub T);
+
+impl<T> std::ops::Deref for CacheAligned<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for CacheAligned<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+/// A zeroed, cache-line aligned `T` on the heap, built in place: the feature transformer is 3.9 MB
+/// and must never pass through the stack.
+fn zeroed_aligned_box<T: Copy>() -> Box<CacheAligned<T>> {
+    // SAFETY: only instantiated with arrays of `i16`, for which all-zero bytes are a valid value.
+    unsafe { Box::<CacheAligned<T>>::new_zeroed().assume_init() }
+}
+
 #[derive(Clone)]
 pub struct NNUENetwork {
-    pub ft_weights: Box<[[[i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS]>,
-    pub ft_biases: Box<[i16; NNUE_HIDDEN_SIZE]>,
-    pub output_weights: Box<[[i16; 2 * NNUE_HIDDEN_SIZE]; NNUE_OUTPUT_BUCKETS]>,
+    pub ft_weights: Box<CacheAligned<[[[i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS]>>,
+    pub ft_biases: Box<CacheAligned<[i16; NNUE_HIDDEN_SIZE]>>,
+    /// Per output bucket, the side to move's half `[0]` and the other side's `[1]`; the file stores
+    /// them in that order, so this is the file's layout split at `NNUE_HIDDEN_SIZE`.
+    pub output_weights: Box<CacheAligned<[[[i16; NNUE_HIDDEN_SIZE]; 2]; NNUE_OUTPUT_BUCKETS]>>,
     pub output_biases: Box<[i16; NNUE_OUTPUT_BUCKETS]>,
     pub loaded: bool,
 }
@@ -39,10 +72,10 @@ impl NNUENetwork {
 
     pub fn new_empty() -> Self {
         Self {
-            ft_weights: vec![[[0i16; NNUE_HIDDEN_SIZE]; NNUE_INPUT_SIZE]; NNUE_INPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
-            ft_biases: vec![0i16; NNUE_HIDDEN_SIZE].into_boxed_slice().try_into().unwrap(),
-            output_weights: vec![[0i16; 2 * NNUE_HIDDEN_SIZE]; NNUE_OUTPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
-            output_biases: vec![0i16; NNUE_OUTPUT_BUCKETS].into_boxed_slice().try_into().unwrap(),
+            ft_weights: zeroed_aligned_box(),
+            ft_biases: zeroed_aligned_box(),
+            output_weights: zeroed_aligned_box(),
+            output_biases: Box::new([0i16; NNUE_OUTPUT_BUCKETS]),
             loaded: false,
         }
     }
@@ -89,16 +122,25 @@ impl NNUENetwork {
             }
         }
 
-        read_i16_slice(net.ft_biases.as_mut_slice())
+        read_i16_slice(&mut net.ft_biases.0)
             .map_err(|e| format!("Failed to read feature transformer biases: {}", e))?;
 
         for bucket in 0..NNUE_OUTPUT_BUCKETS {
-            read_i16_slice(&mut net.output_weights[bucket])
-                .map_err(|e| format!("Failed to read output weights for bucket {}: {}", bucket, e))?;
+            for half in 0..2 {
+                read_i16_slice(&mut net.output_weights[bucket][half])
+                    .map_err(|e| format!("Failed to read output weights for bucket {}: {}", bucket, e))?;
+            }
         }
 
         read_i16_slice(net.output_biases.as_mut_slice())
             .map_err(|e| format!("Failed to read output biases: {}", e))?;
+
+        if let Some(&w) = net.output_weights.iter().flatten().flatten().find(|w| w.unsigned_abs() > MAX_OUTPUT_WEIGHT) {
+            return Err(format!(
+                "NNUE output weight {} is outside +-{}: the SCReLU product clamp(v) * w would overflow 16 bits",
+                w, MAX_OUTPUT_WEIGHT
+            ));
+        }
 
         net.loaded = true;
         Ok(net)
@@ -142,7 +184,10 @@ pub fn describe_net(model_path: &str) -> String {
     }
 }
 
+/// Both perspectives, each 512 bytes from a cache-line boundary, so every slot of the search's
+/// stack starts on one too.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(C, align(64))]
 pub struct NNUEAccumulator {
     pub white: [i16; NNUE_HIDDEN_SIZE],
     pub black: [i16; NNUE_HIDDEN_SIZE],
@@ -164,6 +209,7 @@ struct KingBucket {
     mirrored: bool,
 }
 
+#[inline(always)]
 fn get_king_bucket(king_square: usize, perspective: usize) -> KingBucket {
     let transformed_sq = if perspective == 1 { king_square ^ 56 } else { king_square };
     KingBucket {
@@ -172,6 +218,7 @@ fn get_king_bucket(king_square: usize, perspective: usize) -> KingBucket {
     }
 }
 
+#[inline(always)]
 fn get_feature_index(
     perspective: usize,
     piece_type: usize,
@@ -210,6 +257,21 @@ fn sub_weights(acc: &mut [i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SI
     }
 }
 
+/// The feature transformer row of `piece` on `sq` for one perspective. Forced inline: as a closure
+/// body it was compiled out of line, one call per changed feature ahead of every vector loop.
+#[inline(always)]
+fn feature_weights<'a>(
+    net: &'a NNUENetwork,
+    perspective: usize,
+    piece: u8,
+    sq: usize,
+    king_bucket: &KingBucket,
+) -> &'a [i16; NNUE_HIDDEN_SIZE] {
+    let (pt, pc) = piece_to_type_and_color(piece);
+    let (bucket, idx) = get_feature_index(perspective, pt, pc, sq, king_bucket);
+    &net.ft_weights[bucket][idx]
+}
+
 /// `out = parent - removed + added` for one perspective in one pass (Matt-Magie step 79, N1). The
 /// terms are taken in the order the separate passes took them - every removed feature subtracted,
 /// then every added one added - so each value is the one they produced.
@@ -223,11 +285,7 @@ fn apply_delta(
     king_bucket: &KingBucket,
     net: &NNUENetwork,
 ) {
-    let weights = |&(piece, sq): &(u8, usize)| {
-        let (pt, pc) = piece_to_type_and_color(piece);
-        let (bucket, idx) = get_feature_index(perspective, pt, pc, sq, king_bucket);
-        &net.ft_weights[bucket][idx]
-    };
+    let weights = |&(piece, sq): &(u8, usize)| feature_weights(net, perspective, piece, sq, king_bucket);
     match (removed, added) {
         ([r0], [a0]) => {
             let (r0, a0) = (weights(r0), weights(a0));
@@ -259,19 +317,24 @@ fn apply_delta(
     }
 }
 
+/// Feature piece type and colour per board piece code (`10..=15` White, `20..=25` Black, units
+/// pawn, rook, knight, bishop, queen, king), indexed by the code: one load instead of a division.
+const PIECE_FEATURES: [(u8, u8); 32] = {
+    let mut table = [(0u8, 0u8); 32];
+    let types = [0u8, 3, 1, 2, 4, 5];
+    let mut unit = 0;
+    while unit < 6 {
+        table[10 + unit] = (types[unit], 0);
+        table[20 + unit] = (types[unit], 1);
+        unit += 1;
+    }
+    table
+};
+
 #[inline(always)]
 pub fn piece_to_type_and_color(piece: u8) -> (usize, usize) {
-    let color = if piece >= 20 { 1 } else { 0 };
-    let piece_type = match piece % 10 {
-        0 => 0, // Pawn
-        1 => 3, // Rook
-        2 => 1, // Knight
-        3 => 2, // Bishop
-        4 => 4, // Queen
-        5 => 5, // King
-        _ => 0,
-    };
-    (piece_type, color)
+    let (piece_type, color) = PIECE_FEATURES[(piece & 31) as usize];
+    (piece_type as usize, color as usize)
 }
 
 /// The twelve piece bitboards in board order, with the piece type and colour the features use.
@@ -376,8 +439,8 @@ impl NNUEService {
         let white_bucket = get_king_bucket(white_king_sq, 0);
         let black_bucket = get_king_bucket(black_king_sq, 1);
 
-        acc.white.copy_from_slice(net.ft_biases.as_ref());
-        acc.black.copy_from_slice(net.ft_biases.as_ref());
+        acc.white.copy_from_slice(&net.ft_biases.0);
+        acc.black.copy_from_slice(&net.ft_biases.0);
 
         let pieces_list = [
             (board.bitboards[WHITE_PAWN], 0, 0),
@@ -418,20 +481,21 @@ impl NNUEService {
     }
 
     pub fn get_output_bucket(board: &Board) -> usize {
-        let mut piece_count = 0;
-        for i in 0..12 {
-            piece_count += board.bitboards[i].count_ones() as usize;
-        }
+        let piece_count = board.occupied.count_ones();
         let bucket = (piece_count as i32 - 2) / 4;
         bucket.clamp(0, (NNUE_OUTPUT_BUCKETS - 1) as i32) as usize
     }
 
-    fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16]) -> i32 {
+    /// `sum(clamp(v)^2 * w)`, taken as `(clamp(v) * w) * clamp(v)`: the first product in 16 bits,
+    /// exact because the loader refuses any `|w| > MAX_OUTPUT_WEIGHT`, the second widened to 32.
+    /// That is the shape of `pmaddwd` / `smlal`, eight or more lanes of i16 per instruction instead
+    /// of two 32-bit multiplies per neuron, and its value is the 32-bit formula's bit for bit.
+    fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
-            let val = acc[i] as i32;
-            let clamped = val.clamp(0, NNUE_QA);
-            sum += clamped * clamped * (weights[i] as i32);
+            let clamped = acc[i].clamp(0, NNUE_QA as i16);
+            let product = clamped.wrapping_mul(weights[i]);
+            sum = sum.wrapping_add(product as i32 * clamped as i32);
         }
         sum
     }
@@ -457,7 +521,7 @@ impl NNUEService {
         }
 
         let king_bucket = get_king_bucket(king_sq, perspective);
-        out.copy_from_slice(net.ft_biases.as_ref());
+        out.copy_from_slice(&net.ft_biases.0);
 
         let pieces_list = [
             (board.bitboards[WHITE_PAWN], 0, 0),
@@ -724,9 +788,7 @@ impl NNUEService {
             (&acc.black, &acc.white)
         };
 
-        let weights = &net.output_weights[output_bucket];
-        let us_weights = &weights[0..NNUE_HIDDEN_SIZE];
-        let them_weights = &weights[NNUE_HIDDEN_SIZE..2 * NNUE_HIDDEN_SIZE];
+        let [us_weights, them_weights] = &net.output_weights[output_bucket];
 
         let mut output = Self::screlu_dot(us_acc, us_weights) + Self::screlu_dot(them_acc, them_weights);
         output /= NNUE_QA;
@@ -769,6 +831,92 @@ mod tests {
         let eval = NNUEService::evaluate(&board, &net);
         // Startpos evaluation should be reasonable (close to 0 cp)
         assert!(eval.abs() < 200, "Startpos NNUE eval should be reasonable, got: {}", eval);
+    }
+
+    /// Byte offset of the output weights in a network file: after the feature transformer weights
+    /// and biases.
+    const OUTPUT_WEIGHTS_OFFSET: usize = (NNUE_INPUT_BUCKETS * NNUE_INPUT_SIZE * NNUE_HIDDEN_SIZE + NNUE_HIDDEN_SIZE) * 2;
+
+    fn embedded_net_with_output_weight(value: i16) -> Vec<u8> {
+        let mut bytes = NNUENetwork::EMBEDDED_NET_BYTES.to_vec();
+        let at = OUTPUT_WEIGHTS_OFFSET + 2 * (3 * 2 * NNUE_HIDDEN_SIZE + 17);
+        bytes[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        bytes
+    }
+
+    /// The SCReLU dot product as `clamp(v)^2 * w` in 32 bits, the formula the fast path must match.
+    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
+        let mut sum: i32 = 0;
+        for i in 0..NNUE_HIDDEN_SIZE {
+            let clamped = (acc[i] as i32).clamp(0, NNUE_QA);
+            sum = sum.wrapping_add(clamped * clamped * weights[i] as i32);
+        }
+        sum
+    }
+
+    /// The fast path multiplies `clamp(v) * w` in 16 bits, which is exact only while
+    /// `255 * |w| <= i16::MAX`: a net with an output weight of 128 loads, one of 129 does not.
+    #[test]
+    fn a_net_whose_output_weights_overflow_the_16_bit_product_is_rejected() {
+        assert!(NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(128)).is_ok());
+        assert!(NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(-128)).is_ok());
+        for bad in [129, -129, i16::MAX, i16::MIN] {
+            let err = NNUENetwork::load_from_bytes(&embedded_net_with_output_weight(bad)).err()
+                .unwrap_or_else(|| panic!("output weight {bad} must be rejected"));
+            assert!(err.contains("output weight"), "unexpected error: {err}");
+        }
+    }
+
+    /// The 16-bit product SCReLU equals `clamp(v)^2 * w` in 32 bits for every accumulator value
+    /// class - below 0, the clamp bounds, above 255, the i16 extremes - and the weight bounds.
+    #[test]
+    fn the_screlu_dot_equals_the_32_bit_reference() {
+        let mut state = 0x5EED_5C2E_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let edges_acc = [i16::MIN, -1, 0, 1, 254, 255, 256, i16::MAX];
+        let edges_w = [-128i16, -127, -1, 0, 1, 127, 128];
+        for round in 0..2000 {
+            let mut acc = [0i16; NNUE_HIDDEN_SIZE];
+            let mut weights = [0i16; NNUE_HIDDEN_SIZE];
+            for i in 0..NNUE_HIDDEN_SIZE {
+                let r = next();
+                acc[i] = if round % 4 == 0 { edges_acc[(r % 8) as usize] } else { (r as i16) % 600 - 150 };
+                weights[i] = if round % 3 == 0 { edges_w[((r >> 20) % 7) as usize] } else { ((r >> 32) % 257) as i16 - 128 };
+            }
+            assert_eq!(NNUEService::screlu_dot(&acc, &weights), screlu_dot_reference(&acc, &weights), "round {round}");
+        }
+        let full = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
+        for w in [128i16, -128] {
+            assert_eq!(NNUEService::screlu_dot(&full, &[w; NNUE_HIDDEN_SIZE]), screlu_dot_reference(&full, &[w; NNUE_HIDDEN_SIZE]));
+        }
+    }
+
+    /// Every 512-byte row the vector loops read starts on a cache line: the feature transformer
+    /// rows, the biases, both output halves and both accumulator perspectives, also in the stack.
+    #[test]
+    fn the_network_rows_and_the_accumulators_are_cache_line_aligned() {
+        let net = NNUENetwork::load_embedded().unwrap();
+        let aligned = |p: *const i16| p as usize % 64 == 0;
+        for bucket in [0, 7, NNUE_INPUT_BUCKETS - 1] {
+            for input in [0, 1, 383, NNUE_INPUT_SIZE - 1] {
+                assert!(aligned(net.ft_weights[bucket][input].as_ptr()), "ft row {bucket}/{input}");
+            }
+        }
+        assert!(aligned(net.ft_biases.as_ptr()));
+        for bucket in 0..NNUE_OUTPUT_BUCKETS {
+            for half in 0..2 {
+                assert!(aligned(net.output_weights[bucket][half].as_ptr()), "output {bucket}/{half}");
+            }
+        }
+        let stack = Box::new(AccStack::new());
+        for ply in [0, 1, 2, crate::search_service::MAX_PLY - 1] {
+            assert!(aligned(stack[ply].white.as_ptr()) && aligned(stack[ply].black.as_ptr()), "ply {ply}");
+        }
     }
 
     #[test]
@@ -878,6 +1026,67 @@ mod tests {
         }
         assert!(checks > 500 && first_uses > 4 && checks > first_uses * 20,
             "{checks} rebuilds, {first_uses} first uses of a bucket");
+    }
+
+    /// The largest differences a Finny entry can see, in both directions, on the same king squares:
+    /// a full board after bare kings (30 features added) and bare kings after a full board (30
+    /// removed), then a position that adds and removes at once.
+    #[test]
+    fn a_finny_rebuild_equals_a_full_rebuild_for_the_largest_differences() {
+        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let fen = FenService;
+        let sequence = [
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "1q2k1r1/2p2p1p/1n1p2b1/pP1Pp3/Q1B1P1n1/2N2N2/P4PPP/2R1K2R w - - 0 1",
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+        ];
+        let mut finny = FinnyTable::new();
+        for fen_str in sequence {
+            let board = fen.set_fen(fen_str);
+            for perspective in [0, 1] {
+                let mut cached = [0i16; NNUE_HIDDEN_SIZE];
+                let mut full = [0i16; NNUE_HIDDEN_SIZE];
+                NNUEService::refresh_perspective_cached(&board, &net, perspective, &mut cached, &mut finny);
+                NNUEService::refresh_perspective(&board, &net, perspective, &mut full);
+                assert_eq!(cached, full, "{fen_str}, perspective {perspective}");
+            }
+        }
+    }
+
+    /// The piece table returns what the `% 10` decoding returned for every piece code on the board.
+    #[test]
+    fn the_piece_table_decodes_every_piece_code() {
+        let decode = |piece: u8| {
+            let piece_type = match piece % 10 { 0 => 0, 1 => 3, 2 => 1, 3 => 2, 4 => 4, 5 => 5, _ => 0 };
+            (piece_type, if piece >= 20 { 1 } else { 0 })
+        };
+        for piece in (10..=15).chain(20..=25) {
+            assert_eq!(piece_to_type_and_color(piece), decode(piece), "piece {piece}");
+        }
+    }
+
+    /// The output bucket from the occupancy equals the one from the twelve piece bitboards, after
+    /// every move of random games, captures and promotions included.
+    #[test]
+    fn the_output_bucket_counts_every_piece_on_the_board() {
+        let reference = |board: &Board| {
+            let count: i32 = board.bitboards.iter().map(|bb| bb.count_ones() as i32).sum();
+            ((count - 2) / 4).clamp(0, NNUE_OUTPUT_BUCKETS as i32 - 1) as usize
+        };
+        let mut checked = 0;
+        for mut board in crate::eval_service::tests::random_positions(16, 120, 0x5EED_0B0C) {
+            assert_eq!(NNUEService::get_output_bucket(&board), reference(&board));
+            for turn in crate::move_gen_service::tests::generate_valid_moves_list(&mut board) {
+                let mi = board.do_move(&turn);
+                assert_eq!(NNUEService::get_output_bucket(&board), reference(&board), "{}", turn.to_algebraic());
+                board.undo_move(&turn, mi);
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "only {checked} moves checked");
     }
 
     #[test]

@@ -145,9 +145,12 @@ impl SearchService {
         // list is cleared before generation, as `minimax` clears its own; see
         // `model::NodeBuffers` for why reusing the buffers cannot move the search tree.
         let mut acc_stack = crate::nnue_service::AccStack::new();
-        if config.use_nnue && service.eval.nnue_net.loaded {
+        let network = config.use_nnue && service.eval.nnue_net.loaded;
+        if network {
             acc_stack[0] = crate::nnue_service::NNUEService::compute_accumulator(board, &service.eval.nnue_net);
         }
+        // The piece-square sums are read by the classical evaluation only (task 6.1).
+        board.set_pst_tracking(!network);
         let (root_level, deeper) = tables.buffers
             .split_first_mut()
             .expect("the arena is allocated with SEARCH_LEVELS entries");
@@ -4260,6 +4263,54 @@ mod tests {
         };
         let see_val3 = service.search.see(&board3, &mv3, &config, &service.move_gen);
         assert_eq!(see_val3, crate::pst::PIECE_EVAL_PAWN - crate::pst::PIECE_EVAL_QUEEN);
+    }
+
+    /// Task 6.1: a search with the network leaves the board untracked, and `UseNNUE` switched off
+    /// afterwards gives the classical evaluation of a freshly built board - from the stale board
+    /// directly, and from a following classical search, which turns tracking back on.
+    #[test]
+    fn a_network_search_stops_pst_tracking_and_switching_to_hce_restores_it() {
+        let service = Service::new();
+        let (tx_log, _rx_log) = std::sync::mpsc::channel();
+        let engine_state = Arc::new(EngineState {
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pondering: std::sync::atomic::AtomicBool::new(false),
+            debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zobrist_table: std::sync::RwLock::new(Arc::new(ZobristTable::with_capacity(100_000))),
+            pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+            logger: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            log_sender: tx_log,
+            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
+        });
+        let search = |board: &mut crate::model::Board, config: &Config| {
+            service.search.get_moves(board, 4, board.white_to_move, &mut Stats::new(), config, &service,
+                &engine_state, std::time::Instant::now(), None, None);
+        };
+        let mut nnue = Config::new();
+        nnue.print_info_string_during_search = false;
+        nnue.use_nnue = true;
+        let mut hce = nnue.clone();
+        hce.use_nnue = false;
+        assert!(service.eval.nnue_net.loaded, "the test needs the embedded network");
+
+        let fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 1 5";
+        let mut board = service.fen.set_fen(fen);
+        search(&mut board, &nnue);
+        assert!(!board.track_pst, "a network search does not track the PST");
+
+        // Play on untracked, as the game does between searches, then switch the network off.
+        for mv in ["e1g1", "d7d6", "c1g5"] {
+            let _ = board.do_move(&crate::notation_util::NotationUtil::get_turn_from_notation(mv));
+        }
+        let fresh = service.fen.set_fen(&service.fen.get_fen(&board));
+        let pawn_table = crate::pawn_hash::PawnHashTable::new(1);
+        let eval = |b: &crate::model::Board| service.eval.calc_eval(b, &hce, &service.move_gen, &pawn_table, i16::MIN + 1, i16::MAX, 0);
+        assert_eq!(eval(&board), eval(&fresh), "classical evaluation of the stale board");
+
+        search(&mut board, &hce);
+        assert!(board.track_pst, "a classical search tracks the PST");
+        assert_eq!((board.pst_mg, board.pst_eg), (fresh.pst_mg, fresh.pst_eg));
     }
 
     #[test]

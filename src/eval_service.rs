@@ -134,7 +134,8 @@ impl EvalService {
         }
 
         let game_phase = self.get_game_phase(board) as i16;
-        let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
+        let (pst_mg, pst_eg) = board.pst_sums();
+        let mut eval: i16 = self.calculate_weighted_eval(pst_mg, pst_eg, game_phase);
 
         // Add pawn structure from table if present
         let mut struct_mg = 0;
@@ -244,7 +245,8 @@ impl EvalService {
         }
 
         let game_phase = self.get_game_phase(board) as i16;
-        let mut eval: i16 = self.calculate_weighted_eval(board.pst_mg, board.pst_eg, game_phase);
+        let (pst_mg, pst_eg) = board.pst_sums();
+        let mut eval: i16 = self.calculate_weighted_eval(pst_mg, pst_eg, game_phase);
 
         // Pawn structure evaluation and caching
         let mut white_passed_pawns = 0u64;

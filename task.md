@@ -1,7 +1,7 @@
 # Suprah Engine Strength Enhancement Roadmap (`task.md`)
 
 What to build next in **Suprah**, and the record of what has already been tried and failed.
-Read "Negative results" before proposing anything: eight of the ideas in this document were built,
+Read "Negative results" before proposing anything: ten of the ideas in this document were built,
 measured and put back. Three of them looked excellent on every metric except games won: the staged
 `MovePicker` was correct, cut the generated moves in half and was still slower, and Internal
 Iterative Reduction removed two thirds of the tree and scored 35.5% against the release it was
@@ -175,7 +175,9 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
-| `Board` updates the PST sums on every move although NNUE mode never reads them | dead work, throughput only, unmeasured, section 6.1 |
+| `Board` updates the PST sums on every move although NNUE mode never reads them | built on `perf/nnue-inference` (+0.7% / +0.9%), unreleased; **port to `master` open**, section 6.1 |
+| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed on `perf/nnue-inference` (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); rebuild the x86 gauntlet opponents once; **port to `master` open**, section 6.2 |
+| The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) are unreleased | awaiting smoke gauntlet and merge, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
@@ -391,11 +393,23 @@ NNUE previously ran on full recomputation per leaf (`compute_accumulator`). In `
     - `[x]` Thread `[NNUEAccumulator; MAX_PLY]` down `SearchService::minimax` and update incrementally in move loops (quiet, capture, castling, en passant, promotions).
     - `[x]` Validate incremental accumulator against full recomputation across move types, king bucket transitions, and deep search trees (100% bit-identical).
     - `[ ]` AVX2 / SSE4.1 / NEON intrinsics for accumulator updates and the SCReLU forward pass.
+      **On x86 the autovectorizer already emits what intrinsics would** (disassembly of the
+      `x86-64-v3` build on branch `perf/nnue-inference`, 2026-11-18): `apply_delta` runs each
+      perspective fully unrolled in 16 ymm registers, aligned `vmovdqa` loads, `vpsubw` / `vpaddw`,
+      one store into the child slot; the SCReLU loop uses `vpmaddwd` since the 16-bit product of
+      6.2. Do not hand-write AVX2 for these two loops. **Open on ARM only:** check the NEON code the
+      compiler emits for the same loops on the ARM host, ideally with an `nnue-prof` profile there
+      first, before writing any NEON intrinsics.
     - `[ ]` Merge to `master` and set `use_nnue = true` as default in `src/config.rs` and `src/threads.rs`.
 
 ### 6.1 Skip the incremental PST in NNUE mode
 
-`[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17, unmeasured.
+`[Impact: Low]` `[Complexity: Low]` — a throughput patch; established 2026-11-17. **Built and
+measured 2026-11-18 on branch `perf/nnue-inference`, unreleased** — see "As built" below. **Port
+to `master` afterwards** (constraint 3): `src/model.rs` and the two read sites in
+`src/eval_service.rs` go over unchanged; on `master` `get_moves` never switches tracking off
+(it sets `!network`, which is `true` there while `use_nnue` is off), so the behaviour there is the
+old one and the files stay identical on both branches.
 
 **The finding.** `Board` keeps `pst_mg` / `pst_eg` incrementally: summed in `Board::new`, saved
 and updated on every `make_move` (moved piece, capture, promotion, all four castlings), stored
@@ -435,18 +449,83 @@ in the classical evaluation: no branch and no stale state, but `src/model.rs` an
 gain this small. Option C, a generic `make_move<const PST: bool>`: saves one predictable branch
 at the cost of threading the parameter through the whole search.
 
+**As built (two departures from the design above).**
+- The classical read sites call `Board::pst_sums()`, which returns the incremental sums while
+  tracking and recomputes them from the bitboards otherwise, **instead of a `debug_assert`**. The
+  runtime switch to HCE is then correct unconditionally, also for an evaluation outside a search
+  (`eval`, adjudication) on a board a network search left untracked, at no cost in NNUE mode.
+- The scattered PST lines of `make_move` are gathered into one `Board::update_pst`, called under
+  a single `if self.track_pst`. `undo_move` still restores the saved sums unconditionally (a copy),
+  so `MoveInformation` keeps its size.
+
+**Measured** (x86-64, 20 cores, depth 16, best of 5, against the previous branch head): **+0.7%
+default build, +0.9% `x86-64-v3`**, control +0.4%, 14/14 identical trees. HCE mode: 14/14
+identical trees at depth 12, -0.1%. As expected, the gain sits at the edge of what the corpus
+resolves.
+
 * **Tasks**:
-    - `[ ]` Test: with tracking on, after move sequences covering captures, all four castlings,
+    - `[x]` Test: with tracking on, after move sequences covering captures, all four castlings,
       en passant and promotions, the PST sums equal a full recomputation, also after `undo_move`.
-    - `[ ]` Test: with tracking off, a do/undo sequence leaves bitboards, `cached_hash`,
+    - `[x]` Test: with tracking off, a do/undo sequence leaves bitboards, `cached_hash`,
       `pawn_key` and `non_pawn_key` identical to the same sequence with tracking on.
-    - `[ ]` Test: moves made with tracking off, then tracking switched on, yield correct sums.
-    - `[ ]` Test: `UseNNUE` flipped from `true` to `false` mid-session gives the same classical
+    - `[x]` Test: moves made with tracking off, then tracking switched on, yield correct sums.
+    - `[x]` Test: `UseNNUE` flipped from `true` to `false` mid-session gives the same classical
       evaluation as a freshly built board.
-    - `[ ]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
+    - `[x]` Implement Option A in `src/model.rs`, `src/search_service.rs` and the classical read
       sites in `src/eval_service.rs`.
-    - `[ ]` Acceptance: `scripts/measure_throughput.py` against v0.53.0-NNUE. **Node identity is
-      mandatory** (rule 5); report the wall-time difference. No game run; patch release.
+    - `[x]` Acceptance: node identity and wall time, see "Measured".
+    - `[ ]` Release with the rest of branch `perf/nnue-inference` (6.2).
+    - `[ ]` **Port to `master`**: `src/model.rs`, `src/eval_service.rs` read sites and the
+      `set_pst_tracking` line of `get_moves`; HCE tree identity and throughput there.
+
+### 6.2 Inference micro-optimisations without intrinsics (branch `perf/nnue-inference`)
+
+`[Impact: Medium]` `[Complexity: Low]` — built and measured 2026-11-18 on an x86-64 host with 20
+cores, on top of v0.54.0-NNUE; **unreleased**, awaiting the smoke gauntlet and the merge into
+`feature/nnue-evaluation`.
+
+**How it was measured.** `scripts/measure_throughput.py` at **depth 16**, best of 5 (7 for the
+total), the default build (as `build_and_release.sh` builds) and a `-C target-cpu=x86-64-v3` build
+(as CI ships) side by side, each run paired with an A/A control of the baseline against itself.
+Depth 10 is useless on this host: the whole corpus takes about 460 ms and the noise swamps any
+effect. The controls read -1.1% to +0.9%. Every step kept **14/14 identical trees**. The aarch64
+numbers in the CHANGELOG do not compare with these.
+
+| Step | Default | v3 | Outcome |
+| :--- | ---: | ---: | :--- |
+| SCReLU as `(clamp(v) * w)` in i16 times `clamp(v)` in i32 (the `pmaddwd` / `smlal` shape); the loader refuses any output weight beyond +-128, the largest for which `255 * w` fits i16 | **+3.3%** | **+1.7%** | shipped on the branch, `7b2dbec` |
+| Output weights as `[[[i16; 256]; 2]; 8]`, fixed rows instead of slices; feature transformer, biases, output rows and `NNUEAccumulator` 64-byte aligned | -0.6% | +0.7% | null, kept on the branch (`134ed63`) as the precondition for the intrinsics of section 6 |
+| Output bucket from `occupied.count_ones()`, piece decoding by a 32-entry table instead of `% 10` | +1.0% | +0.5% | shipped on the branch, `ee3ce06` |
+| Feature row lookup of `apply_delta` forced inline: as a closure it compiled to 2-4 out-of-line calls per perspective ahead of the vector loop (0 after) | +0.4% | +0.2% | null, kept on the branch: no cost, cleaner code generation |
+| **Total, v0.54.0-NNUE -> `ee3ce06`** | **+7.7%** | **+4.6%** | 13/14 positions faster in both builds |
+
+The total exceeds the sum of the steps; the steps were each measured against their own
+predecessor in separate sessions, so the direct comparison is the number to quote.
+
+**Negative results, not to be reopened without a new idea:**
+
+- **Release profile** `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`: **+-0.0% default,
+  -0.7% v3**, inside the control. The engine is one crate and its hot paths are already
+  `#[inline(always)]`; the profile only quadruples the build time. Not committed.
+- **Finny refresh in one pass** — gather every changed row, then fold them into the entry in
+  64-lane register tiles written to the entry and the output at once: **-0.3% default, -1.7% v3**,
+  1/14 positions faster on v3. The refreshes are about 4% of the search and average 6.2 features,
+  so the gather and the variable-count inner loops cost more than the saved load/store pairs.
+  Reverted; its test of the largest differences was kept (`14e88a6`).
+
+**Found on the way, done on the branch:** the `x86-64-v3` build is **about 11% faster** than the
+default build on this host (6694 ms against 7645 ms for the same corpus), and `build_and_release.sh`
+built without `target-cpu`, so local x86 runs measured a binary CI does not ship and understated
+every SIMD gain. Now `scripts/build_flags.sh` holds the flags - `x86-64-v3` on x86-64, none on ARM
+(NEON is baseline), `SUPRAH_TARGET_CPU` overrides, empty switches it off, a CPU without AVX2 stops
+the build - and `build_and_release.sh` tests and builds with them. **Every engine in one run must
+be built the same way**, so the opponents released before this change are rebuilt once on the
+x86 match host: `MM_DIR=<mm> scripts/rebuild_engines.sh <tag> ...` builds each tag in a temporary
+worktree into `<mm>/engines` under its usual name and keeps the old binary once in
+`<mm>/engines/baseline-x86-64/`. A v0.54.0-NNUE rebuild searched v0.54.0-NNUE's tree (14/14). The
+measurement SOP, section 5, carries the rule. **Port to `master` open:** `scripts/build_flags.sh`,
+its test, `scripts/rebuild_engines.sh` and the SOP paragraph go over unchanged; `build_and_release.sh`
+differs between the branches, so only its `build_flags` block is ported.
 
 ## 7. En passant
 

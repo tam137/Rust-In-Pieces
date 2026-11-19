@@ -114,7 +114,17 @@ variance is near 0.065. That is what makes small effects expensive here.
 Matt-Magie sends one `engine_options` string to both engines, so an A/B of two configurations
 needs two **binaries**, not two option sets.
 
+> [!IMPORTANT]
+> **Every engine in one run is built with the same flags.** On x86-64 the `x86-64-v3` build is
+> about 11% faster than the default one (`task.md` 6.2), so a variant built one way against an
+> opponent built the other measures the compiler flag. `scripts/build_flags.sh` holds the flags
+> (`x86-64-v3` on x86-64 as CI ships, none on ARM, `SUPRAH_TARGET_CPU` overrides);
+> `build_and_release.sh` applies them, and opponents released before it did are rebuilt once per
+> host with `scripts/rebuild_engines.sh <tag> ...`.
+
 ```bash
+# once per shell: the same flags build_and_release.sh uses
+source scripts/build_flags.sh && suprah_apply_build_flags
 # per variant
 sed -i 's/^version = "X.Y.Z"$/version = "X.Y.Z-TAG"/' Cargo.toml
 sed -i 's/^            <param>: <old>,$/            <param>: <new>,/' src/config.rs
@@ -124,7 +134,7 @@ git checkout -- Cargo.toml src/config.rs
 ```
 
 `build_and_release.sh` is the release pipeline and rewrites `CHANGELOG.md`; never use it for a
-throwaway variant. Plain `cargo build --release` is correct here.
+throwaway variant. Plain `cargo build --release`, with the flags of `scripts/build_flags.sh` applied, is correct here.
 
 **Verify before spending hours:**
 
