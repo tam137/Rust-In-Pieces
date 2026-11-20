@@ -175,8 +175,8 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | `rfp_max_depth` is 3 against a published 6 to 9 | proposal, unmeasured, section 21.3 |
 | Internal Iterative Reduction is built on `master` and ships `false` there: refused at the gate on 2026-09-09 because **41.4% of the nodes at depth 4 and above have no table move** — measured on `master` in HCE mode, and a property of the Transposition Table rather than of the rule. Not ported here, and the miss rate under a network evaluation is unmeasured | negative result on `master`, its section 22.3 |
 | There is still no Internal Iterative Deepening — the other member of the family searches the node at reduced depth first and uses its move, which is a second search and not a decrement | proposal, unmeasured |
-| `Board` updates the PST sums on every move although NNUE mode never reads them | released in v0.54.2-NNUE (+0.7% / +0.9%); **port to `master` open**, section 6.1 |
-| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed in v0.54.2-NNUE (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); v0.54.0-NNUE and v0.54.1-NNUE rebuilt on the x86 match host; **port to `master` open**, section 6.2 |
+| `Board` updates the PST sums on every move although NNUE mode never reads them | released in v0.54.2-NNUE (+0.7% / +0.9%); ported to `master` 2026-11-20 (tree unchanged there), section 6.1 |
+| Local builds used no `target-cpu`, about 11% slower on x86-64 than the `x86-64-v3` binary CI ships | fixed in v0.54.2-NNUE (`scripts/build_flags.sh`, `scripts/rebuild_engines.sh`); v0.54.0-NNUE and v0.54.1-NNUE rebuilt on the x86 match host; ported to `master` 2026-11-20, section 6.2 |
 | The NNUE inference speedups of branch `perf/nnue-inference` (+7.7% default, +4.6% v3, tree-identical) | released in v0.54.2-NNUE: +13.7 Elo [+8.2, +19.1] against v0.54.1-NNUE built alike; NEON check on ARM open, section 6.2 |
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
@@ -475,8 +475,9 @@ resolves.
       sites in `src/eval_service.rs`.
     - `[x]` Acceptance: node identity and wall time, see "Measured".
     - `[x]` Release with the rest of branch `perf/nnue-inference` (6.2): v0.54.2-NNUE.
-    - `[ ]` **Port to `master`**: `src/model.rs`, `src/eval_service.rs` read sites and the
-      `set_pst_tracking` line of `get_moves`; HCE tree identity and throughput there.
+    - `[x]` Port to `master` (2026-11-20): `src/model.rs`, `src/eval_service.rs` read sites and the
+      `set_pst_tracking` line of `get_moves`; the HCE tree is unchanged there, since `master` loads
+      no network and always tracks.
 
 ### 6.2 Inference micro-optimisations without intrinsics (branch `perf/nnue-inference`)
 
@@ -529,9 +530,10 @@ be built the same way**, so the opponents released before this change are rebuil
 x86 match host: `MM_DIR=<mm> scripts/rebuild_engines.sh <tag> ...` builds each tag in a temporary
 worktree into `<mm>/engines` under its usual name and keeps the old binary once in
 `<mm>/engines/baseline-x86-64/`. A v0.54.0-NNUE rebuild searched v0.54.0-NNUE's tree (14/14). The
-measurement SOP, section 5, carries the rule. **Port to `master` open:** `scripts/build_flags.sh`,
-its test, `scripts/rebuild_engines.sh` and the SOP paragraph go over unchanged; `build_and_release.sh`
-differs between the branches, so only its `build_flags` block is ported.
+measurement SOP, section 5, carries the rule. **Ported to `master` 2026-11-20:** `scripts/build_flags.sh`,
+its test, `scripts/rebuild_engines.sh` and the SOP paragraph went over unchanged; `build_and_release.sh`
+differs between the branches, so only its `build_flags` block was ported. The HCE opponents in
+`<mm>/engines` were rebuilt the same way.
 
 ## 7. En passant
 
