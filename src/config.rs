@@ -7,6 +7,9 @@ pub enum Aggressiveness {
     HighAggressive,
 }
 
+/// The most root lines `MultiPV` may ask for (`task.md` 43.2).
+pub const MAX_MULTI_PV: usize = 10;
+
 #[derive(Clone, PartialEq)]
 pub struct Config {
     pub version: &'static str,
@@ -490,6 +493,12 @@ pub struct Config {
     /// UCI `Ponder` (Matt-Magie step 72): write `bestmove <move> ponder <reply>`. `go ponder` and
     /// `ponderhit` are honoured whatever this says; it only tells the GUI that pondering is wanted.
     pub ponder: bool,
+    /// UCI `MultiPV` (`task.md` 43.2): how many root lines each iteration reports, each with its
+    /// own score and variation. Line 1 is the normal search and decides `bestmove`; line `k`
+    /// searches the root again without the first moves of lines 1 to `k - 1`. Every further line
+    /// costs a root search, so play is weaker above 1; it is an analysis option. Ships at 1,
+    /// where the search and its output are those of a build without the option.
+    pub multi_pv: usize,
     /// The pawn-structure Correction History (Matt-Magie step 64): the main search and the
     /// Quiescence Search read the static evaluation plus what the search has learned about the
     /// pawn structure, see [`crate::model::CorrectionHistory`].
@@ -819,6 +828,7 @@ impl Config {
             probcut_reduction: 4,
             probcut_min_depth: 5,
             ponder: false,
+            multi_pv: 1,
             enable_correction_history: true,
             corr_hist_limit: 1024,
             corr_hist_div: 16,
@@ -1072,6 +1082,23 @@ mod tests {
     /// The name is matched case-insensitively and without separators, so the spelling the engine
     /// advertises, the snake_case spelling the SPSA tuner sends, and a spaced spelling are one
     /// option.
+    /// `task.md` 43.2: MultiPV ships at one line and is clamped to what the option advertises.
+    #[test]
+    fn test_multi_pv_ships_at_one_and_is_clamped() {
+        let defaults = Config::new();
+        assert_eq!(defaults.multi_pv, 1);
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l == &format!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV)),
+                "MultiPV must be advertised as a UCI option");
+        for (value, expected) in [("3", 3), ("0", 1), ("99", MAX_MULTI_PV), ("x", 1)] {
+            for spelling in ["MultiPV", "multi_pv", "multipv"] {
+                let mut config = Config::new();
+                config.apply_uci_option(spelling, value);
+                assert_eq!(config.multi_pv, expected, "'{}' = '{}'", spelling, value);
+            }
+        }
+    }
+
     /// `task.md` 43.1: the PV guard on table cutoffs is an analysis option and ships off.
     #[test]
     fn test_the_tt_cut_pv_guard_ships_off_and_is_advertised() {
@@ -1694,6 +1721,7 @@ impl Config {
             "probcutreduction" => if let Ok(v) = value.parse::<i32>() { self.probcut_reduction = v; },
             "probcutmindepth" => if let Ok(v) = value.parse::<i32>() { self.probcut_min_depth = v; },
             "ponder" => self.ponder = value.eq_ignore_ascii_case("true"),
+            "multipv" => if let Ok(v) = value.trim().parse::<usize>() { self.multi_pv = v.clamp(1, MAX_MULTI_PV); },
             "enablecorrectionhistory" => self.enable_correction_history = value.eq_ignore_ascii_case("true"),
             "corrhistlimit" => if let Ok(v) = value.parse::<i32>() { self.corr_hist_limit = v; },
             "corrhistdiv" => if let Ok(v) = value.parse::<i16>() { self.corr_hist_div = v; },

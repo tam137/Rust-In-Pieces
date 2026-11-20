@@ -1523,6 +1523,9 @@ pub struct SearchResult {
     /// White-positive scale. A root score outside it is a bound, not a value.
     pub window_alpha: i16,
     pub window_beta: i16,
+    /// The rank of this line under UCI `MultiPV` (`task.md` 43.2), written into `info` as
+    /// `multipv <n>`; 0 leaves the field out, which is the output of a single-line search.
+    pub multipv: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -1546,6 +1549,7 @@ impl SearchResult {
             second_best_score: 0,
             window_alpha: i16::MIN,
             window_beta: i16::MAX,
+            multipv: 0,
         }
     }
 

@@ -96,6 +96,26 @@ impl SearchService {
         // the aspiration window. `None` disables aspiration for this search.
         prev_score: Option<i16>,
     ) -> SearchResult {
+        self.get_moves_excluding(board, depth, white, stats, config, service, engine_state,
+            start_time, target_time, prev_score, &[])
+    }
+
+    /// [`Self::get_moves`] without the root moves in `excluded`: the search of a further
+    /// `MultiPV` line (`task.md` 43.2). With nothing excluded it is `get_moves` node for node.
+    pub fn get_moves_excluding(
+        &self,
+        board: &mut Board,
+        depth: i32,
+        white: bool,
+        stats: &mut Stats,
+        config: &Config,
+        service: &Service,
+        engine_state: &Arc<EngineState>,
+        start_time: std::time::Instant,
+        target_time: Option<i32>,
+        prev_score: Option<i16>,
+        excluded: &[Turn],
+    ) -> SearchResult {
         let mut search_config = config.clone();
         search_config.pre_sort_moves = false;
         let config = &search_config;
@@ -123,7 +143,8 @@ impl SearchService {
         // on a search path: the engine is single-threaded by construction, `threads.rs` rejects
         // `setoption Threads`.
         let mut search_tables = engine_state.search_tables.lock().unwrap();
-        if !config.history_age_per_go {
+        // A further `MultiPV` line is the same iteration again, which has already aged them.
+        if !config.history_age_per_go && excluded.is_empty() {
             search_tables.age();
         }
         let tables = &mut *search_tables;
@@ -166,6 +187,17 @@ impl SearchService {
         let crate::model::NodeBuffers { moves: turns, pv: child_pv } = root_level;
         turns.clear();
         service.move_gen.generate_valid_moves_list(board, stats, config, &context, true, turns);
+        if !excluded.is_empty() {
+            let mut kept = 0;
+            for idx in 0..turns.len {
+                let turn = turns.moves[idx];
+                if !excluded.contains(&turn) {
+                    turns.moves[kept] = turn;
+                    kept += 1;
+                }
+            }
+            turns.len = kept;
+        }
 
         // Sorting and SEE are deferred (Lazy Move Picking & Lazy SEE)
 
@@ -452,6 +484,45 @@ impl SearchService {
             search_result.stats.eval_nodes,
         );
         search_result
+    }
+
+    /// The lines 2 to `lines` of a `MultiPV` iteration (`task.md` 43.2), after `first`, the
+    /// iteration's normal search: line `k` searches the root without the first moves of the lines
+    /// before it, seeded with `prev_scores[k - 1]`, line `k`'s score at the previous depth. Stops
+    /// at the first line the clock interrupts or that has no move left, so every line returned is
+    /// complete. Each comes with its own statistics.
+    pub fn get_further_lines(
+        &self,
+        board: &mut Board,
+        depth: i32,
+        lines: usize,
+        first: &SearchResult,
+        prev_scores: &[Option<i16>],
+        config: &Config,
+        service: &Service,
+        engine_state: &Arc<EngineState>,
+        start_time: std::time::Instant,
+        target_time: Option<i32>,
+    ) -> Vec<(SearchResult, Stats)> {
+        let white = board.white_to_move;
+        let mut excluded: Vec<Turn> = first.variants.first().and_then(|v| v.best_move).into_iter().collect();
+        let mut further = Vec::new();
+        for k in 1..lines {
+            if excluded.len() < k {
+                break;
+            }
+            let mut stats = Stats::default();
+            let seed = prev_scores.get(k).copied().flatten();
+            let result = self.get_moves_excluding(board, depth, white, &mut stats, config, service,
+                engine_state, start_time, target_time, seed, &excluded);
+            let Some(best) = result.variants.first().and_then(|v| v.best_move) else { break };
+            if !result.completed {
+                break;
+            }
+            excluded.push(best);
+            further.push((result, stats));
+        }
+        further
     }
 
     /// The window a root move's child is searched with.
@@ -6451,5 +6522,83 @@ mod tests {
             let off = iterate_pv_lengths(fen, 8, false);
             assert_eq!(default_run, off, "{}", fen);
         }
+    }
+
+    // `task.md` 43.2: MultiPV (`Config::multi_pv`, `SearchService::get_further_lines`).
+    // ---------------------------------------------------------------------------------------
+
+    /// One root search of `fen` at `depth` with `excluded` left out, and its node count.
+    fn search_excluding(fen: &str, depth: i32, excluded: &[Turn]) -> (crate::model::SearchResult, usize) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let config = Config::for_tests();
+        let mut stats = Stats::new();
+        let result = service.search.get_moves_excluding(&mut board, depth, white, &mut stats, &config,
+            &service, &fresh_engine_state(), std::time::Instant::now(), None, None, excluded);
+        (result, stats.calculated_nodes)
+    }
+
+    #[test]
+    fn test_nothing_excluded_is_the_search_of_get_moves() {
+        let (result, nodes) = search_excluding(PV_GUARD_FENS[0], 6, &[]);
+        let (expected, expected_nodes) = search_root(PV_GUARD_FENS[0], 6, |_| {});
+        assert_eq!(nodes, expected_nodes);
+        assert_eq!(result.get_best_move_row(), expected.get_best_move_row());
+        assert_eq!(result.get_eval(), expected.get_eval());
+    }
+
+    #[test]
+    fn test_an_excluded_root_move_is_never_chosen() {
+        let (first, _) = search_excluding(PV_GUARD_FENS[0], 6, &[]);
+        let best = first.variants[0].best_move.unwrap();
+        let (second, _) = search_excluding(PV_GUARD_FENS[0], 6, &[best]);
+        assert!(second.variants.iter().all(|v| v.best_move != Some(best)),
+                "{} was excluded and still reported", best.to_algebraic());
+        assert!(second.variants[0].best_move.is_some());
+    }
+
+    /// Runs one iteration with `lines` MultiPV lines: line 1 and what `get_further_lines` adds.
+    fn multi_pv_iteration(fen: &str, depth: i32, lines: usize)
+        -> (crate::model::SearchResult, Vec<crate::model::SearchResult>) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let config = Config::for_tests();
+        let state = fresh_engine_state();
+        let mut stats = Stats::new();
+        let first = service.search.get_moves(&mut board, depth, white, &mut stats, &config,
+            &service, &state, std::time::Instant::now(), None, None);
+        let further = service.search.get_further_lines(&mut board, depth, lines, &first, &[],
+            &config, &service, &state, std::time::Instant::now(), None);
+        assert_eq!(service.fen.get_fen(&board), fen, "the lines leave the board as they found it");
+        (first, further.into_iter().map(|(result, _)| result).collect())
+    }
+
+    #[test]
+    fn test_further_lines_are_distinct_and_complete() {
+        // A further line may score a few centipawns above line 1: line 1 proved the other root
+        // moves worse only on a null window, and the line's own search runs on a different table.
+        // That is search instability, not an error, so the score order is not asserted here;
+        // `game_handler::report_further_lines` keeps line 1 at rank 1 because it is the move played.
+        for fen in PV_GUARD_FENS {
+            let (first, further) = multi_pv_iteration(fen, 6, 4);
+            assert_eq!(further.len(), 3, "{}", fen);
+            let mut firsts = vec![first.variants[0].best_move.unwrap()];
+            for line in &further {
+                assert!(line.completed);
+                let mv = line.variants[0].best_move.unwrap();
+                assert!(!firsts.contains(&mv), "{}: {} reported twice", fen, mv.to_algebraic());
+                assert_eq!(line.get_pv_move_row().first(), Some(&mv), "the line starts with its move");
+                firsts.push(mv);
+            }
+        }
+    }
+
+    #[test]
+    fn test_multi_pv_never_reports_more_lines_than_legal_moves() {
+        // White has two legal moves, Ka2 and Kb1.
+        let (_, further) = multi_pv_iteration("7r/8/8/8/8/2k5/8/K7 w - - 0 1", 5, 5);
+        assert_eq!(further.len(), 1);
     }
 }

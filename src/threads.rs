@@ -32,6 +32,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         "option name Threads type spin default 1 min 1 max 8".to_string(),
         format!("option name Move Overhead type spin default {} min 0 max 5000", defaults.move_overhead),
         format!("option name Ponder type check default {}", defaults.ponder),
+        format!("option name MultiPV type spin default {} min 1 max {}", defaults.multi_pv, crate::config::MAX_MULTI_PV),
         "option name BookFile type string default <empty>".to_string(),
         format!("option name OwnBook type check default {}", defaults.use_book),
         format!("option name CacheBookInRam type check default {}", defaults.cache_book_in_ram),

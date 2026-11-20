@@ -218,6 +218,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         let max_depth = active_config.max_depth;
                         // Score of the last completed iteration, used to seed the aspiration window.
                         let mut prev_score: Option<i16> = None;
+                        // `MultiPV` (`task.md` 43.2): the score of every line at the last completed
+                        // depth, by rank, to seed each line's aspiration window at the next.
+                        let lines = active_config.multi_pv.min(valid_moves.len);
+                        let mut line_scores: Vec<Option<i16>> = Vec::new();
 
 
                         for depth in 2..=max_depth {
@@ -246,7 +250,18 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             if search_result.completed {
                                 prev_score = Some(search_result.get_eval());
                                 best_result = Some(search_result.clone());
-                                service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
+                                if lines > 1 {
+                                    let mut ranked = search_result.clone();
+                                    ranked.multipv = 1;
+                                    service.stdout.write(&service.uci_parser.get_info_str(&ranked, &stats));
+                                    let further = service.search.get_further_lines(
+                                        &mut game.board, depth, lines, &search_result, &line_scores,
+                                        &active_config, service, &engine_state, go_start_time,
+                                        Some(my_thinking_time as i32));
+                                    line_scores = report_further_lines(service, search_result.get_eval(), is_white, further);
+                                } else {
+                                    service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
+                                }
 
                                 let mut stats_calc = stats.clone();
                                 stats_calc.calculate();
@@ -381,6 +396,22 @@ fn proven_better_while_interrupted(previous_best: &crate::model::Turn, result: &
     } else {
         top.eval < result.window_beta
     }
+}
+
+/// Writes the further `MultiPV` lines of an iteration (`task.md` 43.2) as `info ... multipv <n>`,
+/// best first for the side to move, after line 1, which is the iteration's normal search and keeps
+/// rank 1 so that it always names the move `bestmove` plays. Returns the scores of all lines by
+/// rank, line 1 first, to seed the next depth.
+fn report_further_lines(service: &Service, first_score: i16, white: bool,
+                        mut further: Vec<(SearchResult, Stats)>) -> Vec<Option<i16>> {
+    further.sort_by_key(|(result, _)| if white { -(result.get_eval() as i32) } else { result.get_eval() as i32 });
+    let mut scores = vec![Some(first_score)];
+    for (rank, (mut result, stats)) in further.into_iter().enumerate() {
+        result.multipv = (rank + 2) as u8;
+        service.stdout.write(&service.uci_parser.get_info_str(&result, &stats));
+        scores.push(Some(result.get_eval()));
+    }
+    scores
 }
 
 /// Whether a mate score has been proven inside the completed depth, which is when iterative
