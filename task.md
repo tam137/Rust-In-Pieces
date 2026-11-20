@@ -602,3 +602,31 @@ therefore neither play an en passant capture nor see one in its stand-pat, at an
   - Total: 74 wins, 77 draws, 49 losses (**56.25%**, 112.5 / 200)
   - Both matchups exceed the $\ge 45\%$ smoke acceptance threshold.
 
+
+## 8. Analysis output: principal variation and MultiPV
+
+Two UCI options for analysis front ends, built 2026-11-20. Both ship off, and with both off the
+search is v0.54.2-NNUE's tree node for node (14/14 positions of `scripts/measure_throughput.py`).
+
+### 8.1 `TtCutPvGuard`: table cutoffs stay off the principal variation
+
+A Transposition Table entry holds a score and one move, not the line behind it. A cutoff on a
+PV node therefore wrote `[move, None]`, and the reported line ended there: at depth 16 the line
+averaged **5.9 moves** over the 14 positions of `scripts/measure_pv_length.py`, with a minimum of
+one. With the guard a PV node keeps the entry's move for ordering and its static evaluation but
+neither returns on the entry nor narrows its window with the entry's bound, in the main search and
+in the Quiescence Search; every other node cuts as before. The line then averages **20.1 moves** at
+depth 16 (minimum 8). Cost: the 14-position corpus took 26.3 s instead of 17.5 s to depth 16,
+measured with the cores busy, so indicative only. Unmeasured in games; Stockfish never cuts a PV
+node from the table, so whether it may ship on is a 6000-game question of its own.
+
+### 8.2 `MultiPV`: the best `n` root moves, each with its score and line
+
+`MultiPV` 1 to 10, default 1. Line 1 is the iteration's normal search and decides `bestmove`.
+Line `k` then searches the root again without the first moves of lines 1 to `k - 1`
+(`SearchService::get_moves_excluding`), seeded with line `k`'s score of the previous depth, and is
+written as `info depth <d> multipv <k> ...`. Lines 2 and up are sorted by score; line 1 keeps rank
+1 so that it always names the move played. A line the clock interrupts ends the iteration's
+further lines, so every reported line is complete. No more lines than legal moves. Each further
+line costs a root search, so play is weaker above 1. Combine it with `TtCutPvGuard` for full
+lines.
