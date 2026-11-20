@@ -364,6 +364,17 @@ pub struct Config {
     /// Reverse Futility Pruning does not speculate on the principal variation (`task.md` 20.2).
     /// Ships **disabled**, for the reason given on `nmp_pv_guard`.
     pub rfp_pv_guard: bool,
+    /// A Transposition Table entry does not end a node on the principal variation (`task.md` 43.1).
+    ///
+    /// An entry carries a score and one move, not the line behind it, so a table cutoff at a PV
+    /// node writes `[move, None]` and the reported variation stops there: a depth-20 search
+    /// printed four moves. With the guard a PV node keeps the entry's move for ordering and its
+    /// static evaluation, but neither returns nor narrows its window on the entry's bound, and the
+    /// line is searched out to the horizon. Every other node cuts as before. The Quiescence Search
+    /// follows the same rule.
+    ///
+    /// Ships **disabled**, so play is unchanged; it is an analysis option. Unmeasured in games.
+    pub tt_cut_pv_guard: bool,
 
     /// Enables Check Extensions: a move that gives check is searched one ply deeper,
     /// so that forcing sequences are resolved beyond the nominal horizon.
@@ -769,6 +780,7 @@ impl Config {
             rfp_max_depth: 8,
             rfp_before_nmp: true,
             rfp_pv_guard: false,
+            tt_cut_pv_guard: false,
             enable_check_extension: false,
             check_extension_max_ply: 64,
             check_extension_require_safe: false,
@@ -1060,6 +1072,27 @@ mod tests {
     /// The name is matched case-insensitively and without separators, so the spelling the engine
     /// advertises, the snake_case spelling the SPSA tuner sends, and a spaced spelling are one
     /// option.
+    /// `task.md` 43.1: the PV guard on table cutoffs is an analysis option and ships off.
+    #[test]
+    fn test_the_tt_cut_pv_guard_ships_off_and_is_advertised() {
+        let defaults = Config::new();
+        assert!(!defaults.tt_cut_pv_guard, "the table-cutoff PV guard of `task.md` 43.1 ships off");
+        let advertised = crate::threads::uci_options(&defaults);
+        assert!(advertised.iter().any(|l| l == "option name TtCutPvGuard type check default false"),
+                "TtCutPvGuard must be advertised as a UCI option");
+    }
+
+    #[test]
+    fn test_the_tt_cut_pv_guard_option_reaches_the_field_in_all_spellings() {
+        for spelling in ["TtCutPvGuard", "tt_cut_pv_guard", "ttcutpvguard"] {
+            let mut config = Config::new();
+            config.apply_uci_option(spelling, "true");
+            assert!(config.tt_cut_pv_guard, "'{}' must reach the field", spelling);
+            config.apply_uci_option(spelling, "false");
+            assert!(!config.tt_cut_pv_guard, "'{}' must switch it off again", spelling);
+        }
+    }
+
     #[test]
     fn test_uci_option_names_ignore_case_and_separators() {
         for spelling in ["ConnectedPassedPawnMg", "connected_passed_pawn_mg", "Connected Passed Pawn Mg"] {
@@ -1611,6 +1644,7 @@ impl Config {
             "nmpstaticevalgate" => { self.nmp_static_eval_gate = value.to_lowercase() == "true"; },
             "nmppvguard" => { self.nmp_pv_guard = value.to_lowercase() == "true"; },
             "rfppvguard" => { self.rfp_pv_guard = value.to_lowercase() == "true"; },
+            "ttcutpvguard" => self.tt_cut_pv_guard = value.eq_ignore_ascii_case("true"),
             "rfpbeforenmp" => self.rfp_before_nmp = value.eq_ignore_ascii_case("true"),
             "enableiir" => { self.enable_iir = value.to_lowercase() == "true"; },
             "rootpvs" => self.root_pvs = value.eq_ignore_ascii_case("true"),
