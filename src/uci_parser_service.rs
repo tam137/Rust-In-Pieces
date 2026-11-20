@@ -162,8 +162,14 @@ impl UciParserService {
         let cp = if search_result.is_white_move { search_result.get_eval() } else { -search_result.get_eval() };
         // `nps` per second, as UCI defines it (until Matt-Magie step 81 it was per millisecond);
         // `nodes` stays the count of generated moves the measurement scripts compare.
-        format!("info depth {} score {} time {} nodes {} nps {} hashfull {} pv {}",
+        let multipv = if search_result.multipv > 0 {
+            format!(" multipv {}", search_result.multipv)
+        } else {
+            String::new()
+        };
+        format!("info depth {}{} score {} time {} nodes {} nps {} hashfull {} pv {}",
             search_result.calculated_depth,
+            multipv,
             self.format_score(cp),
             stats.calc_time_ms,
             stats.created_nodes,
@@ -177,6 +183,20 @@ impl UciParserService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `task.md` 8.2: `multipv <n>` follows the depth once a line has a rank, and a single-line
+    /// search prints the line it always printed.
+    #[test]
+    fn test_info_carries_multipv_only_for_a_ranked_line() {
+        let parser = UciParserService {};
+        let mut result = SearchResult::default();
+        result.calculated_depth = 7;
+        result.is_white_move = true;
+        let stats = Stats::default();
+        assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 score "));
+        result.multipv = 2;
+        assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 multipv 2 score "));
+    }
 
     #[test]
     fn parse_go_valid_times_test() {
