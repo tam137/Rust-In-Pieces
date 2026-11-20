@@ -20,6 +20,7 @@ thirds of the tree and scored 35.5% against the release it was built on. Trimmed
 | Run cost | **the rate depends on the time control, so measure it before sizing a run.** At 1s + 100ms, concurrency 5: **2.3 s per game**, a 6000-game fixed-N run in under 4 hours. At 1s + 150ms, the control the singular campaign and 23.1 use: **3.75 s per game** measured 2026-09-07, so 6000 games is **6.25 hours** and a 240-game smoke gauntlet is 15 minutes. Pricing one change per run is affordable; bundling changes to save a run is not a saving worth having |
 | Blocked on | nothing. The source review of 2026-10-07 finished on 2026-10-09 (section 27); its leftovers are in the table below |
 | Runs on | **host C (ARM, 8 cores)** since 2026-08-28 — resolve `<mm>` and rebuild the binaries there; nothing from host A or host B runs or transfers. Concurrency cap here is **5**, from `floor(nproc * 0.75) - 1` |
+| Build flags | **x86-64 builds use `-C target-cpu=x86-64-v3` since 2026-11-20** (`scripts/build_flags.sh`, ported from `feature/nnue-evaluation` v0.54.2-NNUE, as CI ships); about 16% less time to fixed depth than the build without `target-cpu` on an x86-64 host with 16 threads, ARM unchanged. Every engine in one run must be built alike: rebuild older tags with `scripts/rebuild_engines.sh`, which keeps the previous binary in `<mm>/engines/baseline-x86-64/`. Ported with it: PST sums tracked only while the classical evaluation reads them (NNUE `task.md` 6.1), which never switches off on `master` and leaves its tree unchanged |
 
 
 ### The next action

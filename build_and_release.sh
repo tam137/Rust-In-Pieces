@@ -26,6 +26,14 @@ if [ ! -f "$MM_ROOT/mm.sh" ]; then
 fi
 TARGET_DIR="$MM_ROOT/engines"
 
+# Build flags: x86-64-v3 on x86-64 as CI ships, none on ARM; override with SUPRAH_TARGET_CPU. The
+# tests and the release binary are built with the same flags. Opponents in <mm>/engines built
+# before this change are rebuilt with scripts/rebuild_engines.sh, or a match measures the flag.
+source scripts/build_flags.sh
+if ! suprah_apply_build_flags; then
+    exit 1
+fi
+
 # Step 1: Run all tests
 echo -e "\n${YELLOW}[1/6] Running tests...${NC}"
 cargo test
