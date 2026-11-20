@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.52.1] - 2026-11-20
+
+Two UCI options for analysis front ends, ported from v0.54.3-NNUE (`task.md` section 43). Both ship off,
+so play is unchanged: with both off the search is v0.52.0's tree node for node (14/14 positions).
+
+- **`TtCutPvGuard`** (check, default `false`): a Transposition Table entry no longer ends a node on the
+  principal variation. An entry holds one move and no line, so a table cutoff on the PV cut the reported
+  line short. With the guard the line at depth 16 averages **20.4 moves instead of 5.4** (minimum 8 instead
+  of 1) over the 14 positions of the new `scripts/measure_pv_length.py`; the corpus took about 45% longer
+  to depth 16 (measured with the cores busy). Every node off the PV cuts as before.
+- **`MultiPV`** (spin 1-10, default 1): each iteration reports the best `n` root moves as
+  `info depth <d> multipv <k> score ... pv ...`. Line 1 is the normal search and decides `bestmove`; line
+  `k` searches the root again without the first moves of lines 1 to `k - 1`. Lines 2 and up are sorted by
+  score, line 1 keeps rank 1. Further lines cost search time, so use it for analysis only, together with
+  `TtCutPvGuard` for full lines.
+- Smoke gauntlet at 1s + 100ms: 44.0% against v0.52.0 (below the 45% bar) and 50.5% against v0.51.0 over
+  100 games each; the follow-up direct match against v0.52.0 at 1s + 100ms: **+2.4 Elo, paired 95%
+  [-14.4, +19.2]** over 1,020 games, no time losses - no regression.
+
+
+
 ## [V0.52.0] - 2026-11-10
 
 - **History bonus and malus as tuned curves** (Matt-Magie steps 95 / 95b, `task.md` 42): new UCI options
