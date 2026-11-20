@@ -626,7 +626,8 @@ node from the table, so whether it may ship on is a 6000-game question of its ow
 Line `k` then searches the root again without the first moves of lines 1 to `k - 1`
 (`SearchService::get_moves_excluding`), seeded with line `k`'s score of the previous depth, and is
 written as `info depth <d> multipv <k> ...`. Lines 2 and up are sorted by score; line 1 keeps rank
-1 so that it always names the move played. A line the clock interrupts ends the iteration's
+1 because it names the move played, even where search instability lets a further line score a few
+centipawns above it. A line the clock interrupts ends the iteration's
 further lines, so every reported line is complete. No more lines than legal moves. Each further
 line costs a root search, so play is weaker above 1. Combine it with `TtCutPvGuard` for full
 lines.

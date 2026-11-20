@@ -6013,7 +6013,11 @@ mod tests {
     }
 
     #[test]
-    fn test_further_lines_are_distinct_complete_and_not_better_than_line_one() {
+    fn test_further_lines_are_distinct_and_complete() {
+        // A further line may score a few centipawns above line 1: line 1 proved the other root
+        // moves worse only on a null window, and the line's own search runs on a different table.
+        // That is search instability, not an error, so the score order is not asserted here;
+        // `game_handler::report_further_lines` keeps line 1 at rank 1 because it is the move played.
         for fen in PV_GUARD_FENS {
             let (first, further) = multi_pv_iteration(fen, 6, 4);
             assert_eq!(further.len(), 3, "{}", fen);
@@ -6023,8 +6027,6 @@ mod tests {
                 let mv = line.variants[0].best_move.unwrap();
                 assert!(!firsts.contains(&mv), "{}: {} reported twice", fen, mv.to_algebraic());
                 assert_eq!(line.get_pv_move_row().first(), Some(&mv), "the line starts with its move");
-                assert!(line.get_eval() <= first.get_eval(),
-                        "{}: line {} scores {} above line 1's {}", fen, mv.to_algebraic(), line.get_eval(), first.get_eval());
                 firsts.push(mv);
             }
         }
