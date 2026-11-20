@@ -2894,3 +2894,30 @@ generated moves; smoke gauntlet 54.0% / 59.5% / 92.0% against v0.51.0 / v0.50.2 
 hypotheses); no time loss. **Control at 10s + 100ms (section 4 of the measurement skill), 6000 games in two runs of
 3000 with rotated openings: +5.3 Elo [-1.5, +12.1]** (+2.5 and +8.1 per half) - the gain holds at ten times the
 time. The thresholds were what made the full SPSA set play even: they bought depth and gave it back in pruning.
+
+## 43. Analysis output: principal variation and MultiPV (2026-11-20)
+
+Two UCI options for analysis front ends, ported from `feature/nnue-evaluation` (its `task.md`
+section 8). Both ship off, and with both off the search is v0.52.0's tree node for node (14/14
+positions of `scripts/measure_throughput.py`).
+
+### 43.1 `TtCutPvGuard`: table cutoffs stay off the principal variation
+
+A Transposition Table entry holds a score and one move, not the line behind it, so a cutoff on a
+PV node ended the reported line after that move. With the guard a PV node keeps the entry's move
+for ordering but neither returns on the entry nor narrows its window with the entry's bound, in
+the main search and in the Quiescence Search; every other node cuts as before. HCE, depth 16, the
+14 positions of `scripts/measure_pv_length.py`: the line averages **5.4 moves** without the guard
+(minimum 1) and **20.4** with it (minimum 8); the corpus took 38.8 s instead of 26.9 s, measured
+with the cores busy, so indicative only. Unmeasured in games.
+
+### 43.2 `MultiPV`: the best `n` root moves, each with its score and line
+
+`MultiPV` 1 to 10, default 1. Line 1 is the iteration's normal search and decides `bestmove`.
+Line `k` searches the root again without the first moves of lines 1 to `k - 1`
+(`SearchService::get_moves_excluding`), seeded with line `k`'s score of the previous depth, and is
+written as `info depth <d> multipv <k> ...`. Lines 2 and up are sorted by score; line 1 keeps rank
+1 because it names the move played, even where search instability lets a further line score a few
+centipawns above it. A line the clock interrupts ends the iteration's further lines, so every
+reported line is complete. No more lines than legal moves. Each further line costs a root search,
+so play is weaker above 1. Combine it with `TtCutPvGuard` for full lines.
