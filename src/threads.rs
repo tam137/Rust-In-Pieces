@@ -73,6 +73,7 @@ pub fn uci_options(defaults: &Config) -> Vec<String> {
         format!("option name NmpPvGuard type check default {}", defaults.nmp_pv_guard),
         format!("option name NmpVerification type check default {}", defaults.nmp_verification),
         format!("option name RfpPvGuard type check default {}", defaults.rfp_pv_guard),
+        format!("option name TtCutPvGuard type check default {}", defaults.tt_cut_pv_guard),
         format!("option name RfpBeforeNmp type check default {}", defaults.rfp_before_nmp),
         format!("option name RootPvs type check default {}", defaults.root_pvs),
         format!("option name EnableLmp type check default {}", defaults.enable_lmp),

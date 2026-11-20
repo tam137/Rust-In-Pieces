@@ -806,7 +806,11 @@ impl SearchService {
                 // A verification search for Singular Extensions must not be answered out of the
                 // table: the entry describes this position *with* the excluded move in it, and
                 // returning it would hand back the very score the verification is trying to beat.
-                if excluded_move.is_none() && entry.depth as i32 >= depth {
+                //
+                // With `tt_cut_pv_guard` a PV node does not end on the entry either: the entry
+                // holds one move and no line, so the reported variation would stop here.
+                if excluded_move.is_none() && entry.depth as i32 >= depth
+                    && !(config.tt_cut_pv_guard && is_pv) {
                     let mut entry_eval = entry.eval;
                     // De-normalize mate score
                     if entry_eval > 30000 {
@@ -1143,7 +1147,8 @@ impl SearchService {
                     if entry.static_eval != crate::zobrist::NO_STATIC_EVAL {
                         node_static_eval = entry.static_eval;
                     }
-                    if entry.depth >= 0 {
+                    // `tt_cut_pv_guard`: a PV node searches its captures out, as in the main search.
+                    if entry.depth >= 0 && !(config.tt_cut_pv_guard && is_pv) {
                         let mut entry_eval = entry.eval;
                         // De-normalize mate score
                         if entry_eval > 30000 {
@@ -5813,5 +5818,75 @@ mod tests {
         let (four_move, four_score) = search_on_ways(SMOTHERED_MATE_FEN, 6, crate::zobrist::CLUSTER_SLOTS);
         assert_eq!(four_move, one_move);
         assert_eq!(four_score, one_score, "the mate score does not depend on where the table keeps entries");
+    }
+
+    // `task.md` 8.1: table cutoffs and the principal variation (`Config::tt_cut_pv_guard`).
+    // ---------------------------------------------------------------------------------------
+
+    const PV_GUARD_FENS: [&str; 2] = [
+        "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 9",
+        "2r2rk1/1bqnbppp/p2ppn2/1p6/3NP3/1BN1BP2/PPPQ2PP/2KR3R w - - 0 13",
+    ];
+
+    /// Iterative deepening to `max_depth` on one engine state, the table on and each iteration
+    /// seeded with the last score, as `game_handler` runs it. Returns the length of the reported
+    /// line at every depth and the nodes of the whole run.
+    fn iterate_pv_lengths(fen: &str, max_depth: i32, guard: bool) -> (Vec<usize>, usize) {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(fen);
+        let white = board.white_to_move;
+        let mut config = Config::for_tests();
+        config.use_zobrist = true;
+        config.tt_cut_pv_guard = guard;
+        let state = fresh_engine_state();
+        let mut prev = None;
+        let mut lengths = Vec::new();
+        let mut nodes = 0;
+        for depth in 2..=max_depth {
+            let mut stats = Stats::new();
+            let result = service.search.get_moves(&mut board, depth, white, &mut stats, &config,
+                &service, &state, std::time::Instant::now(), None, prev);
+            prev = Some(result.get_eval());
+            lengths.push(result.get_pv_move_row().len());
+            nodes += stats.calculated_nodes;
+        }
+        (lengths, nodes)
+    }
+
+    #[test]
+    fn test_the_tt_cut_pv_guard_reports_the_line_to_the_horizon() {
+        for fen in PV_GUARD_FENS {
+            let (cut, _) = iterate_pv_lengths(fen, 9, false);
+            let (guarded, _) = iterate_pv_lengths(fen, 9, true);
+            for (i, &len) in guarded.iter().enumerate() {
+                let depth = i + 2;
+                assert!(len >= depth - 1,
+                        "{}: with the guard the line at depth {} has {} moves ({:?})", fen, depth, len, guarded);
+            }
+            assert!(cut.iter().sum::<usize>() < guarded.iter().sum::<usize>(),
+                    "{}: without the guard table cutoffs shorten the line ({:?} vs {:?})", fen, cut, guarded);
+        }
+    }
+
+    #[test]
+    fn test_the_tt_cut_pv_guard_leaves_the_cutoffs_off_the_variation() {
+        // Only the few PV nodes lose their cutoffs, so the tree grows a little and not by the
+        // table's whole saving, which is a multiple of the tree.
+        for fen in PV_GUARD_FENS {
+            let (_, cut) = iterate_pv_lengths(fen, 9, false);
+            let (_, guarded) = iterate_pv_lengths(fen, 9, true);
+            assert!(guarded < cut * 3 / 2, "{}: {} nodes guarded against {} unguarded", fen, guarded, cut);
+        }
+    }
+
+    #[test]
+    fn test_without_the_tt_cut_pv_guard_the_tree_is_unchanged() {
+        // The switch costs one flag test where an entry is deep enough: off, the tree is the
+        // default tree node for node.
+        for fen in PV_GUARD_FENS {
+            let default_run = iterate_pv_lengths(fen, 8, Config::for_tests().tt_cut_pv_guard);
+            let off = iterate_pv_lengths(fen, 8, false);
+            assert_eq!(default_run, off, "{}", fen);
+        }
     }
 }
