@@ -113,12 +113,33 @@ def counts_nodes_from_go(engine_id):
     return version >= ((0, 54, 5) if "NNUE" in engine_id.upper() else (0, 52, 3))
 
 
+def counts_visited_nodes(engine_id):
+    """Whether an engine's `nodes` counts visited positions rather than generated moves.
+
+    Suprah counted generated moves up to v0.54.6-NNUE and v0.52.4, about six times the positions
+    it visits, and counts visited positions - every move played in the main and the Quiescence
+    Search, as other engines count - since v0.54.7-NNUE and v0.52.5. The two cannot be converted
+    into each other, so node counts of builds on either side of the change are not comparable. An
+    engine this cannot place is taken to count visited positions.
+    """
+    match = _VERSION.search(engine_id or "")
+    if not match:
+        return True
+    version = tuple(int(part) for part in match.groups())
+    return version >= ((0, 54, 7) if "NNUE" in engine_id.upper() else (0, 52, 5))
+
+
+def node_unit(engine_id):
+    """`visited` or `generated`, the unit of an engine's `nodes` (`counts_visited_nodes`)."""
+    return "visited" if counts_visited_nodes(engine_id) else "generated"
+
+
 def nodes_from_go(result):
     """The nodes a search reported up to its last completed iteration, counted from `go`.
 
-    The same quantity for every Suprah version: the last `nodes` of an engine that counts from
-    `go`, the sum over the iterations of one that counted each on its own. Generated moves, not
-    searched nodes (`task.md` rule 4).
+    The same count for every Suprah version: the last `nodes` of an engine that counts from `go`,
+    the sum over the iterations of one that counted each on its own. The unit is `node_unit`:
+    generated moves up to v0.54.6-NNUE / v0.52.4, visited positions since (`task.md` rule 4).
     """
     values = [int(dict(entry)["nodes"]) for entry in result.info_signature if "nodes" in dict(entry)]
     if not values:

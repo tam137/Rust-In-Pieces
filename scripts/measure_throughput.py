@@ -118,7 +118,7 @@ def main():
           f"(cost-weighted, so the sub-10 ms positions cannot dominate it)")
     print(f"Faster         {faster} of {len(POSITIONS)} positions")
     print(f"Tree identity  {'14/14 identical' if identical else 'NOT IDENTICAL'} "
-          f"(depth, score and pv per iteration; `nodes` is excluded, it counts generated moves)"
+          f"(depth, score and pv per iteration; `nodes` is excluded, its unit changed in v0.54.7-NNUE)"
           .replace("14/14", f"{len(POSITIONS)}/{len(POSITIONS)}"))
     print()
     return 0 if identical else 1

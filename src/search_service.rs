@@ -489,7 +489,8 @@ impl SearchService {
     /// at the first line the clock interrupts or that has no move left, so every line returned is
     /// complete. Each comes with its own statistics. `on_line` sees every line searched, as soon as
     /// it ends, with its statistics and whether it completed, so the caller can report the ranking
-    /// line by line and count the nodes of an interrupted one too.
+    /// line by line and count the nodes of an interrupted one too. `node_budget` is what `go nodes`
+    /// leaves for all of them together, in visited positions.
     pub fn get_further_lines(
         &self,
         board: &mut Board,
@@ -503,7 +504,9 @@ impl SearchService {
         start_time: std::time::Instant,
         target_time: Option<i32>,
         on_line: &mut dyn FnMut(&SearchResult, &Stats, bool),
+        node_budget: Option<usize>,
     ) -> Vec<(SearchResult, Stats)> {
+        let mut visited = 0;
         let white = board.white_to_move;
         let mut excluded: Vec<Turn> = first.variants.first().and_then(|v| v.best_move).into_iter().collect();
         let mut further = Vec::new();
@@ -511,12 +514,16 @@ impl SearchService {
             if excluded.len() < k {
                 break;
             }
-            let mut stats = Stats::default();
+            let mut stats = Stats {
+                node_limit: node_budget.map(|budget| budget.saturating_sub(visited)),
+                ..Stats::default()
+            };
             let seed = prev_scores.get(k).copied().flatten();
             let result = self.get_moves_excluding(board, depth, white, &mut stats, config, service,
                 engine_state, start_time, target_time, seed, &excluded);
             let best = result.variants.first().and_then(|v| v.best_move);
             let complete = result.completed && best.is_some();
+            visited += stats.calculated_nodes;
             on_line(&result, &stats, complete);
             let Some(best) = best.filter(|_| complete) else { break };
             excluded.push(best);
@@ -1386,7 +1393,8 @@ impl SearchService {
                 }
 
                 if stats.calculated_nodes & 1023 == 0
-                    && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                    && (context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                        || stats.past_node_limit())
                 {
                     context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -1643,7 +1651,8 @@ impl SearchService {
                 };
 
             if stats.calculated_nodes & 1023 == 0
-                && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                && (context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                    || stats.past_node_limit())
             {
                 context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             }
@@ -2280,7 +2289,8 @@ impl SearchService {
             }
 
             if stats.calculated_nodes & 1023 == 0
-                && context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                && (context.out_of_time(context.root_moves_searched, context.root_moves_total)
+                    || stats.past_node_limit())
             {
                 context.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             }
@@ -6012,7 +6022,7 @@ mod tests {
         let mut reported = 0;
         let further = service.search.get_further_lines(&mut board, depth, lines, &first, &[],
             &config, &service, &state, std::time::Instant::now(), None,
-            &mut |_, _, complete| if complete { reported += 1 });
+            &mut |_, _, complete| if complete { reported += 1 }, None);
         assert_eq!(reported, further.len(), "every returned line was reported as it completed");
         assert_eq!(service.fen.get_fen(&board), fen, "the lines leave the board as they found it");
         (first, further.into_iter().map(|(result, _)| result).collect())
@@ -6043,5 +6053,35 @@ mod tests {
         // White has two legal moves, Ka2 and Kb1.
         let (_, further) = multi_pv_iteration("7r/8/8/8/8/2k5/8/K7 w - - 0 1", 5, 5);
         assert_eq!(further.len(), 1);
+    }
+
+    // UCI `go nodes` (`Stats::node_limit`).
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn test_a_node_limit_stops_the_search_where_the_clock_would() {
+        let service = Service::new();
+        let mut board = service.fen.set_fen(PV_GUARD_FENS[0]);
+        let white = board.white_to_move;
+        let config = Config::for_tests();
+        let state = fresh_engine_state();
+        let mut stats = Stats { node_limit: Some(5000), ..Stats::new() };
+        let result = service.search.get_moves(&mut board, 30, white, &mut stats, &config, &service,
+            &state, std::time::Instant::now(), None, None);
+        assert!(!result.completed, "a depth-30 search cannot finish in 5000 positions");
+        assert!(stats.calculated_nodes >= 5000 && stats.calculated_nodes < 5000 + 2048,
+                "checked every 1024 positions, stopped after {}", stats.calculated_nodes);
+    }
+
+    #[test]
+    fn test_without_a_node_limit_nothing_stops_early() {
+        let mut stats = Stats::new();
+        stats.calculated_nodes = usize::MAX;
+        assert!(!stats.past_node_limit());
+        stats.node_limit = Some(10);
+        stats.calculated_nodes = 9;
+        assert!(!stats.past_node_limit());
+        stats.calculated_nodes = 10;
+        assert!(stats.past_node_limit());
     }
 }

@@ -37,7 +37,9 @@ pub struct DatagenConfig {
     pub out: String,
     pub games: u64,
     pub seed: u64,
-    /// Soft node limit per move.
+    /// Soft node limit per move, in visited positions (`Stats::calculated_nodes`, every move played
+    /// in the main and the Quiescence Search); until v0.54.6-NNUE in generated moves, about six
+    /// times as many, so the same 5000 now search about six times as much per move.
     pub nodes: u64,
     pub random_plies_min: u32,
     pub random_plies_max: u32,
@@ -109,7 +111,7 @@ Options:
   --out <FILE>            Output file, appended to
   --games <N>             Games to play [default: 1000000]
   --seed <N>              Random seed; equal seeds give equal data [default: 1]
-  --nodes <N>             Soft node limit per move [default: 5000]
+  --nodes <N>             Soft limit per move, in visited positions [default: 5000]
   --random-plies <A-B>    Range of opening plies [default: 8-12]
   --random-prob <P>       Percent of opening plies played at random [default: 50]
   --opening-limit <CP>    Drop games with |score| above this after the opening [default: 400]
@@ -539,7 +541,7 @@ impl Generator {
                 prev_score = Some(result.get_eval());
                 best = Some((turn, result.get_eval()));
             }
-            nodes += stats.created_nodes as u64;
+            nodes += stats.calculated_nodes as u64;
             if nodes >= self.cfg.nodes {
                 break;
             }

@@ -263,6 +263,8 @@ pub struct TimeInfo {
     pub time_mode: TimeMode,
     /// `go ponder`: search the position after the expected reply until `ponderhit` or `stop`.
     pub ponder: bool,
+    /// `go nodes`: the visited positions the whole `go` may search; 0 sets no limit.
+    pub nodes: usize,
 }
 
 
@@ -1440,6 +1442,9 @@ pub struct Stats {
     /// UCI `hashfull` of the table when the line is written (Matt-Magie step 81).
     pub hashfull: u16,
     pub logging: Vec<String>,
+    /// UCI `go nodes`: the search stops once `calculated_nodes` reaches this many visited
+    /// positions, checked where the clock is checked. `None` sets no limit.
+    pub node_limit: Option<usize>,
 }
 
 impl Stats {
@@ -1458,7 +1463,14 @@ impl Stats {
             nodes_per_ms: 0,
             hashfull: 0,
             logging: Vec::default(),
+            node_limit: None,
          }
+    }
+
+    /// Whether the search has visited as many positions as `go nodes` allows.
+    #[inline(always)]
+    pub fn past_node_limit(&self) -> bool {
+        self.node_limit.is_some_and(|limit| self.calculated_nodes >= limit)
     }
 
     pub fn add_log(&mut self, msg: String) {

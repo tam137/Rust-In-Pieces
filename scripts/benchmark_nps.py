@@ -74,10 +74,12 @@ echo "quit"
         total_nodes = sum(node_values)
     max_nps = total_nodes * 1000 // max(calc_time_ms, 1) if total_nodes else 0
 
-    return max_nps, total_nodes, calc_time_ms
+    return max_nps, total_nodes, calc_time_ms, uci_driver.node_unit(engine_id)
 
 def benchmark_tags(tags, depth, baseline_tag):
     results = {}
+    # `nodes` counts generated moves up to v0.54.6-NNUE / v0.52.4 and visited positions since.
+    units = set()
     current_branch = subprocess.check_output(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], 
         cwd=PROJECT_ROOT, 
@@ -102,7 +104,8 @@ def benchmark_tags(tags, depth, baseline_tag):
 
         tag_pos_results = {}
         for pos_name, fen in DEFAULT_POSITIONS:
-            nps, nodes, t_ms = run_single_search(binary_path, fen, depth)
+            nps, nodes, t_ms, unit = run_single_search(binary_path, fen, depth)
+            units.add(unit)
             tag_pos_results[pos_name] = {
                 "nps": nps,
                 "nodes": nodes,
@@ -118,6 +121,10 @@ def benchmark_tags(tags, depth, baseline_tag):
             "avg_nps": avg_nps,
             "peak_nps": peak_nps
         }
+
+    if len(units) > 1:
+        print("WARNING: the tags count `nodes` in different units (generated moves against visited "
+              "positions); their nps are not comparable. Compare wall time to a fixed depth instead.")
 
     # Restore initial branch
     print(f"\nRestoring workspace to branch '{current_branch}'...")
