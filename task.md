@@ -2929,5 +2929,8 @@ already shows, so no move appears twice. Every line's `nodes` and `time` count f
 neither falls from one line to the next (both reported by the first front end that used it); since
 v0.52.3 that holds with one line too, so `nps` is right there as well, and the full ranking is written
 as soon as line 1 of a depth completes and again after every further line, the ranks not yet searched
-filled from the last depth, so no snapshot of the output shows a move twice. No more lines than legal moves. Each further line costs a root search,
+filled from the last depth, so no snapshot of the output shows a move twice. Since v0.52.4 the last `info`
+before `bestmove` always names the move played: a move an interrupted iteration proved better than
+the last completed one (`proven_better_while_interrupted`) is written at rank 1 with its interrupted
+depth and its score marked `lowerbound`; before, it went to the log only. No more lines than legal moves. Each further line costs a root search,
 so play is weaker above 1. Combine it with `TtCutPvGuard` for full lines.

@@ -1526,6 +1526,9 @@ pub struct SearchResult {
     /// The rank of this line under UCI `MultiPV` (`task.md` 43.2), written into `info` as
     /// `multipv <n>`; 0 leaves the field out, which is the output of a single-line search.
     pub multipv: u8,
+    /// The score is a lower bound for the side to move, written as `lowerbound` after it: a move
+    /// an interrupted iteration proved better than the last completed one (`task.md` 43.2).
+    pub lower_bound: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1550,6 +1553,7 @@ impl SearchResult {
             window_alpha: i16::MIN,
             window_beta: i16::MAX,
             multipv: 0,
+            lower_bound: false,
         }
     }
 
