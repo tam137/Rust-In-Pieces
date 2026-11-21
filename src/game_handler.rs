@@ -325,6 +325,10 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                         search_result.get_best_move_algebraic(),
                                         previous_best.to_algebraic()
                                     )).ok();
+                                    // The move played is reported before `bestmove`, so the last
+                                    // `info` always names it (`task.md` 8.2).
+                                    report_lines(service, &interrupted_ranking(&search_result, &ranked_lines, lines),
+                                        &since_go(&stats, go_nodes, go_start_time));
                                     best_result = Some(search_result.clone());
                                 }
                             }
@@ -447,6 +451,20 @@ fn rank_lines(current: &[SearchResult], previous: &[SearchResult], lines: usize)
         line.multipv = (rank + 1) as u8;
     }
     ranked
+}
+
+/// What is written when an interrupted iteration proved a move better than the last completed
+/// one and that move is played (`proven_better_while_interrupted`): the move at rank 1 with its
+/// interrupted depth and its score marked `lowerbound`, since the depth did not finish, followed
+/// under `MultiPV` by the last ranking without that move. With one line `multipv` stays unset.
+fn interrupted_ranking(interrupted: &SearchResult, ranked: &[SearchResult], lines: usize) -> Vec<SearchResult> {
+    let mut proven = interrupted.clone();
+    proven.lower_bound = true;
+    if lines <= 1 {
+        proven.multipv = 0;
+        return vec![proven];
+    }
+    rank_lines(&[proven], ranked, lines)
 }
 
 /// Writes a `MultiPV` ranking, one `info ... multipv <n>` per line, all with the same `stats`.
@@ -710,6 +728,20 @@ mod tests {
         let depth8 = super::rank_lines(&[line(8, a, 30), line(8, b, 20), line(8, c, 10)], &[], 3);
         let interim = super::rank_lines(&[line(9, b, 33)], &depth8, 3);
         assert_eq!(first_moves(&interim), vec![(9, 1, Some(b)), (8, 2, Some(a)), (8, 3, Some(c))]);
+    }
+
+    #[test]
+    fn test_a_move_proven_while_interrupted_is_reported_at_rank_one_as_a_lower_bound() {
+        let (a, b, c) = ((12, 28), (11, 27), (6, 21));
+        // One line: just the move played, without `multipv`.
+        let single = super::interrupted_ranking(&line(16, b, 54), &[], 1);
+        assert_eq!(first_moves(&single), vec![(16, 0, Some(b))]);
+        assert!(single[0].lower_bound);
+        // MultiPV: the proven move on top, the last ranking below it without that move.
+        let depth15 = super::rank_lines(&[line(15, a, 53), line(15, b, 40), line(15, c, 30)], &[], 3);
+        let ranked = super::interrupted_ranking(&line(16, b, 54), &depth15, 3);
+        assert_eq!(first_moves(&ranked), vec![(16, 1, Some(b)), (15, 2, Some(a)), (15, 3, Some(c))]);
+        assert!(ranked[0].lower_bound && !ranked[1].lower_bound && !ranked[2].lower_bound);
     }
 
     #[test]

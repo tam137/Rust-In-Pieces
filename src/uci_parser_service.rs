@@ -167,10 +167,12 @@ impl UciParserService {
         } else {
             String::new()
         };
-        format!("info depth {}{} score {} time {} nodes {} nps {} hashfull {} pv {}",
+        let bound = if search_result.lower_bound { " lowerbound" } else { "" };
+        format!("info depth {}{} score {}{} time {} nodes {} nps {} hashfull {} pv {}",
             search_result.calculated_depth,
             multipv,
             self.format_score(cp),
+            bound,
             stats.calc_time_ms,
             stats.created_nodes,
             stats.created_nodes * 1000 / stats.calc_time_ms.max(1),
@@ -196,6 +198,19 @@ mod tests {
         assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 score "));
         result.multipv = 2;
         assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 multipv 2 score "));
+    }
+
+    /// `task.md` 8.2: a lower bound is marked as UCI marks it, right after the score.
+    #[test]
+    fn test_info_marks_a_lower_bound_after_the_score() {
+        let parser = UciParserService {};
+        let mut result = SearchResult::default();
+        result.calculated_depth = 16;
+        result.is_white_move = true;
+        let stats = Stats::default();
+        assert!(!parser.get_info_str(&result, &stats).contains("bound"));
+        result.lower_bound = true;
+        assert!(parser.get_info_str(&result, &stats).starts_with("info depth 16 score cp 0 lowerbound time "));
     }
 
     #[test]

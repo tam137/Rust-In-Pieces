@@ -639,6 +639,10 @@ front end that used it; a line's own search counted only its own nodes, and its 
 its best move last changed). Since v0.54.5-NNUE that holds with one line too, so `nps` is right
 there as well, and the full ranking is written as soon as line 1 of a depth completes and again
 after every further line, the ranks not yet searched filled from the last depth: no snapshot of
-the output ever shows a move twice, and the alternatives appear as they finish. No more lines than legal moves. Each further
+the output ever shows a move twice, and the alternatives appear as they finish. Since v0.54.6-NNUE the last
+`info` before `bestmove` always names the move played: when an interrupted iteration proved a move
+better than the last completed one and that move is played (`proven_better_while_interrupted`), it
+is written at rank 1 with its interrupted depth and its score marked `lowerbound`, before, it went
+to the log only and `bestmove` could name a move no `info` had shown. No more lines than legal moves. Each further
 line costs a root search, so play is weaker above 1. Combine it with `TtCutPvGuard` for full
 lines.
