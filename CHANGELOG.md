@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.54.4-NNUE] - 2026-11-21
+
+Output fixes for `MultiPV`, reported by the first analysis front end that used it. The search is unchanged
+(14/14 identical trees against v0.54.3-NNUE); a single-line search prints what it printed before.
+
+- **No move twice when the clock cuts a depth short.** A depth interrupted after rank 2 printed ranks 1 and 2,
+  and rank 3 still showed the previous depth's line - whose move could by then be rank 2. The ranks a cut depth
+  leaves empty are now filled with the lines of the last depth that reported, with their own `depth` and
+  skipping every move the cut depth already shows.
+- **`nodes` and `time` count from `go` on every `MultiPV` line**, so neither falls from one line to the next
+  and `nps` is meaningful. A line's own search counted only its own nodes, and its `time` was when its best
+  move last changed (rank 3 could report 187 ms after rank 2's 226 ms).
+- Only `src/game_handler.rs` changed, so no smoke gauntlet was required.
+
+
+
 ## [V0.54.3-NNUE] - 2026-11-20
 
 Two UCI options for analysis front ends (`task.md` section 8). Both ship off, so play is unchanged: with
