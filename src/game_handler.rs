@@ -221,7 +221,11 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                         // `MultiPV` (`task.md` 43.2): the score of every line at the last completed
                         // depth, by rank, to seed each line's aspiration window at the next.
                         let lines = active_config.multi_pv.min(valid_moves.len);
-                        let mut line_scores: Vec<Option<i16>> = Vec::new();
+                        // The lines of the last depth that reported, by rank: they fill the ranks a
+                        // depth the clock cuts short leaves empty. And the nodes since `go`, so that a
+                        // line's `nodes`, `time` and `nps` never fall from one line to the next.
+                        let mut ranked_lines: Vec<SearchResult> = Vec::new();
+                        let mut go_nodes: usize = 0;
 
 
                         for depth in 2..=max_depth {
@@ -246,6 +250,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 Some(my_thinking_time as i32),
                                 prev_score,
                             );
+                            go_nodes += stats.created_nodes;
 
                             if search_result.completed {
                                 prev_score = Some(search_result.get_eval());
@@ -253,12 +258,20 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 if lines > 1 {
                                     let mut ranked = search_result.clone();
                                     ranked.multipv = 1;
-                                    service.stdout.write(&service.uci_parser.get_info_str(&ranked, &stats));
+                                    service.stdout.write(&service.uci_parser.get_info_str(
+                                        &ranked, &since_go(&stats, go_nodes, go_start_time)));
+                                    let line_scores: Vec<Option<i16>> = ranked_lines.iter().map(|line| Some(line.get_eval())).collect();
                                     let further = service.search.get_further_lines(
                                         &mut game.board, depth, lines, &search_result, &line_scores,
                                         &active_config, service, &engine_state, go_start_time,
                                         Some(my_thinking_time as i32));
-                                    line_scores = report_further_lines(service, search_result.get_eval(), is_white, further);
+                                    go_nodes += further.iter().map(|(_, line_stats)| line_stats.created_nodes).sum::<usize>();
+                                    let further: Vec<SearchResult> = further.into_iter().map(|(line, _)| line).collect();
+                                    ranked_lines = rank_lines(&search_result, further, &ranked_lines, lines);
+                                    let info_stats = since_go(&stats, go_nodes, go_start_time);
+                                    for line in &ranked_lines[1..] {
+                                        service.stdout.write(&service.uci_parser.get_info_str(line, &info_stats));
+                                    }
                                 } else {
                                     service.stdout.write(&service.uci_parser.get_info_str(&search_result, &stats));
                                 }
@@ -398,20 +411,45 @@ fn proven_better_while_interrupted(previous_best: &crate::model::Turn, result: &
     }
 }
 
-/// Writes the further `MultiPV` lines of an iteration (`task.md` 43.2) as `info ... multipv <n>`,
-/// best first for the side to move, after line 1, which is the iteration's normal search and keeps
-/// rank 1 so that it always names the move `bestmove` plays. Returns the scores of all lines by
-/// rank, line 1 first, to seed the next depth.
-fn report_further_lines(service: &Service, first_score: i16, white: bool,
-                        mut further: Vec<(SearchResult, Stats)>) -> Vec<Option<i16>> {
-    further.sort_by_key(|(result, _)| if white { -(result.get_eval() as i32) } else { result.get_eval() as i32 });
-    let mut scores = vec![Some(first_score)];
-    for (rank, (mut result, stats)) in further.into_iter().enumerate() {
-        result.multipv = (rank + 2) as u8;
-        service.stdout.write(&service.uci_parser.get_info_str(&result, &stats));
-        scores.push(Some(result.get_eval()));
+/// The `MultiPV` lines of an iteration by rank (`task.md` 43.2), each with its `multipv` set.
+///
+/// Line 1 is the iteration's normal search and keeps rank 1, so that it always names the move
+/// `bestmove` plays. The further lines of this depth follow, best first for the side to move. When
+/// the clock cut the depth short, the ranks it left empty are filled from `previous`, the lines of
+/// the last depth that reported, in their order and with their own depth, skipping every move this
+/// depth already shows: each move appears once, as the latest depth that searched it reports it.
+fn rank_lines(first: &SearchResult, mut further: Vec<SearchResult>, previous: &[SearchResult],
+              lines: usize) -> Vec<SearchResult> {
+    let white = first.is_white_move;
+    further.sort_by_key(|line| if white { -(line.get_eval() as i32) } else { line.get_eval() as i32 });
+    let mut ranked = Vec::with_capacity(lines);
+    ranked.push(first.clone());
+    ranked.extend(further);
+    for line in previous {
+        if ranked.len() >= lines {
+            break;
+        }
+        let first_move = line.variants.first().and_then(|v| v.best_move);
+        let shown = ranked.iter().any(|r| r.variants.first().and_then(|v| v.best_move) == first_move);
+        if first_move.is_some() && !shown {
+            ranked.push(line.clone());
+        }
     }
-    scores
+    ranked.truncate(lines);
+    for (rank, line) in ranked.iter_mut().enumerate() {
+        line.multipv = (rank + 1) as u8;
+    }
+    ranked
+}
+
+/// `stats` with the nodes and the time since `go`, for a `MultiPV` line's `info`: a line's own
+/// search counts only its own nodes, and its time is when its best move last changed, so both
+/// would fall from one line to the next.
+fn since_go(stats: &Stats, go_nodes: usize, go_start_time: std::time::Instant) -> Stats {
+    let mut since = stats.clone();
+    since.created_nodes = go_nodes;
+    since.calc_time_ms = go_start_time.elapsed().as_millis() as usize;
+    since
 }
 
 /// Whether a mate score has been proven inside the completed depth, which is when iterative
@@ -602,6 +640,55 @@ mod tests {
             });
         }
         result
+    }
+
+    /// A `MultiPV` line for `rank_lines`: its depth, first move and score.
+    fn line(depth: i32, mv: (u8, u8), eval: i16) -> crate::model::SearchResult {
+        let mut result = pass(true, (i16::MIN, i16::MAX), &[(mv, eval)]);
+        result.calculated_depth = depth;
+        result
+    }
+
+    fn first_moves(lines: &[crate::model::SearchResult]) -> Vec<(i32, u8, Option<(u8, u8)>)> {
+        lines.iter().map(|l| (l.calculated_depth, l.multipv,
+            l.variants[0].best_move.map(|t| (t.from, t.to)))).collect()
+    }
+
+    #[test]
+    fn test_rank_lines_keeps_line_one_first_and_sorts_the_rest() {
+        let (a, b, c) = ((12, 28), (6, 21), (11, 27));
+        let ranked = super::rank_lines(&line(8, a, 30), vec![line(8, b, 10), line(8, c, 20)], &[], 3);
+        assert_eq!(first_moves(&ranked), vec![(8, 1, Some(a)), (8, 2, Some(c)), (8, 3, Some(b))]);
+    }
+
+    #[test]
+    fn test_rank_lines_fills_a_cut_depth_from_the_last_one_without_repeating_a_move() {
+        // Depth 9 was cut after rank 2: b moved up from rank 3 at depth 8 to rank 2 at depth 9.
+        // Rank 3 is filled with c from depth 8, not with b, which depth 9 already shows.
+        let (a, b, c) = ((12, 28), (6, 21), (11, 27));
+        let depth8 = super::rank_lines(&line(8, a, 30), vec![line(8, c, 20), line(8, b, 10)], &[], 3);
+        let depth9 = super::rank_lines(&line(9, a, 31), vec![line(9, b, 25)], &depth8, 3);
+        assert_eq!(first_moves(&depth9), vec![(9, 1, Some(a)), (9, 2, Some(b)), (8, 3, Some(c))]);
+    }
+
+    #[test]
+    fn test_rank_lines_never_reports_more_lines_than_asked_or_known() {
+        let (a, b) = ((12, 28), (6, 21));
+        let ranked = super::rank_lines(&line(5, a, 30), vec![line(5, b, 10)], &[], 4);
+        assert_eq!(ranked.len(), 2);
+        let ranked = super::rank_lines(&line(5, a, 30), vec![line(5, b, 10)], &[], 1);
+        assert_eq!(first_moves(&ranked), vec![(5, 1, Some(a))]);
+    }
+
+    #[test]
+    fn test_multi_pv_info_counts_nodes_and_time_since_go() {
+        let mut stats = crate::model::Stats::default();
+        stats.created_nodes = 7;
+        stats.calc_time_ms = 3;
+        let start = std::time::Instant::now() - std::time::Duration::from_millis(250);
+        let since = super::since_go(&stats, 1000, start);
+        assert_eq!(since.created_nodes, 1000);
+        assert!(since.calc_time_ms >= 250);
     }
 
     #[test]

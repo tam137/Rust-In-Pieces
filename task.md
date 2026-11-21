@@ -2919,5 +2919,8 @@ Line `k` searches the root again without the first moves of lines 1 to `k - 1`
 written as `info depth <d> multipv <k> ...`. Lines 2 and up are sorted by score; line 1 keeps rank
 1 because it names the move played, even where search instability lets a further line score a few
 centipawns above it. A line the clock interrupts ends the iteration's further lines, so every
-reported line is complete. No more lines than legal moves. Each further line costs a root search,
+reported line is complete; since v0.52.2 the ranks such a cut depth leaves empty are filled with the
+lines of the last depth that reported, with their own depth and without a move the cut depth
+already shows, so no move appears twice. Every line's `nodes` and `time` count from `go`, so
+neither falls from one line to the next (both reported by the first front end that used it). No more lines than legal moves. Each further line costs a root search,
 so play is weaker above 1. Combine it with `TtCutPvGuard` for full lines.
