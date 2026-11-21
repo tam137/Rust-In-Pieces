@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.52.5] - 2026-11-21
+
+Node counting and `go nodes`, ported from v0.54.7-NNUE. The search is unchanged (14/14 identical trees against
+v0.52.4).
+
+- **`nodes` and `nps` count visited positions**, every move played in the main and the Quiescence Search, as other
+  engines count. They counted generated moves before, about six times as many and moved by any change to move
+  generation. The two units cannot be converted; `scripts/uci_driver.py` (`node_unit`) makes `measure_tree_size.py`,
+  `measure_throughput.py` and `benchmark_nps.py` flag a node comparison across the change.
+- **`go nodes <n>`** is honoured: the search stops once the whole `go` has visited `n` positions, checked every
+  1024 positions where the clock is checked, and plays the last completed depth's move. With `MultiPV` the budget
+  covers all lines together.
+- **`datagen --nodes` counts visited positions too**, default 5000 unchanged, so it now searches about six times as
+  much per move.
+- Smoke gauntlet at 1s + 100ms: 42.5% against v0.52.4 (below the 45% bar) and 50.0% against v0.52.3 over 100 games
+  each; the follow-up direct match against v0.52.4 at 1s + 100ms: **-3.4 Elo, paired 95% [-20.7, +13.9]** over
+  1,025 games, no time losses - no regression.
+
+
+
 ## [V0.52.4] - 2026-11-21
 
 UCI output fix, from the third round of feedback by the first analysis front end. The search and the move
