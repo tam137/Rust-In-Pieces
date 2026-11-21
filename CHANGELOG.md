@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.52.4] - 2026-11-21
+
+UCI output fix, from the third round of feedback by the first analysis front end. The search and the move
+played are unchanged (14/14 identical trees against v0.52.3).
+
+- **The last `info` before `bestmove` always names the move played.** When the clock interrupts an iteration
+  that has already proven a move better than the last completed one, that move is played
+  (`proven_better_while_interrupted`, R19), but it went to the log only: `bestmove` could name a move no
+  `info` had shown (start position, `TtCutPvGuard` on, 2-2.5 s: last `info` e2e4 at depth 15, `bestmove d2d4`).
+  It is now written before `bestmove` at rank 1, with its interrupted depth and its score marked
+  `lowerbound`, as UCI marks a bound; under `MultiPV` the last ranking follows without that move.
+- Only `src/game_handler.rs`, `src/model.rs` and `src/uci_parser_service.rs` changed, so no smoke gauntlet
+  was required.
+
+
+
 ## [V0.52.3] - 2026-11-21
 
 `MultiPV` ranking and UCI counters, from the second round of feedback by the first analysis front end. The
