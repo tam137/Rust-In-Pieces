@@ -79,7 +79,8 @@ def main():
                 base.new_game()
                 base_result = base.search(moves, args.depth)
 
-            if base_result.info_signature == cand_result.info_signature:
+            if uci_driver.strip_nodes(base_result.info_signature) == \
+                    uci_driver.strip_nodes(cand_result.info_signature):
                 identical += 1
             base_times.append(base_result.time_ms)
             cand_times.append(cand_result.time_ms)
@@ -109,11 +110,8 @@ def pct(base, cand):
 
 
 def node_count(result):
-    for key, value in (result.info_signature[-1] if result.info_signature else ()):
-        if key == "nodes":
-            return int(value)
-    return 0
-
+    """Generated moves to the fixed depth, counted from `go` for old and new builds alike."""
+    return uci_driver.nodes_from_go(result)
 
 if __name__ == "__main__":
     sys.exit(main())

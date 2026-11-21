@@ -6,6 +6,8 @@ import sys
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+import uci_driver  # noqa: E402
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 DEFAULT_POSITIONS = [
@@ -41,29 +43,37 @@ echo "quit"
     except subprocess.TimeoutExpired:
         stdout = ""
 
-    max_nps = 0
-    total_nodes = 0
+    # `nodes` counts from `go` since v0.54.5-NNUE / v0.52.3 and per iteration before, so the total
+    # is normalised by `uci_driver.counts_nodes_from_go` and `nps` derived from it: an older
+    # build's own `nps` divided one iteration's nodes by the time since `go`. Generated moves, not
+    # searched nodes, either way (`task.md` rule 4).
+    engine_id = ""
+    node_values = []
     calc_time_ms = 0
-    
+
     for line in stdout.splitlines():
+        if line.startswith("id name "):
+            engine_id = line[len("id name "):].strip()
         if line.startswith("info") and "depth" in line:
             tokens = line.split()
             try:
-                if "nps" in tokens:
-                    nps_val = int(tokens[tokens.index("nps") + 1])
-                    if nps_val > max_nps:
-                        max_nps = nps_val
                 if "nodes" in tokens:
-                    nodes_val = int(tokens[tokens.index("nodes") + 1])
-                    if nodes_val > total_nodes:
-                        total_nodes = nodes_val
+                    node_values.append(int(tokens[tokens.index("nodes") + 1]))
                 if "time" in tokens:
                     time_val = int(tokens[tokens.index("time") + 1])
                     if time_val > calc_time_ms:
                         calc_time_ms = time_val
             except (ValueError, IndexError):
                 pass
-                
+
+    if not node_values:
+        total_nodes = 0
+    elif uci_driver.counts_nodes_from_go(engine_id):
+        total_nodes = node_values[-1]
+    else:
+        total_nodes = sum(node_values)
+    max_nps = total_nodes * 1000 // max(calc_time_ms, 1) if total_nodes else 0
+
     return max_nps, total_nodes, calc_time_ms
 
 def benchmark_tags(tags, depth, baseline_tag):

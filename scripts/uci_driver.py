@@ -14,21 +14,23 @@ used: it is the time of the last change of the best root move, not of the finish
 and reads as little as half the real time to depth when the first root move stays best.
 """
 import os
+import re
 import subprocess
 import tempfile
 import time
 
 
 class SearchResult:
-    __slots__ = ("depth", "score", "best_move", "time_ms", "stderr", "info_signature")
+    __slots__ = ("depth", "score", "best_move", "time_ms", "stderr", "info_signature", "engine_id")
 
-    def __init__(self, depth, score, best_move, time_ms, stderr, info_signature):
+    def __init__(self, depth, score, best_move, time_ms, stderr, info_signature, engine_id=""):
         self.depth = depth
         self.score = score
         self.best_move = best_move
         self.time_ms = time_ms
         self.stderr = stderr
         self.info_signature = info_signature
+        self.engine_id = engine_id
 
     @property
     def agrees_with(self):
@@ -56,8 +58,11 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             commands += ["isready"]
             proc.stdin.write("\n".join(commands) + "\n")
             proc.stdin.flush()
+            engine_id = ""
             for line in proc.stdout:
-                if line.startswith("readyok"):
+                if line.startswith("id name "):
+                    engine_id = line[len("id name "):].strip()
+                elif line.startswith("readyok"):
                     break
             proc.stdin.write(f"ucinewgame\nposition fen {fen}\n")
             started = time.monotonic()
@@ -88,7 +93,46 @@ def search(binary, fen, depth, options=(), timeout=300, cwd=None):
             stderr = err.read()
 
     reached, score, signature = parse_info(info)
-    return SearchResult(reached, score, best_move, round(wall_ms), stderr, signature)
+    return SearchResult(reached, score, best_move, round(wall_ms), stderr, signature, engine_id)
+
+
+_VERSION = re.compile(r"V(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
+
+
+def counts_nodes_from_go(engine_id):
+    """Whether an engine's `info ... nodes` counts from `go`, as UCI defines it.
+
+    Suprah counted each iterative deepening iteration on its own up to v0.54.4-NNUE and v0.52.2,
+    and counts from `go` since v0.54.5-NNUE and v0.52.3. An engine this cannot place is taken to
+    follow UCI.
+    """
+    match = _VERSION.search(engine_id or "")
+    if not match:
+        return True
+    version = tuple(int(part) for part in match.groups())
+    return version >= ((0, 54, 5) if "NNUE" in engine_id.upper() else (0, 52, 3))
+
+
+def nodes_from_go(result):
+    """The nodes a search reported up to its last completed iteration, counted from `go`.
+
+    The same quantity for every Suprah version: the last `nodes` of an engine that counts from
+    `go`, the sum over the iterations of one that counted each on its own. Generated moves, not
+    searched nodes (`task.md` rule 4).
+    """
+    values = [int(dict(entry)["nodes"]) for entry in result.info_signature if "nodes" in dict(entry)]
+    if not values:
+        return 0
+    return values[-1] if counts_nodes_from_go(result.engine_id) else sum(values)
+
+
+def strip_nodes(signature):
+    """A signature without its `nodes` fields, for a tree-identity comparison.
+
+    `nodes` counts generated moves, and since v0.54.5-NNUE / v0.52.3 it counts from `go`, so two
+    builds that search the same tree can disagree on it.
+    """
+    return [tuple((key, value) for key, value in entry if key != "nodes") for entry in signature]
 
 
 def parse_info(info):
@@ -144,7 +188,12 @@ class Session:
             text=True, bufsize=1, cwd=cwd,
         )
         self._send("uci")
-        self._read_until("uciok")
+        self.engine_id = ""
+        for line in self._proc.stdout:
+            if line.startswith("id name "):
+                self.engine_id = line[len("id name "):].strip()
+            elif line.startswith("uciok"):
+                break
         self._send("setoption name OwnBook value false")
         for name, value in options:
             self._send(f"setoption name {name} value {value}")
@@ -187,7 +236,7 @@ class Session:
         parts = bestmove.split()
         best_move = parts[1] if len(parts) > 1 else ""
         reached, score, signature = parse_info(info)
-        return SearchResult(reached, score, best_move, round(wall_ms), "", signature)
+        return SearchResult(reached, score, best_move, round(wall_ms), "", signature, self.engine_id)
 
     def close(self):
         if self._proc.poll() is None:

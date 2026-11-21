@@ -106,10 +106,8 @@ def main():
         base_total += base.time_ms
         cand_total += cand.time_ms
 
-        base_nodes = base.info_signature[-1] if base.info_signature else ()
-        cand_nodes = cand.info_signature[-1] if cand.info_signature else ()
         print(f"{name:<18}{base.time_ms:>10}{cand.time_ms:>10}{delta:>8.1f}%"
-              f"{node_count(base_nodes):>14}{node_count(cand_nodes):>14}  "
+              f"{uci_driver.nodes_from_go(base):>14}{uci_driver.nodes_from_go(cand):>14}  "
               f"{'same' if same else 'DIFFERS'}")
 
     print("-" * len(header))
@@ -127,21 +125,11 @@ def main():
 
 
 def strip_nodes(signature):
-    """Drops the `nodes` field from a signature before comparing two searches.
-
-    `nodes` reports *generated* moves, so a change that defers generation lowers it while
-    searching the same tree -- which is the whole point of a staged picker. Depth, score and the
-    principal variation of every completed iteration are what identity is read from here.
-    """
-    return [tuple((key, value) for key, value in entry if key != "nodes") for entry in signature]
+    """Drops the `nodes` field from a signature before comparing two searches (`uci_driver`)."""
+    return uci_driver.strip_nodes(signature)
 
 
-def node_count(signature_entry):
-    """Pulls the `nodes` value out of one `parse_info` signature entry."""
-    for key, value in signature_entry:
-        if key == "nodes":
-            return value
-    return "-"
+
 
 
 if __name__ == "__main__":

@@ -226,7 +226,9 @@ default path; here it is.
 4. **`nodes` and `nps` in UCI output report *generated* moves, not searched nodes.** Any change to
    move generation moves that number for reasons unrelated to speed, and
    `scripts/benchmark_nps.py` reads exactly that field. Measure throughput as wall time to a fixed
-   depth instead.
+   depth instead. Since v0.54.5-NNUE (`master` v0.52.3) `nodes` counts from `go`, as UCI defines it,
+   where it counted each iteration on its own before; `scripts/uci_driver.py` (`nodes_from_go`)
+   puts old and new builds on the same count, and tree identity is compared without `nodes`.
 5. **Prefer a node-identity check to a match wherever one exists.** Both throughput wins in
    Milestone 1 were verified as bit-identical search trees before a single game was played, which
    is why they needed no Elo measurement at all.
@@ -625,14 +627,18 @@ node from the table, so whether it may ship on is a 6000-game question of its ow
 `MultiPV` 1 to 10, default 1. Line 1 is the iteration's normal search and decides `bestmove`.
 Line `k` then searches the root again without the first moves of lines 1 to `k - 1`
 (`SearchService::get_moves_excluding`), seeded with line `k`'s score of the previous depth, and is
-written as `info depth <d> multipv <k> ...`. Lines 2 and up are sorted by score; line 1 keeps rank
-1 because it names the move played, even where search instability lets a further line score a few
-centipawns above it. A line the clock interrupts ends the iteration's
+written as `info depth <d> multipv <k> ...`. Since v0.54.5-NNUE all lines of a depth are sorted by
+score, line 1 included, and the top one is the move played, the ponder reply and the line the next
+depth starts from; before, line 1 kept rank 1 even where a further line scored a few centipawns
+above it. With `MultiPV` 1 nothing changes. A line the clock interrupts ends the iteration's
 further lines, so every reported line is complete; since v0.54.4-NNUE the ranks such a cut depth
 leaves empty are filled with the lines of the last depth that reported, with their own depth and
 without a move the cut depth already shows, so no move appears twice. Every line's `nodes` and
 `time` count from `go`, so neither falls from one line to the next (both reported by the first
 front end that used it; a line's own search counted only its own nodes, and its `time` was when
-its best move last changed). No more lines than legal moves. Each further
+its best move last changed). Since v0.54.5-NNUE that holds with one line too, so `nps` is right
+there as well, and the full ranking is written as soon as line 1 of a depth completes and again
+after every further line, the ranks not yet searched filled from the last depth: no snapshot of
+the output ever shows a move twice, and the alternatives appear as they finish. No more lines than legal moves. Each further
 line costs a root search, so play is weaker above 1. Combine it with `TtCutPvGuard` for full
 lines.

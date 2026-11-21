@@ -487,7 +487,9 @@ impl SearchService {
     /// iteration's normal search: line `k` searches the root without the first moves of the lines
     /// before it, seeded with `prev_scores[k - 1]`, line `k`'s score at the previous depth. Stops
     /// at the first line the clock interrupts or that has no move left, so every line returned is
-    /// complete. Each comes with its own statistics.
+    /// complete. Each comes with its own statistics. `on_line` sees every line searched, as soon as
+    /// it ends, with its statistics and whether it completed, so the caller can report the ranking
+    /// line by line and count the nodes of an interrupted one too.
     pub fn get_further_lines(
         &self,
         board: &mut Board,
@@ -500,6 +502,7 @@ impl SearchService {
         engine_state: &Arc<EngineState>,
         start_time: std::time::Instant,
         target_time: Option<i32>,
+        on_line: &mut dyn FnMut(&SearchResult, &Stats, bool),
     ) -> Vec<(SearchResult, Stats)> {
         let white = board.white_to_move;
         let mut excluded: Vec<Turn> = first.variants.first().and_then(|v| v.best_move).into_iter().collect();
@@ -512,10 +515,10 @@ impl SearchService {
             let seed = prev_scores.get(k).copied().flatten();
             let result = self.get_moves_excluding(board, depth, white, &mut stats, config, service,
                 engine_state, start_time, target_time, seed, &excluded);
-            let Some(best) = result.variants.first().and_then(|v| v.best_move) else { break };
-            if !result.completed {
-                break;
-            }
+            let best = result.variants.first().and_then(|v| v.best_move);
+            let complete = result.completed && best.is_some();
+            on_line(&result, &stats, complete);
+            let Some(best) = best.filter(|_| complete) else { break };
             excluded.push(best);
             further.push((result, stats));
         }
@@ -6006,8 +6009,11 @@ mod tests {
         let mut stats = Stats::new();
         let first = service.search.get_moves(&mut board, depth, white, &mut stats, &config,
             &service, &state, std::time::Instant::now(), None, None);
+        let mut reported = 0;
         let further = service.search.get_further_lines(&mut board, depth, lines, &first, &[],
-            &config, &service, &state, std::time::Instant::now(), None);
+            &config, &service, &state, std::time::Instant::now(), None,
+            &mut |_, _, complete| if complete { reported += 1 });
+        assert_eq!(reported, further.len(), "every returned line was reported as it completed");
         assert_eq!(service.fen.get_fen(&board), fen, "the lines leave the board as they found it");
         (first, further.into_iter().map(|(result, _)| result).collect())
     }
