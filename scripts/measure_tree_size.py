@@ -124,7 +124,7 @@ def main():
     print(f"\nTime      {sum(base_times)} ms -> {sum(cand_times)} ms   "
           f"{pct(sum(base_times), sum(cand_times)):+.1f}%")
     print(f"Nodes     {sum(base_nodes)} -> {sum(cand_nodes)}   "
-          f"{pct(sum(base_nodes), sum(cand_nodes)):+.1f}%   (generated moves, not searched nodes)")
+          f"{pct(sum(base_nodes), sum(cand_nodes)):+.1f}%   ({node_units(base, cand)})")
     print(f"Median    per-position time ratio {statistics.median(ratios):.3f} "
           f"(above 1.000 means the candidate is faster)")
     faster = sum(1 for b, c in zip(base_times, cand_times) if c < b)
@@ -135,6 +135,14 @@ def main():
 
 def pct(base, cand):
     return (base - cand) / base * 100 if base else 0.0
+
+
+def node_units(base, cand):
+    """The unit of both node counts, or a warning that they cannot be compared."""
+    units = (uci_driver.node_unit(base.engine_id), uci_driver.node_unit(cand.engine_id))
+    if units[0] != units[1]:
+        return f"NOT COMPARABLE: {units[0]} against {units[1]}"
+    return f"{units[0]} positions" if units[0] == "visited" else "generated moves, not searched nodes"
 
 
 def node_count(result):

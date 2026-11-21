@@ -118,16 +118,16 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                             let cp = if is_white { search_result.get_eval() } else { -search_result.get_eval() };
                             let score_str = service.uci_parser.format_score(cp);
                             let nps = if stats_calc.calc_time_ms > 0 {
-                                (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                                (stats_calc.calculated_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                             } else {
-                                stats_calc.created_nodes as u64 * 1000
+                                stats_calc.calculated_nodes as u64 * 1000
                             };
                             logger.send(format!(
                                 "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
                                 search_result.calculated_depth,
                                 score_str,
                                 stats_calc.calc_time_ms,
-                                stats_calc.created_nodes,
+                                stats_calc.calculated_nodes,
                                 nps,
                                 search_result.get_best_move_row()
                             )).ok();
@@ -235,7 +235,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
 
                             logger.send(format!("Start search on level {}", depth)).expect(RIP_COULDN_SEND_TO_LOG_BUFFER_QUEUE);
 
-                            let mut stats = Stats::default();
+                            let mut stats = Stats { node_limit: node_budget(time_info.nodes, go_nodes), ..Stats::default() };
                             let is_white = game.board.white_to_move;
 
                             let search_result = service.search.get_moves(
@@ -250,7 +250,7 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 Some(my_thinking_time as i32),
                                 prev_score,
                             );
-                            go_nodes += stats.created_nodes;
+                            go_nodes += stats.calculated_nodes;
 
                             if search_result.completed {
                                 // With `MultiPV` every line of this depth is searched, each as soon as
@@ -263,17 +263,18 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                     report_lines(service, &rank_lines(&this_depth, &previous, lines),
                                         &since_go(&stats, go_nodes, go_start_time));
                                     let seeds: Vec<Option<i16>> = previous.iter().map(|line| Some(line.get_eval())).collect();
+                                    let budget = node_budget(time_info.nodes, go_nodes);
                                     service.search.get_further_lines(
                                         &mut game.board, depth, lines, &search_result, &seeds,
                                         &active_config, service, &engine_state, go_start_time,
                                         Some(my_thinking_time as i32), &mut |line, line_stats, complete| {
-                                            go_nodes += line_stats.created_nodes;
+                                            go_nodes += line_stats.calculated_nodes;
                                             if complete {
                                                 this_depth.push(line.clone());
                                                 report_lines(service, &rank_lines(&this_depth, &previous, lines),
                                                     &since_go(line_stats, go_nodes, go_start_time));
                                             }
-                                        });
+                                        }, budget);
                                     ranked_lines = rank_lines(&this_depth, &previous, lines);
                                     let mut top = ranked_lines[0].clone();
                                     top.stats = search_result.stats.clone();
@@ -291,16 +292,16 @@ pub fn game_loop(engine_state: Arc<EngineState>, config: &Config, rx_game_comman
                                 let cp = if is_white { top.get_eval() } else { -top.get_eval() };
                                 let score_str = service.uci_parser.format_score(cp);
                                 let nps = if stats_calc.calc_time_ms > 0 {
-                                    (stats_calc.created_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
+                                    (stats_calc.calculated_nodes as u64 * 1000) / (stats_calc.calc_time_ms as u64)
                                 } else {
-                                    stats_calc.created_nodes as u64 * 1000
+                                    stats_calc.calculated_nodes as u64 * 1000
                                 };
                                 logger.send(format!(
                                     "Depth {:2} completed | score {:>8} | time {:>4}ms | nodes {:>8} | nps {:>8} | pv {}",
                                     top.calculated_depth,
                                     score_str,
                                     stats_calc.calc_time_ms,
-                                    stats_calc.created_nodes,
+                                    stats_calc.calculated_nodes,
                                     nps,
                                     top.get_best_move_row()
                                 )).ok();
@@ -474,12 +475,17 @@ fn report_lines(service: &Service, ranked: &[SearchResult], stats: &Stats) {
     }
 }
 
+/// What UCI `go nodes <limit>` leaves after `used` visited positions, `None` without a limit.
+fn node_budget(limit: usize, used: usize) -> Option<usize> {
+    (limit > 0).then(|| limit.saturating_sub(used))
+}
+
 /// `stats` with the nodes and the time since `go`, as UCI defines both, for an `info` line: a
 /// search's own statistics count only that search's nodes, and their time is when its best move
 /// last changed, so `nodes`, `time` and `nps` read per iteration and fell from one line to the next.
 fn since_go(stats: &Stats, go_nodes: usize, go_start_time: std::time::Instant) -> Stats {
     let mut since = stats.clone();
-    since.created_nodes = go_nodes;
+    since.calculated_nodes = go_nodes;
     since.calc_time_ms = go_start_time.elapsed().as_millis() as usize;
     since
 }
@@ -754,13 +760,21 @@ mod tests {
     }
 
     #[test]
+    fn test_go_nodes_leaves_the_rest_of_its_budget() {
+        assert_eq!(super::node_budget(0, 123), None, "no `go nodes`, no limit");
+        assert_eq!(super::node_budget(1000, 0), Some(1000));
+        assert_eq!(super::node_budget(1000, 400), Some(600));
+        assert_eq!(super::node_budget(1000, 1500), Some(0), "spent: the next search stops at once");
+    }
+
+    #[test]
     fn test_multi_pv_info_counts_nodes_and_time_since_go() {
         let mut stats = crate::model::Stats::default();
-        stats.created_nodes = 7;
+        stats.calculated_nodes = 7;
         stats.calc_time_ms = 3;
         let start = std::time::Instant::now() - std::time::Duration::from_millis(250);
         let since = super::since_go(&stats, 1000, start);
-        assert_eq!(since.created_nodes, 1000);
+        assert_eq!(since.calculated_nodes, 1000);
         assert!(since.calc_time_ms >= 250);
     }
 
@@ -996,25 +1010,25 @@ mod tests {
         let config = Config::new();
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false, nodes: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 0, &config);
         assert_eq!(2000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 9, time_mode: TimeMode::MoveToGo, depth: 0, ponder: false, nodes: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 0, &config);
         assert_eq!(1000, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false, nodes: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, true, 10, &config);
         assert_eq!(600, thinking_time);
 
         let time_info = TimeInfo{
-            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false
+            wtime: 20000, btime: 10000, winc: 0, binc: 0, moves_to_go: 0, time_mode: TimeMode::HourGlas, depth: 0, ponder: false, nodes: 0
         };
         let thinking_time = calculate_thinking_time(&time_info, false, 20, &config);
         assert_eq!(400, thinking_time);

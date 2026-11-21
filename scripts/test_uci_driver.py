@@ -31,6 +31,14 @@ class NodesFromGo(unittest.TestCase):
         self.assertTrue(uci_driver.counts_nodes_from_go("Rust-In-Pieces V0.52.3"))
         self.assertTrue(uci_driver.counts_nodes_from_go("Stockfish 17"))
 
+    def test_the_versions_that_count_visited_positions(self):
+        self.assertEqual(uci_driver.node_unit("RIP V0.54.6-NNUE"), "generated")
+        self.assertEqual(uci_driver.node_unit("RIP V0.54.7-NNUE"), "visited")
+        self.assertEqual(uci_driver.node_unit("RIP V0.54.7-rc-NNUE"), "visited")
+        self.assertEqual(uci_driver.node_unit("Rust-In-Pieces V0.52.4"), "generated")
+        self.assertEqual(uci_driver.node_unit("Rust-In-Pieces V0.52.5"), "visited")
+        self.assertEqual(uci_driver.node_unit("Stockfish 17"), "visited")
+
     def test_an_old_build_and_a_new_one_report_the_same_total(self):
         # The same three iterations of 100, 300 and 900 nodes, printed both ways.
         old = result("RIP V0.54.4-NNUE", [100, 300, 900])

@@ -234,10 +234,14 @@ is in section 19.
 3. **Read Elo per pairing, never off the scoreboard.** The Matt-Magie scoreboard is normalised to
    a pool average, so two ratings from different PGNs are not comparable. Use
    `scripts/pairing_elo.py`.
-4. **`nodes` and `nps` in UCI output report *generated* moves, not searched nodes.** Any change to
-   move generation moves that number for reasons unrelated to speed, and
-   `scripts/benchmark_nps.py` reads exactly that field. Measure throughput as wall time to a fixed
-   depth instead. Since v0.52.3 (`feature/nnue-evaluation` v0.54.5-NNUE) `nodes` counts from `go`, as
+4. **Up to v0.52.4 (`feature/nnue-evaluation` v0.54.6-NNUE) `nodes` and `nps` in UCI output
+   reported *generated* moves, not searched nodes**, about six times the positions visited (6.0
+   over five positions to depth 11, 2026-11-21). Any change to move generation moved that number
+   for reasons unrelated to speed, and `scripts/benchmark_nps.py` reads exactly that field. Since
+   v0.52.5 (v0.54.7-NNUE) both count **visited positions**, every move played in the main and the
+   Quiescence Search, as other engines count; the two units cannot be converted, and
+   `scripts/uci_driver.py` (`node_unit`) makes the scripts flag a comparison across the change.
+   Measure throughput as wall time to a fixed depth all the same. Since v0.52.3 (`feature/nnue-evaluation` v0.54.5-NNUE) `nodes` counts from `go`, as
    UCI defines it, where it counted each iteration on its own before; `scripts/uci_driver.py`
    (`nodes_from_go`) puts old and new builds on the same count, and tree identity is compared without
    `nodes`.
@@ -2934,3 +2938,12 @@ before `bestmove` always names the move played: a move an interrupted iteration 
 the last completed one (`proven_better_while_interrupted`) is written at rank 1 with its interrupted
 depth and its score marked `lowerbound`; before, it went to the log only. No more lines than legal moves. Each further line costs a root search,
 so play is weaker above 1. Combine it with `TtCutPvGuard` for full lines.
+
+### 43.3 `go nodes`, and `nodes` in visited positions
+
+Since v0.52.5 `go nodes <n>` is honoured: the search stops once the whole `go` has visited `n`
+positions (`Stats::node_limit`, checked every 1024 positions where the clock is checked), and
+`bestmove` is the last completed depth's move, as under a clock. With `MultiPV` the budget covers
+all lines together. `nodes` and `nps` count visited positions since the same release (rule 4),
+about a sixth of the generated moves counted before. `datagen --nodes` counts visited positions as
+well and keeps its default of 5000, which now searches about six times as much per move.

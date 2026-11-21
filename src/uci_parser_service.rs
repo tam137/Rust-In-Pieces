@@ -17,6 +17,7 @@ impl UciParserService {
     pub fn parse_go(&self, command: &str) -> TimeInfo {
         let ponder = command.split_whitespace().any(|part| part == "ponder");
 
+        let nodes = Self::go_nodes(command);
         if (!command.contains("wtime") || !command.contains("btime")) && !command.contains("movetime") && !command.contains("depth") {
             return TimeInfo {
                 wtime: 0,
@@ -27,6 +28,7 @@ impl UciParserService {
                 depth: 0,
                 time_mode: TimeMode::None,
                 ponder,
+                nodes,
             }
         }
 
@@ -99,7 +101,19 @@ impl UciParserService {
             depth,
             time_mode,
             ponder,
+            nodes,
         }
+    }
+
+    /// The value of `go ... nodes <n>`, 0 when the command sets no node limit.
+    fn go_nodes(command: &str) -> usize {
+        let mut parts = command.split_whitespace();
+        while let Some(part) = parts.next() {
+            if part == "nodes" {
+                return parts.next().and_then(|value| value.parse().ok()).unwrap_or(0);
+            }
+        }
+        0
     }
 
 
@@ -161,7 +175,9 @@ impl UciParserService {
         let stats = stats.calculate();
         let cp = if search_result.is_white_move { search_result.get_eval() } else { -search_result.get_eval() };
         // `nps` per second, as UCI defines it (until Matt-Magie step 81 it was per millisecond);
-        // `nodes` stays the count of generated moves the measurement scripts compare.
+        // `nodes` counts visited positions, every move played in the main and the Quiescence Search,
+        // as UCI and other engines count them; until v0.54.6-NNUE it counted generated moves, about
+        // six times as many and moved by any change to move generation (`task.md` rule 4).
         let multipv = if search_result.multipv > 0 {
             format!(" multipv {}", search_result.multipv)
         } else {
@@ -174,8 +190,8 @@ impl UciParserService {
             self.format_score(cp),
             bound,
             stats.calc_time_ms,
-            stats.created_nodes,
-            stats.created_nodes * 1000 / stats.calc_time_ms.max(1),
+            stats.calculated_nodes,
+            stats.calculated_nodes * 1000 / stats.calc_time_ms.max(1),
             stats.hashfull,
             search_result.get_best_move_row())
     }
@@ -198,6 +214,19 @@ mod tests {
         assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 score "));
         result.multipv = 2;
         assert!(parser.get_info_str(&result, &stats).starts_with("info depth 7 multipv 2 score "));
+    }
+
+    /// UCI `go nodes <n>`: parsed whatever else the command says, 0 without it.
+    #[test]
+    fn test_go_nodes_is_parsed_with_and_without_a_clock() {
+        let parser = UciParserService {};
+        assert_eq!(parser.parse_go("go nodes 50000").nodes, 50000);
+        assert_eq!(parser.parse_go("go nodes 50000").time_mode, TimeMode::None);
+        assert_eq!(parser.parse_go("go wtime 1000 btime 1000 nodes 7").nodes, 7);
+        assert_eq!(parser.parse_go("go depth 9 nodes 123").nodes, 123);
+        assert_eq!(parser.parse_go("go movetime 500").nodes, 0);
+        assert_eq!(parser.parse_go("go infinite").nodes, 0);
+        assert_eq!(parser.parse_go("go nodes x").nodes, 0);
     }
 
     /// `task.md` 43.2: a lower bound is marked as UCI marks it, right after the score.
@@ -371,10 +400,10 @@ mod tests {
     #[test]
     fn info_string_reports_nps_per_second_and_hashfull_before_the_pv() {
         let parser = UciParserService {};
-        let stats = Stats { created_nodes: 5000, calc_time_ms: 250, hashfull: 123, ..Stats::default() };
+        let stats = Stats { calculated_nodes: 5000, created_nodes: 31000, calc_time_ms: 250, hashfull: 123, ..Stats::default() };
         let info = parser.get_info_str(&search_result_with(42, 11, true), &stats);
         assert!(info.contains(" nodes 5000 nps 20000 hashfull 123 pv"), "got: {}", info);
-        let instant = Stats { created_nodes: 700, calc_time_ms: 0, ..Stats::default() };
+        let instant = Stats { calculated_nodes: 700, calc_time_ms: 0, ..Stats::default() };
         assert!(parser.get_info_str(&search_result_with(42, 11, true), &instant).contains(" nps 700000 "),
             "a search under a millisecond counts as one millisecond");
     }
