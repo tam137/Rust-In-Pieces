@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [V0.52.3] - 2026-11-21
+
+`MultiPV` ranking and UCI counters, from the second round of feedback by the first analysis front end. The
+search is unchanged (14/14 identical trees against v0.52.2, 20/20 on `scripts/measure_tree_size.py`).
+
+- **`nodes` and `time` count from `go` on every `info` line, with one line too**, as UCI defines them and
+  Stockfish reports them. With `MultiPV` 1 `nodes` counted each iteration on its own and `time` was when the
+  best move last changed, so **`nps` read too low** (one iteration's nodes over the time since `go`).
+  `scripts/uci_driver.py` (`nodes_from_go`) puts builds before and after this change on the same count;
+  `measure_tree_size.py` compares trees without `nodes`, `benchmark_nps.py` derives `nps` from the
+  normalised count. `task.md` rule 4 still holds: `nodes` counts generated moves.
+- **All lines of a depth are sorted by score, line 1 included**; the top line is the move played
+  (`bestmove`), the ponder reply and the line the next depth starts from. A further line that scored above
+  line 1 (+0.50 against +0.49) used to stay at rank 2. `MultiPV` 1 is unchanged.
+- **The whole ranking is written as soon as line 1 of a depth completes, and again after every further
+  line**, the ranks not yet searched filled from the last depth with their own depth. No snapshot of the
+  output shows a move twice, and the alternatives appear one by one instead of all at the end of a depth.
+- Smoke gauntlet at 1s + 100ms: 49.0% against v0.52.2, 56.5% against v0.52.1.
+
+
+
 ## [V0.52.2] - 2026-11-21
 
 Output fixes for `MultiPV`, reported by the first analysis front end that used it. The search is unchanged
