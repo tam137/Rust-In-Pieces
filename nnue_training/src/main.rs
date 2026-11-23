@@ -26,8 +26,8 @@ use bullet::{
 };
 use suprah_nnue_trainer::{
     BATCH_SIZE, BUCKET_LAYOUT, Command, Config, EvalRequest, INITIAL_LR, INPUT_BUCKETS, INPUT_SIZE,
-    OUTPUT_BUCKETS, QA, QB, USAGE, expected_quantised_bytes, format_reference_line, parse_args,
-    reference_fens,
+    OUTPUT_BUCKETS, PadRequest, QA, QB, USAGE, expected_quantised_bytes, format_reference_line,
+    pad_network, parse_args, reference_fens,
 };
 
 /// Bound of the feature-transformer weights; tighter than bullet's default because the
@@ -49,12 +49,39 @@ type Trainer = ValueTrainer<
     MaterialCount<OUTPUT_BUCKETS>,
 >;
 
+/// `pad`: reads a quantised network, widens it with zero neurons and writes it.
+fn pad(request: &PadRequest) {
+    let result = std::fs::read(&request.input)
+        .map_err(|e| format!("cannot read {}: {e}", request.input))
+        .and_then(|bytes| pad_network(&bytes, request.to))
+        .and_then(|padded| {
+            std::fs::write(&request.output, &padded)
+                .map(|()| padded.len())
+                .map_err(|e| format!("cannot write {}: {e}", request.output))
+        });
+    match result {
+        Ok(bytes) => println!("{} -> {} ({} hidden, {bytes} bytes)", request.input, request.output, request.to),
+        Err(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cfg = match parse_args(&args) {
         Ok(Command::Train(cfg)) => cfg,
         Ok(Command::Evaluate(request)) => {
             evaluate(&request);
+            return;
+        }
+        Ok(Command::Pad(request)) => {
+            pad(&request);
+            return;
+        }
+        Ok(Command::ExpectedSize(hidden)) => {
+            println!("{}", expected_quantised_bytes(hidden));
             return;
         }
         Ok(Command::Help) => {

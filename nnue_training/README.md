@@ -226,7 +226,13 @@ After the last superbatch the trainer checks that `quantised.bin` has the size t
 for the chosen hidden size and exits with an error otherwise. `--help` lists all options. The
 defaults are N1: 256 hidden neurons, scale 400, WDL 0.5, cosine learning rate from 0.001 to
 0.001 * 0.3^5. A different hidden size or scale trains, but the engine loads it only after the
-code change of section 5.
+code change of section 5. The engine loads 512 hidden neurons when built with the Cargo feature
+`hidden512`, which embeds `eval_models/quantised512.bin`.
+
+`suprah-nnue-trainer pad <in> <out> --to <N>` widens a quantised network with zero neurons: every
+row keeps its values and gains zeros, so the wider network evaluates every position exactly as the
+original. It measures what the wider layer costs in search speed with an unchanged tree.
+`suprah-nnue-trainer expected-size <N>` prints the file size for `N` hidden neurons.
 
 ### Helper scripts
 
@@ -236,7 +242,7 @@ arguments, and paths come in as arguments or environment variables.
 | Script | Purpose |
 | :--- | :--- |
 | `build_set.sh <set> <data dir> <source>... [--note TEXT]` | `bullet-utils convert` per part file, `interleave`, `shuffle` into `<set>.data`, then the set manifest (section 10). Needs `BULLET_UTILS`. |
-| `train_resilient.sh <name> <wdl> <superbatches> <data> [save]` | Runs the trainer and resumes from the newest checkpoint after a crash (up to `MAX_TRIES`, default 10); keeps only the final checkpoint afterwards. Starts the two helpers below. `TRAINER`, `OUT_DIR`, `NET_BYTES`, `GPU_WATCH=0`, `CACHE_TRIM=0`. |
+| `train_resilient.sh <name> <wdl> <superbatches> <data> [save]` | Runs the trainer and resumes from the newest checkpoint after a crash (up to `MAX_TRIES`, default 10); keeps only the final checkpoint afterwards. Starts the two helpers below. `TRAINER`, `OUT_DIR`, `HIDDEN` (default 256, passed as `--hidden`), `NET_BYTES` (default from `expected-size`), `GPU_WATCH=0`, `CACHE_TRIM=0`. Tested by `test_train_resilient.sh` with a fake trainer. |
 | `gpu_watch.sh <name> <pid> [interval] [out dir]` | Read-only log of the trainer's GPU queue evictions (KFD `evicted_ms`), GTT/VRAM use, memory and page-migration counters; a report per GPU reset. |
 | `cache_trim.py <file> <pid> <log> [interval]` | Drops the training file's page cache every 20 s (`posix_fadvise(DONTNEED)`). |
 

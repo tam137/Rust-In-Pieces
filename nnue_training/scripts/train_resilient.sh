@@ -15,7 +15,9 @@
 # Environment:
 #   TRAINER     trainer binary (default: ../target/release/suprah-nnue-trainer next to this script)
 #   OUT_DIR     where <name>/<name>-<sb>/ checkpoints and logs go (default: current directory)
-#   NET_BYTES   size of a complete quantised.bin, checked before cleaning up (default: 3940928)
+#   HIDDEN      hidden neurons per perspective, passed as --hidden (default: 256)
+#   NET_BYTES   size of a complete quantised.bin, checked before cleaning up
+#               (default: `$TRAINER expected-size $HIDDEN`, 3940928 for 256)
 #   MAX_TRIES   attempts before giving up (default: 10)
 #   GPU_WATCH   0 disables gpu_watch.sh (default: 1)
 #   CACHE_TRIM  0 disables cache_trim.py (default: 1)
@@ -26,17 +28,23 @@
 set -u
 
 if [ "$#" -lt 4 ]; then
-    sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAME="$1"; WDL="$2"; SB="$3"; DATA="$(realpath "$4")"; SAVE="${5:-2}"
 TRAINER="$(realpath "${TRAINER:-$SCRIPT_DIR/../target/release/suprah-nnue-trainer}")"
-NET_BYTES="${NET_BYTES:-3940928}"
+HIDDEN="${HIDDEN:-256}"
 MAX_TRIES="${MAX_TRIES:-10}"
 
 [ -x "$TRAINER" ] || { echo "error: trainer $TRAINER is not executable (set TRAINER)" >&2; exit 2; }
+if [ -z "${NET_BYTES:-}" ]; then
+    NET_BYTES="$("$TRAINER" expected-size "$HIDDEN" 2>/dev/null)" || {
+        echo "error: $TRAINER cannot tell the network size for --hidden $HIDDEN (rebuild it or set NET_BYTES)" >&2
+        exit 2
+    }
+fi
 [ -f "$DATA" ] || { echo "error: data file $DATA not found" >&2; exit 2; }
 
 cd "${OUT_DIR:-.}" || exit 2
@@ -70,11 +78,12 @@ for try in $(seq 0 $((MAX_TRIES - 1))); do
     if [ -n "$last" ] && [ -f "$NAME/$NAME-$last/quantised.bin" ] && [ -d "$NAME/$NAME-$last/optimiser_state" ]; then
         [ "$last" -ge "$SB" ] && { cleanup; exit 0; }
         echo "$(date +%F_%T) resume from $NAME-$last (try $try)" >> "$RESUMES"
-        "$TRAINER" -d "$DATA" -s "$SB" --wdl "$WDL" -n "$NAME" -o "$NAME" --save-rate "$SAVE" \
-            --start $((last + 1)) --resume "$NAME/$NAME-$last" >> "$LOG" 2>&1
+        "$TRAINER" -d "$DATA" -s "$SB" --wdl "$WDL" --hidden "$HIDDEN" -n "$NAME" -o "$NAME" \
+            --save-rate "$SAVE" --start $((last + 1)) --resume "$NAME/$NAME-$last" >> "$LOG" 2>&1
     else
         [ "$try" -gt 0 ] && echo "$(date +%F_%T) restart from scratch (try $try)" >> "$RESUMES"
-        "$TRAINER" -d "$DATA" -s "$SB" --wdl "$WDL" -n "$NAME" -o "$NAME" --save-rate "$SAVE" >> "$LOG" 2>&1
+        "$TRAINER" -d "$DATA" -s "$SB" --wdl "$WDL" --hidden "$HIDDEN" -n "$NAME" -o "$NAME" \
+            --save-rate "$SAVE" >> "$LOG" 2>&1
     fi
     [ $? -eq 0 ] && { cleanup; exit 0; }
     sleep 20   # let the GPU reset settle

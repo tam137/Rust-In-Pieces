@@ -127,7 +127,53 @@ pub enum Command {
     Train(Config),
     /// Print the trainer's evaluation of reference positions for a checkpoint; no training.
     Evaluate(EvalRequest),
+    /// Widen a quantised network with zero neurons (`pad <in> <out> --to <N>`); no training.
+    Pad(PadRequest),
+    /// Print the size of `quantised.bin` for a hidden size (`expected-size <N>`); no training.
+    ExpectedSize(usize),
     Help,
+}
+
+/// Widening of a quantised network (`pad`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PadRequest {
+    pub input: String,
+    pub output: String,
+    /// Hidden neurons per perspective of the output; the input's width follows from its size.
+    pub to: usize,
+}
+
+/// Hidden size of a quantised network of `bytes` bytes, if any width gives exactly that size.
+/// Every neuron adds more than [`FILE_ALIGNMENT`] bytes, so the width is unique.
+pub fn hidden_size_of(bytes: usize) -> Option<usize> {
+    (1..=8192).find(|&hidden| expected_quantised_bytes(hidden) == bytes)
+}
+
+/// The network `bytes` widened to `to` hidden neurons per perspective: every row of the feature
+/// transformer, its bias row and every output row (per bucket and perspective) keeps its values
+/// and gains zeros. The new neurons have zero weights and bias, so SCReLU gives 0 and their output
+/// weights add nothing: the wider network evaluates every position exactly as the original.
+/// The output biases are kept; the file is padded to [`FILE_ALIGNMENT`] as the trainer saves it.
+pub fn pad_network(bytes: &[u8], to: usize) -> Result<Vec<u8>, String> {
+    let from = hidden_size_of(bytes.len())
+        .ok_or_else(|| format!("{} bytes is no quantised network size", bytes.len()))?;
+    if to < from {
+        return Err(format!("cannot narrow a network from {from} to {to} hidden neurons"));
+    }
+    let values: Vec<i16> = bytes
+        .chunks_exact(2)
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    let rows = INPUT_BUCKETS * INPUT_SIZE + 1 + OUTPUT_BUCKETS * 2;
+    let mut padded = Vec::with_capacity(expected_quantised_bytes(to) / 2);
+    for row in values[..rows * from].chunks_exact(from) {
+        padded.extend_from_slice(row);
+        padded.resize(padded.len() + to - from, 0);
+    }
+    padded.extend_from_slice(&values[rows * from..rows * from + OUTPUT_BUCKETS]);
+    let mut out: Vec<u8> = padded.iter().flat_map(|v| v.to_le_bytes()).collect();
+    out.resize(expected_quantised_bytes(to), 0);
+    Ok(out)
 }
 
 /// Evaluation of reference positions with a trained checkpoint (`--eval-fens`).
@@ -157,6 +203,19 @@ pub fn format_reference_line(fen: &str, raw_output: f32, eval_scale: f32) -> Str
 /// Parses the arguments after the program name. Unknown options, missing or malformed values
 /// and inconsistent settings are errors; nothing is silently replaced by a default.
 pub fn parse_args(args: &[String]) -> Result<Command, String> {
+    match args.first().map(String::as_str) {
+        Some("pad") => return parse_pad(&args[1..]).map(Command::Pad),
+        Some("expected-size") => {
+            return match &args[1..] {
+                [hidden] => match number::<usize>("expected-size", hidden)? {
+                    0 => Err("expected-size: the hidden size must be at least 1".to_string()),
+                    hidden => Ok(Command::ExpectedSize(hidden)),
+                },
+                _ => Err("usage: expected-size <hidden>".to_string()),
+            };
+        }
+        _ => {}
+    }
     let mut cfg = Config::default();
     let mut eval_fens = None;
     let mut iter = args.iter();
@@ -193,6 +252,31 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
 
     validate(&cfg)?;
     Ok(Command::Train(cfg))
+}
+
+fn parse_pad(args: &[String]) -> Result<PadRequest, String> {
+    const PAD_USAGE: &str = "usage: pad <input quantised.bin> <output> --to <hidden>";
+    let mut files = Vec::new();
+    let mut to = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--to" {
+            let value = iter.next().ok_or("option --to needs a value")?;
+            to = Some(number::<usize>(arg, value)?);
+        } else if arg.starts_with('-') {
+            return Err(format!("pad: unknown option {arg}"));
+        } else {
+            files.push(arg.clone());
+        }
+    }
+    match (files.as_slice(), to) {
+        ([input, output], Some(to)) if to > 0 => Ok(PadRequest {
+            input: input.clone(),
+            output: output.clone(),
+            to,
+        }),
+        _ => Err(PAD_USAGE.to_string()),
+    }
 }
 
 fn evaluation_request(cfg: Config, fens: String) -> Result<EvalRequest, String> {
@@ -255,6 +339,9 @@ pub const USAGE: &str = "\
 Suprah NNUE trainer (bullet)
 
 Usage: suprah-nnue-trainer --data <FILE> --superbatches <N> [OPTIONS]
+       suprah-nnue-trainer pad <IN> <OUT> --to <N>   Widen a quantised network with zero neurons
+                                                      (evaluates exactly as IN; no training)
+       suprah-nnue-trainer expected-size <N>         Print the size of quantised.bin for N neurons
 
 Options:
   -d, --data <FILE>                 Shuffled bullet data file; repeat for several files
@@ -275,7 +362,8 @@ Options:
                                     no training (reference for the engine's NNUE tests)
   -h, --help                        Show this help
 
-The engine loads networks with 256 hidden neurons and scale 400; other values need engine changes.
+The engine loads networks with scale 400 and 256 hidden neurons, or 512 when built with the Cargo
+feature `hidden512`; other values need engine changes.
 ";
 
 #[cfg(test)]
@@ -443,6 +531,82 @@ mod tests {
         ];
         for case in bad {
             assert!(parse_args(&args(case)).is_err(), "accepted {case:?}");
+        }
+    }
+
+    /// A synthetic network of `hidden` neurons whose every value is distinct and non-zero.
+    fn numbered_network(hidden: usize) -> Vec<u8> {
+        let values = INPUT_BUCKETS * INPUT_SIZE * hidden + hidden + OUTPUT_BUCKETS * 2 * hidden + OUTPUT_BUCKETS;
+        let mut bytes: Vec<u8> = (0..values)
+            .flat_map(|i| ((i % 30_000) as i16 + 1).to_le_bytes())
+            .collect();
+        bytes.resize(expected_quantised_bytes(hidden), 0);
+        bytes
+    }
+
+    fn i16_at(bytes: &[u8], index: usize) -> i16 {
+        i16::from_le_bytes([bytes[2 * index], bytes[2 * index + 1]])
+    }
+
+    #[test]
+    fn the_hidden_size_follows_from_the_file_size() {
+        assert_eq!(hidden_size_of(3_940_928), Some(256));
+        assert_eq!(hidden_size_of(expected_quantised_bytes(512)), Some(512));
+        assert_eq!(hidden_size_of(3_940_928 + 64), None);
+    }
+
+    #[test]
+    fn padding_keeps_every_value_and_adds_zero_neurons() {
+        let (from, to) = (32, 64);
+        let original = numbered_network(from);
+        let padded = pad_network(&original, to).unwrap();
+        assert_eq!(padded.len(), expected_quantised_bytes(to));
+        let rows = INPUT_BUCKETS * INPUT_SIZE + 1 + OUTPUT_BUCKETS * 2;
+        for row in 0..rows {
+            for neuron in 0..to {
+                let got = i16_at(&padded, row * to + neuron);
+                if neuron < from {
+                    assert_eq!(got, i16_at(&original, row * from + neuron), "row {row} neuron {neuron}");
+                } else {
+                    assert_eq!(got, 0, "row {row} neuron {neuron} must be zero");
+                }
+            }
+        }
+        for bucket in 0..OUTPUT_BUCKETS {
+            assert_eq!(i16_at(&padded, rows * to + bucket), i16_at(&original, rows * from + bucket), "bias {bucket}");
+        }
+        assert!(padded[2 * (rows * to + OUTPUT_BUCKETS)..].iter().all(|&b| b == 0), "file padding");
+    }
+
+    #[test]
+    fn padding_to_the_same_width_is_the_identity() {
+        let original = numbered_network(32);
+        assert_eq!(pad_network(&original, 32).unwrap(), original);
+    }
+
+    #[test]
+    fn padding_refuses_unknown_sizes_and_narrowing() {
+        assert!(pad_network(&[0u8; 100], 512).is_err());
+        assert!(pad_network(&numbered_network(64), 32).is_err());
+    }
+
+    #[test]
+    fn pad_and_expected_size_are_parsed() {
+        assert_eq!(
+            parse_args(&args(&["pad", "a.bin", "b.bin", "--to", "512"])),
+            Ok(Command::Pad(PadRequest { input: "a.bin".into(), output: "b.bin".into(), to: 512 }))
+        );
+        assert_eq!(parse_args(&args(&["expected-size", "512"])), Ok(Command::ExpectedSize(512)));
+        for bad in [
+            &["pad", "a.bin", "--to", "512"][..],
+            &["pad", "a.bin", "b.bin"],
+            &["pad", "a.bin", "b.bin", "--to", "0"],
+            &["pad", "a.bin", "b.bin", "--to", "512", "--x"],
+            &["expected-size"],
+            &["expected-size", "0"],
+            &["expected-size", "wide"],
+        ] {
+            assert!(parse_args(&args(bad)).is_err(), "accepted {bad:?}");
         }
     }
 
