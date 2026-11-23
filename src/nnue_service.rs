@@ -6,7 +6,8 @@ use crate::model::{
 };
 
 pub const NNUE_INPUT_SIZE: usize = 768;   // 64 squares * 6 piece types * 2 colors
-pub const NNUE_HIDDEN_SIZE: usize = 256;  // Hidden layer neurons per perspective
+/// Hidden layer neurons per perspective: 256, or 512 with the Cargo feature `hidden512`.
+pub const NNUE_HIDDEN_SIZE: usize = if cfg!(feature = "hidden512") { 512 } else { 256 };
 pub const NNUE_INPUT_BUCKETS: usize = 10; // King position buckets
 pub const NNUE_OUTPUT_BUCKETS: usize = 8; // Output buckets
 
@@ -19,6 +20,14 @@ pub const NNUE_SCALE: i32 = 400;
 /// take that product in 16 bits. bullet clips the output layer to +-1.98, which quantises to +-127.
 const MAX_OUTPUT_WEIGHT: u16 = (i16::MAX as i32 / NNUE_QA) as u16;
 
+/// Neurons per 32-bit partial sum of the SCReLU dot product (see `NNUEService::screlu_dot`).
+const SCRELU_CHUNK: usize = 256;
+const _: () = assert!(NNUE_HIDDEN_SIZE % SCRELU_CHUNK == 0, "the hidden size must be a multiple of 256");
+const _: () = assert!(
+    (NNUE_QA as i64) * (NNUE_QA as i64) * (MAX_OUTPUT_WEIGHT as i64) * (SCRELU_CHUNK as i64) <= i32::MAX as i64,
+    "one chunk of the SCReLU dot product must fit 32 bits"
+);
+
 const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     0, 1, 2, 3, 3, 2, 1, 0,  // Rank 1
     4, 4, 5, 5, 5, 5, 4, 4,  // Rank 2
@@ -30,8 +39,9 @@ const NNUE_INPUT_BUCKET_MAP: [usize; 64] = [
     9, 9, 9, 9, 9, 9, 9, 9,  // Rank 8
 ];
 
-/// `T` on a 64-byte boundary. Every row of the network is 512 bytes, so a cache-line aligned array
-/// of rows puts each row on its own eight lines instead of nine, and no vector load splits a line.
+/// `T` on a 64-byte boundary. Every row of the network is `2 * NNUE_HIDDEN_SIZE` bytes, a multiple
+/// of 64, so a cache-line aligned array of rows starts each row on a line of its own (eight lines
+/// at 256 neurons instead of nine), and no vector load splits a line.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(C, align(64))]
 pub struct CacheAligned<T>(pub T);
@@ -68,7 +78,10 @@ pub struct NNUENetwork {
 }
 
 impl NNUENetwork {
+    #[cfg(not(feature = "hidden512"))]
     pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised.bin");
+    #[cfg(feature = "hidden512")]
+    pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised512.bin");
 
     pub fn new_empty() -> Self {
         Self {
@@ -89,7 +102,8 @@ impl NNUENetwork {
             + NNUE_HIDDEN_SIZE * 2
             + NNUE_OUTPUT_BUCKETS * 2 * NNUE_HIDDEN_SIZE * 2
             + NNUE_OUTPUT_BUCKETS * 2;
-        let expected_file_size = expected_data_size + 48;
+        // The trainer pads the file to a multiple of 64 bytes (`expected_quantised_bytes`).
+        let expected_file_size = expected_data_size.next_multiple_of(64);
 
         if bytes.len() != expected_file_size {
             return Err(format!(
@@ -158,7 +172,10 @@ impl NNUENetwork {
 pub const DEFAULT_MODEL_PATH: &str = "eval_models/quantised.bin";
 
 /// Training-run name of the embedded network, kept next to it in `eval_models/quantised.name`.
+#[cfg(not(feature = "hidden512"))]
 const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised.name");
+#[cfg(feature = "hidden512")]
+const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised512.name");
 
 /// True when `model_path` selects the embedded network rather than a file.
 pub fn uses_embedded_net(model_path: &str) -> bool {
@@ -184,7 +201,7 @@ pub fn describe_net(model_path: &str) -> String {
     }
 }
 
-/// Both perspectives, each 512 bytes from a cache-line boundary, so every slot of the search's
+/// Both perspectives, each a whole number of cache lines from a boundary, so every slot of the search's
 /// stack starts on one too.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(C, align(64))]
@@ -378,6 +395,8 @@ pub struct AccStack {
 }
 
 impl AccStack {
+    /// The stack lives on the search thread's stack: about 164 KB at 256 neurons and 315 KB at 512,
+    /// well inside the thread's 2 MB. On the heap it measured 0.5 % slower (Matt-Magie step 103).
     pub fn new() -> Self {
         Self { slots: [NNUEAccumulator::new(); crate::search_service::MAX_PLY], finny: FinnyTable::new() }
     }
@@ -489,7 +508,13 @@ impl NNUEService {
     /// `sum(clamp(v)^2 * w)`, taken as `(clamp(v) * w) * clamp(v)`: the first product in 16 bits,
     /// exact because the loader refuses any `|w| > MAX_OUTPUT_WEIGHT`, the second widened to 32.
     /// That is the shape of `pmaddwd` / `smlal`, eight or more lanes of i16 per instruction instead
-    /// of two 32-bit multiplies per neuron, and its value is the 32-bit formula's bit for bit.
+    /// of two 32-bit multiplies per neuron, and its value is the exact formula's bit for bit.
+    ///
+    /// The 32-bit lanes hold at most `255^2 * 128 * 256 = 2_130_739_200 < i32::MAX` per 256 neurons;
+    /// their wrapping sums are exact modulo 2^32 and therefore exact. With 256 neurons that is the
+    /// whole row and the result stays in 32 bits, the code of every release so far (any edit of this
+    /// hot path moved the search speed by 1-2 % through code layout alone, Matt-Magie step 103).
+    #[cfg(not(feature = "hidden512"))]
     fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
@@ -498,6 +523,25 @@ impl NNUEService {
             sum = sum.wrapping_add(product as i32 * clamped as i32);
         }
         sum
+    }
+
+    /// The wider network sums 32-bit chunks of `SCRELU_CHUNK` neurons, each exact as above, in
+    /// 64 bits: one perspective of 512 saturated neurons already exceeds 32 bits.
+    #[cfg(feature = "hidden512")]
+    fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i64 {
+        let (acc_chunks, _) = acc.as_chunks::<SCRELU_CHUNK>();
+        let (weight_chunks, _) = weights.as_chunks::<SCRELU_CHUNK>();
+        let mut total: i64 = 0;
+        for (acc, weights) in acc_chunks.iter().zip(weight_chunks) {
+            let mut sum: i32 = 0;
+            for i in 0..SCRELU_CHUNK {
+                let clamped = acc[i].clamp(0, NNUE_QA as i16);
+                let product = clamped.wrapping_mul(weights[i]);
+                sum = sum.wrapping_add(product as i32 * clamped as i32);
+            }
+            total += sum as i64;
+        }
+        total
     }
 
     pub fn refresh_perspective(
@@ -790,18 +834,41 @@ impl NNUEService {
 
         let [us_weights, them_weights] = &net.output_weights[output_bucket];
 
-        let mut output = Self::screlu_dot(us_acc, us_weights) + Self::screlu_dot(them_acc, them_weights);
-        output /= NNUE_QA;
-        output += net.output_biases[output_bucket] as i32;
-
-        let eval = (output * NNUE_SCALE) / (NNUE_QA * NNUE_QB);
-        let final_eval = eval.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        let final_eval = Self::output_layer(Self::screlu_dot(us_acc, us_weights),
+            Self::screlu_dot(them_acc, them_weights), net.output_biases[output_bucket]);
 
         if board.white_to_move {
             final_eval
         } else {
             -final_eval
         }
+    }
+
+    /// The output neuron from the two dot products, in centipawns for the side to move. With 256
+    /// neurons in 32 bits as in every release so far; a saturated network (every neuron at `QA`,
+    /// every weight at the bound) would overflow the sum of both perspectives, which no trained
+    /// network comes near (it would be an evaluation beyond 200 000 cp).
+    #[cfg(not(feature = "hidden512"))]
+    #[inline(always)]
+    fn output_layer(us: i32, them: i32, bias: i16) -> i16 {
+        let mut output = us + them;
+        output /= NNUE_QA;
+        output += bias as i32;
+        let eval = (output * NNUE_SCALE) / (NNUE_QA * NNUE_QB);
+        eval.clamp(i16::MIN as i32, i16::MAX as i32) as i16
+    }
+
+    /// The wider network in 64 bits throughout, free of overflow for any weights the loader accepts
+    /// (test `a_saturated_network_evaluates_to_the_clamp_bound_without_overflow`). The bound is
+    /// symmetric so that the negation for Black cannot overflow either.
+    #[cfg(feature = "hidden512")]
+    #[inline(always)]
+    fn output_layer(us: i64, them: i64, bias: i16) -> i16 {
+        let mut output = us + them;
+        output /= NNUE_QA as i64;
+        output += bias as i64;
+        let eval = (output * NNUE_SCALE as i64) / (NNUE_QA * NNUE_QB) as i64;
+        eval.clamp(-(i16::MAX as i64), i16::MAX as i64) as i16
     }
 
     pub fn evaluate(board: &Board, net: &NNUENetwork) -> i16 {
@@ -819,9 +886,13 @@ mod tests {
     use super::*;
     use crate::fen_service::FenService;
 
+    /// The file of the embedded network, for the tests that load it from disk.
+    const EMBEDDED_NET_FILE: &str =
+        if cfg!(feature = "hidden512") { "eval_models/quantised512.bin" } else { "eval_models/quantised.bin" };
+
     #[test]
     fn test_nnue_model_loading_and_evaluation() {
-        let net_result = NNUENetwork::load_from_file("eval_models/quantised.bin");
+        let net_result = NNUENetwork::load_from_file(EMBEDDED_NET_FILE);
         assert!(net_result.is_ok(), "Failed to load quantised.bin: {:?}", net_result.err());
         let net = net_result.unwrap();
         assert!(net.loaded);
@@ -844,12 +915,12 @@ mod tests {
         bytes
     }
 
-    /// The SCReLU dot product as `clamp(v)^2 * w` in 32 bits, the formula the fast path must match.
-    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
-        let mut sum: i32 = 0;
+    /// The SCReLU dot product as `clamp(v)^2 * w` in 64 bits, the formula the fast path must match.
+    fn screlu_dot_reference(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i64 {
+        let mut sum: i64 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
-            let clamped = (acc[i] as i32).clamp(0, NNUE_QA);
-            sum = sum.wrapping_add(clamped * clamped * weights[i] as i32);
+            let clamped = (acc[i] as i64).clamp(0, NNUE_QA as i64);
+            sum += clamped * clamped * weights[i] as i64;
         }
         sum
     }
@@ -867,10 +938,10 @@ mod tests {
         }
     }
 
-    /// The 16-bit product SCReLU equals `clamp(v)^2 * w` in 32 bits for every accumulator value
+    /// The 16-bit product SCReLU equals `clamp(v)^2 * w` in 64 bits for every accumulator value
     /// class - below 0, the clamp bounds, above 255, the i16 extremes - and the weight bounds.
     #[test]
-    fn the_screlu_dot_equals_the_32_bit_reference() {
+    fn the_screlu_dot_equals_the_exact_reference() {
         let mut state = 0x5EED_5C2E_u64;
         let mut next = || {
             state ^= state << 13;
@@ -888,15 +959,42 @@ mod tests {
                 acc[i] = if round % 4 == 0 { edges_acc[(r % 8) as usize] } else { (r as i16) % 600 - 150 };
                 weights[i] = if round % 3 == 0 { edges_w[((r >> 20) % 7) as usize] } else { ((r >> 32) % 257) as i16 - 128 };
             }
-            assert_eq!(NNUEService::screlu_dot(&acc, &weights), screlu_dot_reference(&acc, &weights), "round {round}");
+            assert_eq!(NNUEService::screlu_dot(&acc, &weights) as i64, screlu_dot_reference(&acc, &weights), "round {round}");
         }
         let full = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
         for w in [128i16, -128] {
-            assert_eq!(NNUEService::screlu_dot(&full, &[w; NNUE_HIDDEN_SIZE]), screlu_dot_reference(&full, &[w; NNUE_HIDDEN_SIZE]));
+            assert_eq!(NNUEService::screlu_dot(&full, &[w; NNUE_HIDDEN_SIZE]) as i64, screlu_dot_reference(&full, &[w; NNUE_HIDDEN_SIZE]));
         }
     }
 
-    /// Every 512-byte row the vector loops read starts on a cache line: the feature transformer
+    /// Only the 512-neuron build is hardened (see `output_layer`).
+    /// The worst case of the output layer: every neuron of both perspectives saturated at `QA` and
+    /// every output weight at the bound +-128. The dot products then exceed 32 bits (per perspective
+    /// from 512 neurons on, both summed already at 256), so the sum, the bias and the scaling run in
+    /// 64 bits and the result is clamped to `+-i16::MAX`, which negates for Black without overflow.
+    #[test]
+    #[cfg(feature = "hidden512")]
+    fn a_saturated_network_evaluates_to_the_clamp_bound_without_overflow() {
+        let fen_service = FenService;
+        let white = fen_service.set_fen(crate::model::INIT_BOARD_FEN);
+        let black = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
+        let mut acc = NNUEAccumulator::new();
+        acc.white = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
+        acc.black = [NNUE_QA as i16; NNUE_HIDDEN_SIZE];
+        acc.computed = true;
+        for weight in [128i16, -128] {
+            let mut net = NNUENetwork::new_empty();
+            for bucket in net.output_weights.iter_mut() {
+                *bucket = [[weight; NNUE_HIDDEN_SIZE]; 2];
+            }
+            net.loaded = true;
+            let sign = weight.signum();
+            assert_eq!(NNUEService::evaluate_with_accumulator(&white, &net, &acc), sign * i16::MAX, "w {weight}");
+            assert_eq!(NNUEService::evaluate_with_accumulator(&black, &net, &acc), -sign * i16::MAX, "b {weight}");
+        }
+    }
+
+    /// Every row the vector loops read starts on a cache line: the feature transformer
     /// rows, the biases, both output halves and both accumulator perspectives, also in the stack.
     #[test]
     fn the_network_rows_and_the_accumulators_are_cache_line_aligned() {
@@ -973,7 +1071,7 @@ mod tests {
     /// child accumulator written in one pass equals the one computed from the board, bit for bit.
     #[test]
     fn the_one_pass_update_equals_a_full_computation_after_every_move() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let (mut moves_checked, mut refreshes, mut castles, mut promotions, mut en_passant) = (0, 0, 0, 0, 0);
         // One Finny table across all positions (Matt-Magie step 82): its entries go stale between
         // unrelated positions, so every bucket rebuild after the first also checks a large difference.
@@ -1006,7 +1104,7 @@ mod tests {
     /// an unrelated position (a large one), for both perspectives, castled kings included.
     #[test]
     fn a_finny_rebuild_equals_a_full_rebuild() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let mut finny = FinnyTable::new();
         let (mut checks, mut first_uses) = (0, 0);
         for board in crate::eval_service::tests::random_positions(12, 120, 0x5EED_0082) {
@@ -1033,7 +1131,7 @@ mod tests {
     /// removed), then a position that adds and removes at once.
     #[test]
     fn a_finny_rebuild_equals_a_full_rebuild_for_the_largest_differences() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen = FenService;
         let sequence = [
             "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
@@ -1091,7 +1189,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_quiet_and_captures() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         let mut board = fen_service.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         let parent_acc = NNUEService::compute_accumulator(&board, &net);
@@ -1120,7 +1218,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_en_passant() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         // Position where White can play en passant: White pawn on e5, Black plays d7-d5
         let mut board = fen_service.set_fen("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2");
@@ -1135,7 +1233,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_castling() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         // White can castle short, Black can castle long
         let mut board = fen_service.set_fen("r3k2r/pppq1ppp/2np1n2/2b1p1B1/2B1P1b1/2NP1N2/PPPQ1PPP/R3K2R w KQkq - 4 7");
@@ -1158,7 +1256,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_promotions() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         // White pawn on e7, can promote to Queen or capture and promote
         let mut board = fen_service.set_fen("r1bqk2r/ppppPppp/2n5/8/8/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 6");
@@ -1185,7 +1283,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_king_moves_and_bucket_changes() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         // King walks across squares: e1 -> d1 (mirror change / bucket test), d1 -> c1, etc.
         let mut board = fen_service.set_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
@@ -1206,7 +1304,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_long_move_sequence() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let fen_service = FenService;
         let mut board = fen_service.set_fen(crate::model::INIT_BOARD_FEN);
         let mut current_acc = NNUEService::compute_accumulator(&board, &net);
@@ -1229,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_incremental_accumulator_kiwipete_tree() {
-        let net = NNUENetwork::load_from_file("eval_models/quantised.bin").unwrap();
+        let net = NNUENetwork::load_from_file(EMBEDDED_NET_FILE).unwrap();
         let service = crate::service::Service::new();
         let config = crate::config::Config::for_tests();
         let zobrist_table = crate::zobrist::ZobristTable::with_capacity(1);

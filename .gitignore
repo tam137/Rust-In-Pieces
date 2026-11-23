@@ -35,3 +35,8 @@ Thumbs.db
 books/
 __pycache__/
 *.pyc
+
+# Matt-Magie step 103: the 512-neuron network embedded by the `hidden512` feature (measurement aid,
+# not part of the release).
+eval_models/quantised512.bin
+eval_models/quantised512.name
