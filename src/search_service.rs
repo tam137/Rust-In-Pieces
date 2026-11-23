@@ -5789,11 +5789,13 @@ mod tests {
 
         // A margin the Static Exchange clears but the searches do not: the capture is tried and
         // the node is searched as without ProbCut, because neither search reaches the raised bound.
-        // With the network, as this branch plays (rnd516w01): static evaluation -486, and the
-        // searches after `Rxd5` read between +140 and +204 against `beta` 0. Margin 300 clears
-        // the Static Exchange (threshold 786 against a queen) but not the searches. (Master uses
-        // the classical evaluation, `beta` -150 and margin 200; this branch's classical evaluation
-        // scores the rook against the bishop at about +700 and leaves no room for the test.)
+        // With the network, as this branch plays: under rnd516w01 the static evaluation was -486
+        // and the searches after `Rxd5` read between +140 and +204 against `beta` 0. Margin 300
+        // clears the Static Exchange (threshold 786 against a queen) but not the searches; under
+        // r5rnd1gw02 (v0.55.0-NNUE) every margin from 200 to 550 does, and from 600 the Static
+        // Exchange refuses the capture and the node count equals the one without ProbCut. (Master
+        // uses the classical evaluation, `beta` -150 and margin 200; this branch's classical
+        // evaluation scores the rook against the bishop at about +700 and leaves no room for it.)
         let margin_300 = |c: &mut Config| {
             c.use_nnue = true;
             c.enable_probcut = true;
@@ -5807,7 +5809,10 @@ mod tests {
         let (off_score, off_nodes, _) = probcut_node_below(PROBCUT_COUNTER_FEN, 6, 0, false, false, None, None, network_off);
         assert!(stored, "no cut below the raised bound, the node stores");
         assert_eq!(on_score, off_score);
-        assert!(on_nodes > off_nodes, "the capture was tried: {} vs {} moves", on_nodes, off_nodes);
+        // The tried capture shows in the node count, in either direction: its probes cost nodes,
+        // and the entries they leave reorder the node. rnd516w01 searched more (the old assertion,
+        // `on > off`), r5rnd1gw02 searches fewer, 35 against 39. A refused capture changes nothing.
+        assert_ne!(on_nodes, off_nodes, "the capture was tried: {} vs {} moves", on_nodes, off_nodes);
     }
 
     /// `Nxd5` wins the queen, and a Quiescence Search agrees, but `...Re1#` follows: only the
