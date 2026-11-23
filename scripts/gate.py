@@ -19,7 +19,7 @@ Stages (each can be switched off): the census (time to depth 10 against the base
 only), the smoke gauntlet (1s + 100ms, 100 games per pairing, >= 45% against every opponent), the
 SPRT (default [0, 5] with a [0, 10] guard at 1s + 150ms; no stop below --min; then a verdict of the
 main test, H1 of the guard, or H0 of the guard with Elo <= 0; at --max a fixed stop) and the
-control at a longer time control (default 10s + 100ms, 3000 games; a paired 95% interval entirely
+control at a longer time control (default 10s + 1s, 1000 games; a paired 95% interval entirely
 below 0 blocks). A stage that fails halts the run; `resume` continues it. The run re-reads the rules
 every minute, so `set` changes a running SPRT without touching the tournament
 (`skills/matchplay_measurement_procedure.md`).
@@ -570,8 +570,8 @@ def main(argv=None):
     s.add_argument("--max", type=int, default=MAX_GAMES)
     s.add_argument("--tc", default="1000+150", help="SPRT time control, ms+ms")
     s.add_argument("--tc-gauntlet", default="1000+100")
-    s.add_argument("--ltc", default="10000+100", help="control time control, ms+ms")
-    s.add_argument("--ltc-games", type=int, default=3000)
+    s.add_argument("--ltc", default="10000+1000", help="control time control, ms+ms")
+    s.add_argument("--ltc-games", type=int, default=1000)
     s.add_argument("--workers", type=int, default=12)
     s.add_argument("--hash", type=int, default=64)
     for st in STAGES:

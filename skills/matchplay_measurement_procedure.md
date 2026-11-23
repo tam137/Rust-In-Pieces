@@ -126,8 +126,9 @@ variance is near 0.065. That is what makes small effects expensive here.
 
 * **Mandatory** for every value found by SPSA and for every changed search-parameter default;
   recommended for any other strength change.
-* A **fixed-N control match at a longer control**, decided in advance: default 10s + 100ms,
-  2000 to 4000 games against the baseline, same opening pool and pairing.
+* A **fixed-N control match at a longer control**, decided in advance: default 10s + 1s,
+  1000 games against the baseline, same opening pool and pairing (owner's rule since 2026-11-23;
+  before: 10s + 100ms with 2000 to 4000 games).
 * It does not have to gain. A result whose paired 95% interval lies entirely below 0 blocks the
   release; an interval that contains 0 lets it pass.
 * Record it in `task.md` and `CHANGELOG.md` next to the SPRT, with its control and game count.
