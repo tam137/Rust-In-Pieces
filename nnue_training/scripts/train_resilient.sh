@@ -15,9 +15,9 @@
 # Environment:
 #   TRAINER     trainer binary (default: ../target/release/suprah-nnue-trainer next to this script)
 #   OUT_DIR     where <name>/<name>-<sb>/ checkpoints and logs go (default: current directory)
-#   HIDDEN      hidden neurons per perspective, passed as --hidden (default: 256)
+#   HIDDEN      hidden neurons per perspective, passed as --hidden (default: 512)
 #   NET_BYTES   size of a complete quantised.bin, checked before cleaning up
-#               (default: `$TRAINER expected-size $HIDDEN`, 3940928 for 256)
+#               (default: `$TRAINER expected-size $HIDDEN`, 7881792 for 512)
 #   MAX_TRIES   attempts before giving up (default: 10)
 #   GPU_WATCH   0 disables gpu_watch.sh (default: 1)
 #   CACHE_TRIM  0 disables cache_trim.py (default: 1)
@@ -35,7 +35,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAME="$1"; WDL="$2"; SB="$3"; DATA="$(realpath "$4")"; SAVE="${5:-2}"
 TRAINER="$(realpath "${TRAINER:-$SCRIPT_DIR/../target/release/suprah-nnue-trainer}")"
-HIDDEN="${HIDDEN:-256}"
+HIDDEN="${HIDDEN:-512}"
 MAX_TRIES="${MAX_TRIES:-10}"
 
 [ -x "$TRAINER" ] || { echo "error: trainer $TRAINER is not executable (set TRAINER)" >&2; exit 2; }

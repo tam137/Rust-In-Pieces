@@ -22,7 +22,7 @@ nnue-prof = []
 # Matt-Magie step 102, stage A: `suprah datagen` self-play training data for the NNUE trainer.
 # Off by default; the release binary does not contain it. See `src/datagen.rs`.
 datagen = []
-# Matt-Magie step 103: a network with 512 hidden neurons per perspective instead of 256. Embeds
-# `eval_models/quantised512.bin` (name in `quantised512.name`) and hardens the output layer to 64
-# bits. Off by default; the release binary stays at 256.
-hidden512 = []
+# The network of every release up to v0.55.0-NNUE: 256 hidden neurons per perspective instead of 512.
+# Embeds `eval_models/quantised256.bin` (name in `quantised256.name`, both untracked); for comparison
+# builds only. Off by default: the release binary has 512 neurons and `eval_models/quantised.bin`.
+hidden256 = []

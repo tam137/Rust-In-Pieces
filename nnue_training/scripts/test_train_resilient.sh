@@ -39,14 +39,14 @@ run() {
         CALLS="$WORK/calls_$name" "$@" "$SCRIPT_DIR/train_resilient.sh" "$name" 0.2 4 "$WORK/data.data" 2)
 }
 
-run n512 HIDDEN=512
-check "exit 0 with HIDDEN=512" "[ \$? -eq 0 ]"
-check "--hidden 512 reaches the trainer" "grep -q -- '--hidden 512' '$WORK/calls_n512'"
+run n512
+check "exit 0 with the default HIDDEN" "[ \$? -eq 0 ]"
+check "default hidden is 512 and reaches the trainer" "grep -q -- '--hidden 512' '$WORK/calls_n512'"
 check "only the final checkpoint is kept" "[ \"\$(ls '$WORK/n512')\" = 'n512-4' ]"
 check "cleanup accepted the 512 size" "grep -q 'cleanup: kept' '$WORK/n512_resumes.txt'"
 
-run n256
-check "default hidden is 256" "grep -q -- '--hidden 256' '$WORK/calls_n256'"
+run n256 HIDDEN=256
+check "--hidden 256 reaches the trainer" "grep -q -- '--hidden 256' '$WORK/calls_n256'"
 check "256 cleanup kept the final checkpoint" "[ \"\$(ls '$WORK/n256')\" = 'n256-4' ]"
 
 run nwrong HIDDEN=512 NET_BYTES=3940928

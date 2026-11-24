@@ -31,8 +31,9 @@ pub const QA: i16 = 255;
 /// Quantisation of the output weights.
 pub const QB: i16 = 64;
 
-/// Hidden neurons per perspective of the network the engine loads today.
-pub const DEFAULT_HIDDEN: usize = 256;
+/// Hidden neurons per perspective of the network the engine loads by default (512 since
+/// v0.60.0-NNUE; 256 with the engine's Cargo feature `hidden256`).
+pub const DEFAULT_HIDDEN: usize = 512;
 /// Centipawns per sigmoid unit; every search margin of the engine is calibrated on 400.
 pub const DEFAULT_EVAL_SCALE: f32 = 400.0;
 /// Share of the game result in the training target.
@@ -353,7 +354,7 @@ Options:
   -n, --name <NAME>                 Network id [default: suprah]
   -o, --output-dir <DIR>            Checkpoint directory, created if missing [default: checkpoints]
       --wdl <X>                     Share of the game result in the target [default: 0.5]
-      --hidden <N>                  Hidden neurons per perspective [default: 256]
+      --hidden <N>                  Hidden neurons per perspective [default: 512]
       --scale <X>                   Evaluation scale in centipawns [default: 400]
   -t, --threads <N>                 Data loader threads [default: 4]
       --save-rate <N>               Checkpoint every N superbatches [default: 10]
@@ -362,8 +363,8 @@ Options:
                                     no training (reference for the engine's NNUE tests)
   -h, --help                        Show this help
 
-The engine loads networks with scale 400 and 256 hidden neurons, or 512 when built with the Cargo
-feature `hidden512`; other values need engine changes.
+The engine loads networks with scale 400 and 512 hidden neurons, or 256 when built with the Cargo
+feature `hidden256`; other values need engine changes.
 ";
 
 #[cfg(test)]
@@ -409,7 +410,7 @@ mod tests {
         assert_eq!(cfg.data, vec!["a.data".to_string()]);
         assert_eq!(cfg.superbatches, 8);
         assert_eq!(cfg.start_superbatch, 1);
-        assert_eq!(cfg.hidden, 256);
+        assert_eq!(cfg.hidden, 512);
         assert_eq!(cfg.eval_scale, 400.0);
         assert_eq!(cfg.wdl, 0.5);
         assert_eq!(cfg.batches_per_superbatch, 6104);
@@ -465,7 +466,7 @@ mod tests {
         };
         assert_eq!(request.fens, "ref.txt");
         assert_eq!(request.checkpoint, "ck/n1-8");
-        assert_eq!((request.hidden, request.eval_scale), (256, 400.0));
+        assert_eq!((request.hidden, request.eval_scale), (512, 400.0));
         assert!(parse_args(&args(&["--eval-fens", "ref.txt"])).is_err());
         assert!(
             parse_args(&args(&[

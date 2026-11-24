@@ -6,8 +6,9 @@ use crate::model::{
 };
 
 pub const NNUE_INPUT_SIZE: usize = 768;   // 64 squares * 6 piece types * 2 colors
-/// Hidden layer neurons per perspective: 256, or 512 with the Cargo feature `hidden512`.
-pub const NNUE_HIDDEN_SIZE: usize = if cfg!(feature = "hidden512") { 512 } else { 256 };
+/// Hidden layer neurons per perspective: 512 since v0.60.0-NNUE, or 256 with the Cargo feature
+/// `hidden256` (the width of every release before; for comparison builds).
+pub const NNUE_HIDDEN_SIZE: usize = if cfg!(feature = "hidden256") { 256 } else { 512 };
 pub const NNUE_INPUT_BUCKETS: usize = 10; // King position buckets
 pub const NNUE_OUTPUT_BUCKETS: usize = 8; // Output buckets
 
@@ -78,10 +79,10 @@ pub struct NNUENetwork {
 }
 
 impl NNUENetwork {
-    #[cfg(not(feature = "hidden512"))]
+    #[cfg(feature = "hidden256")]
+    pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised256.bin");
+    #[cfg(not(feature = "hidden256"))]
     pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised.bin");
-    #[cfg(feature = "hidden512")]
-    pub const EMBEDDED_NET_BYTES: &'static [u8] = include_bytes!("../eval_models/quantised512.bin");
 
     pub fn new_empty() -> Self {
         Self {
@@ -172,10 +173,10 @@ impl NNUENetwork {
 pub const DEFAULT_MODEL_PATH: &str = "eval_models/quantised.bin";
 
 /// Training-run name of the embedded network, kept next to it in `eval_models/quantised.name`.
-#[cfg(not(feature = "hidden512"))]
+#[cfg(feature = "hidden256")]
+const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised256.name");
+#[cfg(not(feature = "hidden256"))]
 const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised.name");
-#[cfg(feature = "hidden512")]
-const EMBEDDED_NET_NAME: &str = include_str!("../eval_models/quantised512.name");
 
 /// True when `model_path` selects the embedded network rather than a file.
 pub fn uses_embedded_net(model_path: &str) -> bool {
@@ -512,9 +513,9 @@ impl NNUEService {
     ///
     /// The 32-bit lanes hold at most `255^2 * 128 * 256 = 2_130_739_200 < i32::MAX` per 256 neurons;
     /// their wrapping sums are exact modulo 2^32 and therefore exact. With 256 neurons that is the
-    /// whole row and the result stays in 32 bits, the code of every release so far (any edit of this
+    /// whole row and the result stays in 32 bits, the code of every release up to v0.55.0-NNUE (any edit of this
     /// hot path moved the search speed by 1-2 % through code layout alone, Matt-Magie step 103).
-    #[cfg(not(feature = "hidden512"))]
+    #[cfg(feature = "hidden256")]
     fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i32 {
         let mut sum: i32 = 0;
         for i in 0..NNUE_HIDDEN_SIZE {
@@ -525,9 +526,9 @@ impl NNUEService {
         sum
     }
 
-    /// The wider network sums 32-bit chunks of `SCRELU_CHUNK` neurons, each exact as above, in
+    /// The 512-neuron network (the default since v0.60.0-NNUE) sums 32-bit chunks of `SCRELU_CHUNK` neurons, each exact as above, in
     /// 64 bits: one perspective of 512 saturated neurons already exceeds 32 bits.
-    #[cfg(feature = "hidden512")]
+    #[cfg(not(feature = "hidden256"))]
     fn screlu_dot(acc: &[i16; NNUE_HIDDEN_SIZE], weights: &[i16; NNUE_HIDDEN_SIZE]) -> i64 {
         let (acc_chunks, _) = acc.as_chunks::<SCRELU_CHUNK>();
         let (weight_chunks, _) = weights.as_chunks::<SCRELU_CHUNK>();
@@ -845,10 +846,10 @@ impl NNUEService {
     }
 
     /// The output neuron from the two dot products, in centipawns for the side to move. With 256
-    /// neurons in 32 bits as in every release so far; a saturated network (every neuron at `QA`,
+    /// neurons in 32 bits as in every release up to v0.55.0-NNUE; a saturated network (every neuron at `QA`,
     /// every weight at the bound) would overflow the sum of both perspectives, which no trained
     /// network comes near (it would be an evaluation beyond 200 000 cp).
-    #[cfg(not(feature = "hidden512"))]
+    #[cfg(feature = "hidden256")]
     #[inline(always)]
     fn output_layer(us: i32, them: i32, bias: i16) -> i16 {
         let mut output = us + them;
@@ -858,10 +859,10 @@ impl NNUEService {
         eval.clamp(i16::MIN as i32, i16::MAX as i32) as i16
     }
 
-    /// The wider network in 64 bits throughout, free of overflow for any weights the loader accepts
+    /// The 512-neuron network in 64 bits throughout, free of overflow for any weights the loader accepts
     /// (test `a_saturated_network_evaluates_to_the_clamp_bound_without_overflow`). The bound is
     /// symmetric so that the negation for Black cannot overflow either.
-    #[cfg(feature = "hidden512")]
+    #[cfg(not(feature = "hidden256"))]
     #[inline(always)]
     fn output_layer(us: i64, them: i64, bias: i16) -> i16 {
         let mut output = us + them;
@@ -888,7 +889,7 @@ mod tests {
 
     /// The file of the embedded network, for the tests that load it from disk.
     const EMBEDDED_NET_FILE: &str =
-        if cfg!(feature = "hidden512") { "eval_models/quantised512.bin" } else { "eval_models/quantised.bin" };
+        if cfg!(feature = "hidden256") { "eval_models/quantised256.bin" } else { "eval_models/quantised.bin" };
 
     #[test]
     fn test_nnue_model_loading_and_evaluation() {
@@ -973,7 +974,7 @@ mod tests {
     /// from 512 neurons on, both summed already at 256), so the sum, the bias and the scaling run in
     /// 64 bits and the result is clamped to `+-i16::MAX`, which negates for Black without overflow.
     #[test]
-    #[cfg(feature = "hidden512")]
+    #[cfg(not(feature = "hidden256"))]
     fn a_saturated_network_evaluates_to_the_clamp_bound_without_overflow() {
         let fen_service = FenService;
         let white = fen_service.set_fen(crate::model::INIT_BOARD_FEN);
