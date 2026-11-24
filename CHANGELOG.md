@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.60.0-NNUE] - 2026-11-24
+
+- **First net with 512 hidden neurons per perspective** (`r5rnd1gh512w02`, Matt-Magie steps 103/104): the same
+  1.018 billion positions, WDL 0.2 and 100 superbatches as `r5rnd1gw02` (v0.55.0-NNUE), only twice as wide.
+  Final training loss 0.008191 against 0.008809 (-7.0%). The engine names it as `info string NNUE net
+  r5rnd1gh512w02`; search unchanged.
+- **Against v0.55.0-NNUE: SPRT [0, 5] H1 after 1,054 games at 1s + 150ms, +29.5 Elo, paired 95% [+16.5, +42.5];
+  control at 10s + 1s: +34.5 Elo, [+22.9, +46.2]** over 1,000 games, no time losses. Smoke gauntlet at 1s +
+  100ms: 54.0% against v0.55.0-NNUE, 53.5% against v0.54.7-NNUE.
+- **Cost of the width at an unchanged tree** (v0.55.0's net padded with zero neurons): +10.5% time per search on
+  x86-64 alone, +17.2% with 12 engines at once, +21% on ARM; in games -28.5 Elo [-36.2, -20.9] at 1s + 150ms and
+  -21.2 [-32.9, -9.6] at 10s + 1s. The better evaluation more than pays for it.
+- `NNUE_HIDDEN_SIZE` is 512 by default; the Cargo feature `hidden256` builds the old width with an untracked
+  `eval_models/quantised256.bin` for comparisons. The 512 build sums the output layer in 64 bits (a saturated
+  net overflows 32 bits); the 256 build keeps the previous code, which any edit slowed by 1-2% through code
+  layout alone. The size check pads to 64 bytes like the trainer.
+- Trainer: default width 512, subcommands `pad <in> <out> --to N` (widens a net with zero neurons, same
+  evaluation) and `expected-size N`; `train_resilient.sh` takes `HIDDEN`, tested with a fake trainer.
+
+
+
 ## [V0.55.0-NNUE] - 2026-11-23
 
 - **New embedded net `r5rnd1gw02`** (Matt-Magie plan "r5 -> 500M -> net A / net B", architecture unchanged, 256
