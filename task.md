@@ -139,7 +139,7 @@ reduction as a tuning group (20.3), the history curves (23.4), the Transposition
 (25), Continuation History (24), ProbCut (26).
 
 Branch-specific work that is *not* on `master`'s list lives in `task/search_task.md` and
-`task/eval_task.md`.
+`task/eval_task.md`. The order in which the network architecture grows is section 9.
 
 Two proposals that used to have sections are dead and are not to be reopened. Damping the check
 exemption, measured 2026-08-28: worth 4.5% of the tree and nothing in games. The staged
@@ -181,6 +181,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
+| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, a second layer, queen-axis input buckets | plan, ordered, not started, section 9 |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
 | `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
@@ -662,3 +663,34 @@ the x86 match host. `datagen --nodes` counts visited positions as well and keeps
 5000 (owner's decision, 2026-11-21): the same number now searches about six times as much per
 move, so a data run generates about six times fewer games per hour than r5 did. r5/r5b run on their
 own binary copy and are unaffected.
+
+## 9. Network architecture roadmap (planned 2026-11-24, not started)
+
+The order in which the network grows after the first 512-neuron net (v0.60.0-NNUE). Nothing here is
+built yet. Each step is trained on the same data and hyperparameters as its baseline, with only the
+named change, and measured according to `skills/matchplay_measurement_procedure.md`: first at fixed
+nodes (the evaluation gain alone), then on time (the net effect after the cost in nodes per second).
+
+**Why this order.** Width has diminishing returns at roughly linear cost: the accumulator update and
+the output layer both grow with the hidden size, and so do the feature-transformer weights the
+search reads at random (about 7.9 MB at 512, 15.7 MB at 1024). 256 -> 512 measured a cost of
+-28.5 Elo at an unchanged tree (padded net) and a net gain of +29.5 at 1s + 150ms; each further
+doubling is expected to buy less evaluation for the same cost, and needs more data. Changes that
+leave the nodes per second unchanged therefore come first.
+
+| Step | Change | Precondition | Expected | Inference cost |
+| :--- | :--- | :--- | :--- | :--- |
+| **9.1** | Analyse the training data: positions per piece count x queens on the board (none / any, and none / side to move only / opponent only / both) | none | sets the bucket boundaries of 9.2 instead of guessing them | none |
+| **9.2** | Output buckets with a queen axis: `phase_bucket(pieces) * 2 + (queens != 0)`, split only in the middle phases (about 6-21 pieces) where both cases occur often enough; about 11-12 buckets | 9.1 | a few Elo, possibly at the resolution limit | none (one index) |
+| **9.3** | 1024 hidden neurons (not 768: a +256 step is too small to resolve in games) | about 1.5-2 B positions; measure the cost first with v0.60.0's net padded to 1024 (`pad --to 1024`), as for 512 | smaller than 256 -> 512 | about 2x accumulator and output, twice the weights in cache |
+| **9.4** | A second layer with one layer stack per output bucket (for example H -> 16 -> 32 -> 1, Stockfish-style), the queen axis of 9.2 selecting the stack | separate plan; enough data for the extra parameters | the largest of these, because a bucket then learns its own non-linear features instead of only re-weighting shared ones | new inference code, small dense layers |
+| **9.5** | Queen axis in the input (king) buckets: 10 x 2 feature-transformer weight sets | only if 9.2 gains measurably | more than 9.2 | twice the weights and Finny table; a full accumulator rebuild at every queen exchange in the tree |
+
+**Not planned:** 16 plain piece-count output buckets (two pieces per bucket instead of four). The
+step from one bucket to eight was the large one; eight to sixteen is expected to be near zero and
+thins the rare endgame buckets further. Recorded so it is not proposed again without a reason.
+
+**Implementation notes for 9.2.** The trainer replaces `MaterialCount<8>` with its own bucket
+function; the engine uses the identical function, the bucket count goes into the network format and
+the size check on load. Tests first: a parity test (trainer and engine give the same bucket for a
+list of FENs), and the existing mirror and colour-symmetry tests must still hold.
