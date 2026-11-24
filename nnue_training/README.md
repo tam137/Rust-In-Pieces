@@ -301,10 +301,21 @@ cargo build --release                 # builds target/release/suprah and target/
 cd <mm>                               # or wherever the data shall live
 <repo>/target/release/rip-datagen init       # writes rip-datagen.toml with every default, commented
 $EDITOR rip-datagen.toml                     # source, data_dir, threads, games, nodes, book ...
-<repo>/target/release/rip-datagen            # one run = one batch; Ctrl+C stops cleanly
+<repo>/target/release/rip-datagen start      # one run = one batch, in the background
+<repo>/target/release/rip-datagen status     # active run: pid, start, games, positions, speed
+<repo>/target/release/rip-datagen stop       # stops after the games being played, waits for it
+<repo>/target/release/rip-datagen run        # the same run in the foreground; Ctrl+C stops cleanly
 <repo>/target/release/rip-datagen stats      # statistics over every batch, scrollable
 <repo>/target/release/rip-datagen version    # generator version, engine version, commit and net
+<repo>/target/release/rip-datagen help       # every command and option
 ```
+
+- **One run per data directory.** A run holds `<data_dir>/rip-datagen.lock` (its pid) while it
+  works; `start` and `run` refuse while a live run holds it, a lock left by a crashed run is taken
+  over. `stop` writes `<data_dir>/rip-datagen.stop`, which the run treats like Ctrl+C - every
+  thread finishes its game, the batch ends as `stopped` - so stopping works the same on every
+  platform. `start` runs in a process group of its own (Windows: detached), survives the
+  terminal and writes its terminal output to `<data_dir>/rip-datagen.out`.
 
 - **Configuration** (`rip-datagen.toml`, flat TOML, `--config <file>` for another one): without it
   a run stops at once and points to `init`; `init` never overwrites. Every key is optional and

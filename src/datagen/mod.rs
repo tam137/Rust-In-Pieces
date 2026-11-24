@@ -3,12 +3,14 @@
 //!
 //! - `generator`: one thread's games, the data format and the recording rules;
 //! - `config`: the configuration file `rip-datagen.toml`;
+//! - `control`: one run per data directory, the background run, `stop` and `status`;
 //! - `seeds`: the base seed of a run and the seeds of its threads;
 //! - `runner`: a run - threads, the batch directory, `batch.log` and `MANIFEST.json`;
 //! - `log` and `manifest`: the two records a run leaves next to its data;
 //! - `stats` and `pager`: `rip-datagen stats` over every batch of a data directory.
 
 pub mod config;
+pub mod control;
 pub mod generator;
 pub mod log;
 pub mod manifest;
