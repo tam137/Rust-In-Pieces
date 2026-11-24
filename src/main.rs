@@ -24,8 +24,6 @@ mod time_check;
 mod magic;
 mod pst;
 pub mod polyglot;
-#[cfg(feature = "datagen")]
-mod datagen;
 
 
 
@@ -51,16 +49,6 @@ fn main() {
         if args.len() > 1 && args[1].starts_with("texel-") {
             crate::texel::run(&args[1..]);
             return;
-        }
-    }
-
-    // Matt-Magie step 102: `suprah datagen ...` writes self-play training data instead of
-    // speaking UCI. Only in builds with the `datagen` feature.
-    #[cfg(feature = "datagen")]
-    {
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        if args.first().map(String::as_str) == Some("datagen") {
-            std::process::exit(datagen::main(&args[1..]));
         }
     }
 

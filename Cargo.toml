@@ -19,6 +19,3 @@ search-diag = []
 # The Texel tuner (`task.md` 29.5 E2): the evaluation trace and the `texel-*` commands. Off by
 # default; the release build compiles none of it.
 texel = []
-# Matt-Magie step 102, stage A: `suprah datagen` self-play training data for the NNUE trainer.
-# Off by default; the release binary does not contain it. See `src/datagen.rs`.
-datagen = []

@@ -2945,5 +2945,6 @@ Since v0.52.5 `go nodes <n>` is honoured: the search stops once the whole `go` h
 positions (`Stats::node_limit`, checked every 1024 positions where the clock is checked), and
 `bestmove` is the last completed depth's move, as under a clock. With `MultiPV` the budget covers
 all lines together. `nodes` and `nps` count visited positions since the same release (rule 4),
-about a sixth of the generated moves counted before. `datagen --nodes` counts visited positions as
-well and keeps its default of 5000, which now searches about six times as much per move.
+about a sixth of the generated moves counted before. The data generator's node limit counts visited
+positions as well and keeps its default of 5000, which now searches about six times as much per move
+(the generator lives on `feature/nnue-evaluation` only since 2026-11-24, as `rip-datagen`).
