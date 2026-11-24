@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 
+## [V0.60.1-NNUE] - 2026-11-24
+
+- **`rip-datagen`: the training-data generator is a binary of its own** next to the engine
+  (`src/bin/rip-datagen.rs`, `src/datagen/`), replacing the feature build `suprah datagen` and
+  `scripts/run_datagen.sh`. Commands `run`, `init`, `stats`, `version`; it always scores with the
+  embedded net. Usage in `nnue_training/README.md` section 9, write-up in `task.md` section 10.
+- One configuration file `rip-datagen.toml` (flat TOML, written with every default by `init`; a run
+  without it refuses to start), threads inside one process, one batch directory per run with
+  `part_<i>.txt`, `batch.log` (progress per thread every 60 s) and `MANIFEST.json`, all written by
+  the binary. Ctrl+C finishes the games being played and ends the batch as `stopped`.
+- **Seeds are random per run and mixed per thread (SplitMix64).** Fixes a latent defect of the old
+  start script, whose `base + i` let runs with nearby base seeds play identical games.
+- `rip-datagen stats`: totals, throughput per hour / day / week / month, groups by source, net and
+  generator version, bars per day and hour, a weekday x hour heatmap - no new dependencies, paged
+  through `less`. `ctrlc` is the one new crate.
+- `scripts/nnue_manifest.py data` now only seals a `rip-datagen` batch (line check, sha256 per part);
+  `set` refuses an unsealed one.
+- Engine modules moved to `src/lib.rs`, shared by both binaries; **search tree unchanged** (14/14
+  positions identical in `scripts/measure_throughput.py` against v0.60.0-NNUE). `master` no longer
+  carries `src/datagen.rs`, the Cargo feature `datagen` or the start script.
+
+
+
 ## [V0.60.0-NNUE] - 2026-11-24
 
 - **First net with 512 hidden neurons per perspective** (`r5rnd1gh512w02`, Matt-Magie steps 103/104): the same

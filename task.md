@@ -696,11 +696,11 @@ function; the engine uses the identical function, the bucket count goes into the
 the size check on load. Tests first: a parity test (trainer and engine give the same bucket for a
 list of FENs), and the existing mirror and colour-symmetry tests must still hold.
 
-## 10. `rip-datagen`: the data generator as a binary of its own (built 2026-11-24, unreleased)
+## 10. `rip-datagen`: the data generator as a binary of its own (released in v0.60.1-NNUE, 2026-11-24)
 
 Replaces the feature build `suprah datagen` and `scripts/run_datagen.sh`; usage in
-`nnue_training/README.md` section 9, provenance in section 10. Goes out with the next NNUE
-release; the engine's search tree is unchanged (14/14 identical in `scripts/measure_throughput.py`
+`nnue_training/README.md` section 9, provenance in section 10. Released in v0.60.1-NNUE;
+the engine's search tree is unchanged (14/14 identical in `scripts/measure_throughput.py`
 against v0.60.0-NNUE), so it needs no match.
 
 - `src/lib.rs` now holds the engine modules; `src/main.rs` is the UCI entry point and
