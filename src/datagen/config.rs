@@ -383,6 +383,18 @@ mod tests {
         parse(text, Path::new("/cfg"))
     }
 
+    /// The defaults are the settings of the data runs since r6 (Matt-Magie step 108, 2026-11-24):
+    /// 1000 visited positions per move - about the search of every earlier batch, whose 5000
+    /// counted generated moves, 5.6 times as many - and a third of the recordable positions.
+    #[test]
+    fn the_defaults_are_the_settings_of_the_current_data_runs() {
+        let g = GameSettings::default();
+        assert_eq!((g.nodes, g.sample), (1000, 0.33));
+        let template = template(4);
+        assert!(template.contains("\nnodes = 1000\n"), "{template}");
+        assert!(template.contains("\nsample = 0.33\n"), "{template}");
+    }
+
     #[test]
     fn an_empty_file_gives_the_defaults() {
         let cfg = parse_here("").unwrap();

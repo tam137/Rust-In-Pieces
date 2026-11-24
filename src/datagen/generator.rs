@@ -36,7 +36,8 @@ pub struct GameSettings {
     pub seed: u64,
     /// Soft node limit per move, in visited positions (`Stats::calculated_nodes`, every move played
     /// in the main and the Quiescence Search); until v0.54.6-NNUE in generated moves, about six
-    /// times as many, so the same 5000 now search about six times as much per move.
+    /// times as many (5.6 measured), so the old 5000 match about 1000 now - the default since the
+    /// r6 run (Matt-Magie step 108).
     pub nodes: u64,
     pub random_plies_min: u32,
     pub random_plies_max: u32,
@@ -69,7 +70,7 @@ impl Default for GameSettings {
     fn default() -> Self {
         Self {
             seed: 1,
-            nodes: 5_000,
+            nodes: 1_000,
             random_plies_min: 8,
             random_plies_max: 12,
             random_prob: 50,
@@ -81,7 +82,7 @@ impl Default for GameSettings {
             draw_plies: 8,
             max_moves: 400,
             hash_entries: 1 << 20,
-            sample: 1.0,
+            sample: 0.33,
             book: None,
             book_plies_min: 4,
             book_plies_max: 16,
