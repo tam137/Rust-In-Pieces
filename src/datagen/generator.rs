@@ -1,9 +1,8 @@
-//! Self-play training data for the NNUE trainer (Matt-Magie step 102, stage A).
+//! The self-play game generator of `rip-datagen` (Matt-Magie step 102, stage A).
 //!
-//! Compiled only with the Cargo feature `datagen`; the release binary does not contain it.
-//! `suprah datagen --out <file> [OPTIONS]` plays games against itself and writes one line per
-//! recorded position in bullet's text format, `fen | score | result`, score in centipawns and
-//! result (1.0 / 0.5 / 0.0) both from White's point of view.
+//! A `Generator` plays games against itself and returns one line per recorded position in
+//! bullet's text format, `fen | score | result`, score in centipawns and result (1.0 / 0.5 / 0.0)
+//! both from White's point of view. Threads, files, logs and manifests are `runner`'s business.
 //!
 //! A game:
 //! - opens with 8-12 plies that are random with probability 50 % each (search move otherwise);
@@ -17,7 +16,6 @@
 //! - records only quiet positions: not in check, best move neither capture nor promotion, no mate
 //!   score.
 
-use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 
@@ -33,9 +31,8 @@ use crate::service::Service;
 
 /// Settings of a data generation run.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DatagenConfig {
-    pub out: String,
-    pub games: u64,
+pub struct GameSettings {
+    /// Seed of this generator's random numbers (one per thread, see `seeds::thread_seed`).
     pub seed: u64,
     /// Soft node limit per move, in visited positions (`Stats::calculated_nodes`, every move played
     /// in the main and the Quiescence Search); until v0.54.6-NNUE in generated moves, about six
@@ -55,8 +52,6 @@ pub struct DatagenConfig {
     /// Games are drawn at this full move number.
     pub max_moves: i32,
     pub hash_entries: usize,
-    /// Print counters every this many games (0 = only at the end).
-    pub report_every: u64,
     /// Share of the recordable positions that is written, in (0, 1]: fewer positions per game,
     /// so a data budget spreads over more independent games.
     pub sample: f64,
@@ -70,11 +65,9 @@ pub struct DatagenConfig {
     pub book_random_max: u32,
 }
 
-impl Default for DatagenConfig {
+impl Default for GameSettings {
     fn default() -> Self {
         Self {
-            out: String::new(),
-            games: 1_000_000,
             seed: 1,
             nodes: 5_000,
             random_plies_min: 8,
@@ -88,7 +81,6 @@ impl Default for DatagenConfig {
             draw_plies: 8,
             max_moves: 400,
             hash_entries: 1 << 20,
-            report_every: 100,
             sample: 1.0,
             book: None,
             book_plies_min: 4,
@@ -101,129 +93,6 @@ impl Default for DatagenConfig {
 
 /// Mixed into the seed of the `--sample` generator so it differs from the game generator.
 const SAMPLE_SEED_SALT: u64 = 0x5341_4d50_4c45_0001;
-
-pub const USAGE: &str = "\
-Suprah self-play data generation (bullet text format, scores and results from White's view)
-
-Usage: suprah datagen --out <FILE> [OPTIONS]
-
-Options:
-  --out <FILE>            Output file, appended to
-  --games <N>             Games to play [default: 1000000]
-  --seed <N>              Random seed; equal seeds give equal data [default: 1]
-  --nodes <N>             Soft limit per move, in visited positions [default: 5000]
-  --random-plies <A-B>    Range of opening plies [default: 8-12]
-  --random-prob <P>       Percent of opening plies played at random [default: 50]
-  --opening-limit <CP>    Drop games with |score| above this after the opening [default: 400]
-  --win <CP>/<PLIES>      Adjudicate a win [default: 2000/4]
-  --draw <CP>/<PLIES>/<MOVE>  Adjudicate a draw from full move MOVE [default: 10/8/40]
-  --max-moves <N>         Draw at this full move number [default: 400]
-  --hash <ENTRIES>        Transposition table entries [default: 1048576]
-  --report <N>            Print counters every N games, 0 = at the end only [default: 100]
-  --sample <P>            Write each recordable position with probability P, in (0, 1];
-                          the games stay the same, only fewer positions per game [default: 1]
-  --book <FILE>           Polyglot book: open with book moves (weighted by the book, drawn from the
-                          seed) instead of --random-plies; not recorded
-  --book-plies <A-B>      Book plies per game, fewer when the book ends [default: 4-16]
-  --book-random-plies <A-B>  Random-phase plies after the book [default: 2-4]
-  -h, --help              Show this help
-";
-
-/// Parses the arguments after `datagen`; `Ok(None)` asks for the help text.
-pub fn parse_args(args: &[String]) -> Result<Option<DatagenConfig>, String> {
-    let mut cfg = DatagenConfig::default();
-    let mut iter = args.iter();
-    while let Some(option) = iter.next() {
-        if matches!(option.as_str(), "-h" | "--help") {
-            return Ok(None);
-        }
-        let value = iter
-            .next()
-            .ok_or_else(|| format!("option {option} needs a value"))?;
-        let parts: Vec<&str> = value.split(['/', '-']).collect();
-        match option.as_str() {
-            "--out" => cfg.out = value.clone(),
-            "--games" => cfg.games = number(option, value)?,
-            "--seed" => cfg.seed = number(option, value)?,
-            "--nodes" => cfg.nodes = number(option, value)?,
-            "--random-prob" => cfg.random_prob = number(option, value)?,
-            "--opening-limit" => cfg.opening_limit = number(option, value)?,
-            "--max-moves" => cfg.max_moves = number(option, value)?,
-            "--hash" => cfg.hash_entries = number(option, value)?,
-            "--report" => cfg.report_every = number(option, value)?,
-            "--sample" => cfg.sample = number(option, value)?,
-            "--book" => cfg.book = Some(value.clone()),
-            "--book-plies" => {
-                let [min, max] = parts[..] else {
-                    return Err(format!("{option} expects A-B, got {value:?}"));
-                };
-                (cfg.book_plies_min, cfg.book_plies_max) =
-                    (number(option, min)?, number(option, max)?);
-            }
-            "--book-random-plies" => {
-                let [min, max] = parts[..] else {
-                    return Err(format!("{option} expects A-B, got {value:?}"));
-                };
-                (cfg.book_random_min, cfg.book_random_max) =
-                    (number(option, min)?, number(option, max)?);
-            }
-            "--random-plies" => {
-                let [min, max] = parts[..] else {
-                    return Err(format!("{option} expects A-B, got {value:?}"));
-                };
-                (cfg.random_plies_min, cfg.random_plies_max) =
-                    (number(option, min)?, number(option, max)?);
-            }
-            "--win" => {
-                let [cp, plies] = parts[..] else {
-                    return Err(format!("{option} expects CP/PLIES, got {value:?}"));
-                };
-                (cfg.win_cp, cfg.win_plies) = (number(option, cp)?, number(option, plies)?);
-            }
-            "--draw" => {
-                let [cp, plies, from] = parts[..] else {
-                    return Err(format!("{option} expects CP/PLIES/MOVE, got {value:?}"));
-                };
-                (cfg.draw_cp, cfg.draw_plies, cfg.draw_from_move) = (
-                    number(option, cp)?,
-                    number(option, plies)?,
-                    number(option, from)?,
-                );
-            }
-            _ => return Err(format!("unknown option {option}")),
-        }
-    }
-
-    if cfg.out.is_empty() {
-        return Err("no output file given (--out)".to_string());
-    }
-    if cfg.nodes == 0
-        || cfg.games == 0
-        || cfg.hash_entries == 0
-        || cfg.win_plies == 0
-        || cfg.draw_plies == 0
-    {
-        return Err(
-            "--nodes, --games, --hash and the adjudication plies must be at least 1".to_string(),
-        );
-    }
-    if !(cfg.sample > 0.0 && cfg.sample <= 1.0) {
-        return Err("--sample must lie in (0, 1]".to_string());
-    }
-    if cfg.book_plies_min > cfg.book_plies_max || cfg.book_random_min > cfg.book_random_max {
-        return Err("--book-plies and --book-random-plies need A <= B".to_string());
-    }
-    if cfg.random_plies_min > cfg.random_plies_max || cfg.random_prob > 100 {
-        return Err("--random-plies needs A <= B and --random-prob at most 100".to_string());
-    }
-    Ok(Some(cfg))
-}
-
-fn number<T: std::str::FromStr>(option: &str, value: &str) -> Result<T, String> {
-    value
-        .parse()
-        .map_err(|_| format!("option {option}: invalid value {value:?}"))
-}
 
 /// Loads a Polyglot opening book.
 pub fn load_book(path: &str) -> Result<crate::polyglot::PolyglotBook, String> {
@@ -281,7 +150,7 @@ pub struct Adjudicator {
 }
 
 impl Adjudicator {
-    pub fn new(cfg: &DatagenConfig) -> Self {
+    pub fn new(cfg: &GameSettings) -> Self {
         Self {
             win_cp: cfg.win_cp,
             win_plies: cfg.win_plies,
@@ -406,9 +275,31 @@ pub struct GameRecord {
     pub opening: Vec<String>,
 }
 
-/// One data generation process: the engine with its own tables and random numbers.
+impl Counters {
+    /// Adds one game, recorded or dropped.
+    pub fn add(&mut self, game: &GameRecord) {
+        self.plies += game.plies as u64;
+        self.filtered += game.filtered as u64;
+        self.skipped += game.skipped as u64;
+        self.book_plies += game.opening.len() as u64;
+        let Some(lines) = &game.lines else {
+            self.dropped += 1;
+            return;
+        };
+        self.games += 1;
+        self.positions += lines.len() as u64;
+        match game.outcome {
+            Some(Outcome::WhiteWin) => self.white_wins += 1,
+            Some(Outcome::Draw) => self.draws += 1,
+            Some(Outcome::BlackWin) => self.black_wins += 1,
+            None => {}
+        }
+    }
+}
+
+/// One data generation thread: the engine with its own tables and random numbers.
 pub struct Generator {
-    cfg: DatagenConfig,
+    cfg: GameSettings,
     config: Config,
     service: Service,
     state: Arc<EngineState>,
@@ -421,7 +312,7 @@ pub struct Generator {
 }
 
 impl Generator {
-    pub fn new(cfg: DatagenConfig) -> Self {
+    pub fn new(cfg: GameSettings) -> Self {
         let (log_sender, log) = std::sync::mpsc::channel();
         let state = Arc::new(EngineState {
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -695,178 +586,13 @@ impl Generator {
     }
 }
 
-impl Counters {
-    fn add(&mut self, game: &GameRecord) {
-        self.plies += game.plies as u64;
-        self.filtered += game.filtered as u64;
-        self.skipped += game.skipped as u64;
-        self.book_plies += game.opening.len() as u64;
-        let Some(lines) = &game.lines else {
-            self.dropped += 1;
-            return;
-        };
-        self.games += 1;
-        self.positions += lines.len() as u64;
-        match game.outcome {
-            Some(Outcome::WhiteWin) => self.white_wins += 1,
-            Some(Outcome::Draw) => self.draws += 1,
-            Some(Outcome::BlackWin) => self.black_wins += 1,
-            None => {}
-        }
-    }
-
-    fn report(&self, seconds: f64) -> String {
-        let games = self.games.max(1) as f64;
-        let searched = (self.positions + self.filtered + self.skipped).max(1) as f64;
-        format!(
-            "games {} | dropped {} | positions {} | filtered {:.1} % | sampled out {:.1} % | W/D/L {:.1}/{:.1}/{:.1} % | \
-             plies/game {:.0} | book plies/game {:.1} | {:.0} pos/s",
-            self.games,
-            self.dropped,
-            self.positions,
-            100.0 * self.filtered as f64 / searched,
-            100.0 * self.skipped as f64 / searched,
-            100.0 * self.white_wins as f64 / games,
-            100.0 * self.draws as f64 / games,
-            100.0 * self.black_wins as f64 / games,
-            self.plies as f64 / (self.games + self.dropped).max(1) as f64,
-            self.book_plies as f64 / (self.games + self.dropped).max(1) as f64,
-            self.positions as f64 / seconds.max(1e-9),
-        )
-    }
-}
-
-/// Plays `cfg.games` recorded games and appends their positions to `cfg.out`.
-pub fn run(cfg: DatagenConfig) -> std::io::Result<Counters> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&cfg.out)?;
-    let mut out = std::io::BufWriter::new(file);
-    let start = std::time::Instant::now();
-    let (games, report_every) = (cfg.games, cfg.report_every);
-    let mut generator = Generator::new(cfg);
-    let mut counters = Counters::default();
-
-    while counters.games < games {
-        let game = generator.play_game();
-        if let Some(lines) = &game.lines {
-            for line in lines {
-                writeln!(out, "{line}")?;
-            }
-            // Whole games only: an interrupted run never leaves half a game behind.
-            out.flush()?;
-        }
-        counters.add(&game);
-        if game.lines.is_some() && report_every > 0 && counters.games % report_every == 0 {
-            eprintln!("{}", counters.report(start.elapsed().as_secs_f64()));
-        }
-    }
-    eprintln!("done: {}", counters.report(start.elapsed().as_secs_f64()));
-    Ok(counters)
-}
-
-/// Entry point of `suprah datagen <args>`; returns the process exit code.
-pub fn main(args: &[String]) -> i32 {
-    let cfg = match parse_args(args) {
-        Ok(Some(cfg)) => cfg,
-        Ok(None) => {
-            print!("{USAGE}");
-            return 0;
-        }
-        Err(message) => {
-            eprintln!("error: {message}\n\n{USAGE}");
-            return 2;
-        }
-    };
-    if let Some(path) = &cfg.book
-        && let Err(message) = load_book(path)
-    {
-        eprintln!("error: {message}");
-        return 2;
-    }
-    eprintln!("datagen: {cfg:?}");
-    match run(cfg) {
-        Ok(_) => 0,
-        Err(e) => {
-            eprintln!("error: {e}");
-            1
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::fen_service::FenService;
 
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
-    }
-
     fn quiet_move() -> Turn {
         crate::notation_util::NotationUtil::get_turn_from_notation("e2e4")
-    }
-
-    #[test]
-    fn arguments_parse_with_defaults_and_reject_nonsense() {
-        let cfg = parse_args(&args(&["--out", "d.txt"])).unwrap().unwrap();
-        assert_eq!(
-            (cfg.out.as_str(), cfg.nodes, cfg.win_cp, cfg.win_plies),
-            ("d.txt", 5_000, 2_000, 4)
-        );
-        let cfg = parse_args(&args(&[
-            "--out",
-            "d.txt",
-            "--games",
-            "7",
-            "--seed",
-            "3",
-            "--nodes",
-            "800",
-            "--random-plies",
-            "6-10",
-            "--random-prob",
-            "100",
-            "--win",
-            "1500/3",
-            "--draw",
-            "5/6/30",
-            "--max-moves",
-            "300",
-            "--hash",
-            "4096",
-        ]))
-        .unwrap()
-        .unwrap();
-        assert_eq!((cfg.games, cfg.seed, cfg.nodes), (7, 3, 800));
-        assert_eq!(
-            (cfg.random_plies_min, cfg.random_plies_max, cfg.random_prob),
-            (6, 10, 100)
-        );
-        assert_eq!(
-            (
-                cfg.win_cp,
-                cfg.win_plies,
-                cfg.draw_cp,
-                cfg.draw_plies,
-                cfg.draw_from_move
-            ),
-            (1500, 3, 5, 6, 30)
-        );
-        assert_eq!((cfg.max_moves, cfg.hash_entries), (300, 4096));
-        assert_eq!(parse_args(&args(&["--help"])), Ok(None));
-        for bad in [
-            &["--games", "5"][..],
-            &["--out", "d.txt", "--nodes", "0"],
-            &["--out", "d.txt", "--random-plies", "12-8"],
-            &["--out", "d.txt", "--random-prob", "101"],
-            &["--out", "d.txt", "--win", "2000"],
-            &["--out", "d.txt", "--bogus", "1"],
-            &["--out", "d.txt", "--nodes"],
-        ] {
-            assert!(parse_args(&args(bad)).is_err(), "accepted {bad:?}");
-        }
     }
 
     #[test]
@@ -905,7 +631,7 @@ mod tests {
 
     #[test]
     fn a_win_needs_the_threshold_on_consecutive_plies() {
-        let cfg = DatagenConfig::default();
+        let cfg = GameSettings::default();
         let mut adj = Adjudicator::new(&cfg);
         assert_eq!(adj.observe(2100, 30), None);
         assert_eq!(adj.observe(2500, 31), None);
@@ -926,7 +652,7 @@ mod tests {
 
     #[test]
     fn a_draw_needs_a_small_score_late_enough_on_consecutive_plies() {
-        let cfg = DatagenConfig::default();
+        let cfg = GameSettings::default();
         let mut adj = Adjudicator::new(&cfg);
         for _ in 0..20 {
             assert_eq!(adj.observe(0, 39), None); // too early
@@ -970,13 +696,12 @@ mod tests {
         }
     }
 
-    fn small(seed: u64) -> DatagenConfig {
-        DatagenConfig {
-            out: "unused".to_string(),
+    fn small(seed: u64) -> GameSettings {
+        GameSettings {
             seed,
             nodes: 300,
             hash_entries: 1 << 14,
-            ..DatagenConfig::default()
+            ..GameSettings::default()
         }
     }
 
@@ -1067,7 +792,7 @@ mod tests {
     fn games_are_recorded_consistently_and_reproducibly() {
         let lines = play(7, 2);
         assert!(lines.len() > 20, "only {} positions", lines.len());
-        let min_ply = DatagenConfig::default().random_plies_min;
+        let min_ply = GameSettings::default().random_plies_min;
         let results: std::collections::HashSet<&str> = lines
             .iter()
             .map(|l| l.rsplit(" | ").next().unwrap())
@@ -1095,57 +820,9 @@ mod tests {
     }
 
     #[test]
-    fn a_run_appends_whole_games_and_counts_them() {
-        let path =
-            std::env::temp_dir().join(format!("suprah-datagen-test-{}.txt", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let cfg = DatagenConfig {
-            out: path.to_string_lossy().into_owned(),
-            games: 2,
-            report_every: 0,
-            ..small(3)
-        };
-        let counters = run(cfg.clone()).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(counters.games, 2);
-        assert_eq!(
-            counters.white_wins + counters.draws + counters.black_wins,
-            2
-        );
-        assert_eq!(text.lines().count() as u64, counters.positions);
-        run(cfg).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap().lines().count() as u64,
-            2 * counters.positions
-        );
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    #[test]
-    fn sample_is_parsed_and_checked() {
-        assert_eq!(
-            parse_args(&args(&["--out", "d.txt"]))
-                .unwrap()
-                .unwrap()
-                .sample,
-            1.0
-        );
-        let cfg = parse_args(&args(&["--out", "d.txt", "--sample", "0.33"]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(cfg.sample, 0.33);
-        for bad in ["0", "-0.5", "1.5", "x"] {
-            assert!(
-                parse_args(&args(&["--out", "d.txt", "--sample", bad])).is_err(),
-                "accepted {bad}"
-            );
-        }
-    }
-
-    #[test]
     fn sampling_keeps_the_games_and_writes_a_subset() {
         let collect = |sample: f64| {
-            let mut generator = Generator::new(DatagenConfig { sample, ..small(7) });
+            let mut generator = Generator::new(GameSettings { sample, ..small(7) });
             let (mut lines, mut skipped, mut played) = (Vec::new(), 0u32, 0);
             while played < 3 {
                 let game = generator.play_game();
@@ -1177,49 +854,13 @@ mod tests {
     }
 
     #[test]
-    fn book_options_are_parsed_and_checked() {
-        let cfg = parse_args(&args(&["--out", "d.txt"])).unwrap().unwrap();
-        assert_eq!(cfg.book, None);
-        assert_eq!((cfg.book_plies_min, cfg.book_plies_max), (4, 16));
-        assert_eq!((cfg.book_random_min, cfg.book_random_max), (2, 4));
-        let cfg = parse_args(&args(&[
-            "--out",
-            "d.txt",
-            "--book",
-            "b.bin",
-            "--book-plies",
-            "6-10",
-            "--book-random-plies",
-            "1-3",
-        ]))
-        .unwrap()
-        .unwrap();
-        assert_eq!(cfg.book.as_deref(), Some("b.bin"));
-        assert_eq!(
-            (
-                cfg.book_plies_min,
-                cfg.book_plies_max,
-                cfg.book_random_min,
-                cfg.book_random_max
-            ),
-            (6, 10, 1, 3)
-        );
-        for bad in [
-            &["--out", "d.txt", "--book-plies", "9-3"][..],
-            &["--out", "d.txt", "--book-random-plies", "4-2"],
-        ] {
-            assert!(parse_args(&args(bad)).is_err(), "accepted {bad:?}");
-        }
-    }
-
-    #[test]
     fn a_missing_book_is_an_error() {
         assert!(load_book("no/such/book.bin").is_err());
         assert!(load_book("Performance.bin").is_ok());
     }
 
-    fn book_cfg(seed: u64) -> DatagenConfig {
-        DatagenConfig {
+    fn book_cfg(seed: u64) -> GameSettings {
+        GameSettings {
             book: Some("Performance.bin".to_string()),
             book_plies_min: 6,
             book_plies_max: 6,
@@ -1257,7 +898,7 @@ mod tests {
             }
             if let Some(lines) = game.lines {
                 let first_recorded =
-                    game.opening.len() as u32 + DatagenConfig::default().book_random_min;
+                    game.opening.len() as u32 + GameSettings::default().book_random_min;
                 for line in &lines {
                     let f: Vec<&str> = line.split(' ').collect();
                     let ply = 2 * (f[5].parse::<u32>().unwrap() - 1) + u32::from(f[1] == "b");
@@ -1270,7 +911,7 @@ mod tests {
 
     #[test]
     fn book_games_are_reproducible_and_differ_from_random_openings() {
-        let collect = |cfg: DatagenConfig| {
+        let collect = |cfg: GameSettings| {
             let mut generator = Generator::new(cfg);
             (0..4)
                 .map(|_| generator.play_game().opening)

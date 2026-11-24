@@ -1,76 +1,37 @@
 #![allow(clippy::too_many_arguments)]
 
-mod fen_service;
-mod notation_util;
-mod model;
-mod eval_service;
-mod nnue_service;
-mod nnue_prof;
-mod config;
-mod search_service;
-mod search_diag;
-mod service;
-mod move_gen_service;
-mod book;
-mod uci_parser_service;
-mod zobrist;
-pub mod pawn_hash;
-mod stdout_wrapper;
-mod threads;
-mod game_handler;
-mod time_check;
-mod magic;
-mod pst;
-pub mod polyglot;
-#[cfg(feature = "datagen")]
-mod datagen;
-
-
-
 use std::sync::Arc;
 use std::thread;
 use std::sync::mpsc;
 
-use crate::config::Config;
-use crate::game_handler::game_loop;
-use crate::threads::std_reader;
-use crate::threads::uci_command_processor;
-use crate::threads::logger_buffer_thread;
+use suprah::config::Config;
+use suprah::game_handler::game_loop;
+use suprah::threads::std_reader;
+use suprah::threads::uci_command_processor;
+use suprah::threads::logger_buffer_thread;
 
-use model::RIP_COULDN_JOIN_THREAD;
+use suprah::model::RIP_COULDN_JOIN_THREAD;
 
 
 fn main() {
-    crate::magic::init();
-
-    // Matt-Magie step 102: `suprah datagen ...` writes self-play training data instead of
-    // speaking UCI. Only in builds with the `datagen` feature.
-    #[cfg(feature = "datagen")]
-    {
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        if args.first().map(String::as_str) == Some("datagen") {
-            std::process::exit(datagen::main(&args[1..]));
-        }
-    }
-
-
+    suprah::magic::init();
 
     let (tx_std_in, rx_std_in) = mpsc::channel();
     let (tx_game_command, rx_game_command) = mpsc::channel();
     let (tx_log_buffer, rx_log_buffer) = mpsc::channel(); 
 
     let initial_logger: std::sync::Arc<dyn Fn(String) + Send + Sync> = std::sync::Arc::new(|_| {});
-    let engine_state = Arc::new(crate::model::EngineState {
+    let engine_state = Arc::new(suprah::model::EngineState {
         stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         pondering: std::sync::atomic::AtomicBool::new(false),
         debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(Config::new().max_zobrist_hash_entries))),
+        zobrist_table: std::sync::RwLock::new(Arc::new(suprah::zobrist::ZobristTable::with_capacity(Config::new().max_zobrist_hash_entries))),
 
         pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
         logger: Arc::new(std::sync::RwLock::new(initial_logger)),
         log_sender: tx_log_buffer.clone(),
-        search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
+        search_tables: std::sync::Mutex::new(suprah::model::SearchTables::new()),
     });
 
     // Set up std reader thread
@@ -112,16 +73,16 @@ mod tests {
     use std::time::Duration;
     use std::sync::Arc;
 
-    use crate::config::Config;
-    use crate::game_handler::game_loop;
-    use crate::threads::uci_command_processor;
-    use crate::threads::logger_buffer_thread;
+    use suprah::config::Config;
+    use suprah::game_handler::game_loop;
+    use suprah::threads::uci_command_processor;
+    use suprah::threads::logger_buffer_thread;
     
     struct TestEnvironment {
         tx_std_in: mpsc::Sender<String>,
         _uci_command_processor: thread::JoinHandle<()>,
         #[allow(dead_code)]
-        engine_state: Arc<crate::model::EngineState>,
+        engine_state: Arc<suprah::model::EngineState>,
     }
     
     fn set_up(config: &Config) -> TestEnvironment {
@@ -130,17 +91,17 @@ mod tests {
         let (tx_log_buffer, rx_log_buffer) = mpsc::channel();
     
         let initial_logger: std::sync::Arc<dyn Fn(String) + Send + Sync> = std::sync::Arc::new(|_| {});
-        let engine_state = Arc::new(crate::model::EngineState {
+        let engine_state = Arc::new(suprah::model::EngineState {
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             pondering: std::sync::atomic::AtomicBool::new(false),
             debug_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zobrist_table: std::sync::RwLock::new(Arc::new(crate::zobrist::ZobristTable::with_capacity(config.max_zobrist_hash_entries))),
+            zobrist_table: std::sync::RwLock::new(Arc::new(suprah::zobrist::ZobristTable::with_capacity(config.max_zobrist_hash_entries))),
 
             pv_nodes: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pv_nodes_len: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             logger: Arc::new(std::sync::RwLock::new(initial_logger)),
             log_sender: tx_log_buffer.clone(),
-            search_tables: std::sync::Mutex::new(crate::model::SearchTables::new()),
+            search_tables: std::sync::Mutex::new(suprah::model::SearchTables::new()),
         });
     
         // Set up UCI command thread

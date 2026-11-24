@@ -40,3 +40,7 @@ __pycache__/
 # release).
 eval_models/quantised256.bin
 eval_models/quantised256.name
+
+# rip-datagen run in the repository by mistake: its configuration and data stay out of git.
+/rip-datagen.toml
+/nnue_data/

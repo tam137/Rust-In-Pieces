@@ -4,7 +4,7 @@
 # "Helper scripts").
 #
 # Each source is a batch directory under <data dir> with part_<i>.txt files and a MANIFEST.json
-# (scripts/run_datagen.sh plus scripts/nnue_manifest.py data). Every text file is converted to bullet's
+# (a rip-datagen batch, sealed by scripts/nnue_manifest.py data). Every text file is converted to bullet's
 # binary format, all files are interleaved and the result is shuffled into <data dir>/<set>.data;
 # scripts/nnue_manifest.py set then records sources, record count and sha256 in <set>.data.json.
 # An existing <set>.data.json means the set is complete and the script does nothing.

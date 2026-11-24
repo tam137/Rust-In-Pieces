@@ -12,6 +12,8 @@ once_cell = "1.20.2"
 chashmap = "2.2.2"
 crossbeam-queue = "0.3.12"
 rayon = "1.10.0"
+# Ctrl+C handling of `rip-datagen` (stop after the games being played), Linux and Windows alike.
+ctrlc = "3.4"
 
 [features]
 # Stage-0 opportunity measurement for `task.md` 1.2.2. Off by default; see `src/search_diag.rs`.
@@ -19,9 +21,6 @@ search-diag = []
 # Matt-Magie step 79, phase A: cycles of the network accumulator and the steps no evaluation needs.
 # Off by default; see `src/nnue_prof.rs`.
 nnue-prof = []
-# Matt-Magie step 102, stage A: `suprah datagen` self-play training data for the NNUE trainer.
-# Off by default; the release binary does not contain it. See `src/datagen.rs`.
-datagen = []
 # The network of every release up to v0.55.0-NNUE: 256 hidden neurons per perspective instead of 512.
 # Embeds `eval_models/quantised256.bin` (name in `quantised256.name`, both untracked); for comparison
 # builds only. Off by default: the release binary has 512 neurons and `eval_models/quantised.bin`.

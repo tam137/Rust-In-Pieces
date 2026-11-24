@@ -75,13 +75,9 @@ Use this Standard Operating Procedure (SOP) whenever new features, bug fixes, se
 - Maintain clean per-depth logs (`Depth {:2} completed | ...`) and total time in `bestmove`.
 - Ensure `setoption` match arms cover all SPSA parameters (`aspiration_window_*`, `rfp_*`, `lmr_history_*`, `usennue`, `nnuemodelpath`).
 
-### 7. Training Data Generation (Shared) vs. Trainer (NNUE Only)
-- **Shared, kept byte-identical on both branches**: `src/datagen.rs` and `scripts/run_datagen.sh` (Cargo feature `datagen`). A change to either is made on one branch and ported unchanged to the other; check with:
-  ```bash
-  git diff master feature/nnue-evaluation -- src/datagen.rs scripts/run_datagen.sh
-  ```
-  `master` produces HCE-scored data (comparison net), this branch NNUE-scored data.
-- **NNUE only, never ported to `master`**: `nnue_training/` (trainer crate), `scripts/nnue_manifest.py`, `scripts/test_nnue_manifest.py`, `scripts/release_naming.sh`, `scripts/test_release_naming.sh`, `src/nnue_compat_tests.rs`.
+### 7. Training Data Generation and Trainer (NNUE Only)
+- **`rip-datagen` lives on this branch only** (since 2026-11-24): `src/bin/rip-datagen.rs`, `src/datagen/` and `build.rs`. It always scores with the network the engine embeds, so it has no meaning on `master`, which no longer carries `src/datagen.rs`, the Cargo feature `datagen` or `scripts/run_datagen.sh`. Never port it to `master`. The library split itself (`src/lib.rs` holding the modules, `src/main.rs` a thin UCI entry point) is engine structure and *is* shared: a `master` port that touches the module list keeps both branches' `src/lib.rs` in step, minus `pub mod datagen;`.
+- **NNUE only, never ported to `master`**: `src/bin/rip-datagen.rs`, `src/datagen/`, `build.rs`, `nnue_training/` (trainer crate), `scripts/nnue_manifest.py`, `scripts/test_nnue_manifest.py`, `scripts/release_naming.sh`, `scripts/test_release_naming.sh`, `src/nnue_compat_tests.rs`.
 
 ### 8. Release Workflow (Shared, kept byte-identical on both branches)
 - `.github/workflows/release-binaries.yml`, `scripts/uci_smoke_test.py`, `scripts/changelog_section.py`, `scripts/test_changelog_section.py` and `skills/engine_release_procedure.md` exist on both branches with identical content: GitHub runs a tag push with the workflow file of the tagged commit, so an NNUE tag only builds and publishes when this branch carries the workflow, and both release lines follow the same release SOP. A change to any of them is ported unchanged to the other branch in the same session; check with:

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 
-use crate::Config;
+use crate::config::Config;
 use crate::model::{EngineState, TimeInfo, TimeMode, SearchResult, UciGame, Stats};
 use crate::service::Service;
 use crate::book::Book;
@@ -645,7 +645,7 @@ fn calculate_thinking_time(time_info: &TimeInfo, white: bool, move_count: i32, c
 mod tests {
     use crate::model::{TimeInfo, TimeMode};
     use super::calculate_thinking_time;
-    use crate::Config;
+    use crate::config::Config;
 
     /// 1. Nf3 Nf6 2. Ng1 Ng8 twice and 5. Nf3: the position after 1. Nf3 for the third time.
     const THREEFOLD_AFTER_NF3: &str = "g1f3 g8f6 f3g1 f6g8 g1f3 g8f6 f3g1 f6g8 g1f3";

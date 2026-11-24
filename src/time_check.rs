@@ -3,11 +3,11 @@ use std::thread;
 
 use crate::model::EngineState;
 use crate::service::Service;
-use crate::Config;
+use crate::config::Config;
 use crate::model::Stats;
 use crate::notation_util::NotationUtil;
 
-use crate::RIP_COULDN_JOIN_THREAD;
+use crate::model::RIP_COULDN_JOIN_THREAD;
 
 
 macro_rules! time_it {

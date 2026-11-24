@@ -4,9 +4,11 @@
 Every object of the NNUE pipeline gets a small JSON description so that a network can always be
 traced back to the exact data it was trained on:
 
-- a **data batch** (a directory of `part_<i>.txt` written by `suprah datagen`, plus the
-  `part_<i>.log` counters): settings, seeds, game/position counters, line count and sha256 per
-  file, or - for a batch derived from other batches - its sources and the derivation rule;
+- a **data batch**: a batch written by `rip-datagen` brings its own `MANIFEST.json`, and `data`
+  only checks its parts and adds their sha256 (it "seals" the batch); for an older batch (a
+  directory of `part_<i>.txt` written by `suprah datagen`, plus the `part_<i>.log` counters)
+  `data` builds the manifest from settings, seeds, game/position counters, line count and sha256
+  per file, or - for a batch derived from other batches - from its sources and derivation rule;
 - a **training set** (a shuffled bullet `.data` file): its source batches, record count, sha256;
 - a **network** (a trainer checkpoint directory): training settings parsed from the trainer log,
   the training set's sha256, the sha256 of `quantised.bin`, and results added later.
@@ -17,6 +19,7 @@ compact overview of all networks, strongest first, measured against a reference 
 Usage:
     scripts/nnue_manifest.py data <batch dir> [--derived-from NAME ...] [--rule TEXT] [--note TEXT]
                                   [--binary FILE | --binary-sha256 HASH] [--engine-commit HASH] [--arch NAME]
+                                  [--aborted]   (rip-datagen batch: seal it; only --note and --aborted apply)
     scripts/nnue_manifest.py set <file.data> --source <batch dir> ... [--tool TEXT] [--note TEXT]
     scripts/nnue_manifest.py net <checkpoint dir> --log <trainer log> --set <file.data>
                                  [--trainer-commit HASH] [--engine NAME] [--note TEXT] [--summary TEXT]
@@ -180,7 +183,8 @@ def part_index(path):
 
 def data_manifest(batch_dir, derived_from=None, rule=None, note=None, binary=None, engine_commit=None,
                   arch=None, binary_sha256=None):
-    """Describe a data batch directory (parts written by `suprah datagen` or derived from others)."""
+    """Describe an old data batch directory (parts written by `suprah datagen`, before
+    `rip-datagen` wrote its own manifest, or derived from other batches)."""
     texts = sorted(glob.glob(os.path.join(batch_dir, "*.txt")), key=lambda p: (part_index(p), p))
     if not texts:
         raise ValueError(f"{batch_dir}: no *.txt parts")
@@ -242,6 +246,43 @@ def data_manifest(batch_dir, derived_from=None, rule=None, note=None, binary=Non
         manifest["engine_commit"] = engine_commit
     if arch:
         manifest["arch"] = arch
+    if note:
+        manifest["note"] = note
+    return manifest
+
+
+def is_rip_manifest(batch_dir):
+    """Whether `batch_dir` holds a manifest written by `rip-datagen` itself."""
+    path = os.path.join(batch_dir, "MANIFEST.json")
+    return os.path.exists(path) and read_json(path).get("generator") == "rip-datagen"
+
+
+def seal_rip_manifest(batch_dir, manifest, note=None, aborted=False):
+    """Seal a batch that `rip-datagen` wrote: check every part against the manifest, add its sha256.
+
+    The binary records settings, seeds, counters, versions and net itself; only the hashes are left
+    for this step, because hashing gigabytes is not worth delaying the end of a run. A batch whose
+    status is still `running` was killed (or is still being written): it is sealed only with
+    `aborted=True`, which takes the line counts from the files, since the last games were written
+    after the last manifest update.
+    """
+    if manifest.get("status") == "running" and not aborted:
+        raise ValueError(f"{batch_dir}: the batch is still running or was killed; "
+                         "pass --aborted to seal a killed batch")
+    for part in manifest["parts"]:
+        path = os.path.join(batch_dir, part["file"])
+        lines = count_lines(path)
+        if aborted:
+            part["lines"] = lines
+        elif lines != part["lines"]:
+            raise ValueError(f"{path}: {lines} lines, the manifest says {part['lines']}")
+        part["sha256"] = sha256_file(path)
+        part["modified"] = mtime_iso(path)
+    if aborted:
+        manifest["status"] = "aborted"
+        manifest["complete"] = False
+        manifest["positions"] = sum(p["lines"] for p in manifest["parts"])
+    manifest["sealed"] = datetime.datetime.now().isoformat(timespec="seconds")
     if note:
         manifest["note"] = note
     return manifest
@@ -468,6 +509,8 @@ def main(argv=None):
     d.add_argument("--binary-sha256", help="hash of a datagen binary that is not on this machine")
     d.add_argument("--engine-commit")
     d.add_argument("--arch")
+    d.add_argument("--aborted", action="store_true",
+                   help="seal a rip-datagen batch that was killed (status still running)")
 
     s = sub.add_parser("set")
     s.add_argument("data")
@@ -505,7 +548,17 @@ def main(argv=None):
     v.add_argument("--all", action="store_true", help="also list offline checks")
 
     a = p.parse_args(argv)
-    if a.cmd == "data":
+    if a.cmd == "data" and is_rip_manifest(a.dir):
+        recorded = [opt for opt, value in (("--derived-from", a.derived_from), ("--rule", a.rule),
+                                           ("--binary", a.binary), ("--binary-sha256", a.binary_sha256),
+                                           ("--engine-commit", a.engine_commit), ("--arch", a.arch)) if value]
+        if recorded:
+            p.error(f"{', '.join(recorded)}: rip-datagen records this in the manifest itself")
+        path = os.path.join(a.dir, "MANIFEST.json")
+        m = seal_rip_manifest(a.dir, read_json(path), a.note, a.aborted)
+        write_json(path, m)
+        print(f"{m['name']}: sealed, {m['positions']} positions, games {m['games']}, status {m['status']}")
+    elif a.cmd == "data":
         m = data_manifest(a.dir, a.derived_from, a.rule, a.note, a.binary, a.engine_commit, a.arch,
                           a.binary_sha256)
         write_json(os.path.join(a.dir, "MANIFEST.json"), m)
@@ -514,6 +567,8 @@ def main(argv=None):
         sources = []
         for src in a.source:
             sm = read_json(os.path.join(src, "MANIFEST.json"))
+            if sm.get("generator") == "rip-datagen" and "sealed" not in sm:
+                p.error(f"{src}: rip-datagen batch not sealed yet; run `data {src}` first")
             sources.append({"name": sm["name"], "positions": sm["positions"], "games": sm.get("games"),
                             "manifest_sha256": sha256_file(os.path.join(src, "MANIFEST.json"))})
         m = set_manifest(a.data, sources, a.tool, a.note)

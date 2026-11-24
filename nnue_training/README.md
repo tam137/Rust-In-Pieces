@@ -79,12 +79,14 @@ explicit SIMD paths. This matters for how wide a network can be (section 5).
    `<mm>/nnue_nets/`), never in the repository.
 
 ### Stage A - Data generation mode
-**Done (2026-11-11):** `src/datagen.rs` behind the feature `datagen`, start script
-`scripts/run_datagen.sh`; usage in section 9. Decisions: win adjudication at 2000 cp over 4 plies,
+**Done (2026-11-11), since 2026-11-24 its own binary `rip-datagen`** (`src/bin/rip-datagen.rs`,
+`src/datagen/`), which replaced the feature build `suprah datagen` and `scripts/run_datagen.sh`;
+usage in section 9. Decisions: win adjudication at 2000 cp over 4 plies,
 draw adjudication from move 40 at |score| <= 10 cp over 8 plies, move limit 400, no Syzygy yet,
-one single-threaded process per core, 2^20 hash entries, tables cleared per game.
+one single-threaded generator per core (threads of one process since `rip-datagen`), 2^20 hash
+entries, tables cleared per game.
 
-- Behind a Cargo feature `datagen`; the release binary is unchanged.
+- A binary of its own; the engine binary is unchanged.
 - Self-play with a node limit per move given as an argument; start value **5,000 soft nodes**
   (the search stops after the iteration in which the limit is reached instead of inside it), one
   thread, small hash, tables cleared per game. 5,000 matches the data of the current network, so N1
@@ -105,12 +107,13 @@ one single-threaded process per core, 2^20 hash entries, tables cleared per game
 - Record `fen | eval | wdl`, **score and result from White's point of view** (bullet's text
   format), then `bullet-utils convert / interleave / shuffle`.
 - Filter: side to move in check, best move a capture or promotion, mate scores.
-- Seed per process; counters for games, dropped games, filtered positions, positions per second.
+- Seed per thread, derived from a random base seed; counters for games, dropped games, filtered
+  positions, positions per second.
 - Tests: sign with Black to move, result mapping, filters, determinism for a fixed seed.
-- A start script for up to 12 processes under `scripts/`.
-- Labels: first from the NNUE engine (current network), later a comparison network from the HCE
-  engine. The HCE data comes from a `datagen` build of `master`, which carries the same
-  `src/datagen.rs` and `scripts/run_datagen.sh` (since 2026-11-17).
+- Threads, log and manifest in the binary itself (formerly a start script under `scripts/`).
+- Labels: from the NNUE engine with its embedded network. `master` carried the same generator
+  from 2026-11-17 for HCE-labelled comparison data; since `rip-datagen` (2026-11-24) the generator
+  lives on this branch only and always scores with the embedded network.
 
 ### Stage B - Trial run
 **Done (2026-11-11):** one process, 16,000 games, 1,224,181 positions at about 560 positions per
@@ -289,25 +292,53 @@ the pipeline.
 
 ## 9. Data generation
 
+`rip-datagen` is a binary of its own next to the engine. It plays self-play games with the search
+and the network the engine embeds and writes them in bullet's text format; everything a run needs
+comes from one configuration file.
+
 ```bash
-cargo build --release --features datagen --target-dir target/datagen
-target/datagen/release/suprah datagen --help
-scripts/run_datagen.sh target/datagen/release/suprah <mm>/nnue_data/<batch> 12 <games> <base seed>
+cargo build --release                 # builds target/release/suprah and target/release/rip-datagen
+cd <mm>                               # or wherever the data shall live
+<repo>/target/release/rip-datagen init       # writes rip-datagen.toml with every default, commented
+$EDITOR rip-datagen.toml                     # source, data_dir, threads, games, nodes, book ...
+<repo>/target/release/rip-datagen            # one run = one batch; Ctrl+C stops cleanly
+<repo>/target/release/rip-datagen stats      # statistics over every batch, scrollable
+<repo>/target/release/rip-datagen version    # generator version, engine version, commit and net
 ```
 
-Openings: by default 8-12 plies, each random with probability 50 % and otherwise searched.
-`--book <polyglot>` opens with book moves instead - weighted by the book and drawn from the seed, for
-4-16 plies (`--book-plies`, fewer when the book has no move) - followed by 2-4 random-phase plies
-(`--book-random-plies`); the opening is never recorded. Without `--book` the output is identical to
-earlier versions for the same seed. Use books that are not the source of the measurement openings.
-
-The feature build gets its own target directory so the release binary in `target/release` is
-never replaced by it; without the feature the binary ignores `datagen` and speaks UCI. Each
-process appends whole games to `part_<i>.txt` (`fen | score | result`, both from White's view)
-and reports games, dropped games, positions, the share of filtered positions, the result
-distribution, plies per game and positions per second. Equal seeds give equal data; give every
-batch a new base seed. The text files go through `bullet-utils convert --from text`,
-`interleave` and `shuffle` before training.
+- **Configuration** (`rip-datagen.toml`, flat TOML, `--config <file>` for another one): without it
+  a run stops at once and points to `init`; `init` never overwrites. Every key is optional and
+  takes its default, an unknown or repeated key is an error. Relative paths (`data_dir`, `book`)
+  are resolved against the file's directory. `threads` defaults to three quarters of the hardware
+  threads minus one; `games` is the total of recorded games, spread over the threads (`0` runs
+  until Ctrl+C).
+- **Seeds:** `seed = "random"` (default) draws a new base seed below 2^63 per run; an integer
+  reproduces a run - same settings, base seed and thread count give the same files. Thread `i`
+  plays with `mix64(base + i * gamma)` (SplitMix64), so runs with nearby base seeds share no thread
+  seed; the old `base + i` gave two batches started at 1000 and 1005 seven identical processes.
+- **One run, one batch:** `<data_dir>/<YYYYMMDD-HHMMSS>_<base seed>/` with `part_<i>.txt` per thread
+  (whole games only, `fen | score | result`, both from White's view), `batch.log` and
+  `MANIFEST.json`. Ctrl+C lets every thread finish its game and ends the run with status
+  `stopped`; a second Ctrl+C exits at once (the files still end with whole games, the manifest is
+  the one of the last log interval and says `running`).
+- **`batch.log`:** one line per event, `<time> <event> key=value ...`: `start` (versions, commit,
+  net, source, threads, seeds), `config`, one `thread` line per thread with its seed, `progress`
+  per thread every `log_interval` seconds with cumulative counters, `thread_done`, `stop`, `error`
+  and `end`.
+- **`stats`:** reads every `batch.log` below the configured `data_dir` (or `--dir`, `--since
+  YYYY-MM-DD` for batches started from that day on): totals, results, throughput, output in the
+  last hour / day / week / month and per active unit, groups by source, net and generator version,
+  bars per day, week, month and hour of day, a weekday x hour heatmap and one row per batch. It
+  goes through `$PAGER` (else `less -FRX`, `more` on Windows) when the output is a terminal;
+  `--no-pager` prints it.
+- **Openings:** by default 8-12 plies, each random with probability 50 % and otherwise searched.
+  `book = "<polyglot>"` opens with book moves instead - weighted by the book and drawn from the
+  seed, for `book_plies_min`-`book_plies_max` plies (fewer when the book has no move) - followed by
+  `book_random_plies_min`-`book_random_plies_max` random-phase plies; the opening is never recorded.
+  Use books that are not the source of the measurement openings.
+- `DATAGEN_VERSION` (`src/datagen/mod.rs`) is raised whenever the same configuration and seed give
+  different data; every log and manifest names it. The text files go through `bullet-utils
+  convert --from text`, `interleave` and `shuffle` before training (`scripts/build_set.sh`).
 
 ## 10. Provenance
 
@@ -316,7 +347,7 @@ back to the data, settings and tools that made it (`scripts/nnue_manifest.py`, t
 `scripts/test_nnue_manifest.py`):
 
 ```bash
-scripts/nnue_manifest.py data <mm>/nnue_data/<batch> --engine-commit <hash> --arch x86-64 --binary <datagen binary>
+scripts/nnue_manifest.py data <mm>/nnue_data/<batch> [--aborted]      # rip-datagen batch: seal it
 scripts/nnue_manifest.py set <mm>/nnue_data/<set>.data --source <mm>/nnue_data/<batch> ... --tool "<how it was built>"
 scripts/nnue_manifest.py net <checkpoint dir> --log <trainer log> --set <mm>/nnue_data/<set>.data --trainer-commit <hash>
 scripts/nnue_manifest.py result <checkpoint dir> gauntlet "<result>"
@@ -325,9 +356,15 @@ scripts/nnue_manifest.py register <mm>
 scripts/nnue_manifest.py nets <mm> [--ref <engine>] [--all]
 ```
 
-- **Data batch** (`<batch>/MANIFEST.json`): datagen settings and seeds from the part logs, games and
-  dropped games, line count and sha256 per part, whether every process finished, the generating
-  commit, architecture and binary hash; a batch derived from others names its sources and rule.
+- **Data batch** (`<batch>/MANIFEST.json`): written by `rip-datagen` itself - at the start, every
+  log interval and at the end - with generator and engine version, commit, net name and
+  fingerprint, architecture, source, status (`running`, `done`, `stopped`), times, base and thread
+  seeds, settings and the counters and line count per part. `data <batch>` then **seals** it: it
+  checks every part's line count and adds its sha256; `--aborted` seals a killed batch (status
+  still `running`) with the line counts taken from the files. `set` refuses an unsealed
+  `rip-datagen` batch. For batches of the old `suprah datagen` (`part_<i>.log` per process), `data`
+  still builds the manifest from the logs (`--engine-commit`, `--arch`, `--binary`); a batch derived
+  from others names its sources and rule.
 - **Training set** (`<set>.data.json`): source batches (with the hash of their manifests), record
   count, sha256 of the `.data` file and how it was built.
 - **Network** (`<checkpoint>/MANIFEST.json`): training settings parsed from the trainer log, the

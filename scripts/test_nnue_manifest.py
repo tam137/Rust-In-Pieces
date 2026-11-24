@@ -131,6 +131,72 @@ class DataManifest(unittest.TestCase):
                 nm.data_manifest(root)
 
 
+class RipDatagenManifest(unittest.TestCase):
+    """Batches written by `rip-datagen` bring their own manifest; `data` only seals it."""
+
+    def make_batch(self, root, status="done"):
+        d = os.path.join(root, "20261124-151409_42")
+        os.mkdir(d)
+        write(os.path.join(d, "part_1.txt"), "a | 1 | 0.5\nb | 2 | 1.0\n")
+        write(os.path.join(d, "part_2.txt"), "c | 3 | 0.0\n")
+        nm.write_json(os.path.join(d, "MANIFEST.json"), {
+            "schema": 1, "kind": "data", "name": os.path.basename(d), "generator": "rip-datagen",
+            "status": status, "positions": 3, "games": 2, "complete": status == "done",
+            "settings": {"nodes": 5000, "sample": 1.0},
+            "parts": [{"file": "part_1.txt", "thread": 1, "seed": 7, "lines": 2},
+                      {"file": "part_2.txt", "thread": 2, "seed": 8, "lines": 1}],
+        })
+        return d
+
+    def test_a_final_batch_is_sealed_with_hashes_and_keeps_its_fields(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = self.make_batch(root)
+            m = nm.seal_rip_manifest(d, nm.read_json(os.path.join(d, "MANIFEST.json")), note="n")
+            self.assertEqual(m["parts"][1]["sha256"], hashlib.sha256(b"c | 3 | 0.0\n").hexdigest())
+            self.assertIn("modified", m["parts"][0])
+            self.assertIn("sealed", m)
+            self.assertEqual((m["status"], m["positions"], m["games"], m["note"]), ("done", 3, 2, "n"))
+            self.assertEqual(m["parts"][0]["seed"], 7)
+
+    def test_a_part_that_disagrees_with_the_manifest_is_an_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = self.make_batch(root)
+            write(os.path.join(d, "part_2.txt"), "c | 3 | 0.0\nd | 4 | 0.0\n")
+            with self.assertRaises(ValueError):
+                nm.seal_rip_manifest(d, nm.read_json(os.path.join(d, "MANIFEST.json")))
+
+    def test_a_running_batch_is_refused_unless_it_is_declared_aborted(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = self.make_batch(root, status="running")
+            write(os.path.join(d, "part_2.txt"), "c | 3 | 0.0\nd | 4 | 0.0\n")  # after the last update
+            manifest = nm.read_json(os.path.join(d, "MANIFEST.json"))
+            with self.assertRaises(ValueError):
+                nm.seal_rip_manifest(d, manifest)
+            m = nm.seal_rip_manifest(d, manifest, aborted=True)
+            self.assertEqual((m["status"], m["positions"], m["parts"][1]["lines"]), ("aborted", 4, 2))
+            self.assertFalse(m["complete"])
+
+    def test_the_command_seals_in_place_and_rejects_options_the_binary_records(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = self.make_batch(root)
+            self.assertEqual(nm.main(["data", d]), 0)
+            self.assertIn("sha256", nm.read_json(os.path.join(d, "MANIFEST.json"))["parts"][0])
+            with self.assertRaises(SystemExit):
+                nm.main(["data", d, "--engine-commit", "abc"])
+
+    def test_a_training_set_takes_only_sealed_rip_datagen_batches(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = self.make_batch(root)
+            data = os.path.join(root, "set.data")
+            with open(data, "wb") as f:
+                f.write(b"\0" * 64)
+            with self.assertRaises(SystemExit):
+                nm.main(["set", data, "--source", d])
+            nm.main(["data", d])
+            self.assertEqual(nm.main(["set", data, "--source", d]), 0)
+            self.assertEqual(nm.read_json(data + ".json")["sources"][0]["positions"], 3)
+
+
 class SetManifest(unittest.TestCase):
     def test_positions_from_the_32_byte_records(self):
         with tempfile.TemporaryDirectory() as root:

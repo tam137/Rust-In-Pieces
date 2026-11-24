@@ -183,6 +183,11 @@ pub fn uses_embedded_net(model_path: &str) -> bool {
     model_path.is_empty() || model_path == DEFAULT_MODEL_PATH
 }
 
+/// Training-run name and FNV-1a fingerprint of the embedded network.
+pub fn embedded_net() -> (&'static str, u32) {
+    (EMBEDDED_NET_NAME.trim(), net_fingerprint(NNUENetwork::EMBEDDED_NET_BYTES))
+}
+
 /// 32-bit FNV-1a over the network file: tells two networks apart even when their names match.
 pub fn net_fingerprint(bytes: &[u8]) -> u32 {
     bytes.iter().fold(0x811c_9dc5u32, |hash, &byte| (hash ^ byte as u32).wrapping_mul(0x0100_0193))

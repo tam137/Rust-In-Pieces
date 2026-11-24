@@ -659,7 +659,8 @@ Since v0.54.7-NNUE `go nodes <n>` is honoured: the search stops once the whole `
 `bestmove` is the last completed depth's move, as under a clock. With `MultiPV` the budget covers
 all lines together. `nodes` and `nps` count visited positions since the same release (rule 4),
 about a sixth of the generated moves counted before, so `nps` reads about 1.2M instead of 7M on
-the x86 match host. `datagen --nodes` counts visited positions as well and keeps its default of
+the x86 match host. The data generator's node limit (`--nodes`, since 2026-11-24 the key `nodes`
+of `rip-datagen.toml`) counts visited positions as well and keeps its default of
 5000 (owner's decision, 2026-11-21): the same number now searches about six times as much per
 move, so a data run generates about six times fewer games per hour than r5 did. r5/r5b run on their
 own binary copy and are unaffected.
@@ -694,3 +695,25 @@ thins the rare endgame buckets further. Recorded so it is not proposed again wit
 function; the engine uses the identical function, the bucket count goes into the network format and
 the size check on load. Tests first: a parity test (trainer and engine give the same bucket for a
 list of FENs), and the existing mirror and colour-symmetry tests must still hold.
+
+## 10. `rip-datagen`: the data generator as a binary of its own (built 2026-11-24, unreleased)
+
+Replaces the feature build `suprah datagen` and `scripts/run_datagen.sh`; usage in
+`nnue_training/README.md` section 9, provenance in section 10. Goes out with the next NNUE
+release; the engine's search tree is unchanged (14/14 identical in `scripts/measure_throughput.py`
+against v0.60.0-NNUE), so it needs no match.
+
+- `src/lib.rs` now holds the engine modules; `src/main.rs` is the UCI entry point and
+  `src/bin/rip-datagen.rs` the generator's. `build.rs` embeds the commit.
+- Commands `run` (default), `init`, `stats`, `version`; one configuration file
+  `rip-datagen.toml`, without which a run refuses to start.
+- Threads inside one process, one batch directory per run with `part_<i>.txt`, `batch.log` and
+  `MANIFEST.json`, all written by the binary; `scripts/nnue_manifest.py data` only seals the
+  manifest with the part hashes, and `set` refuses an unsealed batch.
+- Seeds: random base seed per run, thread seeds through SplitMix64. **Fixes a latent defect of
+  the old start script:** `base + i` made runs with nearby base seeds play identical games.
+- `stats` without dependencies (Unicode bars, heatmap, `$PAGER`); `ctrlc` is the one new crate.
+- **CHANGELOG bullets for the release:** `rip-datagen` replaces `suprah datagen` and
+  `scripts/run_datagen.sh`; configuration file, random seeds, own log, manifest and `stats`;
+  engine unchanged (tree identical). `master` drops `src/datagen.rs`, the Cargo feature and the
+  script.

@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 
 use chrono::Local;
 
-use crate::{time_check, Config};
+use crate::{time_check, config::Config};
 use crate::service::Service;
 use crate::model::EngineState;
 
