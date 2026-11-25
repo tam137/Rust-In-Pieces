@@ -15,6 +15,10 @@ rayon = "1.10.0"
 # Ctrl+C handling of `rip-datagen` (stop after the games being played), Linux and Windows alike.
 ctrlc = "3.4"
 
+# `setpriority` for the `nice` setting of `rip-datagen` (already in the build through `ctrlc`).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 # Stage-0 opportunity measurement for `task.md` 1.2.2. Off by default; see `src/search_diag.rs`.
 search-diag = []

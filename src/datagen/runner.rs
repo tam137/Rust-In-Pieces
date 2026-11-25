@@ -444,6 +444,7 @@ mod tests {
             games: Some(games),
             seed: SeedChoice::Fixed(seed),
             log_interval: 1,
+            nice: 0,
             settings: GameSettings {
                 nodes: 300,
                 hash_entries: 1 << 14,

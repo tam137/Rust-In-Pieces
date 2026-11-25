@@ -316,6 +316,9 @@ $EDITOR rip-datagen.toml                     # source, data_dir, threads, games,
   thread finishes its game, the batch ends as `stopped` - so stopping works the same on every
   platform. `start` runs in a process group of its own (Windows: detached), survives the
   terminal and writes its terminal output to `<data_dir>/rip-datagen.out`.
+- **Priority:** `nice` (0-19, default 19, Linux and macOS) lowers the run's scheduling priority
+  before its threads start. With free cores it is as fast as ever; under load it yields to a bot
+  or a match on the same machine. Windows ignores it.
 
 - **Configuration** (`rip-datagen.toml`, flat TOML, `--config <file>` for another one): without it
   a run stops at once and points to `init`; `init` never overwrites. Every key is optional and

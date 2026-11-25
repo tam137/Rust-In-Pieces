@@ -35,6 +35,9 @@ pub struct RunConfig {
     pub seed: SeedChoice,
     /// Seconds between two progress lines in the log.
     pub log_interval: u64,
+    /// Scheduling priority of the run on Linux and macOS, 0 (normal) to 19 (lowest): with free
+    /// cores it changes nothing, under load the generator yields to every other program.
+    pub nice: i32,
     /// Settings of the games; `seed` is replaced by each thread's own seed.
     pub settings: GameSettings,
 }
@@ -69,6 +72,10 @@ games = 1_000_000
 seed = \"random\"
 # Seconds between two progress lines in batch.log (the resolution of `rip-datagen stats`).
 log_interval = 60
+# Scheduling priority on Linux and macOS, 0 (normal) to 19 (lowest). With free cores the run is
+# as fast either way; under load it yields to every other program (a bot, a match). Ignored on
+# Windows.
+nice = 19
 
 # --- games --------------------------------------------------------------------------------------
 # Soft limit per move, in visited positions: the iteration that reaches it is the last one.
@@ -197,6 +204,7 @@ pub fn parse(text: &str, base: &Path) -> Result<RunConfig, String> {
         games: Some(1_000_000),
         seed: SeedChoice::Random,
         log_interval: 60,
+        nice: 19,
         settings: GameSettings::default(),
     };
     for (key, value, line_no) in entries {
@@ -311,6 +319,7 @@ fn apply(cfg: &mut RunConfig, key: &str, value: Value, base: &Path) -> Result<()
             }
         }
         "log_interval" => cfg.log_interval = int(value)?,
+        "nice" => cfg.nice = int(value)?,
         "nodes" => g.nodes = int(value)?,
         "random_plies_min" => g.random_plies_min = int(value)?,
         "random_plies_max" => g.random_plies_max = int(value)?,
@@ -354,6 +363,9 @@ fn validate(cfg: &RunConfig) -> Result<(), String> {
             cfg.source
         ));
     }
+    if !(0..=19).contains(&cfg.nice) {
+        return Err(format!("nice must lie in 0..=19, got {}", cfg.nice));
+    }
     if cfg.threads == 0 || cfg.log_interval == 0 {
         return Err("threads and log_interval must be at least 1".to_string());
     }
@@ -386,6 +398,19 @@ mod tests {
     /// The defaults are the settings of the data runs since r6 (Matt-Magie step 108, 2026-11-24):
     /// 1000 visited positions per move - about the search of every earlier batch, whose 5000
     /// counted generated moves, 5.6 times as many - and a third of the recordable positions.
+    /// Matt-Magie step 110: a run yields the machine to everything else by default (nice 19), the
+    /// value lies in 0..=19 (a higher priority would need root), and `init` writes it.
+    #[test]
+    fn the_priority_defaults_to_the_lowest_and_stays_in_range() {
+        assert_eq!(parse_here("").unwrap().nice, 19);
+        assert_eq!(parse_here("nice = 0").unwrap().nice, 0);
+        for bad in ["nice = -1", "nice = 20"] {
+            let err = parse_here(bad).unwrap_err();
+            assert!(err.contains("nice"), "{bad}: {err}");
+        }
+        assert!(template(4).contains("\nnice = 19\n"));
+    }
+
     #[test]
     fn the_defaults_are_the_settings_of_the_current_data_runs() {
         let g = GameSettings::default();

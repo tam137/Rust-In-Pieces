@@ -130,6 +130,32 @@ pub fn watch_stop_file(data_dir: &Path, stop: Arc<AtomicBool>, done: Arc<AtomicB
     });
 }
 
+/// Lowers the scheduling priority of the calling thread to `nice` (0..=19); every thread it starts
+/// afterwards inherits it, so a run calls it before it starts its generator threads.
+#[cfg(unix)]
+pub fn lower_priority(nice: i32) -> Result<(), String> {
+    // SAFETY: setpriority only reads its integer arguments.
+    let result = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(format!("cannot set the priority to nice {nice}: {}", std::io::Error::last_os_error()))
+    }
+}
+
+/// Windows has no nice levels; the setting is ignored there.
+#[cfg(not(unix))]
+pub fn lower_priority(_nice: i32) -> Result<(), String> {
+    Err("nice is not supported on this platform; the run keeps its normal priority".to_string())
+}
+
+/// The scheduling priority of the calling thread.
+#[cfg(all(unix, test))]
+fn current_priority() -> i32 {
+    // SAFETY: getpriority only reads its integer arguments.
+    unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +164,20 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rip_control_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// The priority set by `lower_priority` holds for the thread and every thread it starts later.
+    #[cfg(unix)]
+    #[test]
+    fn a_lowered_priority_is_inherited_by_new_threads() {
+        std::thread::spawn(|| {
+            lower_priority(7).unwrap();
+            assert_eq!(current_priority(), 7);
+            let child = std::thread::spawn(current_priority).join().unwrap();
+            assert_eq!(child, 7, "a thread started afterwards inherits it");
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

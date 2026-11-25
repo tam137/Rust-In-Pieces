@@ -82,6 +82,10 @@ fn config_path(o: &Options) -> PathBuf {
 
 fn run(o: &Options) -> Result<(), String> {
     let (path, cfg) = load_config(o)?;
+    // First of all, so every thread of the run - generators, watcher, Ctrl+C - inherits it.
+    if let Err(e) = control::lower_priority(cfg.nice) {
+        eprintln!("rip-datagen: {e}");
+    }
     let config_abs = std::fs::canonicalize(&path).unwrap_or(path.clone());
     let _lock = control::acquire(&cfg.data_dir, &config_abs)?;
     let stop = Arc::new(AtomicBool::new(false));
@@ -99,9 +103,10 @@ fn run(o: &Options) -> Result<(), String> {
 
     eprint!("{}", suprah::datagen::version_text());
     eprintln!(
-        "source {}, {} threads, {}, data in {}",
+        "source {}, {} threads, nice {}, {}, data in {}",
         cfg.source,
         cfg.threads,
+        cfg.nice,
         cfg.games
             .map_or("until Ctrl+C".to_string(), |n| format!("{n} games")),
         cfg.data_dir.display()
