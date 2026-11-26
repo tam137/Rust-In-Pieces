@@ -181,7 +181,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
-| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, a second layer, queen-axis input buckets | plan, ordered, not started, section 9 |
+| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, an error analysis by material configuration, a second layer, queen-axis input buckets | plan, ordered, not started, section 9 |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
 | `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
@@ -684,12 +684,25 @@ leave the nodes per second unchanged therefore come first.
 | **9.1** | Analyse the training data: positions per piece count x queens on the board (none / any, and none / side to move only / opponent only / both) | none | sets the bucket boundaries of 9.2 instead of guessing them | none |
 | **9.2** | Output buckets with a queen axis: `phase_bucket(pieces) * 2 + (queens != 0)`, split only in the middle phases (about 6-21 pieces) where both cases occur often enough; about 11-12 buckets | 9.1 | a few Elo, possibly at the resolution limit | none (one index) |
 | **9.3** | 1024 hidden neurons (not 768: a +256 step is too small to resolve in games) | about 1.5-2 B positions; measure the cost first with v0.60.0's net padded to 1024 (`pad --to 1024`), as for 512 | smaller than 256 -> 512 | about 2x accumulator and output, twice the weights in cache |
-| **9.4** | A second layer with one layer stack per output bucket (for example H -> 16 -> 32 -> 1, Stockfish-style), the queen axis of 9.2 selecting the stack | separate plan; enough data for the extra parameters | the largest of these, because a bucket then learns its own non-linear features instead of only re-weighting shared ones | new inference code, small dense layers |
-| **9.5** | Queen axis in the input (king) buckets: 10 x 2 feature-transformer weight sets | only if 9.2 gains measurably | more than 9.2 | twice the weights and Finny table; a full accumulator rebuild at every queen exchange in the tree |
+| **9.4** | Error analysis of the current net before a second layer: prediction error on held-out positions (score and result against the label), broken down by material configuration - opposite-coloured bishops, rook endings (with rook pawns), queen against rooks or minor pieces, minor pieces against rooks, large score but drawn result (fortress candidates), unstoppable-passer races | none (offline, no training) | shows whether the error concentrates where a sum of features cannot express the evaluation (section notes below); an even spread points to more data or width instead of depth | none |
+| **9.5** | A second layer with one layer stack per output bucket (for example H -> 16 -> 32 -> 1, Stockfish-style), the queen axis of 9.2 selecting the stack | separate plan; 9.4 shows concentrated error; enough data for the extra parameters | the largest of these, because a bucket then learns its own non-linear features instead of only re-weighting shared ones | new inference code, small dense layers |
+| **9.6** | Queen axis in the input (king) buckets: 10 x 2 feature-transformer weight sets | only if 9.2 gains measurably | more than 9.2 | twice the weights and Finny table; a full accumulator rebuild at every queen exchange in the tree |
 
 **Not planned:** 16 plain piece-count output buckets (two pieces per bucket instead of four). The
 step from one bucket to eight was the large one; eight to sixteen is expected to be near zero and
 thins the rare endgame buckets further. Recorded so it is not proposed again without a reason.
+
+**Why 9.4 comes before 9.5.** The current net's output is a weighted *sum* of 2 x 512 SCReLU
+features: each feature can hold pairwise piece-square interactions (the square in SCReLU), but no
+feature can scale, gate or switch off another. A second layer adds exactly that - "A and B but not
+C", "this term counts only when that holds". The chess knowledge that needs it: scaling the whole
+advantage down (opposite-coloured bishops, wrong bishop with a rook pawn, fortresses), king safety
+that only counts under conditions (queen on the board and the shield broken), passer races (a chain
+of conditions), the bishop pair against the openness of the whole structure, and the value of
+material imbalances by the kind of material rather than the piece count. It does not help tactics
+(no attack features in the input; the search covers them) or zugzwang. If the error of 9.4 is not
+concentrated in these groups, a second layer has no concrete target and costs about 16x the
+current output layer (1024 x 16 multiply-adds instead of 1024) for nothing.
 
 **Implementation notes for 9.2.** The trainer replaces `MaterialCount<8>` with its own bucket
 function; the engine uses the identical function, the bucket count goes into the network format and
