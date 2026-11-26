@@ -181,7 +181,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
-| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, an error analysis by material configuration, a second layer, queen-axis input buckets, finer king buckets, pawn-structure inputs, castling rights and halfmove clock | plan, ordered, not started, section 9 |
+| The network architecture after 512 neurons, preceded by offline net evaluation, duplicate rate and label depth (M1-M3): queen-axis output buckets, 1024 neurons, an error analysis by material configuration, a second layer, queen-axis input buckets, finer king buckets, pawn-structure inputs, castling rights and halfmove clock | plan, ordered, not started, section 9 |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
 | `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
@@ -679,12 +679,33 @@ search reads at random (about 7.9 MB at 512, 15.7 MB at 1024). 256 -> 512 measur
 doubling is expected to buy less evaluation for the same cost, and needs more data. Changes that
 leave the nodes per second unchanged therefore come first.
 
+**Groundwork for every step below (M1-M3, from the DeepMind "searchless chess" study, 2026-11-26).**
+That study ranked its network variants offline - prediction error on held-out data and puzzle
+accuracy - and played only the best; it found duplicate positions costly and never got past the
+quality of its labels. None of the three exists here yet: the trainer reports no validation loss,
+no tool removes duplicate positions, and `rip-datagen` labels with `nodes = 1000` since its default
+moved there, while the comparison planned in `nnue_training/README.md` stage F covers only 5,000
+against 15,000-20,000.
+
+| Step | Change | Precondition | Expected | Cost |
+| :--- | :--- | :--- | :--- | :--- |
+| **M1** | Offline net evaluation: a fixed held-out test set (its own batch, other seed, never trained on) and a tool that reports per net the loss against score and result, broken down by material configuration (the groups of 9.4). **Validate before use:** it must rank the nets already measured in games (`scripts/nnue_manifest.py nets`) in the order of their measured Elo; only then does it serve as a pre-filter that sends just the promising candidates into an SPRT | none | cheaper net selection; the data basis of 9.4 | one batch of data, a CPU tool; no engine change |
+| **M2** | Duplicate rate of the training data: count repeated positions (FEN without the move counters) within and across batches; if it is substantial, remove duplicates when a set is built (`nnue_training/scripts/build_set.sh`) | none | unknown until measured: self-play with random openings repeats less than human games (14.7 % of the study's test positions were in its training set) | a counting script; set building only if needed |
+| **M3** | Label depth against data volume at equal compute: 1,000 against 5,000 against 15,000 nodes per move (extends stage F of the training README by today's default), same number of generator hours each, decided by SPRT; M1 can pre-select | enough generator time for three comparable sets | settles whether `nodes = 1000` trades too much label quality for volume | generator time; three trainings |
+
+**Not taken over:** Stockfish as the label source (the largest lever on label quality, but the net
+would learn another engine's judgement; the owner's decision, not a technical one), and the
+study's output as a distribution over win-probability bins, its transformer and its FEN tokens
+(they do not fit a fast incremental NNUE; at most of interest for a later large teacher net). A
+Lichess bot rating is no measurement: the study's net rated 2895 against humans and 2299 against
+bots; releases stay decided by matches.
+
 | Step | Change | Precondition | Expected | Inference cost |
 | :--- | :--- | :--- | :--- | :--- |
 | **9.1** | Analyse the training data: positions per piece count x queens on the board (none / any, and none / side to move only / opponent only / both) | none | sets the bucket boundaries of 9.2 instead of guessing them | none |
 | **9.2** | Output buckets with a queen axis: `phase_bucket(pieces) * 2 + (queens != 0)`, split only in the middle phases (about 6-21 pieces) where both cases occur often enough; about 11-12 buckets | 9.1 | a few Elo, possibly at the resolution limit | none (one index) |
 | **9.3** | 1024 hidden neurons (not 768: a +256 step is too small to resolve in games) | about 1.5-2 B positions; measure the cost first with v0.60.0's net padded to 1024 (`pad --to 1024`), as for 512 | smaller than 256 -> 512 | about 2x accumulator and output, twice the weights in cache |
-| **9.4** | Error analysis of the current net before a second layer: prediction error on held-out positions (score and result against the label), broken down by material configuration - opposite-coloured bishops, rook endings (with rook pawns), queen against rooks or minor pieces, minor pieces against rooks, large score but drawn result (fortress candidates), unstoppable-passer races | none (offline, no training) | shows whether the error concentrates where a sum of features cannot express the evaluation (section notes below); an even spread points to more data or width instead of depth | none |
+| **9.4** | Error analysis of the current net before a second layer: prediction error on held-out positions (score and result against the label), broken down by material configuration - opposite-coloured bishops, rook endings (with rook pawns), queen against rooks or minor pieces, minor pieces against rooks, large score but drawn result (fortress candidates), unstoppable-passer races | M1 (held-out set and evaluation tool) | shows whether the error concentrates where a sum of features cannot express the evaluation (section notes below); an even spread points to more data or width instead of depth | none |
 | **9.5** | A second layer with one layer stack per output bucket (for example H -> 16 -> 32 -> 1, Stockfish-style), the queen axis of 9.2 selecting the stack | separate plan; 9.4 shows concentrated error; enough data for the extra parameters | the largest of these, because a bucket then learns its own non-linear features instead of only re-weighting shared ones | new inference code, small dense layers |
 | **9.6** | Queen axis in the input (king) buckets: 10 x 2 feature-transformer weight sets | only if 9.2 gains measurably | more than 9.2 | twice the weights and Finny table; a full accumulator rebuild at every queen exchange in the tree |
 | **9.7** | Finer king buckets: 16 to 32 instead of 10 (mirrored, up to one bucket per square of the half board) | enough data per bucket (well above 1 B positions); the bucket table must be the same in trainer and engine | more knowledge of where pieces stand relative to the own king | no new inference code; about 0.8 MB of weights per bucket at 512 (about 25 MB at 32 buckets), more accumulator rebuilds, absorbed by the Finny table |
