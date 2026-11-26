@@ -181,7 +181,7 @@ the document was trimmed on 2026-09-02; the write-ups are still in git, at revis
 | There is no continuation history; killers and the counter move occupy `BAND_KILLER` instead | proposal, unmeasured, section 24 |
 | The Transposition Table indexes with a 64-bit modulo, holds one entry per slot, has no generation counter and caches no static evaluation | proposal, unmeasured, section 25 |
 | There is no ProbCut | proposal, unmeasured, section 26 |
-| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, an error analysis by material configuration, a second layer, queen-axis input buckets | plan, ordered, not started, section 9 |
+| The network architecture after 512 neurons: queen-axis output buckets, 1024 neurons, an error analysis by material configuration, a second layer, queen-axis input buckets, finer king buckets, pawn-structure inputs, castling rights and halfmove clock | plan, ordered, not started, section 9 |
 | There is no quiet-only move generator, which is what forced the staged picker's last stage to regenerate everything — see 5.4 | property, established 2026-09-04 |
 | `SearchTables::age` halves the history once per iterative deepening *iteration*, because `get_moves` is one iteration; the published discipline halves once per `go` | untested variant, established 2026-09-07, section 23.1 |
 | `time_check::run_time_check` drives its position list through one `EngineState`, so with persistent search tables its printed node counts are order-dependent | diagnostic only, no decision reads it, established 2026-09-07 |
@@ -687,10 +687,28 @@ leave the nodes per second unchanged therefore come first.
 | **9.4** | Error analysis of the current net before a second layer: prediction error on held-out positions (score and result against the label), broken down by material configuration - opposite-coloured bishops, rook endings (with rook pawns), queen against rooks or minor pieces, minor pieces against rooks, large score but drawn result (fortress candidates), unstoppable-passer races | none (offline, no training) | shows whether the error concentrates where a sum of features cannot express the evaluation (section notes below); an even spread points to more data or width instead of depth | none |
 | **9.5** | A second layer with one layer stack per output bucket (for example H -> 16 -> 32 -> 1, Stockfish-style), the queen axis of 9.2 selecting the stack | separate plan; 9.4 shows concentrated error; enough data for the extra parameters | the largest of these, because a bucket then learns its own non-linear features instead of only re-weighting shared ones | new inference code, small dense layers |
 | **9.6** | Queen axis in the input (king) buckets: 10 x 2 feature-transformer weight sets | only if 9.2 gains measurably | more than 9.2 | twice the weights and Finny table; a full accumulator rebuild at every queen exchange in the tree |
+| **9.7** | Finer king buckets: 16 to 32 instead of 10 (mirrored, up to one bucket per square of the half board) | enough data per bucket (well above 1 B positions); the bucket table must be the same in trainer and engine | more knowledge of where pieces stand relative to the own king | no new inference code; about 0.8 MB of weights per bucket at 512 (about 25 MB at 32 buckets), more accumulator rebuilds, absorbed by the Finny table |
+| **9.8** | Pawn-structure inputs: passed pawn on square X, isolated and doubled pawns, as extra features of the feature transformer | 9.4 shows high error in passer races or pawn endings | "passed" is an AND over up to 18 squares (no enemy pawn in front on three files), which a sum of squared linear features expresses poorly | changes only on pawn moves and pawn captures; cacheable by pawn hash; new input type in trainer and engine |
+| **9.9** | Castling rights (4 bits) into the accumulator, the halfmove clock as a scalar straight into the output layer | own conversion from text to binary (see notes) | small: castling rights for king safety, the clock for large advantages close to the fifty-move draw | almost none; castling rights change rarely |
 
 **Not planned:** 16 plain piece-count output buckets (two pieces per bucket instead of four). The
 step from one bucket to eight was the large one; eight to sixteen is expected to be near zero and
 thins the rare endgame buckets further. Recorded so it is not proposed again without a reason.
+
+**Notes for 9.7-9.9.** Each changes the input format, so each is its own net, trained on the same
+data as its baseline and measured alone (fixed nodes, then time): two input changes in one net
+cannot be told apart. All three need the feature definition identical in trainer and engine, with
+a parity test on a list of FENs as for 9.2, and the mirror and colour-symmetry tests must still
+hold. **Data format for 9.9:** bullet's 32-byte record (`bulletformat` `ChessBoard`: occupancy,
+pieces, score, result, both king squares, 3 spare bytes) has no castling rights and no halfmove
+clock, and `bullet-utils convert` writes the spare bytes as zero. Our text parts carry both in the
+FEN (`fen_with_clocks`), and they fit the 3 spare bytes (4 bits castling, 7 bits clock), so an own
+converter can recover them from existing data without generating new data; mind that a record is
+stored from the side to move's view, so the castling bits are flipped with the board. **Not
+planned now:** threat inputs ("piece on X attacked by piece Y"): the largest potential, but 10-40
+changed features per move instead of 2-4 and new attack computation per node; only after SIMD
+inference and with a plan of its own. Material counts, the bishop pair or "queens on the board" as
+inputs add nothing the net cannot sum up already; they belong in the bucket choice (9.2).
 
 **Why 9.4 comes before 9.5.** The current net's output is a weighted *sum* of 2 x 512 SCReLU
 features: each feature can hold pairwise piece-square interactions (the square in SCReLU), but no
